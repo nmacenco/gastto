@@ -18,13 +18,14 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
     "paths": {
-      "@domain/*":         ["./src/domain/*"],
-      "@application/*":    ["./src/application/*"],
+      "@domain/*": ["./src/domain/*"],
+      "@application/*": ["./src/application/*"],
       "@infrastructure/*": ["./src/infrastructure/*"],
-      "@interfaces/*":     ["./src/interfaces/*"],
-      "@config/*":         ["./src/config/*"]
-    },
+      "@interfaces/*": ["./src/interfaces/*"],
+      "@config/*": ["./src/config/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
