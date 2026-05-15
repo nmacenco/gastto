@@ -18,7 +18,6 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
     "paths": {
       "@domain/*": ["./src/domain/*"],
       "@application/*": ["./src/application/*"],
