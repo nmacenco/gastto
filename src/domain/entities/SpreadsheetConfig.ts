@@ -2,16 +2,10 @@
 // Spreadsheet and OAuth configuration entities.
 // Derived from: spreadsheet_configs, column_mappings, user_categories, oauth_tokens.
 
-export type SpreadsheetProvider = "google" | "microsoft";
+export type SpreadsheetProvider = 'google' | 'microsoft';
 
 // Campos que Gastto mapea a columnas de la planilla del usuario
-export type GasttoField =
-  | "monto"
-  | "moneda"
-  | "categoria"
-  | "fecha"
-  | "concepto"
-  | "medio_pago";
+export type GasttoField = 'monto' | 'moneda' | 'categoria' | 'fecha' | 'concepto' | 'medio_pago';
 
 export interface SpreadsheetConfig {
   id: string;
