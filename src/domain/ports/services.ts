@@ -2,9 +2,8 @@
 // External service ports. Allow swapping providers without
 // modifying any use case (ADR-002 for LLM, ADR-004 for spreadsheets).
 
-import type { ExtractedExpense } from "../entities/ExpenseRecord";
-import type { Currency } from "../entities/User";
-import type { GasttoField } from "../entities/SpreadsheetConfig";
+import type { ExtractedExpense } from '../entities/ExpenseRecord';
+import type { Currency } from '../entities/User';
 
 // ── LLMPort (ADR-002) ─────────────────────────────────────────────────────────
 // Default implementation: OpenAIAdapter (gpt-4o).
@@ -13,7 +12,7 @@ import type { GasttoField } from "../entities/SpreadsheetConfig";
 export interface UserContext {
   defaultCurrency: Currency | null;
   categories: string[]; // active categories from the user's spreadsheet
-  channel: "telegram" | "whatsapp";
+  channel: 'telegram' | 'whatsapp';
 }
 
 export interface ConversationContext {
@@ -24,16 +23,10 @@ export interface ConversationContext {
 
 export interface LLMPort {
   // Extrae entidades financieras de un mensaje en lenguaje natural
-  extractExpense(
-    userMessage: string,
-    userContext: UserContext,
-  ): Promise<ExtractedExpense>;
+  extractExpense(userMessage: string, userContext: UserContext): Promise<ExtractedExpense>;
 
   // Genera una respuesta en lenguaje natural para enviar al usuario
-  generateResponse(
-    prompt: string,
-    context: ConversationContext,
-  ): Promise<string>;
+  generateResponse(prompt: string, context: ConversationContext): Promise<string>;
 }
 
 // ── SpreadsheetPort (ADR-004) ─────────────────────────────────────────────────
@@ -56,21 +49,13 @@ export interface SpreadsheetPort {
   readRows(fileId: string, range: string): Promise<Row[]>;
 
   // Appends a row and returns the location reference (ADR-006)
-  appendRow(
-    fileId: string,
-    sheetName: string,
-    values: CellValue[],
-  ): Promise<AppendResult>;
+  appendRow(fileId: string, sheetName: string, values: CellValue[]): Promise<AppendResult>;
 
   // Deletes a row by index (for undo — E1-US-11)
   deleteRow(fileId: string, sheetName: string, rowIndex: number): Promise<void>;
 
   // Gets unique values from a column (for inferring categories during onboarding)
-  getUniqueValues(
-    fileId: string,
-    columnIndex: number,
-    sheetName: string,
-  ): Promise<string[]>;
+  getUniqueValues(fileId: string, columnIndex: number, sheetName: string): Promise<string[]>;
 
   // Obtiene encabezados de la primera fila de una hoja
   getHeaders(fileId: string, sheetName: string): Promise<string[]>;
@@ -83,13 +68,9 @@ export interface SpreadsheetPort {
 // Abstraction over Telegram Bot API and WhatsApp Business API.
 
 export interface SendMessageOptions {
-  parseMode?: "Markdown" | "HTML" | "plain";
+  parseMode?: 'Markdown' | 'HTML' | 'plain';
 }
 
 export interface MessagingPort {
-  sendMessage(
-    externalId: string,
-    text: string,
-    options?: SendMessageOptions,
-  ): Promise<void>;
+  sendMessage(externalId: string, text: string, options?: SendMessageOptions): Promise<void>;
 }
