@@ -3,15 +3,15 @@
 // Responsibilities (ADR-005, Stage 1):
 //   1. Origin validation is handled by preHandler middleware (telegramAuth.ts)
 //   2. Parses payload
-//   3. Resolves user identity (with Redis cache)
-//   4. Enqueues BullMQ job
-//   5. Sends acknowledgment < 300ms
-//   6. Returns HTTP 200
+//   3. Detects /start command and delegates to HandleStartCommand use case
+//   4. For all other messages: resolves user identity, enqueues BullMQ job,
+//      sends acknowledgment < 300ms, returns HTTP 200
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Queue } from 'bullmq';
 import { z } from 'zod';
 import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
+import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
 import type { MessagingPort } from '../../../domain/ports/services';
 import { validateTelegramOrigin } from '../middleware/telegramAuth';
 
@@ -21,7 +21,7 @@ const TelegramUpdateSchema = z.object({
   message: z
     .object({
       message_id: z.number(),
-      from: z.object({ id: z.number() }).optional(),
+      from: z.object({ id: z.number(), username: z.string().optional() }).optional(),
       chat: z.object({ id: z.number() }),
       text: z.string().optional(),
       date: z.number(),
@@ -41,6 +41,7 @@ export interface TelegramWebhookHandlerDeps {
   messageQueue: Queue<ProcessMessageJobData>;
   resolveIdentity: ResolveUserIdentityUseCase;
   telegramMessaging: MessagingPort;
+  handleStartCommand: HandleStartCommand;
 }
 
 export interface TelegramWebhookDeps extends TelegramWebhookHandlerDeps {
@@ -73,13 +74,20 @@ export async function handleTelegramWebhook(
     return reply.status(200).send({ ok: true });
   }
 
-  // ── Stage 3: Identity resolution (with Redis cache, ADR-008) ──────────
+  // ── Stage 3: /start command short-circuit ───────────────────────────
+  if (rawMessage.trim().toLowerCase() === '/start') {
+    const username = message.from?.username;
+    await deps.handleStartCommand.execute({ chatId: externalId, username });
+    return reply.status(200).send({ ok: true });
+  }
+
+  // ── Stage 4: Identity resolution (with Redis cache, ADR-008) ──────────
   const { userId } = await deps.resolveIdentity.execute({
     channel: 'telegram',
     externalId,
   });
 
-  // ── Stage 4: BullMQ enqueue ─────────────────────────────────────────
+  // ── Stage 5: BullMQ enqueue ─────────────────────────────────────────
   await deps.messageQueue.add('process-message', {
     userId,
     rawMessage,
@@ -88,13 +96,13 @@ export async function handleTelegramWebhook(
     receivedAt: new Date().toISOString(),
   });
 
-  // ── Stage 5: Ack < 300ms (E1-US-02) ───────────────────────────────────
+  // ── Stage 6: Ack < 300ms (E1-US-02) ───────────────────────────────────
   // Sent in parallel to enqueue; does not block HTTP response
   deps.telegramMessaging
     .sendMessage(externalId, 'Recibido, procesando tu gasto…')
     .catch((err: Error) => req.log.error({ err, externalId }, 'Failed to send ack'));
 
-  // ── Stage 6: HTTP 200 to Telegram ─────────────────────────────────────
+  // ── Stage 7: HTTP 200 to Telegram ─────────────────────────────────────
   return reply.status(200).send({ ok: true });
 }
 

@@ -1,6 +1,6 @@
 // LAYER: Interfaces
 // Application entry point. Assembles all layers following
-// the dependency inversion principle: Domain ← Application ← Infrastructure ← Interfaces.
+// the dependency inversion principle: Domain <- Application <- Infrastructure <- Interfaces.
 // A single persistent process starts Fastify + BullMQ workers (ADR-009).
 
 import Fastify from 'fastify';
@@ -16,14 +16,17 @@ import { env } from '@config/env';
 
 // Infrastructure
 import { DrizzleUserRepository } from './infrastructure/db/repositories/DrizzleUserRepository';
+import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/TelegramMessengerAdapter';
 
 // Application
 import { ResolveUserIdentityUseCase } from './application/use-cases/user/ResolveUserIdentity';
+import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
+
 // Interfaces
 import { registerTelegramWebhook } from './interfaces/http/routes/telegram.webhook';
 
 async function bootstrap(): Promise<void> {
-  // ── Sentry: inicializar antes que todo (ADR — observabilidad) ──────────────
+  // -- Sentry: inicializar antes que todo (ADR -- observabilidad) -------------
   if (env.SENTRY_DSN) {
     Sentry.init({
       dsn: env.SENTRY_DSN,
@@ -31,7 +34,7 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  // ── Fastify ───────────────────────────────────────────────────────────────
+  // -- Fastify ----------------------------------------------------------------
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
@@ -58,7 +61,7 @@ async function bootstrap(): Promise<void> {
     ts: new Date().toISOString(),
   }));
 
-  // ── Infraestructura condicional (solo cuando las env vars están presentes) ─
+  // -- Infraestructura condicional (solo cuando las env vars estan presentes) --
   if (env.DATABASE_URL && env.REDIS_URL) {
     const sql = postgres(env.DATABASE_URL);
     const db = drizzle(sql);
@@ -91,18 +94,21 @@ async function bootstrap(): Promise<void> {
       },
     });
 
-    if (env.TELEGRAM_WEBHOOK_SECRET) {
+    if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET) {
+      const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN);
+      const handleStartCommand = new HandleStartCommand(telegramAdapter);
+
       registerTelegramWebhook(app, {
         webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
         messageQueue,
         resolveIdentity,
-        // @ts-expect-error TODO: inject TelegramAdapter when implemented
-        telegramMessaging: null,
+        telegramMessaging: telegramAdapter,
+        handleStartCommand,
       });
     }
   }
 
-  // ── Arranque ──────────────────────────────────────────────────────────────
+  // -- Arranque ---------------------------------------------------------------
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
   app.log.info(`Gastto listening on port ${env.PORT}`);
 }

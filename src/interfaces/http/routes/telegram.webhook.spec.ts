@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { Queue } from 'bullmq';
 import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
+import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
 import {
   registerTelegramWebhook,
   type ProcessMessageJobData,
@@ -16,6 +17,7 @@ const WEBHOOK_SECRET = 'test-secret-token';
 const mockExecute = vi.fn();
 const mockAdd = vi.fn();
 const mockSendMessage = vi.fn();
+const mockHandleStartExecute = vi.fn();
 
 function buildMockDeps(): TelegramWebhookDeps {
   mockExecute.mockResolvedValue({
@@ -25,12 +27,14 @@ function buildMockDeps(): TelegramWebhookDeps {
   });
   mockAdd.mockResolvedValue(undefined);
   mockSendMessage.mockResolvedValue(undefined);
+  mockHandleStartExecute.mockResolvedValue({ replyText: 'Welcome!' });
 
   return {
     webhookSecret: WEBHOOK_SECRET,
     messageQueue: { add: mockAdd } as unknown as Queue<ProcessMessageJobData>,
     resolveIdentity: { execute: mockExecute } as unknown as ResolveUserIdentityUseCase,
     telegramMessaging: { sendMessage: mockSendMessage },
+    handleStartCommand: { execute: mockHandleStartExecute } as unknown as HandleStartCommand,
   };
 }
 
@@ -40,7 +44,9 @@ function buildApp(deps: TelegramWebhookDeps = buildMockDeps()) {
   return { app, deps };
 }
 
-function makeValidPayload(overrides: { text?: string | undefined; noMessage?: boolean } = {}) {
+function makeValidPayload(
+  overrides: { text?: string | undefined; noMessage?: boolean; username?: string } = {},
+) {
   if (overrides.noMessage) {
     return { update_id: 1 };
   }
@@ -48,7 +54,7 @@ function makeValidPayload(overrides: { text?: string | undefined; noMessage?: bo
     update_id: 1,
     message: {
       message_id: 42,
-      from: { id: 999 },
+      from: { id: 999, ...(overrides.username !== undefined && { username: overrides.username }) },
       chat: { id: 123456789 },
       text: 'text' in overrides ? overrides.text : 'Cafe con leche 850',
       date: Math.floor(Date.now() / 1000),
@@ -92,6 +98,7 @@ describe('POST /webhook/telegram', () => {
     expect(new Date(jobData.receivedAt).getTime()).toBeGreaterThan(0);
 
     expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu gasto…');
+    expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
   it('returns HTTP 200 for unparseable payload without enqueuing', async () => {
@@ -112,6 +119,7 @@ describe('POST /webhook/telegram', () => {
     expect(mockExecute).not.toHaveBeenCalled();
     expect(mockAdd).not.toHaveBeenCalled();
     expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
   it('returns HTTP 200 for payload without message and does not enqueue', async () => {
@@ -132,6 +140,7 @@ describe('POST /webhook/telegram', () => {
     expect(mockExecute).not.toHaveBeenCalled();
     expect(mockAdd).not.toHaveBeenCalled();
     expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
   it('returns HTTP 200 for non-text messages and sends fallback text', async () => {
@@ -155,5 +164,79 @@ describe('POST /webhook/telegram', () => {
       '123456789',
       'Por ahora solo proceso mensajes de texto. Contame tu gasto escribiendolo.',
     );
+    expect(mockHandleStartExecute).not.toHaveBeenCalled();
+  });
+
+  it('triggers HandleStartCommand for /start without enqueuing', async () => {
+    const { app } = buildApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: {
+        'x-telegram-bot-api-secret-token': WEBHOOK_SECRET,
+      },
+      payload: makeValidPayload({ text: '/start', username: 'Juan' }),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toEqual({ ok: true });
+
+    expect(mockHandleStartExecute).toHaveBeenCalledWith({
+      chatId: '123456789',
+      username: 'Juan',
+    });
+
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('triggers HandleStartCommand for /START (case-insensitive)', async () => {
+    const { app } = buildApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: {
+        'x-telegram-bot-api-secret-token': WEBHOOK_SECRET,
+      },
+      payload: makeValidPayload({ text: '/START' }),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toEqual({ ok: true });
+
+    expect(mockHandleStartExecute).toHaveBeenCalledWith({
+      chatId: '123456789',
+      username: undefined,
+    });
+
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('triggers HandleStartCommand for /start with surrounding whitespace', async () => {
+    const { app } = buildApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: {
+        'x-telegram-bot-api-secret-token': WEBHOOK_SECRET,
+      },
+      payload: makeValidPayload({ text: '  /start  ' }),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toEqual({ ok: true });
+
+    expect(mockHandleStartExecute).toHaveBeenCalledWith({
+      chatId: '123456789',
+      username: undefined,
+    });
+
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
   });
 });
