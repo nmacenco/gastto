@@ -35,7 +35,7 @@ Every plan must contain the following sections:
 - We must be able to commit and push the code for each phase without breaking the build. The tests must pass and the added code makes sense as its own isolated unit.
 - Prioritize early feedback loops. Phase 1 should always produce something the user can see, interact with, or run. For example, when creating a new frontend page, Phase 1 should deliver a navigable page (even with incomplete or placeholder content) rather than preparing all the data/content first. This lets the user validate direction early and course-correct before investing in polish.
 - Each phase must end up with the following two tasks (in this order):
-  1. "Run `npm run lint` and `npx tsc --noEmit` from `volumes/sources/` to verify linting and typechecking. Fix issues if any.".
+  1. "Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.".
   2. "Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.".
 
 ## ⏭️ Next step section
