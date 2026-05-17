@@ -47,6 +47,7 @@ Every plan must contain the following sections:
 - **Plan-only means no app code**: Unless the user explicitly asks to implement, execute, or apply the plan, do not change application code, run the app, or add dependencies. Creating the plan file (and minimal supporting docs if the user asked) is allowed.
 - **If the environment blocks writes** (e.g. strict read-only plan mode): Output the **full** plan Markdown in the chat so it can be saved manually, or ask the user to confirm switching out of read-only mode so you can write `ai/plans/...` directly. Do not end the turn without a path to that file's contents.
 - **Task tracking**: For plan-only requests, use **at most one** task: **save** the plan Markdown under `ai/plans/...`. Do **not** create extra tasks for implementation work (phases, backend, E2E, etc.). Those belong **inside** the plan document as checklists, not as separate tracked tasks, unless the user **explicitly** asks to implement, execute, or apply the plan.
+- **Close the loop on task files**: After a plan is fully implemented and all its phases are complete, update the corresponding user-story task file(s) under `docs/user-stories/.../tasks/` by checking off the acceptance criteria checkboxes that were satisfied. This keeps the project backlog in sync with delivered work.
 
 ## Public contracts
 
