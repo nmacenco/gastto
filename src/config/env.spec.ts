@@ -13,6 +13,7 @@ describe('envSchema', () => {
     REDIS_URL: 'redis://localhost:6379',
     OPENAI_API_KEY: 'sk-test-openai',
     TELEGRAM_WEBHOOK_SECRET: 'webhook-secret',
+    TELEGRAM_BOT_TOKEN: 'test-bot-token',
   };
 
   it('accepts a valid environment object', () => {
@@ -38,6 +39,7 @@ describe('envSchema', () => {
       expect(result.data.REDIS_URL).toBeUndefined();
       expect(result.data.OPENAI_API_KEY).toBeUndefined();
       expect(result.data.TELEGRAM_WEBHOOK_SECRET).toBeUndefined();
+      expect(result.data.TELEGRAM_BOT_TOKEN).toBeUndefined();
     }
   });
 
@@ -84,6 +86,28 @@ describe('envSchema', () => {
     if (result.success) {
       expect(result.data.ANTHROPIC_API_KEY).toBe('sk-test-anthropic');
       expect(result.data.SENTRY_DSN).toBe('https://sentry.example.com');
+      expect(result.data.TELEGRAM_BOT_TOKEN).toBe('test-bot-token');
+    }
+  });
+
+  it('accepts TELEGRAM_BOT_TOKEN when present and undefined when absent', () => {
+    const withToken = envSchema.safeParse({
+      ...validEnv,
+      TELEGRAM_BOT_TOKEN: 'test-bot-token',
+    });
+    expect(withToken.success).toBe(true);
+    if (withToken.success) {
+      expect(withToken.data.TELEGRAM_BOT_TOKEN).toBe('test-bot-token');
+    }
+
+    const withoutToken = envSchema.safeParse({
+      NODE_ENV: 'development',
+      PORT: '3000',
+      LOG_LEVEL: 'info',
+    });
+    expect(withoutToken.success).toBe(true);
+    if (withoutToken.success) {
+      expect(withoutToken.data.TELEGRAM_BOT_TOKEN).toBeUndefined();
     }
   });
 });
