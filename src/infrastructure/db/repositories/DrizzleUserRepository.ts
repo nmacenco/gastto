@@ -2,33 +2,30 @@
 // Concrete IUserRepository implementation using Drizzle ORM.
 // Applies Redis cache for (channel, externalId) → userId resolution (ADR-008).
 
-import { eq, and } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import type { Redis } from "ioredis";
-import { users, messagingIdentities } from "../schema";
-import type { IUserRepository } from "../../../domain/ports/repositories";
-import type { User, MessagingIdentity } from "../../../domain/entities/User";
+import { eq, and } from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { Redis } from 'ioredis';
+import { users, messagingIdentities } from '../schema';
+import type * as schema from '../schema';
+import type { IUserRepository } from '../../../domain/ports/repositories';
+import type { User, MessagingIdentity } from '../../../domain/entities/User';
 
 const IDENTITY_CACHE_TTL = 60 * 60 * 24; // 24 horas (ADR-008)
 
 export class DrizzleUserRepository implements IUserRepository {
   constructor(
-    private readonly db: PostgresJsDatabase<typeof import("../schema")>,
+    private readonly db: PostgresJsDatabase<typeof schema>,
     private readonly redis: Redis,
   ) {}
 
   async findById(userId: string): Promise<User | null> {
-    const [row] = await this.db
-      .select()
-      .from(users)
-      .where(eq(users.userId, userId))
-      .limit(1);
+    const [row] = await this.db.select().from(users).where(eq(users.userId, userId)).limit(1);
 
     return row ? this.mapUser(row) : null;
   }
 
   async findByMessagingIdentity(
-    channel: "telegram" | "whatsapp",
+    channel: 'telegram' | 'whatsapp',
     externalId: string,
   ): Promise<User | null> {
     const cacheKey = `identity:${channel}:${externalId}`;
@@ -61,20 +58,22 @@ export class DrizzleUserRepository implements IUserRepository {
   }
 
   async createWithIdentity(
-    channel: "telegram" | "whatsapp",
+    channel: 'telegram' | 'whatsapp',
     externalId: string,
   ): Promise<{ user: User; identity: MessagingIdentity }> {
     // Transaction: User + MessagingIdentity in a single atomic block
     return this.db.transaction(async (tx) => {
       const [newUser] = await tx
         .insert(users)
-        .values({ status: "onboarding", defaultCurrency: null })
+        .values({ status: 'onboarding', defaultCurrency: null })
         .returning();
+      if (!newUser) throw new Error('Failed to create user');
 
       const [newIdentity] = await tx
         .insert(messagingIdentities)
         .values({ userId: newUser.userId, channel, externalId })
         .returning();
+      if (!newIdentity) throw new Error('Failed to create messaging identity');
 
       // Populate cache immediately
       const cacheKey = `identity:${channel}:${externalId}`;
@@ -87,17 +86,14 @@ export class DrizzleUserRepository implements IUserRepository {
     });
   }
 
-  async updateStatus(userId: string, status: User["status"]): Promise<void> {
+  async updateStatus(userId: string, status: User['status']): Promise<void> {
     await this.db
       .update(users)
       .set({ status, updatedAt: new Date() })
       .where(eq(users.userId, userId));
   }
 
-  async updateDefaultCurrency(
-    userId: string,
-    currency: User["defaultCurrency"],
-  ): Promise<void> {
+  async updateDefaultCurrency(userId: string, currency: User['defaultCurrency']): Promise<void> {
     await this.db
       .update(users)
       .set({ defaultCurrency: currency, updatedAt: new Date() })
@@ -109,20 +105,18 @@ export class DrizzleUserRepository implements IUserRepository {
   private mapUser(row: typeof users.$inferSelect): User {
     return {
       userId: row.userId,
-      status: row.status as User["status"],
-      defaultCurrency: row.defaultCurrency as User["defaultCurrency"],
+      status: row.status as User['status'],
+      defaultCurrency: row.defaultCurrency as User['defaultCurrency'],
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
   }
 
-  private mapIdentity(
-    row: typeof messagingIdentities.$inferSelect,
-  ): MessagingIdentity {
+  private mapIdentity(row: typeof messagingIdentities.$inferSelect): MessagingIdentity {
     return {
       id: row.id,
       userId: row.userId,
-      channel: row.channel as "telegram" | "whatsapp",
+      channel: row.channel as 'telegram' | 'whatsapp',
       externalId: row.externalId,
       linkedAt: row.linkedAt,
     };

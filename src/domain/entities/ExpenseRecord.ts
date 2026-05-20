@@ -11,16 +11,16 @@ export interface ExpenseRecord {
   userId: string;
   spreadsheetId: string;
   concepto: string;
-  monto: number;             // NUMERIC(14,2) — siempre >= 0
+  monto: number; // NUMERIC(14,2) — siempre >= 0
   moneda: Currency;
   categoria: string | null;
-  fechaGasto: Date;          // DATE en BD
+  fechaGasto: Date; // DATE en BD
   medioPago: string | null;
   sheetName: string;
-  rowIndex: number;          // fila real en la planilla (necesario para deshacer, ADR-006)
+  rowIndex: number; // fila real en la planilla (necesario para deshacer, ADR-006)
   categoriaConfidence: CategoryConfidence | null;
-  rawMessage: string;        // mensaje original del usuario
-  isDeleted: boolean;        // soft delete (ADR-006 / E1-US-11)
+  rawMessage: string; // mensaje original del usuario
+  isDeleted: boolean; // soft delete (ADR-006 / E1-US-11)
   deletedAt: Date | null;
   createdAt: Date;
   savedAt: Date;

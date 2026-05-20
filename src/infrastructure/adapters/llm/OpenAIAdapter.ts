@@ -3,23 +3,19 @@
 // Default implementation — swappable with ClaudeAdapter without modifying
 // any use case (ADR-002, dependency inversion principle).
 
-import OpenAI from "openai";
-import { z } from "zod";
-import type {
-  LLMPort,
-  UserContext,
-  ConversationContext,
-} from "../../../domain/ports/services";
-import type { ExtractedExpense } from "../../../domain/entities/ExpenseRecord";
+import OpenAI from 'openai';
+import { z } from 'zod';
+import type { LLMPort, UserContext, ConversationContext } from '../../../domain/ports/services';
+import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 
 // Zod schema for LLM response — strict JSON output validation
 const ExtractedExpenseSchema = z.object({
   monto: z.number().nullable(),
-  moneda: z.enum(["ARS", "EUR", "USD", "MXN", "GBP", "BRL"]).nullable(),
+  moneda: z.enum(['ARS', 'EUR', 'USD', 'MXN', 'GBP', 'BRL']).nullable(),
   categoria_raw: z.string().nullable(),
   fecha_raw: z.string().nullable(),
   medio_pago: z.string().nullable(),
-  confianza_categoria: z.enum(["alta", "baja", "nula"]),
+  confianza_categoria: z.enum(['alta', 'baja', 'nula']),
 });
 
 // Strict system prompt — structured extraction instructions (ADR-002)
@@ -29,8 +25,8 @@ function buildExtractionSystemPrompt(ctx: UserContext): string {
 2. Devolver un JSON estricto con el esquema definido. Sin markdown, sin explicaciones.
 3. Nunca inventar datos. Si un campo no está presente, devolver null.
 
-Moneda por defecto del usuario: ${ctx.defaultCurrency ?? "desconocida"}.
-Categorías disponibles en la planilla: ${ctx.categories.length > 0 ? ctx.categories.join(", ") : "ninguna definida aún"}.
+Moneda por defecto del usuario: ${ctx.defaultCurrency ?? 'desconocida'}.
+Categorías disponibles en la planilla: ${ctx.categories.length > 0 ? ctx.categories.join(', ') : 'ninguna definida aún'}.
 
 Esquema de salida (siempre JSON puro, sin backticks):
 {
@@ -55,24 +51,21 @@ export class OpenAIAdapter implements LLMPort {
     this.client = new OpenAI({ apiKey });
   }
 
-  async extractExpense(
-    userMessage: string,
-    userContext: UserContext,
-  ): Promise<ExtractedExpense> {
+  async extractExpense(userMessage: string, userContext: UserContext): Promise<ExtractedExpense> {
     const completion = await this.client.chat.completions.create({
-      model: "gpt-4o",
+      model: 'gpt-4o',
       temperature: 0, // maximum determinism for structured extraction
-      response_format: { type: "json_object" },
+      response_format: { type: 'json_object' },
       messages: [
-        { role: "system", content: buildExtractionSystemPrompt(userContext) },
-        { role: "user", content: userMessage },
+        { role: 'system', content: buildExtractionSystemPrompt(userContext) },
+        { role: 'user', content: userMessage },
       ],
     });
 
     const raw = completion.choices[0]?.message?.content;
-    if (!raw) throw new Error("LLM returned empty response");
+    if (!raw) throw new Error('LLM returned empty response');
 
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     const validated = ExtractedExpenseSchema.parse(parsed);
 
     return {
@@ -85,16 +78,13 @@ export class OpenAIAdapter implements LLMPort {
     };
   }
 
-  async generateResponse(
-    prompt: string,
-    _context: ConversationContext,
-  ): Promise<string> {
+  async generateResponse(prompt: string, _context: ConversationContext): Promise<string> {
     const completion = await this.client.chat.completions.create({
-      model: "gpt-4o",
+      model: 'gpt-4o',
       temperature: 0.3,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: 'user', content: prompt }],
     });
 
-    return completion.choices[0]?.message?.content ?? "";
+    return completion.choices[0]?.message?.content ?? '';
   }
 }

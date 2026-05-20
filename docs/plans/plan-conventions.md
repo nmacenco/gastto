@@ -35,7 +35,7 @@ Every plan must contain the following sections:
 - We must be able to commit and push the code for each phase without breaking the build. The tests must pass and the added code makes sense as its own isolated unit.
 - Prioritize early feedback loops. Phase 1 should always produce something the user can see, interact with, or run. For example, when creating a new frontend page, Phase 1 should deliver a navigable page (even with incomplete or placeholder content) rather than preparing all the data/content first. This lets the user validate direction early and course-correct before investing in polish.
 - Each phase must end up with the following two tasks (in this order):
-  1. "Run `npm run lint` and `npx tsc --noEmit` from `volumes/sources/` to verify linting and typechecking. Fix issues if any.".
+  1. "Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.".
   2. "Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.".
 
 ## ⏭️ Next step section
@@ -47,6 +47,7 @@ Every plan must contain the following sections:
 - **Plan-only means no app code**: Unless the user explicitly asks to implement, execute, or apply the plan, do not change application code, run the app, or add dependencies. Creating the plan file (and minimal supporting docs if the user asked) is allowed.
 - **If the environment blocks writes** (e.g. strict read-only plan mode): Output the **full** plan Markdown in the chat so it can be saved manually, or ask the user to confirm switching out of read-only mode so you can write `ai/plans/...` directly. Do not end the turn without a path to that file's contents.
 - **Task tracking**: For plan-only requests, use **at most one** task: **save** the plan Markdown under `ai/plans/...`. Do **not** create extra tasks for implementation work (phases, backend, E2E, etc.). Those belong **inside** the plan document as checklists, not as separate tracked tasks, unless the user **explicitly** asks to implement, execute, or apply the plan.
+- **Close the loop on task files**: After a plan is fully implemented and all its phases are complete, update the corresponding user-story task file(s) under `docs/user-stories/.../tasks/` by checking off the acceptance criteria checkboxes that were satisfied. This keeps the project backlog in sync with delivered work.
 
 ## Public contracts
 

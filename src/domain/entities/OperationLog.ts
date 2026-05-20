@@ -17,7 +17,7 @@ export interface OperationLog {
   id: string;
   userId: string;
   operation: OperationType;
-  payload: Record<string, unknown> | null;   // JSONB: contexto de la operación
-  errorType: ErrorType | null;               // solo en operaciones fallidas
+  payload: Record<string, unknown> | null; // JSONB: contexto de la operación
+  errorType: ErrorType | null; // solo en operaciones fallidas
   createdAt: Date;
 }

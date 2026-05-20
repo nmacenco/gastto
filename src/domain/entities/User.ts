@@ -6,7 +6,7 @@ export type UserStatus = 'onboarding' | 'active' | 'suspended';
 export type Currency = 'ARS' | 'EUR' | 'USD' | 'MXN' | 'GBP' | 'BRL';
 
 export interface User {
-  userId: string;           // UUID generado por el sistema (ADR-008)
+  userId: string; // UUID generado por el sistema (ADR-008)
   status: UserStatus;
   defaultCurrency: Currency | null;
   createdAt: Date;
@@ -15,8 +15,8 @@ export interface User {
 
 export interface MessagingIdentity {
   id: string;
-  userId: string;           // FK → User.userId
+  userId: string; // FK → User.userId
   channel: 'telegram' | 'whatsapp';
-  externalId: string;       // chat_id de Telegram o número E.164 de WhatsApp
+  externalId: string; // chat_id de Telegram o número E.164 de WhatsApp
   linkedAt: Date;
 }

@@ -30,17 +30,25 @@ export default tseslint.config(
         'error',
         { prefer: 'type-imports', fixStyle: 'inline-type-imports' },
       ],
-      '@typescript-eslint/no-floating-promises': 'error',  // critical for async/await correctness
+      '@typescript-eslint/no-floating-promises': 'error', // critical for async/await correctness
       '@typescript-eslint/no-misused-promises': 'error',
 
       // --- General JS ---
       'no-console': ['warn', { allow: ['warn', 'error'] }], // use Pino instead
-      'eqeqeq': ['error', 'always'],
+      eqeqeq: ['error', 'always'],
     },
   },
 
   // ── Ignore patterns ──────────────────────────────────────────────────────
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', '*.config.js'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      '*.config.js',
+      '*.config.mjs',
+      'ai/**',
+      'drizzle.config.ts',
+    ],
   },
 );
