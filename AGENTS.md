@@ -72,7 +72,8 @@ docs/
 │   └── plan-conventions.md - How to write plan documents
 ├── testing/                - Testing conventions (to be added)
 ├── typescript/             - TypeScript-specific conventions
-│   └── explicit-undefined-optional-properties.md - exactOptionalPropertyTypes handling
+│   ├── explicit-undefined-optional-properties.md - exactOptionalPropertyTypes handling
+│   └── redundant-undefined-on-top-types.md - no `| undefined` on `unknown`/`any`
 ├── user-stories/           - Epics and user stories by release
 └── documentation-guidelines.md
 ```
