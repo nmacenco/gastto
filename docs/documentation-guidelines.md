@@ -86,4 +86,4 @@ All documentation must be written in **English** — filenames, headings, body t
 
 ## Reference example
 
-See `docs/adr/adr.md` for a complete, real-world document that follows this template.
+See [`docs/adr/`](./adr/) for complete, real-world documents that follow this template.
