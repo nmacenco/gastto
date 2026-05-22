@@ -8,7 +8,7 @@ import type { Redis } from 'ioredis';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
 import type { IConversationStateRepository } from '../../domain/ports/repositories';
 import type { MessagingPort } from '../../domain/ports/services';
-import type { ProcessMessageJobData } from '../http/routes/telegram.webhook';
+import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
 import type { IUserRepository } from '../../domain/ports/repositories';
 

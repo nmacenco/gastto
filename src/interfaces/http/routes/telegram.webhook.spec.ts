@@ -1,39 +1,26 @@
 // LAYER: Interfaces / Tests
-// Contract tests for the Telegram webhook route.
+// Contract tests for the Telegram webhook route (refactored).
+// The route now delegates parsing to TelegramPayloadParser and
+// business logic to RouteIncomingMessage use case.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
-import type { Queue } from 'bullmq';
-import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
+import type { RouteIncomingMessage } from '../../../application/use-cases/conversation/RouteIncomingMessage';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
-import {
-  registerTelegramWebhook,
-  type ProcessMessageJobData,
-  type TelegramWebhookDeps,
-} from './telegram.webhook';
+import { registerTelegramWebhook, type TelegramWebhookDeps } from './telegram.webhook';
 
 const WEBHOOK_SECRET = 'test-secret-token';
 
-const mockExecute = vi.fn();
-const mockAdd = vi.fn();
-const mockSendMessage = vi.fn();
+const mockRouteExecute = vi.fn();
 const mockHandleStartExecute = vi.fn();
 
 function buildMockDeps(): TelegramWebhookDeps {
-  mockExecute.mockResolvedValue({
-    userId: 'user-123',
-    isNewUser: false,
-    currentState: 'IDLE',
-  });
-  mockAdd.mockResolvedValue(undefined);
-  mockSendMessage.mockResolvedValue(undefined);
+  mockRouteExecute.mockResolvedValue(undefined);
   mockHandleStartExecute.mockResolvedValue({ replyText: 'Welcome!' });
 
   return {
     webhookSecret: WEBHOOK_SECRET,
-    messageQueue: { add: mockAdd } as unknown as Queue<ProcessMessageJobData>,
-    resolveIdentity: { execute: mockExecute } as unknown as ResolveUserIdentityUseCase,
-    telegramMessaging: { sendMessage: mockSendMessage },
+    routeIncomingMessage: { execute: mockRouteExecute } as unknown as RouteIncomingMessage,
     handleStartCommand: { execute: mockHandleStartExecute } as unknown as HandleStartCommand,
   };
 }
@@ -67,7 +54,7 @@ describe('POST /webhook/telegram', () => {
     vi.clearAllMocks();
   });
 
-  it('returns HTTP 200 and processes a valid text message', async () => {
+  it('returns HTTP 200 and delegates a valid text message to the router', async () => {
     const { app } = buildApp();
 
     const response = await app.inject({
@@ -82,26 +69,11 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
-    expect(mockExecute).toHaveBeenCalledWith({
-      channel: 'telegram',
-      externalId: '123456789',
-    });
-
-    expect(mockAdd).toHaveBeenCalledOnce();
-    const [, jobData] = mockAdd.mock.calls[0] as [string, ProcessMessageJobData];
-    expect(jobData).toMatchObject({
-      userId: 'user-123',
-      rawMessage: 'Cafe con leche 850',
-      channel: 'telegram',
-      externalId: '123456789',
-    });
-    expect(new Date(jobData.receivedAt).getTime()).toBeGreaterThan(0);
-
-    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu gasto…');
+    expect(mockRouteExecute).toHaveBeenCalledTimes(1);
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
-  it('returns HTTP 200 for unparseable payload without enqueuing', async () => {
+  it('returns HTTP 200 for unparseable payload and delegates to router', async () => {
     const { app } = buildApp();
 
     const response = await app.inject({
@@ -116,13 +88,11 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
-    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockRouteExecute).toHaveBeenCalledTimes(1);
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
-  it('returns HTTP 200 for payload without message and does not enqueue', async () => {
+  it('returns HTTP 200 for payload without message and delegates to router', async () => {
     const { app } = buildApp();
 
     const response = await app.inject({
@@ -137,13 +107,11 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
-    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockRouteExecute).toHaveBeenCalledTimes(1);
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
-  it('returns HTTP 200 for non-text messages and sends fallback text', async () => {
+  it('returns HTTP 200 for non-text messages and delegates to router', async () => {
     const { app } = buildApp();
 
     const response = await app.inject({
@@ -158,16 +126,11 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '123456789',
-      'Por ahora solo proceso mensajes de texto. Contame tu gasto escribiendolo.',
-    );
+    expect(mockRouteExecute).toHaveBeenCalledTimes(1);
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
-  it('triggers HandleStartCommand for /start without enqueuing', async () => {
+  it('triggers HandleStartCommand for /start without routing', async () => {
     const { app } = buildApp();
 
     const response = await app.inject({
@@ -187,9 +150,7 @@ describe('POST /webhook/telegram', () => {
       username: 'Juan',
     });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
-    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockRouteExecute).not.toHaveBeenCalled();
   });
 
   it('triggers HandleStartCommand for /START (case-insensitive)', async () => {
@@ -212,8 +173,7 @@ describe('POST /webhook/telegram', () => {
       username: undefined,
     });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
+    expect(mockRouteExecute).not.toHaveBeenCalled();
   });
 
   it('triggers HandleStartCommand for /start with surrounding whitespace', async () => {
@@ -236,7 +196,6 @@ describe('POST /webhook/telegram', () => {
       username: undefined,
     });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
+    expect(mockRouteExecute).not.toHaveBeenCalled();
   });
 });

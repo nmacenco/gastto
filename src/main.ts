@@ -21,6 +21,9 @@ import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/Tel
 // Application
 import { ResolveUserIdentityUseCase } from './application/use-cases/user/ResolveUserIdentity';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
+import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
+import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
+import type { ProcessMessageJobData } from './application/ports/ProcessMessageJob';
 
 // Interfaces
 import { registerTelegramWebhook } from './interfaces/http/routes/telegram.webhook';
@@ -78,13 +81,7 @@ async function bootstrap(): Promise<void> {
       null,
     );
 
-    const messageQueue = new Queue<{
-      userId: string;
-      rawMessage: string;
-      channel: 'telegram' | 'whatsapp';
-      externalId: string;
-      receivedAt: string;
-    }>('process-message', {
+    const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
       connection: redis,
       defaultJobOptions: {
         attempts: 3,
@@ -97,12 +94,17 @@ async function bootstrap(): Promise<void> {
     if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET) {
       const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN);
       const handleStartCommand = new HandleStartCommand(telegramAdapter);
+      const handleUnsupportedMessage = new HandleUnsupportedMessage(telegramAdapter);
+      const routeIncomingMessage = new RouteIncomingMessage({
+        messageQueue,
+        resolveIdentity,
+        messagingPort: telegramAdapter,
+        handleUnsupportedMessage,
+      });
 
       registerTelegramWebhook(app, {
         webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
-        messageQueue,
-        resolveIdentity,
-        telegramMessaging: telegramAdapter,
+        routeIncomingMessage,
         handleStartCommand,
       });
     }
