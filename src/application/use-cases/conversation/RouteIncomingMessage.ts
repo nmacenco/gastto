@@ -28,16 +28,10 @@ export class RouteIncomingMessage {
       case 'UNSUPPORTED':
         await this.deps.handleUnsupportedMessage.execute(payload.chatId);
         return;
-      case 'MALFORMED':
-        console.error({
-          endpoint: '/webhook/telegram',
-          code: 'MALFORMED_PAYLOAD',
-          rawPayload: payload.rawPayload,
-        });
-        return;
       /* istanbul ignore next */
       default:
         // Exhaustiveness guard — should never happen at runtime
+        // MALFORMED is handled at the route layer (ADR-010)
         return;
     }
   }

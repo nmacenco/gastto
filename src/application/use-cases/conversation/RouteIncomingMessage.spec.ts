@@ -81,6 +81,25 @@ describe('RouteIncomingMessage', () => {
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
 
+    it('logs structured error but does not throw when ack send fails', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const deps = buildMockDeps();
+      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
+      mockSendMessage.mockRejectedValue(new Error('Network timeout'));
+
+      await router.execute(buildTextPayload());
+
+      expect(mockAdd).toHaveBeenCalledTimes(1);
+      expect(consoleError).toHaveBeenCalledWith({
+        endpoint: '/webhook/telegram',
+        code: 'ACK_SEND_FAILED',
+        chatId: '123456789',
+        error: 'Network timeout',
+      });
+
+      consoleError.mockRestore();
+    });
+
     it('delegates to unsupported handler when TEXT payload has no text', async () => {
       const deps = buildMockDeps();
       const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
@@ -113,35 +132,6 @@ describe('RouteIncomingMessage', () => {
       expect(mockResolveExecute).not.toHaveBeenCalled();
       expect(mockAdd).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('MALFORMED payloads', () => {
-    it('logs structured error without enqueueing or messaging', async () => {
-      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const deps = buildMockDeps();
-      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
-      const raw = { unexpected: 'data' };
-      const payload: NormalizedPayload = {
-        messageType: 'MALFORMED',
-        chatId: 'unknown',
-        timestamp: new Date('2026-05-20T12:00:00Z'),
-        channel: 'telegram',
-        rawPayload: raw,
-      };
-
-      await router.execute(payload);
-
-      expect(consoleError).toHaveBeenCalledWith({
-        endpoint: '/webhook/telegram',
-        code: 'MALFORMED_PAYLOAD',
-        rawPayload: raw,
-      });
-      expect(mockResolveExecute).not.toHaveBeenCalled();
-      expect(mockAdd).not.toHaveBeenCalled();
-      expect(mockSendMessage).not.toHaveBeenCalled();
-
-      consoleError.mockRestore();
     });
   });
 });

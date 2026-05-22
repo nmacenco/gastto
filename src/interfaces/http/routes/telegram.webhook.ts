@@ -1,20 +1,22 @@
 // LAYER: Interfaces
 // Fastify handler for Telegram webhook.
-// Responsibilities (ADR-005, Stage 2):
+// Responsibilities (ADR-005, Stage 2; ADR-010):
 //   1. Origin validation is handled by preHandler middleware (telegramAuth.ts)
 //   2. Parses raw payload via TelegramPayloadParser (Infrastructure)
 //   3. Detects /start command and delegates to HandleStartCommand use case
-//   4. For all other messages: delegates to RouteIncomingMessage use case
-//   5. Always returns HTTP 200 to avoid Telegram retry loops
+//   4. For MALFORMED payloads: logs structured error and returns 200 (prevents retry loops)
+//   5. For all other messages: enqueues to incoming-message queue (thin FIFO worker)
+//   6. Always returns HTTP 200 to avoid Telegram retry loops
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { RouteIncomingMessage } from '../../../application/use-cases/conversation/RouteIncomingMessage';
+import type { Queue } from 'bullmq';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
+import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
 import { parseTelegramPayload } from '../../../infrastructure/adapters/telegram/TelegramPayloadParser';
 import { validateTelegramOrigin } from '../middleware/telegramAuth';
 
 export interface TelegramWebhookHandlerDeps {
-  routeIncomingMessage: RouteIncomingMessage;
+  incomingMessageQueue: Queue<IncomingMessageJobData>;
   handleStartCommand: HandleStartCommand;
 }
 
@@ -29,6 +31,16 @@ export async function handleTelegramWebhook(
 ): Promise<void> {
   const payload = parseTelegramPayload(req.body);
 
+  // Malformed payload short-circuit (owned by route layer since ADR-010)
+  if (payload.messageType === 'MALFORMED') {
+    req.log.error({
+      endpoint: '/webhook/telegram',
+      code: 'MALFORMED_PAYLOAD',
+      rawPayload: req.body,
+    });
+    return reply.status(200).send({ ok: true });
+  }
+
   // /start command short-circuit
   if (payload.messageType === 'TEXT' && payload.text?.toLowerCase() === '/start') {
     const rawBody = req.body as Record<string, unknown>;
@@ -40,7 +52,17 @@ export async function handleTelegramWebhook(
     return reply.status(200).send({ ok: true });
   }
 
-  await deps.routeIncomingMessage.execute(payload);
+  // Enqueue everything else to the thin FIFO worker (ADR-010)
+  await deps.incomingMessageQueue.add('incoming-message', {
+    messageType: payload.messageType,
+    chatId: payload.chatId,
+    userId: payload.userId,
+    text: payload.text,
+    timestamp: payload.timestamp.toISOString(),
+    channel: payload.channel,
+    rawPayload: payload.rawPayload,
+  });
+
   return reply.status(200).send({ ok: true });
 }
 

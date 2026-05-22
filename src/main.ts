@@ -1,7 +1,7 @@
 // LAYER: Interfaces
 // Application entry point. Assembles all layers following
 // the dependency inversion principle: Domain <- Application <- Infrastructure <- Interfaces.
-// A single persistent process starts Fastify + BullMQ workers (ADR-009).
+// A single persistent process starts Fastify + BullMQ workers (ADR-009, ADR-010).
 
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
@@ -24,9 +24,12 @@ import { HandleStartCommand } from './application/use-cases/conversation/HandleS
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
 import type { ProcessMessageJobData } from './application/ports/ProcessMessageJob';
+import type { IncomingMessageJobData } from './application/ports/IncomingMessageJob';
 
 // Interfaces
 import { registerTelegramWebhook } from './interfaces/http/routes/telegram.webhook';
+import { createIncomingMessageWorker } from './interfaces/workers/incomingMessage.worker';
+import { createMessageWorker } from './interfaces/workers/message.worker';
 
 async function bootstrap(): Promise<void> {
   // -- Sentry: inicializar antes que todo (ADR -- observabilidad) -------------
@@ -91,6 +94,16 @@ async function bootstrap(): Promise<void> {
       },
     });
 
+    const incomingMessageQueue = new Queue<IncomingMessageJobData>('incoming-message', {
+      connection: redis,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: 100,
+        removeOnFail: 500,
+      },
+    });
+
     if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET) {
       const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN);
       const handleStartCommand = new HandleStartCommand(telegramAdapter);
@@ -102,9 +115,36 @@ async function bootstrap(): Promise<void> {
         handleUnsupportedMessage,
       });
 
+      // Thin FIFO worker (ADR-010): guarantees per-user message ordering
+      const incomingMessageWorker = createIncomingMessageWorker({
+        redis,
+        routeIncomingMessage,
+      });
+      app.log.info(
+        `Started incoming-message worker (concurrency: ${incomingMessageWorker.opts.concurrency})`,
+      );
+
+      // Thick worker (ADR-005): FSM → NLP → user response
+      const messageWorker = createMessageWorker({
+        redis,
+        // @ts-expect-error TODO: implement RegisterExpenseUseCase wiring
+        registerExpense: null,
+        // @ts-expect-error TODO: implement IConversationStateRepository wiring
+        conversationRepo: null,
+        userRepo,
+        messagingAdapters: {
+          telegram: telegramAdapter,
+          // TODO: replace with real WhatsApp adapter when implemented
+          whatsapp: telegramAdapter,
+        },
+      });
+      app.log.info(
+        `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,
+      );
+
       registerTelegramWebhook(app, {
         webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
-        routeIncomingMessage,
+        incomingMessageQueue,
         handleStartCommand,
       });
     }
