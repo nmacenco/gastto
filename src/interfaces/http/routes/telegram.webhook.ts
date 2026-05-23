@@ -10,6 +10,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Queue } from 'bullmq';
+import { z } from 'zod';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
 import { parseTelegramPayload } from '../../../infrastructure/adapters/telegram/TelegramPayloadParser';
@@ -66,8 +67,40 @@ export async function handleTelegramWebhook(
   return reply.status(200).send({ ok: true });
 }
 
+const TelegramWebhookBodySchema = z
+  .object({
+    update_id: z.number().optional(),
+    message: z
+      .object({
+        message_id: z.number().optional(),
+        chat: z.object({ id: z.number() }).passthrough().optional(),
+        from: z
+          .object({ id: z.number(), username: z.string().optional() })
+          .passthrough()
+          .optional(),
+        text: z.string().optional(),
+        date: z.number().optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough()
+  .describe('Telegram Update payload (simplified schema for documentation)');
+
 export function registerTelegramWebhook(app: FastifyInstance, opts: TelegramWebhookDeps): void {
   app.post('/webhook/telegram', {
+    schema: {
+      tags: ['Webhooks'],
+      description:
+        'Receives Telegram bot updates. Requires the X-Telegram-Bot-Api-Secret-Token header.',
+      headers: z.object({
+        'x-telegram-bot-api-secret-token': z.string().describe('Webhook secret token'),
+      }),
+      body: TelegramWebhookBodySchema,
+      response: {
+        200: z.object({ ok: z.literal(true) }),
+      },
+    },
     preHandler: [validateTelegramOrigin(opts.webhookSecret)],
     handler: async (req: FastifyRequest, reply: FastifyReply) => {
       await handleTelegramWebhook(req, reply, opts);

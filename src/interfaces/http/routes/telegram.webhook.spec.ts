@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
+import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { Queue } from 'bullmq';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
@@ -30,6 +31,8 @@ function buildMockDeps(): TelegramWebhookDeps {
 
 function buildApp(deps: TelegramWebhookDeps = buildMockDeps()) {
   const app = Fastify({ logger: false });
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
   // Inject mock logger so we can assert on req.log.error
   // eslint-disable-next-line @typescript-eslint/require-await
   app.addHook('preHandler', async (req) => {

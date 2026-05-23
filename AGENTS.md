@@ -52,6 +52,15 @@ src/
     └── workers/            - BullMQ background job workers
 ```
 
+# HTTP Routes & OpenAPI
+
+- **Every new Fastify route must declare a Zod schema** in its `schema` option so that `@fastify/swagger` auto-generates OpenAPI documentation.
+  - Use `app.withTypeProvider<ZodTypeProvider>().get/post/...`.
+  - Include at minimum: `tags`, `description`, and `response` schemas.
+  - See existing routes (`/health`, `/webhook/telegram`) as reference.
+- Tests that instantiate Fastify independently must register `validatorCompiler` and `serializerCompiler` from `fastify-type-provider-zod`.
+- Swagger UI is served at `/documentation` when the server is running.
+
 # Documentation
 
 - Detailed conventions with examples live in `docs/`.

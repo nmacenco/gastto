@@ -6,6 +6,15 @@
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import sensible from '@fastify/sensible';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
+import { z } from 'zod';
+import {
+  jsonSchemaTransform,
+  serializerCompiler,
+  validatorCompiler,
+  type ZodTypeProvider,
+} from 'fastify-type-provider-zod';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import postgres from 'postgres';
@@ -54,6 +63,28 @@ async function bootstrap(): Promise<void> {
   await app.register(helmet);
   await app.register(sensible);
 
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
+
+  await app.register(fastifySwagger, {
+    openapi: {
+      info: {
+        title: 'Gastto API',
+        description: 'Asistente financiero conversacional — API & Webhooks',
+        version: '0.1.0',
+      },
+      tags: [
+        { name: 'Health', description: 'System health checks' },
+        { name: 'Webhooks', description: 'External messaging webhooks' },
+      ],
+    },
+    transform: jsonSchemaTransform,
+  });
+
+  await app.register(fastifySwaggerUi, {
+    routePrefix: '/documentation',
+  });
+
   // Wire Sentry into Fastify error handling
   const previousErrorHandler = app.errorHandler;
   app.setErrorHandler((error, request, reply) => {
@@ -62,10 +93,25 @@ async function bootstrap(): Promise<void> {
   });
 
   // Health check para Fly.io
-  app.get('/health', () => ({
-    status: 'ok',
-    ts: new Date().toISOString(),
-  }));
+  app.withTypeProvider<ZodTypeProvider>().get(
+    '/health',
+    {
+      schema: {
+        tags: ['Health'],
+        description: 'Returns system health status',
+        response: {
+          200: z.object({
+            status: z.literal('ok'),
+            ts: z.string().datetime(),
+          }),
+        },
+      },
+    },
+    () => ({
+      status: 'ok' as const,
+      ts: new Date().toISOString(),
+    }),
+  );
 
   // -- Infraestructura condicional (solo cuando las env vars estan presentes) --
   if (env.DATABASE_URL && env.REDIS_URL) {
