@@ -63,14 +63,3 @@ export interface SpreadsheetPort {
   // Verifica acceso de lectura/escritura (append de prueba + delete inmediato)
   validateAccess(fileId: string, sheetName: string): Promise<boolean>;
 }
-
-// ── MessagingPort ─────────────────────────────────────────────────────────────
-// Abstraction over Telegram Bot API and WhatsApp Business API.
-
-export interface SendMessageOptions {
-  parseMode?: 'Markdown' | 'HTML' | 'plain';
-}
-
-export interface MessagingPort {
-  sendMessage(externalId: string, text: string, options?: SendMessageOptions): Promise<void>;
-}

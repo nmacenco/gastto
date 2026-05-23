@@ -28,12 +28,12 @@ And does not generate an exception that affects other processes
 
 ### Definition of Done
 
-- [ ] The sending module is a reusable function/service for all epics
-- [ ] The 4096 character limit has automatic split handling
-- [ ] Exponential backoff retry is implemented (3 attempts)
-- [ ] 403/400 errors have differentiated handling (no retry)
-- [ ] All sends are logged with timestamp, chat_id and result
-- [ ] Unit tests cover successful send, long message, retry and permanent error
+- [x] The sending module is a reusable function/service for all epics
+- [x] The 4096 character limit has automatic split handling
+- [x] Exponential backoff retry is implemented (3 attempts)
+- [x] 403/400 errors have differentiated handling (no retry)
+- [x] All sends are logged with timestamp, chat_id and result
+- [x] Unit tests cover successful send, long message, retry and permanent error
 
 **Story Points: 2** _Justification: The Telegram send API is simple. The complexity lies in retry, long message splitting, and logging. There is no business logic, only communication infrastructure._
 

@@ -7,7 +7,7 @@ import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
 import type { IConversationStateRepository } from '../../domain/ports/repositories';
-import type { MessagingPort } from '../../domain/ports/services';
+import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
 import type { IUserRepository } from '../../domain/ports/repositories';
@@ -17,7 +17,7 @@ export function createMessageWorker(opts: {
   registerExpense: RegisterExpenseUseCase;
   conversationRepo: IConversationStateRepository;
   userRepo: IUserRepository;
-  messagingAdapters: Record<'telegram' | 'whatsapp', MessagingPort>;
+  messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
 }): Worker<ProcessMessageJobData> {
   const worker = new Worker<ProcessMessageJobData>(
     'process-message',
@@ -146,7 +146,7 @@ async function handleExpenseReview(
   jobData: ProcessMessageJobData,
   statePayload: Record<string, unknown> | null,
   opts: Parameters<typeof createMessageWorker>[0],
-  messaging: MessagingPort,
+  messaging: MessagingOutputPort,
 ): Promise<void> {
   const { userId, rawMessage, externalId } = jobData;
   const lower = rawMessage.toLowerCase().trim();
@@ -184,7 +184,7 @@ async function handleClarification(
   jobData: ProcessMessageJobData,
   statePayload: Record<string, unknown> | null,
   opts: Parameters<typeof createMessageWorker>[0],
-  messaging: MessagingPort,
+  messaging: MessagingOutputPort,
 ): Promise<void> {
   const { userId, rawMessage, externalId, channel } = jobData;
   const user = await opts.userRepo.findById(userId);
