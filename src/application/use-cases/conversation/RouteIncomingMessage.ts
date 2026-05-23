@@ -6,14 +6,14 @@
 import type { Queue } from 'bullmq';
 import type { NormalizedPayload } from '../../../domain/ports/messaging';
 import type { ResolveUserIdentityUseCase } from '../user/ResolveUserIdentity';
-import type { MessagingPort } from '../../../domain/ports/services';
+import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../ports/ProcessMessageJob';
 import type { HandleUnsupportedMessage } from './HandleUnsupportedMessage';
 
 export interface RouteIncomingMessageDeps {
   messageQueue: Queue<ProcessMessageJobData>;
   resolveIdentity: ResolveUserIdentityUseCase;
-  messagingPort: MessagingPort;
+  messagingPort: MessagingOutputPort;
   handleUnsupportedMessage: HandleUnsupportedMessage;
 }
 

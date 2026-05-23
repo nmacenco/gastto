@@ -67,6 +67,8 @@ No database schema changes. The feature operates on transient domain value objec
 - `IncomingMessageJobData` — serializable BullMQ job data, defined in `src/application/ports/IncomingMessageJob.ts`.
 - `IncomingMessage` — defined in `src/domain/value-objects/IncomingMessage.ts` (used for validated TEXT messages).
 - `MessageType` — union type `'TEXT' | 'UNSUPPORTED' | 'MALFORMED'`.
+- `MessagingOutputPort` — application-layer output port, defined in `src/application/ports/output/messaging.port.ts`.
+- `SendResult` — discriminated union (`SendResultSuccess | SendResultFailure`) returned by `MessagingOutputPort.sendMessage`.
 
 ## Tests
 
@@ -84,5 +86,5 @@ No database schema changes. The feature operates on transient domain value objec
 
 - The `ProcessMessageJobData` type was moved from `src/interfaces/http/routes/telegram.webhook.ts` to `src/application/ports/ProcessMessageJob.ts` so that both the Interfaces layer (webhook route) and the Application layer (router use case) can depend on it without circular imports.
 - The `IncomingMessageJobData` type lives in `src/application/ports/IncomingMessageJob.ts` for the same reason: shared between the webhook route and the thin worker.
-- Clean Architecture boundary is enforced: the router use case depends on `MessagingPort` and `Queue` abstractions, never on concrete Telegram adapters.
+- Clean Architecture boundary is enforced: the router use case depends on `MessagingOutputPort` (application layer) and `Queue` abstractions, never on concrete Telegram adapters. The `MessagingOutputPort` returns a discriminated `SendResult` union (`{ status: 'success' } | { status: 'failure'; errorCode: string }`) so use cases can observe delivery outcomes without leaking provider-specific errors.
 - FIFO guarantee is provided by `concurrency: 1` on the `incoming-message` worker (ADR-010). When volume grows, this can be replaced with BullMQ Pro Groups or a partition strategy by `chat_id` hash.

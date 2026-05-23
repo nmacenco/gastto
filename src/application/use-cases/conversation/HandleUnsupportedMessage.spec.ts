@@ -7,7 +7,7 @@ import { HandleUnsupportedMessage, UNSUPPORTED_MESSAGE_COPY } from './HandleUnsu
 
 describe('HandleUnsupportedMessage', () => {
   it('sends the exact unsupported copy via the messaging port', async () => {
-    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
     const handler = new HandleUnsupportedMessage({ sendMessage });
 
     await handler.execute('123456789');

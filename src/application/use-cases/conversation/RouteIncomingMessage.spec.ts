@@ -40,7 +40,7 @@ function buildTextPayload(overrides: Partial<NormalizedPayload> = {}): Normalize
 describe('RouteIncomingMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSendMessage.mockResolvedValue(undefined);
+    mockSendMessage.mockResolvedValue({ status: 'success' });
     mockAdd.mockResolvedValue(undefined);
     mockResolveExecute.mockResolvedValue({ userId: 'user-123' });
     mockUnsupportedExecute.mockResolvedValue(undefined);

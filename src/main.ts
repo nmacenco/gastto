@@ -25,6 +25,7 @@ import { HandleUnsupportedMessage } from './application/use-cases/conversation/H
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
 import type { ProcessMessageJobData } from './application/ports/ProcessMessageJob';
 import type { IncomingMessageJobData } from './application/ports/IncomingMessageJob';
+import type { MessagingOutputPort } from './application/ports/output/messaging.port';
 
 // Interfaces
 import { registerTelegramWebhook } from './interfaces/http/routes/telegram.webhook';
@@ -107,11 +108,25 @@ async function bootstrap(): Promise<void> {
     if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET) {
       const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN);
       const handleStartCommand = new HandleStartCommand(telegramAdapter);
-      const handleUnsupportedMessage = new HandleUnsupportedMessage(telegramAdapter);
+
+      // Temporary wrapper: adapts the legacy Promise<void> adapter to the new
+      // MessagingOutputPort (SendResult) until T-0.03-02 upgrades the adapter.
+      const messagingOutputPort: MessagingOutputPort = {
+        sendMessage: async (chatId, text) => {
+          try {
+            await telegramAdapter.sendMessage(chatId, text);
+            return { status: 'success' };
+          } catch {
+            return { status: 'failure', errorCode: 'SEND_FAILED' };
+          }
+        },
+      };
+
+      const handleUnsupportedMessage = new HandleUnsupportedMessage(messagingOutputPort);
       const routeIncomingMessage = new RouteIncomingMessage({
         messageQueue,
         resolveIdentity,
-        messagingPort: telegramAdapter,
+        messagingPort: messagingOutputPort,
         handleUnsupportedMessage,
       });
 
