@@ -24,7 +24,7 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
 - The system always responds HTTP 200 to Telegram to prevent infinite retry loops.
 - Unsupported message copy (public contract): `"For now I only process text messages. Tell me about your expense by typing it."`
 
-## Pipeline (ADR-010)
+## Pipeline (ADR-011)
 
 ```
 Telegram Webhook
@@ -52,7 +52,7 @@ RouteIncomingMessage.execute()
 ## Behavior (TODO)
 
 - WhatsApp webhook adapter (HU-0.02 does not cover WhatsApp yet).
-- ~~Malformed payload handler that actively notifies admins or persists to an operations log~~ — Done at route layer via `req.log.error` (ADR-010).
+- ~~Malformed payload handler that actively notifies admins or persists to an operations log~~ — Done at route layer via `req.log.error` (ADR-011).
 - Rate-limiting or flood protection for rapid successive messages (partially addressed by FIFO ordering; explicit rate limits still TODO).
 
 ## API / Interface
@@ -87,4 +87,4 @@ No database schema changes. The feature operates on transient domain value objec
 - The `ProcessMessageJobData` type was moved from `src/interfaces/http/routes/telegram.webhook.ts` to `src/application/ports/ProcessMessageJob.ts` so that both the Interfaces layer (webhook route) and the Application layer (router use case) can depend on it without circular imports.
 - The `IncomingMessageJobData` type lives in `src/application/ports/IncomingMessageJob.ts` for the same reason: shared between the webhook route and the thin worker.
 - Clean Architecture boundary is enforced: the router use case depends on `MessagingOutputPort` (application layer) and `Queue` abstractions, never on concrete Telegram adapters. The `MessagingOutputPort` returns a discriminated `SendResult` union (`{ status: 'success' } | { status: 'failure'; errorCode: string }`) so use cases can observe delivery outcomes without leaking provider-specific errors.
-- FIFO guarantee is provided by `concurrency: 1` on the `incoming-message` worker (ADR-010). When volume grows, this can be replaced with BullMQ Pro Groups or a partition strategy by `chat_id` hash.
+- FIFO guarantee is provided by `concurrency: 1` on the `incoming-message` worker (ADR-011). When volume grows, this can be replaced with BullMQ Pro Groups or a partition strategy by `chat_id` hash.

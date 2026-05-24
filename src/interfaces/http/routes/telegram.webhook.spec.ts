@@ -1,5 +1,5 @@
 // LAYER: Interfaces / Tests
-// Contract tests for the Telegram webhook route (refactored for ADR-010).
+// Contract tests for the Telegram webhook route (refactored for ADR-011).
 // The route now enqueues to incoming-message queue, handles MALFORMED at
 // the route layer, and short-circuits /start synchronously.
 

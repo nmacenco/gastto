@@ -1,4 +1,4 @@
-# ADR-010: Two-Queue Pipeline for FIFO Message Ordering
+# ADR-011: Two-Queue Pipeline for FIFO Message Ordering
 
 **Date**: 2026-05-22
 **Status**: Accepted

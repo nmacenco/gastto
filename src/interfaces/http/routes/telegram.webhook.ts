@@ -1,6 +1,6 @@
 // LAYER: Interfaces
 // Fastify handler for Telegram webhook.
-// Responsibilities (ADR-005, Stage 2; ADR-010):
+// Responsibilities (ADR-005, Stage 2; ADR-011):
 //   1. Origin validation is handled by preHandler middleware (telegramAuth.ts)
 //   2. Parses raw payload via TelegramPayloadParser (Infrastructure)
 //   3. Detects /start command and delegates to HandleStartCommand use case
@@ -32,7 +32,7 @@ export async function handleTelegramWebhook(
 ): Promise<void> {
   const payload = parseTelegramPayload(req.body);
 
-  // Malformed payload short-circuit (owned by route layer since ADR-010)
+  // Malformed payload short-circuit (owned by route layer since ADR-011)
   if (payload.messageType === 'MALFORMED') {
     req.log.error({
       endpoint: '/webhook/telegram',
@@ -53,7 +53,7 @@ export async function handleTelegramWebhook(
     return reply.status(200).send({ ok: true });
   }
 
-  // Enqueue everything else to the thin FIFO worker (ADR-010)
+  // Enqueue everything else to the thin FIFO worker (ADR-011)
   await deps.incomingMessageQueue.add('incoming-message', {
     messageType: payload.messageType,
     chatId: payload.chatId,

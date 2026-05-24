@@ -31,7 +31,7 @@ export class RouteIncomingMessage {
       /* istanbul ignore next */
       default:
         // Exhaustiveness guard — should never happen at runtime
-        // MALFORMED is handled at the route layer (ADR-010)
+        // MALFORMED is handled at the route layer (ADR-011)
         return;
     }
   }

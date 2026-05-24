@@ -1,7 +1,7 @@
 // LAYER: Interfaces
 // Application entry point. Assembles all layers following
 // the dependency inversion principle: Domain <- Application <- Infrastructure <- Interfaces.
-// A single persistent process starts Fastify + BullMQ workers (ADR-009, ADR-010).
+// A single persistent process starts Fastify + BullMQ workers (ADR-009, ADR-011).
 
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
@@ -162,7 +162,7 @@ async function bootstrap(): Promise<void> {
         handleUnsupportedMessage,
       });
 
-      // Thin FIFO worker (ADR-010): guarantees per-user message ordering
+      // Thin FIFO worker (ADR-011): guarantees per-user message ordering
       const incomingMessageWorker = createIncomingMessageWorker({
         redis,
         routeIncomingMessage,

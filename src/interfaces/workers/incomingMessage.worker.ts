@@ -40,7 +40,7 @@ export function createIncomingMessageWorker(opts: {
       processIncomingMessageJob(job, opts.routeIncomingMessage),
     {
       connection: opts.redis,
-      concurrency: 1, // strict FIFO per user (ADR-010)
+      concurrency: 1, // strict FIFO per user (ADR-011)
       // Retry policy is set on Queue, not Worker
     },
   );
