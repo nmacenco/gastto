@@ -1,5 +1,3 @@
-
-
 ---
 
 **Producto:** Gastto — Asistente Financiero Conversacional **Release:** Release 1 — MVP **Fecha:** Abril 2025 **Autor:** Arquitectura de Producto / Engineering Lead **Revisores:** Tech Lead, Product Owner, Senior Dev **Stack base:** Fastify + TypeScript · Node.js (Clean Architecture) · LLM (Claude API) · Fly.io
@@ -30,10 +28,10 @@ La comunicación entre módulos es asíncrona vía cola de mensajes (ver ADR-005
 
 ### Alternativas descartadas
 
-|Alternativa|Motivo de descarte|
-|---|---|
-|Microservicios desde el inicio|Overhead operativo (service mesh, CI/CD por servicio, observabilidad distribuida) no justificado para un equipo pequeño en MVP.|
-|Monolito sin separación modular|Dificulta la extracción futura de servicios y mezcla responsabilidades, generando deuda técnica inmediata.|
+| Alternativa                     | Motivo de descarte                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Microservicios desde el inicio  | Overhead operativo (service mesh, CI/CD por servicio, observabilidad distribuida) no justificado para un equipo pequeño en MVP. |
+| Monolito sin separación modular | Dificulta la extracción futura de servicios y mezcla responsabilidades, generando deuda técnica inmediata.                      |
 
 ### Consecuencias
 
@@ -119,12 +117,12 @@ La respuesta del LLM se parsea como JSON (validado con Zod/TypeScript) y se pasa
 
 ### Alternativas descartadas
 
-|Alternativa|Motivo de descarte|
-|---|---|
-|NER clásico (spaCy, Duckling)|Requiere entrenamiento y mantenimiento de modelos por idioma y variante regional. Baja adaptabilidad a jerga financiera por usuario. No alineado con el objetivo pedagógico.|
-|Expresiones regulares (RegEx)|No captura variedad lingüística ni errores ortográficos. Requiere mantenimiento constante de patrones.|
-|Rasa / frameworks conversacionales|Curva de aprendizaje alta, requiere datos de entrenamiento, y no aporta ventaja sobre un LLM bien prompeado para este caso de uso.|
-|SDK del proveedor LLM directamente en la capa de aplicación|Acopla la lógica de negocio a un vendor concreto. Un cambio de proveedor requeriría modificar casos de uso, violando el principio de inversión de dependencias ya establecido en ADR-004.|
+| Alternativa                                                 | Motivo de descarte                                                                                                                                                                        |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NER clásico (spaCy, Duckling)                               | Requiere entrenamiento y mantenimiento de modelos por idioma y variante regional. Baja adaptabilidad a jerga financiera por usuario. No alineado con el objetivo pedagógico.              |
+| Expresiones regulares (RegEx)                               | No captura variedad lingüística ni errores ortográficos. Requiere mantenimiento constante de patrones.                                                                                    |
+| Rasa / frameworks conversacionales                          | Curva de aprendizaje alta, requiere datos de entrenamiento, y no aporta ventaja sobre un LLM bien prompeado para este caso de uso.                                                        |
+| SDK del proveedor LLM directamente en la capa de aplicación | Acopla la lógica de negocio a un vendor concreto. Un cambio de proveedor requeriría modificar casos de uso, violando el principio de inversión de dependencias ya establecido en ADR-004. |
 
 ### Consecuencias
 
@@ -162,28 +160,28 @@ El estado de conversación de cada usuario se modela como una **Máquina de Esta
 
 Los estados definidos para el MVP son los siguientes:
 
-|Estado|Descripción|Transiciones salientes|
-|---|---|---|
-|`IDLE`|Sin flujo activo|→ `ONBOARDING_START` \| `EXPENSE_RECEIVING`|
-|`ONBOARDING_START`|Primer contacto, sin planilla vinculada|→ `ONBOARDING_DRIVE`|
-|`ONBOARDING_DRIVE`|Esperando conexión OAuth|→ `ONBOARDING_FILE`|
-|`ONBOARDING_FILE`|Esperando selección de archivo|→ `ONBOARDING_SHEET`|
-|`ONBOARDING_SHEET`|Esperando selección de hoja|→ `ONBOARDING_MAPPING`|
-|`ONBOARDING_MAPPING`|Esperando confirmación de mapeo de columnas|→ `ONBOARDING_CATEGORIES`|
-|`ONBOARDING_CATEGORIES`|Esperando confirmación de categorías|→ `IDLE`|
-|`EXPENSE_RECEIVING`|Mensaje recibido, procesando NLP|→ `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW`|
-|`EXPENSE_CLARIFYING`|Esperando aclaración del usuario|→ `EXPENSE_REVIEW` \| `IDLE`|
-|`EXPENSE_REVIEW`|Resumen enviado, esperando confirmación|→ `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`|
-|`EXPENSE_CORRECTING`|Aplicando corrección del usuario|→ `EXPENSE_REVIEW`|
-|`EXPENSE_SAVING`|Escribiendo en la planilla|→ `IDLE` \| `EXPENSE_SAVING_RETRY`|
-|`EXPENSE_SAVING_RETRY`|Reintentando guardado fallido (TTL: 10 min)|→ `IDLE`|
+| Estado                  | Descripción                                 | Transiciones salientes                               |
+| ----------------------- | ------------------------------------------- | ---------------------------------------------------- |
+| `IDLE`                  | Sin flujo activo                            | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`          |
+| `ONBOARDING_START`      | Primer contacto, sin planilla vinculada     | → `ONBOARDING_DRIVE`                                 |
+| `ONBOARDING_DRIVE`      | Esperando conexión OAuth                    | → `ONBOARDING_FILE`                                  |
+| `ONBOARDING_FILE`       | Esperando selección de archivo              | → `ONBOARDING_SHEET`                                 |
+| `ONBOARDING_SHEET`      | Esperando selección de hoja                 | → `ONBOARDING_MAPPING`                               |
+| `ONBOARDING_MAPPING`    | Esperando confirmación de mapeo de columnas | → `ONBOARDING_CATEGORIES`                            |
+| `ONBOARDING_CATEGORIES` | Esperando confirmación de categorías        | → `IDLE`                                             |
+| `EXPENSE_RECEIVING`     | Mensaje recibido, procesando NLP            | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW`           |
+| `EXPENSE_CLARIFYING`    | Esperando aclaración del usuario            | → `EXPENSE_REVIEW` \| `IDLE`                         |
+| `EXPENSE_REVIEW`        | Resumen enviado, esperando confirmación     | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE` |
+| `EXPENSE_CORRECTING`    | Aplicando corrección del usuario            | → `EXPENSE_REVIEW`                                   |
+| `EXPENSE_SAVING`        | Escribiendo en la planilla                  | → `IDLE` \| `EXPENSE_SAVING_RETRY`                   |
+| `EXPENSE_SAVING_RETRY`  | Reintentando guardado fallido (TTL: 10 min) | → `IDLE`                                             |
 
 ### Alternativas descartadas
 
-|Alternativa|Motivo de descarte|
-|---|---|
-|Estado solo en Redis (memoria)|Redis puede reiniciarse o el key puede expirar. Los flujos de onboarding pueden durar horas. Se necesita persistencia durable.|
-|Estado en memoria del proceso (variable)|Un reinicio del proceso Node.js eliminaría todos los estados en curso. Incompatible con escalabilidad horizontal.|
+| Alternativa                              | Motivo de descarte                                                                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Estado solo en Redis (memoria)           | Redis puede reiniciarse o el key puede expirar. Los flujos de onboarding pueden durar horas. Se necesita persistencia durable. |
+| Estado en memoria del proceso (variable) | Un reinicio del proceso Node.js eliminaría todos los estados en curso. Incompatible con escalabilidad horizontal.              |
 
 ### Consecuencias
 
@@ -220,7 +218,11 @@ Se implementa el **Patrón Adapter** en la capa de Infraestructura de la Clean A
 ```typescript
 interface SpreadsheetPort {
   readRows(sheetId: string, range: string): Promise<Row[]>;
-  appendRow(sheetId: string, sheetName: string, values: CellValue[]): Promise<{ sheet: string; row: number }>;
+  appendRow(
+    sheetId: string,
+    sheetName: string,
+    values: CellValue[],
+  ): Promise<{ sheet: string; row: number }>;
   deleteRow(sheetId: string, sheetName: string, rowIndex: number): Promise<void>;
   getUniqueValues(sheetId: string, column: string): Promise<string[]>;
   getHeaders(sheetId: string, sheetName: string): Promise<string[]>;
@@ -236,10 +238,10 @@ interface SpreadsheetPort {
 
 ### Alternativas descartadas
 
-|Alternativa|Motivo de descarte|
-|---|---|
-|Un único adapter para Google y Microsoft|Las APIs son suficientemente distintas como para que un adapter unificado genere más complejidad que dos adapters limpios con interfaz común.|
-|Integración directa sin abstracción|Un cambio en la API de cualquier proveedor requeriría modificar la lógica de negocio. Viola el principio de inversión de dependencias.|
+| Alternativa                              | Motivo de descarte                                                                                                                            |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Un único adapter para Google y Microsoft | Las APIs son suficientemente distintas como para que un adapter unificado genere más complejidad que dos adapters limpios con interfaz común. |
+| Integración directa sin abstracción      | Un cambio en la API de cualquier proveedor requeriría modificar la lógica de negocio. Viola el principio de inversión de dependencias.        |
 
 ### Consecuencias
 
@@ -314,12 +316,12 @@ Si el procesamiento falla, BullMQ reintenta automáticamente con backoff exponen
 
 ### Política de reintentos
 
-|Parámetro|Valor configurado|
-|---|---|
-|Máximo de reintentos|3|
-|Backoff|Exponencial: 1s → 2s → 4s|
-|Timeout por intento|25 segundos (el Motor NLP tiene timeout propio de 10s antes de devolver error controlado)|
-|Dead letter|Los jobs que agotan reintentos son capturados por el evento `failed` de BullMQ y se registran en la tabla `failed_jobs` en PostgreSQL para auditoría manual|
+| Parámetro            | Valor configurado                                                                                                                                           |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Máximo de reintentos | 3                                                                                                                                                           |
+| Backoff              | Exponencial: 1s → 2s → 4s                                                                                                                                   |
+| Timeout por intento  | 25 segundos (el Motor NLP tiene timeout propio de 10s antes de devolver error controlado)                                                                   |
+| Dead letter          | Los jobs que agotan reintentos son capturados por el evento `failed` de BullMQ y se registran en la tabla `failed_jobs` en PostgreSQL para auditoría manual |
 
 ---
 
@@ -336,9 +338,11 @@ function validateTelegramOrigin(req: FastifyRequest): boolean {
 // WhatsApp Business API: verificación de firma HMAC-SHA256 del payload
 function validateWhatsAppOrigin(req: FastifyRequest): boolean {
   const signature = req.headers['x-hub-signature-256'] as string;
-  const expected = 'sha256=' + createHmac('sha256', process.env.WHATSAPP_APP_SECRET!)
-    .update(JSON.stringify(req.body))
-    .digest('hex');
+  const expected =
+    'sha256=' +
+    createHmac('sha256', process.env.WHATSAPP_APP_SECRET!)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
   return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 }
 ```
@@ -349,12 +353,12 @@ Requests que no superen la validación se rechazan con HTTP 403 sin encolar ning
 
 ### Alternativas descartadas
 
-|Alternativa|Motivo de descarte|
-|---|---|
-|Pipeline síncrono|Incompatible con el SLA de ≤ 1s de acuse de recibo si el LLM tarda 2-5 segundos.|
-|Upstash QStash (cola HTTP gestionada)|Requiere funciones efímeras (serverless) como workers. Incompatible con BullMQ y con los timeouts conversacionales de la FSM que necesitan proceso persistente. Descartado junto con Vercel en ADR-009.|
-|RabbitMQ / Kafka|Overhead operativo no justificado. Sin tier gratuito operativo para producción.|
-|Polling de BD con Cron|Introduce latencia mínima de segundos entre el encolado y el procesamiento. Incompatible con el SLA de respuesta < 5 segundos.|
+| Alternativa                           | Motivo de descarte                                                                                                                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pipeline síncrono                     | Incompatible con el SLA de ≤ 1s de acuse de recibo si el LLM tarda 2-5 segundos.                                                                                                                        |
+| Upstash QStash (cola HTTP gestionada) | Requiere funciones efímeras (serverless) como workers. Incompatible con BullMQ y con los timeouts conversacionales de la FSM que necesitan proceso persistente. Descartado junto con Vercel en ADR-009. |
+| RabbitMQ / Kafka                      | Overhead operativo no justificado. Sin tier gratuito operativo para producción.                                                                                                                         |
+| Polling de BD con Cron                | Introduce latencia mínima de segundos entre el encolado y el procesamiento. Incompatible con el SLA de respuesta < 5 segundos.                                                                          |
 
 ---
 
@@ -378,12 +382,12 @@ Requests que no superen la validación se rechazan con HTTP 403 sin encolar ning
 
 ### Límites de infraestructura relevantes para el MVP
 
-|Servicio|Límite gratuito|Umbral de alerta|
-|---|---|---|
-|Upstash Redis|10.000 comandos/día, 256 MB|> 6.000 comandos/día|
-|Supabase PostgreSQL|500 MB almacenamiento, 2 proyectos|> 400 MB|
-|Fly.io free tier|3 VMs compartidas, 256 MB RAM por VM|Monitorizar heap del proceso|
-|Claude API|Sin límite gratuito; costo por token|Configurar alerta de presupuesto mensual|
+| Servicio            | Límite gratuito                      | Umbral de alerta                         |
+| ------------------- | ------------------------------------ | ---------------------------------------- |
+| Upstash Redis       | 10.000 comandos/día, 256 MB          | > 6.000 comandos/día                     |
+| Supabase PostgreSQL | 500 MB almacenamiento, 2 proyectos   | > 400 MB                                 |
+| Fly.io free tier    | 3 VMs compartidas, 256 MB RAM por VM | Monitorizar heap del proceso             |
+| Claude API          | Sin límite gratuito; costo por token | Configurar alerta de presupuesto mensual |
 
 ---
 
@@ -411,20 +415,20 @@ Se implementa el patrón **Write-with-Confirmation** con **retry persistido** y 
 - Los datos del gasto se mantienen en el estado `EXPENSE_SAVING_RETRY` con TTL de 10 minutos.
 - El sistema distingue tres tipos de error y responde de forma diferente a cada uno:
 
-|Tipo de error|Causa|Acción del sistema|
-|---|---|---|
-|`NETWORK_ERROR`|Timeout o error de red hacia la API|Reintento automático con backoff exponencial|
-|`AUTH_ERROR`|Token expirado o permisos revocados (HTTP 401/403)|Notificación al usuario con enlace de re-autenticación|
-|`STRUCTURE_ERROR`|Columna o hoja no encontrada (mapeo desactualizado)|Notificación al usuario con instrucciones de re-mapeo|
+| Tipo de error     | Causa                                               | Acción del sistema                                     |
+| ----------------- | --------------------------------------------------- | ------------------------------------------------------ |
+| `NETWORK_ERROR`   | Timeout o error de red hacia la API                 | Reintento automático con backoff exponencial           |
+| `AUTH_ERROR`      | Token expirado o permisos revocados (HTTP 401/403)  | Notificación al usuario con enlace de re-autenticación |
+| `STRUCTURE_ERROR` | Columna o hoja no encontrada (mapeo desactualizado) | Notificación al usuario con instrucciones de re-mapeo  |
 
 - Si el guardado falla definitivamente, el bot envía el gasto formateado al usuario para que pueda copiarlo y pegarlo manualmente, garantizando que la información nunca se pierda.
 
 ### Alternativas descartadas
 
-|Alternativa|Motivo de descarte|
-|---|---|
-|Fire-and-forget (sin confirmación)|El sistema no sabría si el guardado fue exitoso ni en qué fila quedó, imposibilitando E1-US-11 y violando E1-US-12.|
-|Confirmación sin referencia de fila|Cumple E1-US-10 parcialmente pero impide la operación de deshacer (E1-US-11).|
+| Alternativa                         | Motivo de descarte                                                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Fire-and-forget (sin confirmación)  | El sistema no sabría si el guardado fue exitoso ni en qué fila quedó, imposibilitando E1-US-11 y violando E1-US-12. |
+| Confirmación sin referencia de fila | Cumple E1-US-10 parcialmente pero impide la operación de deshacer (E1-US-11).                                       |
 
 ### Consecuencias
 
@@ -461,11 +465,11 @@ Se implementa una **estrategia de almacenamiento cifrado de tokens** con las sig
 
 ### Alternativas descartadas
 
-|Alternativa|Motivo de descarte|
-|---|---|
-|Almacenamiento en texto plano en BD|Exposición directa de credenciales ante cualquier dump de base de datos o acceso no autorizado. Inaceptable.|
-|Almacenamiento en Redis|Redis no ofrece cifrado en reposo por defecto. Además, Redis se reinicia y los tokens se perderían, forzando re-autenticación frecuente.|
-|Almacenamiento en variables de entorno del proceso|No escala a múltiples usuarios. Las variables de entorno son por proceso, no por usuario.|
+| Alternativa                                        | Motivo de descarte                                                                                                                       |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Almacenamiento en texto plano en BD                | Exposición directa de credenciales ante cualquier dump de base de datos o acceso no autorizado. Inaceptable.                             |
+| Almacenamiento en Redis                            | Redis no ofrece cifrado en reposo por defecto. Además, Redis se reinicia y los tokens se perderían, forzando re-autenticación frecuente. |
+| Almacenamiento en variables de entorno del proceso | No escala a múltiples usuarios. Las variables de entorno son por proceso, no por usuario.                                                |
 
 ### Consecuencias
 
@@ -525,20 +529,20 @@ MessagingIdentity {
 
 **Relación con ADRs existentes:**
 
-|ADR|Impacto|
-|---|---|
-|ADR-003 (FSM en PostgreSQL)|El estado conversacional referencia `userId` interno, no `chat_id`.|
-|ADR-004 (Adapter Pattern)|El `MappingConfig` por usuario se asocia al `userId` interno.|
-|ADR-006 (Write-with-Confirmation)|La referencia `{ userId, sheetName, rowIndex }` usa el `userId` interno.|
-|ADR-007 (Tokens OAuth con AES-256)|Los tokens de acceso y refresh se almacenan asociados al `userId` interno.|
+| ADR                                | Impacto                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| ADR-003 (FSM en PostgreSQL)        | El estado conversacional referencia `userId` interno, no `chat_id`.        |
+| ADR-004 (Adapter Pattern)          | El `MappingConfig` por usuario se asocia al `userId` interno.              |
+| ADR-006 (Write-with-Confirmation)  | La referencia `{ userId, sheetName, rowIndex }` usa el `userId` interno.   |
+| ADR-007 (Tokens OAuth con AES-256) | Los tokens de acceso y refresh se almacenan asociados al `userId` interno. |
 
 ### Alternativas descartadas
 
-|Alternativa|Motivo de descarte|
-|---|---|
-|Usar `chat_id` de Telegram como clave primaria|No es portable entre canales. Un mismo usuario en Telegram y WhatsApp generaría dos registros desconectados con configuraciones duplicadas. Impide la multicanalidad futura sin migración estructural.|
-|Usar el número de teléfono como clave primaria|Supone que Telegram y WhatsApp comparten el mismo número, lo cual no es garantía (cuentas de empresa, números distintos por canal). Además, expone un dato personal como clave técnica.|
-|No modelar una entidad `User` explícita|Los ADRs 003, 004, 006 y 007 ya referencian un `userId` implícito. No formalizar la entidad deja esas referencias sin ancla, generando inconsistencias en el esquema y dificultando la auditoría.|
+| Alternativa                                    | Motivo de descarte                                                                                                                                                                                     |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Usar `chat_id` de Telegram como clave primaria | No es portable entre canales. Un mismo usuario en Telegram y WhatsApp generaría dos registros desconectados con configuraciones duplicadas. Impide la multicanalidad futura sin migración estructural. |
+| Usar el número de teléfono como clave primaria | Supone que Telegram y WhatsApp comparten el mismo número, lo cual no es garantía (cuentas de empresa, números distintos por canal). Además, expone un dato personal como clave técnica.                |
+| No modelar una entidad `User` explícita        | Los ADRs 003, 004, 006 y 007 ya referencian un `userId` implícito. No formalizar la entidad deja esas referencias sin ancla, generando inconsistencias en el esquema y dificultando la auditoría.      |
 
 ### Consecuencias
 
@@ -599,13 +603,13 @@ El deployment en Fly.io utiliza un único proceso que levanta tanto el servidor 
 
 ### Alternativas descartadas
 
-|Alternativa|Motivo de descarte|
-|---|---|
-|Next.js en Vercel (serverless)|Incompatible con BullMQ, timeouts conversacionales y jobs periódicos. El modelo de funciones efímeras contradice los requerimientos de procesos de larga duración del producto.|
-|Next.js en servidor dedicado (sin serverless)|Elimina la contradicción técnica pero mantiene el peso de toolchain de frontend sin ningún beneficio. La estructura de carpetas de Next.js sigue conflictuando con Clean Architecture.|
-|Express.js|Viable técnicamente. Se descarta frente a Fastify por ausencia de validación de esquemas nativa, peor soporte TypeScript out-of-the-box y menor rendimiento en benchmarks de webhooks concurrentes.|
-|Next.js + worker separado en segundo servicio|Introduce exactamente la complejidad de infraestructura multi-servicio que ADR-001 rechazó. Dos servicios que coordinar, dos deploys, dos puntos de fallo.|
-|Render (free tier)|Suspende el proceso tras 15 minutos de inactividad. Un cold start de 30 segundos es incompatible con el SLA de acuse de recibo de 300ms definido en ADR-005.|
+| Alternativa                                   | Motivo de descarte                                                                                                                                                                                  |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Next.js en Vercel (serverless)                | Incompatible con BullMQ, timeouts conversacionales y jobs periódicos. El modelo de funciones efímeras contradice los requerimientos de procesos de larga duración del producto.                     |
+| Next.js en servidor dedicado (sin serverless) | Elimina la contradicción técnica pero mantiene el peso de toolchain de frontend sin ningún beneficio. La estructura de carpetas de Next.js sigue conflictuando con Clean Architecture.              |
+| Express.js                                    | Viable técnicamente. Se descarta frente a Fastify por ausencia de validación de esquemas nativa, peor soporte TypeScript out-of-the-box y menor rendimiento en benchmarks de webhooks concurrentes. |
+| Next.js + worker separado en segundo servicio | Introduce exactamente la complejidad de infraestructura multi-servicio que ADR-001 rechazó. Dos servicios que coordinar, dos deploys, dos puntos de fallo.                                          |
+| Render (free tier)                            | Suspende el proceso tras 15 minutos de inactividad. Un cold start de 30 segundos es incompatible con el SLA de acuse de recibo de 300ms definido en ADR-005.                                        |
 
 ### Consecuencias
 
@@ -627,6 +631,97 @@ El deployment en Fly.io utiliza un único proceso que levanta tanto el servidor 
 
 ---
 
+## ADR-010 · Infraestructura: Despliegue Multi-Ambiente en Fly.io
+
+**Status:** Accepted
+
+### Contexto
+
+A medida que el equipo crece y las funcionalidades se estabilizan, se hace necesario contar con un entorno de staging aislado donde probar cambios antes de promoverlos a producción. El despliegue único sobre `main` obliga a validar todas las modificaciones directamente en el entorno productivo, incrementando el riesgo de regresiones visibles por los usuarios finales.
+
+Además, el proyecto maneja secretos sensibles (tokens de bots, claves de API, credenciales de base de datos) que deben rotarse y gestionarse de forma independiente por ambiente. Compartir un único conjunto de secretos entre producción y desarrollo viola el principio de mínimo privilegio y dificulta la rotación segura.
+
+La infraestructura actual consiste en un único `Dockerfile` de una etapa, un `fly.toml` que expone el puerto `8080` y un workflow de GitHub Actions que solo escucha `main`. Estos artefactos deben evolucionar para soportar dos ambientes operativos con costo y complejidad controlados.
+
+### Decisión
+
+Se adopta un modelo de **despliegue multi-ambiente sobre Fly.io** con las siguientes decisiones operativas:
+
+**Dos aplicaciones Fly.io independientes**
+
+- `gastto` → ambiente de producción, desplegada desde la rama `main`.
+- `gastto-develop` → ambiente de desarrollo (staging), desplegada desde la rama `develop`.
+
+Cada app tiene su propio conjunto de secretos en Fly.io, su propio bot de Telegram y su propia base de datos (o esquema), garantizando aislamiento total.
+
+**Despliegue automático vía GitHub Actions**
+
+El workflow `.github/workflows/fly-deploy.yml` se actualiza para escuchar pushes en `main` y `develop`. Cada rama dispara el despliegue correspondiente mediante pasos condicionales (`if: github.ref == 'refs/heads/...'`), utilizando tokens de API de Fly.io distintos (`FLY_API_TOKEN` y `FLY_API_TOKEN_DEVELOP`). Se mantiene `concurrency: deploy-group` para evitar deploys concurrentes.
+
+**Configuración y secretos en Fly.io, no en GitHub**
+
+Toda la configuración específica de ambiente (incluyendo variables sensibles) se almacena como secretos de Fly.io por app. GitHub Actions solo almacena los tokens de Fly.io necesarios para autenticar el despliegue. Esto simplifica la rotación de credenciales: un único `flyctl secrets set` por app, sin modificar el repositorio.
+
+**Un bot de Telegram por ambiente**
+
+Para evitar colisiones de webhooks y aislar el tráfico de prueba, cada ambiente utiliza su propio bot de Telegram. El bot de desarrollo se registra con el webhook apuntando a `gastto-develop.fly.dev`.
+
+**Dockerfile multi-etapa con pnpm**
+
+El `Dockerfile` se reescribe como construcción multi-etapa:
+
+- Etapa `builder`: instala todas las dependencias (incluyendo dev), compila con `pnpm build` y genera `dist/main.js`.
+- Etapa `runner`: copia únicamente `dist/` e instala solo dependencias de producción con `pnpm install --prod --frozen-lockfile`.
+
+Esto reduce drásticamente el tamaño de la imagen final al excluir devDependencies y herramientas de compilación.
+
+**Puerto unificado: 3000**
+
+Se alinea el puerto expuesto en el `Dockerfile`, `fly.toml`, `fly.develop.toml` y el default de `env.schema.ts` a `3000`. Antes, el `Dockerfile` exponía `8080` mientras la aplicación arrancaba en `3000` por defecto, lo que provocaba fallos de ruteo si Fly.io no inyectaba explícitamente `PORT=8080`.
+
+**Recursos ajustados al free tier**
+
+Cada VM se configura con:
+
+- `memory = '256mb'`
+- `cpu_kind = 'shared'`
+- `cpus = 1`
+
+Esto mantiene el consumo dentro de los límites del tier gratuito de Fly.io (3 VMs compartidas, 256 MB cada una).
+
+**`auto_stop_machines = true` (configuración temporal)**
+
+Ambos archivos `fly.toml` y `fly.develop.toml` configuran `auto_stop_machines = true` y `min_machines_running = 0`. Esta configuración es segura mientras no haya workers de BullMQ ejecutándose en segundo plano. Cuando se introduzcan workers (per ADR-009), `auto_stop_machines` **debe cambiarse a `false`** para evitar que Fly.io detenga la VM mientras hay jobs pendientes en la cola.
+
+### Alternativas descartadas
+
+| Alternativa                                                   | Motivo de descarte                                                                                                                                                                                                                             |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Una sola app con preview deployments (similares a Vercel)     | Fly.io no ofrece preview deployments nativos por rama. Emularlos con máquinas efímeras añade complejidad operativa comparable a tener dos apps permanentes, pero sin el beneficio del aislamiento completo de secretos y base de datos.        |
+| Almacenar variables de entorno en GitHub repository variables | GitHub variables no están encriptadas con el mismo nivel que Fly.io secrets. Además, obligarían a re-desplegar solo para rotar una clave de API. Fly.io secrets permiten rotación inmediata sin tocar el repo.                                 |
+| Compartir un único bot de Telegram entre ambiente             | Los webhooks de Telegram solo permiten una URL por bot. Compartirlo obligaría a re-registrar el webhook en cada deploy, con riesgo de que mensajes de producción lleguen al ambiente de desarrollo y viceversa.                                |
+| Mantener el puerto 8080                                       | Mantener `8080` en Fly.io mientras la aplicación escucha en `3000` por defecto requiere que Fly.io inyecte siempre `PORT=8080`. Si esa variable falta, el deploy falla silenciosamente. Unificar a `3000` elimina esta dependencia implícita.  |
+| Conservar el Dockerfile de una sola etapa                     | La imagen resultante incluye todas las devDependencies (TypeScript, ESLint, Vitest, etc.), aumentando el tamaño final y la superficie de ataque. La construcción multi-etapa es estándar en la industria y no añade complejidad significativa. |
+
+### Consecuencias
+
+**Positivas**
+
+- Aislamiento completo entre producción y staging: un error en `develop` no afecta a los usuarios de producción.
+- Despliegue automático y branch-based: mergear a `main` o `develop` despliega automáticamente sin intervención manual.
+- Imagen Docker significativamente más pequeña gracias a la construcción multi-etapa, reduciendo tiempos de despliegue y uso de disco en Fly.io.
+- Rotación de secretos simplificada: cambios de credenciales se hacen directamente en Fly.io sin commits al repositorio.
+- Costo controlado: ambas apps corren dentro del free tier de Fly.io (3 VMs compartidas, 256 MB cada una).
+
+**Negativas**
+
+- Sobrecarga operativa de gestionar dos conjuntos de secretos independientes.
+- Necesidad de crear y mantener un segundo bot de Telegram para el ambiente de desarrollo.
+- Consumo duplicado de recursos del free tier (dos apps en lugar de una), lo que reduce la capacidad disponible para futuras VMs o workers.
+- El cambio de `auto_stop_machines` a `false` cuando lleguen los workers de BullMQ es un paso manual que debe recordarse; se documenta con comentarios en ambos `fly.toml`.
+
+---
+
 ## Resumen de Decisiones
 
 | ADR     | Decisión                                                                                                                          | Status   |
@@ -640,6 +735,7 @@ El deployment en Fly.io utiliza un único proceso que levanta tanto el servidor 
 | ADR-007 | Tokens OAuth cifrados con AES-256 en BD, refresh transparente, nunca en texto plano                                               | Accepted |
 | ADR-008 | Registro local de usuario con `userId` UUID propio; identidad de mensajería como atributo separado (tabla `messaging_identities`) | Accepted |
 | ADR-009 | Servidor Node.js persistente con Fastify desplegado en Fly.io; Next.js descartado                                                 | Accepted |
+| ADR-010 | Despliegue multi-ambiente en Fly.io con apps `gastto` y `gastto-develop`, Dockerfile multi-etapa y puerto unificado 3000          | Accepted |
 
 ---
 
