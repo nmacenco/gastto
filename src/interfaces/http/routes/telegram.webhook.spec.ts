@@ -1,45 +1,51 @@
 // LAYER: Interfaces / Tests
-// Contract tests for the Telegram webhook route.
+// Contract tests for the Telegram webhook route (refactored for ADR-011).
+// The route now enqueues to incoming-message queue, handles MALFORMED at
+// the route layer, and short-circuits /start synchronously.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
+import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { Queue } from 'bullmq';
-import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
-import {
-  registerTelegramWebhook,
-  type ProcessMessageJobData,
-  type TelegramWebhookDeps,
-} from './telegram.webhook';
+import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
+import { registerTelegramWebhook, type TelegramWebhookDeps } from './telegram.webhook';
 
 const WEBHOOK_SECRET = 'test-secret-token';
 
-const mockExecute = vi.fn();
-const mockAdd = vi.fn();
-const mockSendMessage = vi.fn();
+const mockQueueAdd = vi.fn();
 const mockHandleStartExecute = vi.fn();
+const mockLogError = vi.fn();
 
 function buildMockDeps(): TelegramWebhookDeps {
-  mockExecute.mockResolvedValue({
-    userId: 'user-123',
-    isNewUser: false,
-    currentState: 'IDLE',
-  });
-  mockAdd.mockResolvedValue(undefined);
-  mockSendMessage.mockResolvedValue(undefined);
+  mockQueueAdd.mockResolvedValue(undefined);
   mockHandleStartExecute.mockResolvedValue({ replyText: 'Welcome!' });
+  mockLogError.mockReset();
 
   return {
     webhookSecret: WEBHOOK_SECRET,
-    messageQueue: { add: mockAdd } as unknown as Queue<ProcessMessageJobData>,
-    resolveIdentity: { execute: mockExecute } as unknown as ResolveUserIdentityUseCase,
-    telegramMessaging: { sendMessage: mockSendMessage },
+    incomingMessageQueue: { add: mockQueueAdd } as unknown as Queue<IncomingMessageJobData>,
     handleStartCommand: { execute: mockHandleStartExecute } as unknown as HandleStartCommand,
   };
 }
 
 function buildApp(deps: TelegramWebhookDeps = buildMockDeps()) {
   const app = Fastify({ logger: false });
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
+  // Inject mock logger so we can assert on req.log.error
+  // eslint-disable-next-line @typescript-eslint/require-await
+  app.addHook('preHandler', async (req) => {
+    (req as unknown as Record<string, unknown>).log = {
+      error: mockLogError,
+      info: vi.fn(),
+      warn: vi.fn(),
+      debug: vi.fn(),
+      trace: vi.fn(),
+      fatal: vi.fn(),
+      child: vi.fn().mockReturnThis(),
+    };
+  });
   registerTelegramWebhook(app, deps);
   return { app, deps };
 }
@@ -67,7 +73,7 @@ describe('POST /webhook/telegram', () => {
     vi.clearAllMocks();
   });
 
-  it('returns HTTP 200 and processes a valid text message', async () => {
+  it('returns HTTP 200 and enqueues a valid text message to the incoming-message queue', async () => {
     const { app } = buildApp();
 
     const response = await app.inject({
@@ -82,68 +88,71 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
-    expect(mockExecute).toHaveBeenCalledWith({
-      channel: 'telegram',
-      externalId: '123456789',
-    });
-
-    expect(mockAdd).toHaveBeenCalledOnce();
-    const [, jobData] = mockAdd.mock.calls[0] as [string, ProcessMessageJobData];
-    expect(jobData).toMatchObject({
-      userId: 'user-123',
-      rawMessage: 'Cafe con leche 850',
-      channel: 'telegram',
-      externalId: '123456789',
-    });
-    expect(new Date(jobData.receivedAt).getTime()).toBeGreaterThan(0);
-
-    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu gasto…');
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    const [, jobData] = mockQueueAdd.mock.calls[0] as [string, IncomingMessageJobData];
+    expect(jobData.messageType).toBe('TEXT');
+    expect(jobData.chatId).toBe('123456789');
+    expect(jobData.text).toBe('Cafe con leche 850');
+    expect(jobData.channel).toBe('telegram');
+    expect(typeof jobData.timestamp).toBe('string');
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
-  it('returns HTTP 200 for unparseable payload without enqueuing', async () => {
+  it('returns HTTP 200 for unparseable payload and logs MALFORMED error without enqueueing', async () => {
     const { app } = buildApp();
 
+    const rawPayload = { invalid: 'data' };
     const response = await app.inject({
       method: 'POST',
       url: '/webhook/telegram',
       headers: {
         'x-telegram-bot-api-secret-token': WEBHOOK_SECRET,
       },
-      payload: { invalid: 'data' },
+      payload: rawPayload,
     });
 
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
-    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockLogError).toHaveBeenCalledTimes(1);
+    expect(mockLogError).toHaveBeenCalledWith({
+      endpoint: '/webhook/telegram',
+      code: 'MALFORMED_PAYLOAD',
+      rawPayload,
+    });
+
+    expect(mockQueueAdd).not.toHaveBeenCalled();
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
-  it('returns HTTP 200 for payload without message and does not enqueue', async () => {
+  it('returns HTTP 200 for payload without message and logs MALFORMED error without enqueueing', async () => {
     const { app } = buildApp();
 
+    const rawPayload = makeValidPayload({ noMessage: true });
     const response = await app.inject({
       method: 'POST',
       url: '/webhook/telegram',
       headers: {
         'x-telegram-bot-api-secret-token': WEBHOOK_SECRET,
       },
-      payload: makeValidPayload({ noMessage: true }),
+      payload: rawPayload,
     });
 
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
-    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockLogError).toHaveBeenCalledTimes(1);
+    expect(mockLogError).toHaveBeenCalledWith({
+      endpoint: '/webhook/telegram',
+      code: 'MALFORMED_PAYLOAD',
+      rawPayload,
+    });
+
+    expect(mockQueueAdd).not.toHaveBeenCalled();
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
-  it('returns HTTP 200 for non-text messages and sends fallback text', async () => {
+  it('returns HTTP 200 for non-text messages and enqueues as UNSUPPORTED', async () => {
     const { app } = buildApp();
 
     const response = await app.inject({
@@ -158,16 +167,45 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '123456789',
-      'Por ahora solo proceso mensajes de texto. Contame tu gasto escribiendolo.',
-    );
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    const [, jobData] = mockQueueAdd.mock.calls[0] as [string, IncomingMessageJobData];
+    expect(jobData.messageType).toBe('UNSUPPORTED');
+    expect(jobData.chatId).toBe('123456789');
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 
-  it('triggers HandleStartCommand for /start without enqueuing', async () => {
+  it('enqueues 3 rapid text messages from the same chat_id in order (FIFO)', async () => {
+    const { app } = buildApp();
+
+    const messages = ['Cafe 850', 'Taxi 1200', 'Super 4500'];
+    const responses = await Promise.all(
+      messages.map((text) =>
+        app.inject({
+          method: 'POST',
+          url: '/webhook/telegram',
+          headers: {
+            'x-telegram-bot-api-secret-token': WEBHOOK_SECRET,
+          },
+          payload: makeValidPayload({ text }),
+        }),
+      ),
+    );
+
+    responses.forEach((response) => {
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload)).toEqual({ ok: true });
+    });
+
+    expect(mockQueueAdd).toHaveBeenCalledTimes(3);
+    messages.forEach((text, index) => {
+      const [, jobData] = mockQueueAdd.mock.calls[index] as [string, IncomingMessageJobData];
+      expect(jobData.messageType).toBe('TEXT');
+      expect(jobData.chatId).toBe('123456789');
+      expect(jobData.text).toBe(text);
+    });
+  });
+
+  it('triggers HandleStartCommand for /start without enqueueing', async () => {
     const { app } = buildApp();
 
     const response = await app.inject({
@@ -187,9 +225,7 @@ describe('POST /webhook/telegram', () => {
       username: 'Juan',
     });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
-    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
   });
 
   it('triggers HandleStartCommand for /START (case-insensitive)', async () => {
@@ -212,8 +248,7 @@ describe('POST /webhook/telegram', () => {
       username: undefined,
     });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
   });
 
   it('triggers HandleStartCommand for /start with surrounding whitespace', async () => {
@@ -236,7 +271,6 @@ describe('POST /webhook/telegram', () => {
       username: undefined,
     });
 
-    expect(mockExecute).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
   });
 });

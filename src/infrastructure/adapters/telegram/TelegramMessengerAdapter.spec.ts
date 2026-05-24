@@ -16,14 +16,19 @@ interface TelegramSendMessageBody {
 
 describe('TelegramMessengerAdapter', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock;
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   describe('sendMessage', () => {
@@ -34,8 +39,9 @@ describe('TelegramMessengerAdapter', () => {
       });
 
       const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
-      await adapter.sendMessage(CHAT_ID, 'Hello world');
+      const result = await adapter.sendMessage(CHAT_ID, 'Hello world');
 
+      expect(result).toEqual({ status: 'success' });
       expect(fetchMock).toHaveBeenCalledOnce();
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`);
@@ -47,22 +53,19 @@ describe('TelegramMessengerAdapter', () => {
       expect(body.parse_mode).toBeUndefined();
     });
 
-    it('includes parse_mode when options specify Markdown', async () => {
+    it('returns success when Telegram responds with ok: true', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({ ok: true }),
       });
 
       const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
-      await adapter.sendMessage(CHAT_ID, '**bold**', { parseMode: 'Markdown' });
+      const result = await adapter.sendMessage(CHAT_ID, 'Hello world');
 
-      const body = JSON.parse(
-        (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
-      ) as TelegramSendMessageBody;
-      expect(body.parse_mode).toBe('Markdown');
+      expect(result).toEqual({ status: 'success' });
     });
 
-    it('throws when Telegram responds with HTTP error', async () => {
+    it('returns failure when Telegram responds with HTTP error', async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 401,
@@ -70,19 +73,241 @@ describe('TelegramMessengerAdapter', () => {
       });
 
       const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
-      await expect(adapter.sendMessage(CHAT_ID, 'test')).rejects.toThrow('401');
+      const result = await adapter.sendMessage(CHAT_ID, 'test');
+
+      expect(result).toEqual({ status: 'failure', errorCode: 'SEND_FAILED' });
     });
 
-    it('throws when Telegram JSON response has ok: false', async () => {
+    it('returns failure when Telegram JSON response has ok: false', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({ ok: false, description: 'Bad Request: chat not found' }),
       });
 
       const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
-      await expect(adapter.sendMessage(CHAT_ID, 'test')).rejects.toThrow(
-        'Bad Request: chat not found',
+      const result = await adapter.sendMessage(CHAT_ID, 'test');
+
+      expect(result).toEqual({ status: 'failure', errorCode: 'TELEGRAM_API_ERROR' });
+    });
+
+    it('splits long messages into chunks and sends them sequentially', async () => {
+      const longText = 'A'.repeat(4096) + 'B'.repeat(100);
+
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ ok: true }),
+      });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const result = await adapter.sendMessage(CHAT_ID, longText);
+
+      expect(result).toEqual({ status: 'success' });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      const firstBody = JSON.parse(
+        (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+      ) as TelegramSendMessageBody;
+      const secondBody = JSON.parse(
+        (fetchMock.mock.calls[1] as [string, RequestInit])[1].body as string,
+      ) as TelegramSendMessageBody;
+
+      expect(firstBody.text.length).toBe(4096);
+      expect(secondBody.text).toBe('B'.repeat(100));
+
+      const chunkLog = consoleLogSpy.mock.calls.find(
+        (call) => (call[0] as { event?: string }).event === 'message_chunked',
       );
+      expect(chunkLog).toBeDefined();
+      expect(chunkLog![0]).toMatchObject({
+        event: 'message_chunked',
+        chatId: CHAT_ID,
+        originalLength: longText.length,
+        fragmentCount: 2,
+      });
+    });
+
+    it('stops sending remaining fragments when a fragment fails permanently', async () => {
+      const longText = 'A'.repeat(4096) + 'B'.repeat(100);
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ ok: true }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 403,
+          text: () => Promise.resolve('Forbidden'),
+        });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const result = await adapter.sendMessage(CHAT_ID, longText);
+
+      expect(result).toEqual({ status: 'failure', errorCode: 'PERMANENT_FAILURE' });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('retry logic', () => {
+    it('retries 3 times on HTTP 5xx with correct delays, then returns MAX_RETRIES_EXCEEDED', async () => {
+      vi.useFakeTimers();
+
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('Internal Server Error'),
+      });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const sendPromise = adapter.sendMessage(CHAT_ID, 'test');
+
+      // Initial attempt + 3 retries = 4 calls total
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+
+      const result = await sendPromise;
+      expect(result).toEqual({ status: 'failure', errorCode: 'MAX_RETRIES_EXCEEDED' });
+
+      const retryLogs = consoleLogSpy.mock.calls.filter(
+        (call) => (call[0] as { event?: string }).event === 'retry_scheduled',
+      );
+      expect(retryLogs).toHaveLength(3);
+      expect(retryLogs[0]![0]).toMatchObject({ attempt: 1, delayMs: 1000 });
+      expect(retryLogs[1]![0]).toMatchObject({ attempt: 2, delayMs: 2000 });
+      expect(retryLogs[2]![0]).toMatchObject({ attempt: 3, delayMs: 4000 });
+    });
+
+    it('returns PERMANENT_FAILURE immediately on HTTP 400 with no retries', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('Bad Request'),
+      });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const result = await adapter.sendMessage(CHAT_ID, 'test');
+
+      expect(result).toEqual({ status: 'failure', errorCode: 'PERMANENT_FAILURE' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const errorLog = consoleErrorSpy.mock.calls.find(
+        (call) => (call[0] as { event?: string }).event === 'message_send_failed',
+      );
+      expect(errorLog).toBeDefined();
+      expect(errorLog![0]).toMatchObject({
+        event: 'message_send_failed',
+        chatId: CHAT_ID,
+        errorCode: 'PERMANENT_FAILURE',
+        reason: 'HTTP 400',
+      });
+    });
+
+    it('returns PERMANENT_FAILURE immediately on HTTP 403 with no retries', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: () => Promise.resolve('Forbidden'),
+      });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const result = await adapter.sendMessage(CHAT_ID, 'test');
+
+      expect(result).toEqual({ status: 'failure', errorCode: 'PERMANENT_FAILURE' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('succeeds on the second retry attempt', async () => {
+      vi.useFakeTimers();
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 502,
+          text: () => Promise.resolve('Bad Gateway'),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          text: () => Promise.resolve('Service Unavailable'),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ ok: true }),
+        });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const sendPromise = adapter.sendMessage(CHAT_ID, 'test');
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+
+      const result = await sendPromise;
+      expect(result).toEqual({ status: 'success' });
+
+      const successLog = consoleLogSpy.mock.calls.find(
+        (call) =>
+          (call[0] as { event?: string; result?: string }).event === 'message_sent' &&
+          (call[0] as { result?: string }).result === 'success',
+      );
+      expect(successLog).toBeDefined();
+      expect(successLog![0]).toMatchObject({ attempt: 3, result: 'success' });
+    });
+  });
+
+  describe('logging', () => {
+    it('logs message_sent on successful send', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ ok: true }),
+      });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      await adapter.sendMessage(CHAT_ID, 'Hello world');
+
+      const sentLog = consoleLogSpy.mock.calls.find(
+        (call) => (call[0] as { event?: string }).event === 'message_sent',
+      );
+      expect(sentLog).toBeDefined();
+      expect(sentLog![0]).toMatchObject({
+        event: 'message_sent',
+        chatId: CHAT_ID,
+        textLength: 'Hello world'.length,
+        attempt: 1,
+        result: 'success',
+      });
+    });
+
+    it('logs message_sent with failure result on HTTP 401', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve('Unauthorized'),
+      });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      await adapter.sendMessage(CHAT_ID, 'test');
+
+      const sentLog = consoleLogSpy.mock.calls.find(
+        (call) => (call[0] as { event?: string }).event === 'message_sent',
+      );
+      expect(sentLog).toBeDefined();
+      expect(sentLog![0]).toMatchObject({
+        event: 'message_sent',
+        result: 'failure',
+        errorCode: 'SEND_FAILED',
+      });
     });
   });
 

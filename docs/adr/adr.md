@@ -722,6 +722,51 @@ Ambos archivos `fly.toml` y `fly.develop.toml` configuran `auto_stop_machines = 
 
 ---
 
+## ADR-011 · Pipeline de Dos Colas para Orden FIFO
+
+**Status:** Accepted
+
+### Contexto
+
+ADR-005 introdujo un pipeline asíncrono de dos etapas (webhook → worker BullMQ `process-message`) que cumple el SLA de acuse ≤ 1s y el procesamiento LLM de 2–5s. Sin embargo, ese pipeline no garantiza ordenamiento FIFO por usuario.
+
+Cuando un usuario envía varios mensajes en rápida sucesión, la cola `process-message` con `concurrency: 2` puede procesarlos desordenados, violando la coherencia conversacional.
+
+### Decisión
+
+Se adopta un **pipeline de tres etapas** extendiendo ADR-005:
+
+1. **Webhook (Fastify)** — Valida origen, parsea payload, short-circuita `MALFORMED` (logs + 200) y `/start` (síncrono), encola todo lo demás a `incoming-message`.
+2. **Thin Worker (`incoming-message`)** — `concurrency: 1`. Garantiza FIFO por usuario. Deserializa el job y llama a `RouteIncomingMessage.execute()`.
+3. **Thick Worker (`process-message`)** — `concurrency: 2`. Procesamiento FSM/LLM/gasto existente de ADR-005.
+
+La cola `process-message` y su worker permanecen sin cambios.
+
+### Alternativas descartadas
+
+| Alternativa                                                | Motivo de descarte                                                                                                    |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Cola única `process-message` con `concurrency: 1`          | Bloquea el procesamiento LLM pesado para todos los usuarios si un job es lento. Rechazado.                            |
+| Procesamiento síncrono en orden dentro del handler Fastify | Viola el SLA de acuse ≤ 1s si la resolución de identidad o cualquier handler downstream es lento. Rechazado.          |
+| BullMQ Pro Groups                                          | Requiere licencia paga de BullMQ Pro. Overkill para el MVP. Rechazado por ahora; anotado como path de upgrade futuro. |
+
+### Consecuencias
+
+**Positivas**
+
+- FIFO estricto por usuario garantizado por el thin worker.
+- El thick worker puede escalar independientemente (`concurrency: 2` o mayor).
+- Separación clara de capas: webhook (Interfaces) → router (Application) → FSM/NLP (Application + Infrastructure).
+- El log de payloads malformados se movió a la capa de ruta donde el contexto de request (`req.log`) está disponible.
+
+**Negativas**
+
+- Dos colas y dos workers añaden complejidad operativa.
+- El mensaje de acuse ("Recibido, procesando tu gasto…") ahora se envía de forma asíncrona desde el worker en lugar de síncronamente desde el webhook. Añade una pequeña demora (< 100ms en la práctica) pero se mantiene bien bajo el SLA de 1s.
+- `concurrency: 1` en el thin worker es un cuello de botella si el volumen de mensajes entrantes excede algunas docenas por segundo. Mitigación: monitorear profundidad de cola y migrar a BullMQ Pro Groups o una estrategia de partición por hash de `chat_id` cuando sea necesario.
+
+---
+
 ## Resumen de Decisiones
 
 | ADR     | Decisión                                                                                                                          | Status   |
@@ -736,6 +781,7 @@ Ambos archivos `fly.toml` y `fly.develop.toml` configuran `auto_stop_machines = 
 | ADR-008 | Registro local de usuario con `userId` UUID propio; identidad de mensajería como atributo separado (tabla `messaging_identities`) | Accepted |
 | ADR-009 | Servidor Node.js persistente con Fastify desplegado en Fly.io; Next.js descartado                                                 | Accepted |
 | ADR-010 | Despliegue multi-ambiente en Fly.io con apps `gastto` y `gastto-develop`, Dockerfile multi-etapa y puerto unificado 3000          | Accepted |
+| ADR-011 | Pipeline de dos colas para orden FIFO con thin worker (`incoming-message`, `concurrency: 1`) y thick worker (`process-message`)   | Accepted |
 
 ---
 
