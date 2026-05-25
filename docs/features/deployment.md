@@ -111,3 +111,59 @@ Pushes to any other branch do not trigger automatic deploys.
 - **Fly.io config files (`fly.toml`, `fly.develop.toml`)**: Non-sensitive, static infrastructure settings (port, memory, region, `NODE_ENV`).
 
 This separation ensures that rotating a third-party API key or database credential requires a single `flyctl secrets set` command, with no GitHub interaction needed.
+
+## Continuous Integration
+
+The project uses a GitHub Actions workflow (`.github/workflows/ci.yml`) to validate every change before it is merged.
+
+### What runs
+
+The `ci.yml` workflow runs the following quality gates on every pull request and on every push to `main` and `develop`:
+
+| Step      | Command                          | What it checks                                 |
+| --------- | -------------------------------- | ---------------------------------------------- |
+| Install   | `pnpm install --frozen-lockfile` | Dependencies resolve cleanly with the lockfile |
+| Lint      | `pnpm lint`                      | ESLint rules pass on all `src/**/*.ts` files   |
+| Typecheck | `pnpm typecheck`                 | `tsc --noEmit` passes with strict mode         |
+| Build     | `pnpm build`                     | `tsup` compiles successfully to `dist/main.js` |
+| Test      | `pnpm test`                      | All 103 Vitest unit tests pass                 |
+
+### When it runs
+
+- **On pull requests**: Runs automatically when a PR is opened or updated. Checks appear at the bottom of the PR conversation.
+- **On push to `main` or `develop`**: Runs after the merge is completed, validating the resulting state of the branch.
+
+### Viewing results
+
+Check results appear in the **Checks** tab of the pull request on GitHub. The job is named `quality`. If any gate fails, the PR cannot be merged until branch protection rules are satisfied (see next section).
+
+## Branch Protection Setup
+
+Branch protection rules ensure that no one (including maintainers) can merge a pull request or push directly to `main` or `develop` without passing the CI checks.
+
+### Steps to configure
+
+1. Go to the repository on GitHub: **Settings > Branches > Branch protection rules > Add rule**.
+2. Enter the branch name pattern: `main` (create one rule per pattern).
+3. Repeat for `develop` (or use a single pattern rule with `main,develop` if the GitHub UI supports it).
+4. Enable the following options:
+   - **"Require a pull request before merging"**
+     - Prevents direct pushes to the branch.
+     - Optional: enable **"Require approvals"** and set to 1 reviewer for extra safety.
+
+   - **"Require status checks to pass before merging"**
+     - Search for and select the `quality` check from the `ci.yml` workflow.
+     - This blocks the merge button in the PR UI until all gates are green.
+
+5. Save the rule.
+
+### What this prevents
+
+With this configuration:
+
+- A developer opens a PR and pushes broken code (e.g., a type error or a failing test).
+- The CI workflow runs and fails on the `typecheck` or `test` gate.
+- The PR merge button stays blocked until all checks pass.
+- Even a direct push to `main` or `develop` triggers the CI; if it fails, the commit is still visible in the branch history but does not reach a "green" state.
+
+This prevents incidents like the Fastify plugin version mismatch from reaching the deployable branches.
