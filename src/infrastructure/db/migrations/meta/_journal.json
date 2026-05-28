@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1779911967827,
+      "tag": "0000_abandoned_the_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779996087381,
+      "tag": "0001_add_check_constraints",
+      "breakpoints": true
+    }
+  ]
+}
