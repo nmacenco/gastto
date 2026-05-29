@@ -25,6 +25,8 @@ import { env } from '@config/env';
 
 // Infrastructure
 import { DrizzleUserRepository } from './infrastructure/db/repositories/DrizzleUserRepository';
+import { DrizzleConversationStateRepository } from './infrastructure/db/repositories/DrizzleConversationStateRepository';
+import { DrizzleOperationLogRepository } from './infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/TelegramMessengerAdapter';
 
 // Application
@@ -32,6 +34,8 @@ import { ResolveUserIdentityUseCase } from './application/use-cases/user/Resolve
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
+import { TransitionConversationState } from './application/use-cases/conversation/TransitionConversationState';
+import { RecoverCorruptedState } from './application/use-cases/conversation/RecoverCorruptedState';
 import type { ProcessMessageJobData } from './application/ports/ProcessMessageJob';
 import type { IncomingMessageJobData } from './application/ports/IncomingMessageJob';
 
@@ -123,12 +127,14 @@ async function bootstrap(): Promise<void> {
 
     // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
     const userRepo = new DrizzleUserRepository(db, redis);
+    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+    const conversationRepo = new DrizzleConversationStateRepository(db);
+    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+    const operationLogRepo = new DrizzleOperationLogRepository(db);
 
-    const resolveIdentity = new ResolveUserIdentityUseCase(
-      userRepo,
-      // @ts-expect-error TODO: inject DrizzleConversationStateRepository when implemented
-      null,
-    );
+    const resolveIdentity = new ResolveUserIdentityUseCase(userRepo, conversationRepo);
+    const transitionState = new TransitionConversationState(conversationRepo);
+    const recoverCorruptedState = new RecoverCorruptedState(conversationRepo, operationLogRepo);
 
     const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
       connection: redis,
@@ -176,8 +182,9 @@ async function bootstrap(): Promise<void> {
         redis,
         // @ts-expect-error TODO: implement RegisterExpenseUseCase wiring
         registerExpense: null,
-        // @ts-expect-error TODO: implement IConversationStateRepository wiring
-        conversationRepo: null,
+        conversationRepo,
+        transitionState,
+        recoverCorruptedState,
         userRepo,
         messagingAdapters: {
           telegram: telegramAdapter,

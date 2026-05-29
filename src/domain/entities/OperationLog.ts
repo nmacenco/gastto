@@ -9,9 +9,10 @@ export type OperationType =
   | 'TOKEN_REFRESHED'
   | 'TOKEN_REVOKED'
   | 'ONBOARDING_COMPLETED'
-  | 'MAPPING_UPDATED';
+  | 'MAPPING_UPDATED'
+  | 'STATE_CORRUPTED';
 
-export type ErrorType = 'NETWORK_ERROR' | 'AUTH_ERROR' | 'STRUCTURE_ERROR';
+export type ErrorType = 'NETWORK_ERROR' | 'AUTH_ERROR' | 'STRUCTURE_ERROR' | 'CORRUPTED_STATE';
 
 export interface OperationLog {
   id: string;

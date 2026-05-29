@@ -6,6 +6,8 @@
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
+import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
+import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
 import type { IConversationStateRepository } from '../../domain/ports/repositories';
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
@@ -16,6 +18,8 @@ export function createMessageWorker(opts: {
   redis: Redis;
   registerExpense: RegisterExpenseUseCase;
   conversationRepo: IConversationStateRepository;
+  transitionState: TransitionConversationState;
+  recoverCorruptedState: RecoverCorruptedState;
   userRepo: IUserRepository;
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
 }): Worker<ProcessMessageJobData> {
@@ -95,12 +99,21 @@ export function createMessageWorker(opts: {
         }
 
         default: {
-          // Estado no reconocido: reset seguro (ADR-003, HU-0.04 Escenario 4)
-          await opts.conversationRepo.transition(userId, 'IDLE', null, null);
-          await messaging.sendMessage(
-            externalId,
-            'Parece que algo falló. Vamos a empezar de nuevo.',
-          );
+          // Estado no reconocido o válido pero sin handler: reset seguro (ADR-003, HU-0.04 Escenario 4)
+          const recovery = await opts.recoverCorruptedState.execute({
+            userId,
+            observedState: currentState,
+          });
+          if (recovery.recovered) {
+            await messaging.sendMessage(externalId, recovery.message);
+          } else {
+            // Estado válido pero no manejado: forzar reset a IDLE para no dejar al usuario atascado
+            await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+            await messaging.sendMessage(
+              externalId,
+              'Parece que algo falló. Vamos a empezar de nuevo.',
+            );
+          }
         }
       }
     },
@@ -172,7 +185,7 @@ async function handleExpenseReview(
     // Guardado — pendiente de implementar llamada a registerExpense.save()
     await messaging.sendMessage(externalId, 'Guardando tu gasto…');
   } else if (CANCEL_WORDS.some((w) => lower === w || lower.startsWith(w))) {
-    await opts.conversationRepo.transition(userId, 'IDLE', null, null);
+    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
     await messaging.sendMessage(externalId, 'Registro cancelado. No se guardó nada.');
   } else {
     // Correction — re-interprets the message with the current summary context
