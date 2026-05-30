@@ -167,14 +167,14 @@ Immutable record of every successfully saved expense. Enables undo and future qu
 
 Immutable audit trail of critical operations.
 
-| Column       | Type          | Constraints                     | Description                                                                                                                               |
-| ------------ | ------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`         | `UUID`        | PK, default `gen_random_uuid()` | Row identifier.                                                                                                                           |
-| `user_id`    | `UUID`        | FK → `users(user_id)`, CASCADE  | Operation actor.                                                                                                                          |
-| `operation`  | `TEXT`        | NOT NULL, CHECK                 | `EXPENSE_SAVED`, `EXPENSE_DELETED`, `EXPENSE_SAVE_FAILED`, `TOKEN_REFRESHED`, `TOKEN_REVOKED`, `ONBOARDING_COMPLETED`, `MAPPING_UPDATED`. |
-| `payload`    | `JSONB`       | NULL                            | Contextual operation data.                                                                                                                |
-| `error_type` | `TEXT`        | NULL, CHECK                     | `NETWORK_ERROR`, `AUTH_ERROR`, `STRUCTURE_ERROR`. Only for failure operations.                                                            |
-| `created_at` | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Operation timestamp.                                                                                                                      |
+| Column       | Type          | Constraints                     | Description                                                                                                                                                  |
+| ------------ | ------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`         | `UUID`        | PK, default `gen_random_uuid()` | Row identifier.                                                                                                                                              |
+| `user_id`    | `UUID`        | FK → `users(user_id)`, CASCADE  | Operation actor.                                                                                                                                             |
+| `operation`  | `TEXT`        | NOT NULL, CHECK                 | `EXPENSE_SAVED`, `EXPENSE_DELETED`, `EXPENSE_SAVE_FAILED`, `TOKEN_REFRESHED`, `TOKEN_REVOKED`, `ONBOARDING_COMPLETED`, `MAPPING_UPDATED`, `STATE_CORRUPTED`. |
+| `payload`    | `JSONB`       | NULL                            | Contextual operation data.                                                                                                                                   |
+| `error_type` | `TEXT`        | NULL, CHECK                     | `NETWORK_ERROR`, `AUTH_ERROR`, `STRUCTURE_ERROR`, `CORRUPTED_STATE`. Only for failure operations.                                                            |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Operation timestamp.                                                                                                                                         |
 
 ## Indexes
 
