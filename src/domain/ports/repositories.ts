@@ -35,6 +35,9 @@ export interface IUserRepository {
 
   updateStatus(userId: string, status: User['status']): Promise<void>;
   updateDefaultCurrency(userId: string, currency: User['defaultCurrency']): Promise<void>;
+
+  // Lookup messaging identities by userId (for session timeout notifications)
+  findMessagingIdentitiesByUserId(userId: string): Promise<MessagingIdentity[]>;
 }
 
 // ── Estado conversacional (FSM) ──────────────────────────────────────────────

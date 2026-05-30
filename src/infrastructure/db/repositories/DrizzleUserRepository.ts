@@ -100,6 +100,15 @@ export class DrizzleUserRepository implements IUserRepository {
       .where(eq(users.userId, userId));
   }
 
+  async findMessagingIdentitiesByUserId(userId: string): Promise<MessagingIdentity[]> {
+    const rows = await this.db
+      .select()
+      .from(messagingIdentities)
+      .where(eq(messagingIdentities.userId, userId));
+
+    return rows.map((row) => this.mapIdentity(row));
+  }
+
   // ── Mappers ────────────────────────────────────────────────────────────────
 
   private mapUser(row: typeof users.$inferSelect): User {
