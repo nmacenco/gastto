@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Queue } from 'bullmq';
 import { z } from 'zod';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
+import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
 import { parseTelegramPayload } from '../../../infrastructure/adapters/telegram/TelegramPayloadParser';
 import { validateTelegramOrigin } from '../middleware/telegramAuth';
@@ -19,6 +20,7 @@ import { validateTelegramOrigin } from '../middleware/telegramAuth';
 export interface TelegramWebhookHandlerDeps {
   incomingMessageQueue: Queue<IncomingMessageJobData>;
   handleStartCommand: HandleStartCommand;
+  resolveIdentity: ResolveUserIdentityUseCase;
 }
 
 export interface TelegramWebhookDeps extends TelegramWebhookHandlerDeps {
@@ -49,7 +51,12 @@ export async function handleTelegramWebhook(
     const from = message?.from as Record<string, unknown> | undefined;
     const username = typeof from?.username === 'string' ? from.username : undefined;
 
-    await deps.handleStartCommand.execute({ chatId: payload.chatId, username });
+    const { userId } = await deps.resolveIdentity.execute({
+      channel: payload.channel,
+      externalId: payload.chatId,
+    });
+
+    await deps.handleStartCommand.execute({ userId, chatId: payload.chatId, username });
     return reply.status(200).send({ ok: true });
   }
 

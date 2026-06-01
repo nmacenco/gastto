@@ -186,6 +186,27 @@ Point-local changes that do not alter behavior, contracts, data, accessibility o
 - Drizzle migration applied locally and reflected in `docs/architecture/data-model.md`.
 - Feature doc created or updated. No doc = blocked.
 
+# Security & Secrets
+
+## Agent File Access Restrictions
+
+The following files and patterns contain sensitive secrets and must **never** be read by the agent:
+
+- `.env` and `.env.*` (except `.env.example`)
+- Any file containing passwords, API keys, tokens, or encryption keys
+- `credentials.json`, `secrets.*`, `*.pem`, `*.key`
+
+If the agent needs to know whether an environment variable is set or what a config field expects, it must:
+
+1. Read `.env.example` for the schema/structure.
+2. Ask the user to provide the specific value if needed.
+3. Never attempt to read `.env` directly.
+
+## Repository Protection
+
+- `.env` and `.env.*` are already in `.gitignore` (line 69-71). Never commit them.
+- If `DATABASE_URL` or other secrets are needed for commands (e.g., `pnpm db:migrate`), ask the user to run the command themselves or confirm the value before use.
+
 # Observability & Rollback
 
 - Server-side errors: `console.error` with a structured object (`{ endpoint, code, userId? }`). Do not leak stack traces to the client.

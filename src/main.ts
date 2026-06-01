@@ -25,6 +25,8 @@ import { env } from '@config/env';
 
 // Infrastructure
 import { DrizzleUserRepository } from './infrastructure/db/repositories/DrizzleUserRepository';
+import { DrizzleConversationStateRepository } from './infrastructure/db/repositories/DrizzleConversationStateRepository';
+import { DrizzleOperationLogRepository } from './infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/TelegramMessengerAdapter';
 
 // Application
@@ -32,6 +34,9 @@ import { ResolveUserIdentityUseCase } from './application/use-cases/user/Resolve
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
+import { TransitionConversationState } from './application/use-cases/conversation/TransitionConversationState';
+import { RecoverCorruptedState } from './application/use-cases/conversation/RecoverCorruptedState';
+import { GetConversationState } from './application/use-cases/conversation/GetConversationState';
 import type { ProcessMessageJobData } from './application/ports/ProcessMessageJob';
 import type { IncomingMessageJobData } from './application/ports/IncomingMessageJob';
 
@@ -39,6 +44,8 @@ import type { IncomingMessageJobData } from './application/ports/IncomingMessage
 import { registerTelegramWebhook } from './interfaces/http/routes/telegram.webhook';
 import { createIncomingMessageWorker } from './interfaces/workers/incomingMessage.worker';
 import { createMessageWorker } from './interfaces/workers/message.worker';
+import { createSessionTimeoutWorker } from './interfaces/workers/sessionTimeout.worker';
+import { HandleExpiredSessions } from './application/use-cases/conversation/HandleExpiredSessions';
 
 async function bootstrap(): Promise<void> {
   // -- Sentry: inicializar antes que todo (ADR -- observabilidad) -------------
@@ -123,12 +130,15 @@ async function bootstrap(): Promise<void> {
 
     // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
     const userRepo = new DrizzleUserRepository(db, redis);
+    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+    const conversationRepo = new DrizzleConversationStateRepository(db);
+    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+    const operationLogRepo = new DrizzleOperationLogRepository(db);
 
-    const resolveIdentity = new ResolveUserIdentityUseCase(
-      userRepo,
-      // @ts-expect-error TODO: inject DrizzleConversationStateRepository when implemented
-      null,
-    );
+    const resolveIdentity = new ResolveUserIdentityUseCase(userRepo, conversationRepo);
+    const getConversationState = new GetConversationState(conversationRepo);
+    const transitionState = new TransitionConversationState(conversationRepo);
+    const recoverCorruptedState = new RecoverCorruptedState(conversationRepo, operationLogRepo);
 
     const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
       connection: redis,
@@ -152,7 +162,7 @@ async function bootstrap(): Promise<void> {
 
     if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET) {
       const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN);
-      const handleStartCommand = new HandleStartCommand(telegramAdapter);
+      const handleStartCommand = new HandleStartCommand(telegramAdapter, conversationRepo);
 
       const handleUnsupportedMessage = new HandleUnsupportedMessage(telegramAdapter);
       const routeIncomingMessage = new RouteIncomingMessage({
@@ -176,8 +186,9 @@ async function bootstrap(): Promise<void> {
         redis,
         // @ts-expect-error TODO: implement RegisterExpenseUseCase wiring
         registerExpense: null,
-        // @ts-expect-error TODO: implement IConversationStateRepository wiring
-        conversationRepo: null,
+        getConversationState,
+        transitionState,
+        recoverCorruptedState,
         userRepo,
         messagingAdapters: {
           telegram: telegramAdapter,
@@ -193,7 +204,31 @@ async function bootstrap(): Promise<void> {
         webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
         incomingMessageQueue,
         handleStartCommand,
+        resolveIdentity,
       });
+
+      // Session timeout worker — periodic job that transitions expired states to IDLE
+      try {
+        const sessionTimeoutQueue = new Queue('session-timeout', {
+          connection: redis,
+        });
+        await sessionTimeoutQueue.add('session-timeout', {}, { repeat: { every: 60000 } });
+
+        const handleExpiredSessions = new HandleExpiredSessions(
+          conversationRepo,
+          userRepo,
+          transitionState,
+          telegramAdapter,
+        );
+
+        createSessionTimeoutWorker({
+          redis,
+          handleExpiredSessions,
+        });
+        app.log.info('Started session-timeout worker (repeat every 60s)');
+      } catch (err) {
+        app.log.error({ msg: 'Failed to start session-timeout worker', error: err });
+      }
     }
   }
 

@@ -8,6 +8,7 @@ import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { Queue } from 'bullmq';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
+import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
 import { registerTelegramWebhook, type TelegramWebhookDeps } from './telegram.webhook';
 
@@ -15,17 +16,26 @@ const WEBHOOK_SECRET = 'test-secret-token';
 
 const mockQueueAdd = vi.fn();
 const mockHandleStartExecute = vi.fn();
+const mockResolveIdentityExecute = vi.fn();
 const mockLogError = vi.fn();
 
 function buildMockDeps(): TelegramWebhookDeps {
   mockQueueAdd.mockResolvedValue(undefined);
   mockHandleStartExecute.mockResolvedValue({ replyText: 'Welcome!' });
+  mockResolveIdentityExecute.mockResolvedValue({
+    userId: 'user-123',
+    isNewUser: false,
+    currentState: 'IDLE',
+  });
   mockLogError.mockReset();
 
   return {
     webhookSecret: WEBHOOK_SECRET,
     incomingMessageQueue: { add: mockQueueAdd } as unknown as Queue<IncomingMessageJobData>,
     handleStartCommand: { execute: mockHandleStartExecute } as unknown as HandleStartCommand,
+    resolveIdentity: {
+      execute: mockResolveIdentityExecute,
+    } as unknown as ResolveUserIdentityUseCase,
   };
 }
 
@@ -220,7 +230,12 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
+    expect(mockResolveIdentityExecute).toHaveBeenCalledWith({
+      channel: 'telegram',
+      externalId: '123456789',
+    });
     expect(mockHandleStartExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
       chatId: '123456789',
       username: 'Juan',
     });
@@ -243,7 +258,12 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
+    expect(mockResolveIdentityExecute).toHaveBeenCalledWith({
+      channel: 'telegram',
+      externalId: '123456789',
+    });
     expect(mockHandleStartExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
       chatId: '123456789',
       username: undefined,
     });
@@ -266,7 +286,12 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
+    expect(mockResolveIdentityExecute).toHaveBeenCalledWith({
+      channel: 'telegram',
+      externalId: '123456789',
+    });
     expect(mockHandleStartExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
       chatId: '123456789',
       username: undefined,
     });

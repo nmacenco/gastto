@@ -1,0 +1,12 @@
+ALTER TABLE "users" ADD CONSTRAINT "chk_users_status" CHECK ("status" IN ('onboarding', 'active', 'suspended'));
+ALTER TABLE "users" ADD CONSTRAINT "chk_users_currency" CHECK ("default_currency" IN ('ARS','EUR','USD','MXN','GBP','BRL') OR "default_currency" IS NULL);
+ALTER TABLE "messaging_identities" ADD CONSTRAINT "chk_channel" CHECK ("channel" IN ('telegram', 'whatsapp'));
+ALTER TABLE "conversation_states" ADD CONSTRAINT "chk_conversation_state" CHECK ("current_state" IN ('IDLE','ONBOARDING_START','ONBOARDING_DRIVE','ONBOARDING_FILE','ONBOARDING_SHEET','ONBOARDING_MAPPING','ONBOARDING_CATEGORIES','EXPENSE_RECEIVING','EXPENSE_CLARIFYING','EXPENSE_REVIEW','EXPENSE_CORRECTING','EXPENSE_SAVING','EXPENSE_SAVING_RETRY'));
+ALTER TABLE "expense_queue" ADD CONSTRAINT "chk_position_range" CHECK ("position" BETWEEN 1 AND 2);
+ALTER TABLE "expense_queue" ADD CONSTRAINT "chk_queue_channel" CHECK ("channel" IN ('telegram', 'whatsapp'));
+ALTER TABLE "oauth_tokens" ADD CONSTRAINT "chk_provider" CHECK ("provider" IN ('google', 'microsoft'));
+ALTER TABLE "spreadsheet_configs" ADD CONSTRAINT "chk_sp_provider" CHECK ("provider" IN ('google', 'microsoft'));
+ALTER TABLE "column_mappings" ADD CONSTRAINT "chk_gastto_field" CHECK ("gastto_field" IN ('monto','moneda','categoria','fecha','concepto','medio_pago'));
+ALTER TABLE "expense_records" ADD CONSTRAINT "chk_monto" CHECK ("monto" >= 0);
+ALTER TABLE "expense_records" ADD CONSTRAINT "chk_moneda" CHECK ("moneda" IN ('ARS','EUR','USD','MXN','GBP','BRL'));
+ALTER TABLE "expense_records" ADD CONSTRAINT "chk_confidence" CHECK ("categoria_confidence" IN ('alta','baja','nula') OR "categoria_confidence" IS NULL);

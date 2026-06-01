@@ -84,8 +84,14 @@ export const conversationStates = pgTable(
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
   (t) => ({
-    expiresIdx: index('idx_conversation_states_expires').on(t.expiresAt),
+    expiresIdx: index('idx_conversation_states_expires')
+      .on(t.expiresAt)
+      .where(sql`${t.expiresAt} IS NOT NULL`),
     stateIdx: index('idx_conversation_states_current').on(t.currentState),
+    stateCheck: check(
+      'chk_conversation_state',
+      sql`${t.currentState} IN ('IDLE','ONBOARDING_START','ONBOARDING_DRIVE','ONBOARDING_FILE','ONBOARDING_SHEET','ONBOARDING_MAPPING','ONBOARDING_CATEGORIES','EXPENSE_RECEIVING','EXPENSE_CLARIFYING','EXPENSE_REVIEW','EXPENSE_CORRECTING','EXPENSE_SAVING','EXPENSE_SAVING_RETRY')`,
+    ),
   }),
 );
 
@@ -170,7 +176,7 @@ export const columnMappings = pgTable(
     spreadsheetId: uuid('spreadsheet_id')
       .notNull()
       .references(() => spreadsheetConfigs.id, { onDelete: 'cascade' }),
-    GasttoField: text('Gastto_field').notNull(),
+    gasttoField: text('gastto_field').notNull(),
     columnIndex: smallint('column_index').notNull(),
     columnHeader: text('column_header').notNull(),
     inferred: boolean('inferred').notNull().default(true),
@@ -178,11 +184,11 @@ export const columnMappings = pgTable(
   },
   (t) => ({
     spreadsheetIdx: index('idx_column_mappings_spreadsheet').on(t.spreadsheetId),
-    uniqueField: uniqueIndex('uq_spreadsheet_field').on(t.spreadsheetId, t.GasttoField),
+    uniqueField: uniqueIndex('uq_spreadsheet_field').on(t.spreadsheetId, t.gasttoField),
     uniqueColumn: uniqueIndex('uq_spreadsheet_column').on(t.spreadsheetId, t.columnIndex),
     fieldCheck: check(
-      'chk_Gastto_field',
-      sql`${t.GasttoField} IN ('monto','moneda','categoria','fecha','concepto','medio_pago')`,
+      'chk_gastto_field',
+      sql`${t.gasttoField} IN ('monto','moneda','categoria','fecha','concepto','medio_pago')`,
     ),
   }),
 );
@@ -201,7 +207,9 @@ export const userCategories = pgTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({
-    spreadsheetIdx: index('idx_user_categories_spreadsheet').on(t.spreadsheetId),
+    spreadsheetIdx: index('idx_user_categories_spreadsheet')
+      .on(t.spreadsheetId)
+      .where(sql`${t.isActive} = true`),
     uniqueCategory: uniqueIndex('uq_spreadsheet_category').on(t.spreadsheetId, t.normalizedValue),
   }),
 );
@@ -234,8 +242,12 @@ export const expenseRecords = pgTable(
     savedAt: timestamp('saved_at').notNull().defaultNow(),
   },
   (t) => ({
-    userLatestIdx: index('idx_expense_records_user_latest').on(t.userId, t.savedAt),
-    userFechaIdx: index('idx_expense_records_user_fecha').on(t.userId, t.fechaGasto),
+    userLatestIdx: index('idx_expense_records_user_latest')
+      .on(t.userId, t.savedAt)
+      .where(sql`${t.isDeleted} = false`),
+    userFechaIdx: index('idx_expense_records_user_fecha')
+      .on(t.userId, t.fechaGasto)
+      .where(sql`${t.isDeleted} = false`),
     sheetRowIdx: index('idx_expense_records_sheet_row').on(
       t.spreadsheetId,
       t.sheetName,
@@ -266,6 +278,8 @@ export const operationLogs = pgTable(
   },
   (t) => ({
     userCreatedIdx: index('idx_operation_logs_user_created').on(t.userId, t.createdAt),
-    failuresIdx: index('idx_operation_logs_failures').on(t.createdAt),
+    failuresIdx: index('idx_operation_logs_failures')
+      .on(t.createdAt)
+      .where(sql`${t.operation} = 'EXPENSE_SAVE_FAILED'`),
   }),
 );
