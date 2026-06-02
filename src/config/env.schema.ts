@@ -34,7 +34,7 @@ export const envSchema = z.object({
 
   // ── Security ──────────────────────────────────────────────────────────────────
   // AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars).
-  // ENCRYPTION_KEY: z.string().min(1, "ENCRYPTION_KEY is required"),
+  ENCRYPTION_KEY: z.string().min(1, 'ENCRYPTION_KEY is required'),
 });
 
 export type Env = z.infer<typeof envSchema>;
