@@ -32,6 +32,12 @@ export const envSchema = z.object({
   // ── Observability ─────────────────────────────────────────────────────────────
   SENTRY_DSN: z.string().optional(),
 
+  // ── OAuth ─────────────────────────────────────────────────────────────────────
+  // Google OAuth credentials (optional until Google Drive adapter is wired).
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REDIRECT_URI: z.string().optional(),
+
   // ── Security ──────────────────────────────────────────────────────────────────
   // AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars).
   ENCRYPTION_KEY: z.string().min(1, 'ENCRYPTION_KEY is required'),

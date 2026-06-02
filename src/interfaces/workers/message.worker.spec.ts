@@ -7,6 +7,7 @@ import { processMessageJob, createMessageWorker, type MessageWorkerDeps } from '
 import type { Job } from 'bullmq';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ConversationState } from '../../domain/entities/ConversationState';
+import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
@@ -14,6 +15,7 @@ const mockTransitionStateExecute = vi.fn();
 const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
 const mockRegisterExpenseInterpret = vi.fn();
+const mockInitiateCloudConnectionExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -37,6 +39,9 @@ function buildMockDeps(): MessageWorkerDeps {
       telegram: { sendMessage: mockSendMessage },
       whatsapp: { sendMessage: mockSendMessage },
     },
+    initiateCloudConnection: {
+      execute: mockInitiateCloudConnectionExecute,
+    } as unknown as InitiateCloudConnection,
   };
 }
 
@@ -223,8 +228,44 @@ describe('processMessageJob', () => {
   });
 
   describe('ONBOARDING states', () => {
+    it('delegates ONBOARDING_START to InitiateCloudConnection when available', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_START' }),
+      );
+      mockInitiateCloudConnectionExecute.mockResolvedValue({
+        nextState: 'ONBOARDING_DRIVE',
+        message: 'Auth link sent.',
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Cafe 850',
+        externalId: '123456789',
+        channel: 'telegram',
+      });
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('falls back to placeholder when ONBOARDING_START and InitiateCloudConnection is not wired', async () => {
+      const deps = buildMockDeps();
+      deps.initiateCloudConnection = null;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_START' }),
+      );
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
+      );
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+    });
+
     it.each([
-      'ONBOARDING_START',
       'ONBOARDING_DRIVE',
       'ONBOARDING_FILE',
       'ONBOARDING_SHEET',

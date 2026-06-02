@@ -13,6 +13,7 @@ import type { MessagingOutputPort } from '../../application/ports/output/messagi
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
 import type { IUserRepository } from '../../domain/ports/repositories';
+import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 
 export interface MessageWorkerDeps {
   redis: Redis;
@@ -22,6 +23,7 @@ export interface MessageWorkerDeps {
   recoverCorruptedState: RecoverCorruptedState;
   userRepo: IUserRepository;
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
+  initiateCloudConnection?: InitiateCloudConnection | null;
 }
 
 export async function processMessageJob(
@@ -74,7 +76,18 @@ export async function processMessageJob(
       break;
     }
 
-    case 'ONBOARDING_START':
+    case 'ONBOARDING_START': {
+      if (opts.initiateCloudConnection) {
+        await opts.initiateCloudConnection.execute({ userId, rawMessage, externalId, channel });
+      } else {
+        await messaging.sendMessage(
+          externalId,
+          'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
+        );
+      }
+      break;
+    }
+
     case 'ONBOARDING_DRIVE':
     case 'ONBOARDING_FILE':
     case 'ONBOARDING_SHEET':

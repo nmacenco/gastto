@@ -28,9 +28,11 @@ import { DrizzleUserRepository } from './infrastructure/db/repositories/DrizzleU
 import { DrizzleConversationStateRepository } from './infrastructure/db/repositories/DrizzleConversationStateRepository';
 import { DrizzleOperationLogRepository } from './infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/TelegramMessengerAdapter';
+import { GoogleDriveOAuthAdapter } from './infrastructure/adapters/oauth';
 
 // Application
 import { ResolveUserIdentityUseCase } from './application/use-cases/user/ResolveUserIdentity';
+import { InitiateCloudConnection } from './application/use-cases/spreadsheet/InitiateCloudConnection';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
@@ -181,6 +183,38 @@ async function bootstrap(): Promise<void> {
         `Started incoming-message worker (concurrency: ${incomingMessageWorker.opts.concurrency})`,
       );
 
+      // Google Drive OAuth adapter (optional until credentials are configured)
+      const googleOAuthAdapter =
+        env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REDIRECT_URI
+          ? new GoogleDriveOAuthAdapter({
+              clientId: env.GOOGLE_CLIENT_ID,
+              clientSecret: env.GOOGLE_CLIENT_SECRET,
+              redirectUri: env.GOOGLE_REDIRECT_URI,
+            })
+          : null;
+
+      const reminderQueue = new Queue('oauth-reminder', {
+        connection: redis,
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 1000 },
+          removeOnComplete: 100,
+          removeOnFail: 500,
+        },
+      });
+
+      const initiateCloudConnection =
+        googleOAuthAdapter !== null
+          ? new InitiateCloudConnection({
+              oauthService: googleOAuthAdapter,
+              redis,
+              reminderQueue,
+              transitionState,
+              messagingPort: telegramAdapter,
+              redirectUri: env.GOOGLE_REDIRECT_URI!,
+            })
+          : null;
+
       // Thick worker (ADR-005): FSM → NLP → user response
       const messageWorker = createMessageWorker({
         redis,
@@ -195,6 +229,7 @@ async function bootstrap(): Promise<void> {
           // TODO: replace with real WhatsApp adapter when implemented
           whatsapp: telegramAdapter,
         },
+        initiateCloudConnection,
       });
       app.log.info(
         `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,
