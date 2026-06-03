@@ -5,3 +5,4 @@ export * from './messaging';
 export * from './oauth';
 export * from './repositories';
 export * from './services';
+export * from './tokenEncryption';
