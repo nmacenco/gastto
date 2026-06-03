@@ -8,6 +8,8 @@ import type { Job } from 'bullmq';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
+import { expenseCopies } from '../../application/copies/expense.copies';
+import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
@@ -94,7 +96,10 @@ describe('processMessageJob', () => {
         channel: 'telegram',
         defaultCurrency: null,
       });
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', '¿Cuánto gastaste?');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationAmount(),
+      );
     });
 
     it('sends expense summary when interpretation succeeds', async () => {
@@ -133,7 +138,7 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
 
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Guardando tu gasto…');
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saving());
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
     });
 
@@ -152,10 +157,7 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         targetState: 'IDLE',
       });
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        'Registro cancelado. No se guardó nada.',
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.cancelled());
     });
 
     it('asks for clarification on ambiguous response', async () => {
@@ -170,10 +172,7 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'maybe' }), deps);
 
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        '¿Querías confirmar, corregir o cancelar el registro?',
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
     });
   });
 
@@ -223,7 +222,10 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: '850' }), deps);
 
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', '¿En qué moneda fue ese gasto?');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationCurrency(),
+      );
     });
   });
 
@@ -260,7 +262,7 @@ describe('processMessageJob', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
+        onboardingCopies.onboardingPlaceholder(),
       );
       expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
     });
@@ -281,7 +283,7 @@ describe('processMessageJob', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
+        onboardingCopies.onboardingPlaceholder(),
       );
     });
   });
@@ -326,10 +328,7 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         targetState: 'IDLE',
       });
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        'Parece que algo falló. Vamos a empezar de nuevo.',
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.fallbackError());
     });
   });
 
@@ -345,7 +344,10 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob(baseJobData), deps);
 
       expect(mockRegisterExpenseInterpret).toHaveBeenCalled();
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', '¿Cuánto gastaste?');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationAmount(),
+      );
     });
   });
 });

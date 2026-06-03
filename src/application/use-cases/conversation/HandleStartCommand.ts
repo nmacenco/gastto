@@ -5,6 +5,7 @@
 
 import type { IChatMessenger } from '../../ports/IChatMessenger';
 import type { IConversationStateRepository } from '../../../domain/ports/repositories';
+import { sharedCopies } from '../../copies/shared.copies';
 
 export interface HandleStartCommandInput {
   userId: string;
@@ -23,9 +24,7 @@ export class HandleStartCommand {
   ) {}
 
   async execute(input: HandleStartCommandInput): Promise<HandleStartCommandOutput> {
-    const welcomeText = input.username
-      ? `¡Hola, ${input.username}! Bienvenido a Gastto. Soy tu asistente financiero conversacional. Escribime un gasto y lo registro en tu planilla automáticamente.`
-      : '¡Hola! Bienvenido a Gastto. Soy tu asistente financiero conversacional. Escribime un gasto y lo registro en tu planilla automáticamente.';
+    const welcomeText = sharedCopies.welcome(input.username);
 
     // The use case delegates the actual delivery to the infrastructure adapter,
     // but the *content* of the message is owned by the application layer.

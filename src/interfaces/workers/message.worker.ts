@@ -14,6 +14,8 @@ import type { ProcessMessageJobData } from '../../application/ports/ProcessMessa
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
 import type { IUserRepository } from '../../domain/ports/repositories';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
+import { onboardingCopies } from '../../application/copies/onboarding.copies';
+import { expenseCopies } from '../../application/copies/expense.copies';
 
 export interface MessageWorkerDeps {
   redis: Redis;
@@ -54,7 +56,9 @@ export async function processMessageJob(
 
       if (result.status === 'needs_clarification') {
         const question =
-          result.missingField === 'monto' ? '¿Cuánto gastaste?' : '¿En qué moneda fue ese gasto?';
+          result.missingField === 'monto'
+            ? expenseCopies.clarificationAmount()
+            : expenseCopies.clarificationCurrency();
         await messaging.sendMessage(externalId, question);
       } else {
         // Format and send summary for review (E1-US-06)
@@ -80,10 +84,7 @@ export async function processMessageJob(
       if (opts.initiateCloudConnection) {
         await opts.initiateCloudConnection.execute({ userId, rawMessage, externalId, channel });
       } else {
-        await messaging.sendMessage(
-          externalId,
-          'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
-        );
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
       }
       break;
     }
@@ -94,10 +95,7 @@ export async function processMessageJob(
     case 'ONBOARDING_MAPPING':
     case 'ONBOARDING_CATEGORIES': {
       // Onboarding: delegate to specific handler (pending implementation)
-      await messaging.sendMessage(
-        externalId,
-        'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
-      );
+      await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
       break;
     }
 
@@ -112,7 +110,7 @@ export async function processMessageJob(
       } else {
         // Estado válido pero no manejado: forzar reset a IDLE para no dejar al usuario atascado
         await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-        await messaging.sendMessage(externalId, 'Parece que algo falló. Vamos a empezar de nuevo.');
+        await messaging.sendMessage(externalId, expenseCopies.fallbackError());
       }
     }
   }
@@ -147,17 +145,15 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
 function formatExpenseSummary(payload: ExpenseReviewPayload): string {
   const { extracted, resolvedDate, resolvedCategory } = payload;
   const categoryLabel = resolvedCategory ?? '❓ Sin categoría';
-  const confidenceNote = extracted.confianzaCategoria === 'baja' ? ' (¿correcto?)' : '';
 
-  return [
-    '📋 *Resumen del gasto:*',
-    `• Concepto: ${payload.rawMessage.slice(0, 80)}`,
-    `• Monto: ${extracted.monto} ${extracted.moneda}`,
-    `• Categoría: ${categoryLabel}${confidenceNote}`,
-    `• Fecha: ${resolvedDate}`,
-    '',
-    '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.',
-  ].join('\n');
+  return expenseCopies.expenseSummary({
+    rawMessage: payload.rawMessage,
+    monto: extracted.monto,
+    moneda: extracted.moneda,
+    category: categoryLabel,
+    categoryConfidence: extracted.confianzaCategoria,
+    date: resolvedDate,
+  });
 }
 
 async function handleExpenseReview(
@@ -188,13 +184,13 @@ async function handleExpenseReview(
 
   if (CONFIRM_WORDS.some((w) => lower === w || lower.startsWith(w + ' '))) {
     // Guardado — pendiente de implementar llamada a registerExpense.save()
-    await messaging.sendMessage(externalId, 'Guardando tu gasto…');
+    await messaging.sendMessage(externalId, expenseCopies.saving());
   } else if (CANCEL_WORDS.some((w) => lower === w || lower.startsWith(w))) {
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, 'Registro cancelado. No se guardó nada.');
+    await messaging.sendMessage(externalId, expenseCopies.cancelled());
   } else {
     // Correction — re-interprets the message with the current summary context
-    await messaging.sendMessage(externalId, '¿Querías confirmar, corregir o cancelar el registro?');
+    await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
   }
 }
 
@@ -221,17 +217,17 @@ async function handleClarification(
 
   if (result.status === 'needs_clarification') {
     const question =
-      result.missingField === 'monto' ? '¿Cuánto gastaste?' : '¿En qué moneda fue ese gasto?';
+      result.missingField === 'monto'
+        ? expenseCopies.clarificationAmount()
+        : expenseCopies.clarificationCurrency();
     await messaging.sendMessage(externalId, question);
   } else {
-    const summary = [
-      '📋 *Resumen actualizado:*',
-      `• Monto: ${result.payload.extracted.monto} ${result.payload.extracted.moneda}`,
-      `• Categoría: ${result.payload.resolvedCategory ?? '❓ Sin categoría'}`,
-      `• Fecha: ${result.payload.resolvedDate}`,
-      '',
-      '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.',
-    ].join('\n');
+    const summary = expenseCopies.updatedSummary({
+      monto: result.payload.extracted.monto,
+      moneda: result.payload.extracted.moneda,
+      category: result.payload.resolvedCategory ?? '❓ Sin categoría',
+      date: result.payload.resolvedDate,
+    });
     await messaging.sendMessage(externalId, summary);
   }
 }

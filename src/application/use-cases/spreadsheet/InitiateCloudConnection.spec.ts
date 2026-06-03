@@ -13,6 +13,7 @@ import type { OAuthServicePort } from '../../../domain/ports/oauth';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { Redis } from 'ioredis';
 import type { Queue, Job } from 'bullmq';
+import { onboardingCopies } from '../../copies/onboarding.copies';
 
 const mockBuildAuthUrl = vi.fn();
 const mockTransitionExecute = vi.fn();
@@ -76,7 +77,9 @@ describe('InitiateCloudConnection', () => {
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        expect.stringContaining('https://accounts.google.com/o/oauth2/v2/auth'),
+        onboardingCopies.authLink(
+          'https://accounts.google.com/o/oauth2/v2/auth?state=test-state-123',
+        ),
       );
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
@@ -85,7 +88,11 @@ describe('InitiateCloudConnection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_DRIVE');
-      expect(result.message).toContain('autorizar a Gastto');
+      expect(result.message).toBe(
+        onboardingCopies.authLink(
+          'https://accounts.google.com/o/oauth2/v2/auth?state=test-state-123',
+        ),
+      );
       expect(result.payload).toEqual({ provider: 'google', state: 'test-state-123' });
     });
 
@@ -111,9 +118,7 @@ describe('InitiateCloudConnection', () => {
         const result = await useCase.execute({ ...baseInput, rawMessage });
 
         expect(result.nextState).toBe('ONBOARDING_START');
-        expect(result.message).toBe(
-          'OneDrive está en camino 🚧. Escribí _1_ para usar Google Drive por ahora.',
-        );
+        expect(result.message).toBe(onboardingCopies.comingSoon('OneDrive'));
         expect(mockSendMessage).toHaveBeenCalledWith('123456789', result.message);
         expect(mockBuildAuthUrl).not.toHaveBeenCalled();
         expect(mockQueueAdd).not.toHaveBeenCalled();
@@ -132,9 +137,7 @@ describe('InitiateCloudConnection', () => {
         const result = await useCase.execute({ ...baseInput, rawMessage });
 
         expect(result.nextState).toBe('ONBOARDING_START');
-        expect(result.message).toBe(
-          'No entendí. Escribí _1_ para Google Drive o _2_ para OneDrive.',
-        );
+        expect(result.message).toBe(onboardingCopies.invalidRePrompt());
         expect(mockSendMessage).toHaveBeenCalledWith('123456789', result.message);
         expect(mockBuildAuthUrl).not.toHaveBeenCalled();
         expect(mockQueueAdd).not.toHaveBeenCalled();
@@ -151,7 +154,7 @@ describe('InitiateCloudConnection', () => {
       const result = await useCase.execute({ ...baseInput, rawMessage: '' });
 
       expect(result.nextState).toBe('ONBOARDING_START');
-      expect(result.message).toBe('No entendí. Escribí _1_ para Google Drive o _2_ para OneDrive.');
+      expect(result.message).toBe(onboardingCopies.invalidRePrompt());
       expect(mockBuildAuthUrl).not.toHaveBeenCalled();
     });
 
@@ -161,7 +164,7 @@ describe('InitiateCloudConnection', () => {
       const result = await useCase.execute({ ...baseInput, rawMessage: '   \n\t  ' });
 
       expect(result.nextState).toBe('ONBOARDING_START');
-      expect(result.message).toBe('No entendí. Escribí _1_ para Google Drive o _2_ para OneDrive.');
+      expect(result.message).toBe(onboardingCopies.invalidRePrompt());
     });
   });
 

@@ -11,6 +11,7 @@ import type { OAuthServicePort } from '../../../domain/ports/oauth';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
+import { onboardingCopies } from '../../copies/onboarding.copies';
 
 export interface InitiateCloudConnectionInput {
   userId: string;
@@ -35,14 +36,6 @@ export interface InitiateCloudConnectionDeps {
   generateState?: () => string;
 }
 
-const INVALID_RE_PROMPT = 'No entendí. Escribí _1_ para Google Drive o _2_ para OneDrive.';
-const ONEDRIVE_COMING_SOON =
-  'OneDrive está en camino 🚧. Escribí _1_ para usar Google Drive por ahora.';
-
-function buildAuthLinkMessage(authUrl: string): string {
-  return `Hacé clic en este enlace para autorizar a Gastto: ${authUrl}\nTenés 10 minutos.`;
-}
-
 function parseProviderChoice(raw: string): 'google' | 'onedrive' | 'invalid' {
   const normalized = raw.toLowerCase().trim().replace(/\s+/g, ' ');
 
@@ -62,20 +55,23 @@ export class InitiateCloudConnection {
     const { userId, rawMessage, externalId, channel } = input;
 
     if (!rawMessage.trim()) {
-      await this.deps.messagingPort.sendMessage(externalId, INVALID_RE_PROMPT);
-      return { nextState: 'ONBOARDING_START', message: INVALID_RE_PROMPT };
+      const rePrompt = onboardingCopies.invalidRePrompt();
+      await this.deps.messagingPort.sendMessage(externalId, rePrompt);
+      return { nextState: 'ONBOARDING_START', message: rePrompt };
     }
 
     const choice = parseProviderChoice(rawMessage);
 
     if (choice === 'onedrive') {
-      await this.deps.messagingPort.sendMessage(externalId, ONEDRIVE_COMING_SOON);
-      return { nextState: 'ONBOARDING_START', message: ONEDRIVE_COMING_SOON };
+      const comingSoon = onboardingCopies.comingSoon('OneDrive');
+      await this.deps.messagingPort.sendMessage(externalId, comingSoon);
+      return { nextState: 'ONBOARDING_START', message: comingSoon };
     }
 
     if (choice === 'invalid') {
-      await this.deps.messagingPort.sendMessage(externalId, INVALID_RE_PROMPT);
-      return { nextState: 'ONBOARDING_START', message: INVALID_RE_PROMPT };
+      const rePrompt = onboardingCopies.invalidRePrompt();
+      await this.deps.messagingPort.sendMessage(externalId, rePrompt);
+      return { nextState: 'ONBOARDING_START', message: rePrompt };
     }
 
     // Google Drive flow
@@ -96,7 +92,7 @@ export class InitiateCloudConnection {
       JSON.stringify({ userId, provider: 'google', externalId, channel, reminderJobId }),
     );
 
-    const message = buildAuthLinkMessage(authUrl);
+    const message = onboardingCopies.authLink(authUrl);
     await this.deps.messagingPort.sendMessage(externalId, message);
 
     await this.deps.transitionState.execute({

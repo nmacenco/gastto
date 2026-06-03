@@ -3,7 +3,8 @@
 // Verifies the exact copy is sent and no error is thrown.
 
 import { describe, it, expect, vi } from 'vitest';
-import { HandleUnsupportedMessage, UNSUPPORTED_MESSAGE_COPY } from './HandleUnsupportedMessage';
+import { HandleUnsupportedMessage } from './HandleUnsupportedMessage';
+import { sharedCopies } from '../../copies/shared.copies';
 
 describe('HandleUnsupportedMessage', () => {
   it('sends the exact unsupported copy via the messaging port', async () => {
@@ -13,7 +14,7 @@ describe('HandleUnsupportedMessage', () => {
     await handler.execute('123456789');
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenCalledWith('123456789', UNSUPPORTED_MESSAGE_COPY);
+    expect(sendMessage).toHaveBeenCalledWith('123456789', sharedCopies.unsupportedMessage());
   });
 
   it('does not throw when the messaging port rejects', async () => {

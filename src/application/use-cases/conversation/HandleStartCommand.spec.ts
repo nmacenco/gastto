@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HandleStartCommand, type HandleStartCommandInput } from './HandleStartCommand';
 import type { IChatMessenger } from '../../ports/IChatMessenger';
 import type { IConversationStateRepository } from '../../../domain/ports/repositories';
+import { sharedCopies } from '../../copies/shared.copies';
 
 function buildMockMessenger(): {
   messenger: IChatMessenger;
@@ -52,7 +53,7 @@ describe('HandleStartCommand', () => {
     };
     const output = await useCase.execute(input);
 
-    expect(output.replyText).toContain('¡Hola, Juan!');
+    expect(output.replyText).toBe(sharedCopies.welcome('Juan'));
     expect(sendWelcomeMock).toHaveBeenCalledWith('123456789', 'Juan');
     expect(mockFindByUserId).toHaveBeenCalledWith('user-1');
     expect(mockCreate).not.toHaveBeenCalled();
@@ -68,7 +69,7 @@ describe('HandleStartCommand', () => {
     const input: HandleStartCommandInput = { userId: 'user-2', chatId: '987654321' };
     const output = await useCase.execute(input);
 
-    expect(output.replyText).toContain('¡Hola!');
+    expect(output.replyText).toBe(sharedCopies.welcome());
     expect(output.replyText).not.toContain('undefined');
     expect(sendWelcomeMock).toHaveBeenCalledWith('987654321', undefined);
     expect(mockFindByUserId).toHaveBeenCalledWith('user-2');
