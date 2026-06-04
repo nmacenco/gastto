@@ -39,7 +39,7 @@ If the conversation provides enough clarity, proceed directly to generating the 
 
 ### Step 3: Generate the file
 
-Create the documentation file following the structure and guidelines defined in docs/documentation-guidelines.md.
+Create the documentation file following the structure and guidelines defined in ./documentation-guidelines.md.
 
 ### Step 4: Update the documentation index
 

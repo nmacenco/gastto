@@ -171,6 +171,7 @@ Point-local changes that do not alter behavior, contracts, data, accessibility o
 - UX/interaction changes: update `docs/features/{feature}.md` and/or ADRs if behavior is affected.
 - Decisions/trade-offs: new file in `docs/adr/YYYY-MM-DD-short-title.md` from `docs/adr/template.md`.
 - No feature without canonical `docs/features/*.md`. Document implemented behavior only. Future work = explicit TODO with destination path.
+- **When adding or updating any documentation under `docs/adr/` or `docs/features/`, always update the corresponding `README.md` index** (`docs/adr/README.md` or `docs/features/README.md`) so the directory index stays in sync.
 
 # Done Gates
 
