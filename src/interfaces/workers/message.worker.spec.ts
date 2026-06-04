@@ -8,6 +8,7 @@ import type { Job } from 'bullmq';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
+import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
@@ -18,6 +19,7 @@ const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
 const mockRegisterExpenseInterpret = vi.fn();
 const mockInitiateCloudConnectionExecute = vi.fn();
+const mockCancelCloudConnectionExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -44,6 +46,9 @@ function buildMockDeps(): MessageWorkerDeps {
     initiateCloudConnection: {
       execute: mockInitiateCloudConnectionExecute,
     } as unknown as InitiateCloudConnection,
+    cancelCloudConnection: {
+      execute: mockCancelCloudConnectionExecute,
+    } as unknown as CancelCloudConnection,
   };
 }
 
@@ -267,8 +272,67 @@ describe('processMessageJob', () => {
       expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
     });
 
+    describe('ONBOARDING_DRIVE', () => {
+      it('triggers CancelCloudConnection when user types cancelar', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_DRIVE',
+            statePayload: { provider: 'google', state: 'csrf-state-123' },
+          }),
+        );
+        mockCancelCloudConnectionExecute.mockResolvedValue({
+          nextState: 'IDLE',
+          message: onboardingCopies.cancelledMessage(),
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+
+        expect(mockCancelCloudConnectionExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          state: 'csrf-state-123',
+          externalId: '123456789',
+          channel: 'telegram',
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('sends wait prompt for non-cancelar messages', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_DRIVE',
+            statePayload: { provider: 'google', state: 'csrf-state-123' },
+          }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'anything else' }), deps);
+
+        expect(mockCancelCloudConnectionExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.waitForAuthPrompt(),
+        );
+      });
+
+      it('falls back to placeholder when CancelCloudConnection is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.cancelCloudConnection = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_DRIVE' }),
+        );
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+        expect(mockCancelCloudConnectionExecute).not.toHaveBeenCalled();
+      });
+    });
+
     it.each([
-      'ONBOARDING_DRIVE',
       'ONBOARDING_FILE',
       'ONBOARDING_SHEET',
       'ONBOARDING_MAPPING',

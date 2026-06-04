@@ -14,6 +14,8 @@ export const onboardingCopies = {
       ? 'No se pudo conectar. Hacé clic en el enlace de arriba para intentar de nuevo.'
       : 'No se pudo conectar. Escribí *cancelar* para salir o contactá a soporte.',
   cancelledMessage: () => 'Conexión cancelada. Escribí *empezar* cuando quieras intentar de nuevo.',
+  waitForAuthPrompt: () =>
+    'Please complete the authorization in your browser or type cancel to abort',
   reminderMessage: (url: string) =>
     `Todavía no completaste la autorización. Hacé clic acá para continuar: ${url}\nTenés 10 minutos.`,
 };

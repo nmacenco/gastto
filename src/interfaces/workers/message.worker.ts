@@ -14,6 +14,7 @@ import type { ProcessMessageJobData } from '../../application/ports/ProcessMessa
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
 import type { IUserRepository } from '../../domain/ports/repositories';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
+import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 
@@ -26,6 +27,7 @@ export interface MessageWorkerDeps {
   userRepo: IUserRepository;
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
   initiateCloudConnection?: InitiateCloudConnection | null;
+  cancelCloudConnection?: CancelCloudConnection | null;
 }
 
 export async function processMessageJob(
@@ -89,7 +91,26 @@ export async function processMessageJob(
       break;
     }
 
-    case 'ONBOARDING_DRIVE':
+    case 'ONBOARDING_DRIVE': {
+      if (!opts.cancelCloudConnection) {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+        break;
+      }
+      const lower = rawMessage.toLowerCase().trim();
+      if (lower === 'cancelar') {
+        const state = conversationState?.statePayload?.state;
+        if (typeof state === 'string') {
+          await opts.cancelCloudConnection.execute({ userId, state, externalId, channel });
+        } else {
+          await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+          await messaging.sendMessage(externalId, onboardingCopies.cancelledMessage());
+        }
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.waitForAuthPrompt());
+      }
+      break;
+    }
+
     case 'ONBOARDING_FILE':
     case 'ONBOARDING_SHEET':
     case 'ONBOARDING_MAPPING':
