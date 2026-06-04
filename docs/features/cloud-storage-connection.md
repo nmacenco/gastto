@@ -105,3 +105,184 @@ The following environment variables are required once the adapter is wired:
 - `GOOGLE_REDIRECT_URI`
 
 All three are optional in `env.schema.ts` so the app can bootstrap without them during skeleton phases.
+
+## API Contracts
+
+### Fastify Routes
+
+Both callbacks share the same Zod query schema and response contract.
+
+#### `GET /auth/google/callback`
+
+- **Tags:** `Auth`
+- **Description:** Receives the Google OAuth callback after user authorizes the application.
+- **Querystring:**
+  - `code: string` — Authorization code returned by the provider.
+  - `state: string` — CSRF state parameter.
+
+#### `GET /auth/microsoft/callback`
+
+- **Tags:** `Auth`
+- **Description:** Receives the Microsoft OAuth callback after user authorizes the application.
+- **Querystring:** Same as above (`code`, `state`).
+
+#### Response Contract
+
+| Status | Body                      | Description                                                             |
+| ------ | ------------------------- | ----------------------------------------------------------------------- |
+| 200    | `text/html`               | Success: `<html><body>You can close this window</body></html>`          |
+| 200    | `text/html`               | Failure: `<html><body>${message}</body></html>` (message from use case) |
+| 400    | JSON (Fastify validation) | Missing `code` or `state` query parameter                               |
+
+### Application DTOs
+
+#### `InitiateCloudConnectionInput`
+
+```ts
+interface InitiateCloudConnectionInput {
+  userId: string;
+  rawMessage: string;
+  externalId: string;
+  channel: 'telegram' | 'whatsapp';
+}
+```
+
+#### `InitiateCloudConnectionOutput`
+
+```ts
+interface InitiateCloudConnectionOutput {
+  nextState: FsmState;
+  message: string;
+  payload?: Record<string, unknown>;
+}
+```
+
+#### `HandleOAuthCallbackInput`
+
+```ts
+interface HandleOAuthCallbackInput {
+  code: string;
+  state: string;
+}
+```
+
+#### `HandleOAuthCallbackOutput`
+
+```ts
+interface HandleOAuthCallbackOutput {
+  success: boolean;
+  nextState: FsmState;
+  message: string;
+  errorMessage?: string;
+  canRetry?: boolean;
+}
+```
+
+#### `CancelCloudConnectionInput`
+
+```ts
+interface CancelCloudConnectionInput {
+  userId: string;
+  state: string;
+  externalId: string;
+  channel: 'telegram' | 'whatsapp';
+}
+```
+
+#### `CancelCloudConnectionOutput`
+
+```ts
+interface CancelCloudConnectionOutput {
+  nextState: FsmState;
+  message: string;
+}
+```
+
+#### `SendOAuthReminderInput`
+
+```ts
+interface SendOAuthReminderInput {
+  userId: string;
+  externalId: string;
+  channel: 'telegram' | 'whatsapp';
+  provider: SpreadsheetProvider;
+  redirectUri: string;
+}
+```
+
+#### `SendOAuthReminderOutput`
+
+```ts
+interface SendOAuthReminderOutput {
+  message: string;
+  nextState: FsmState;
+}
+```
+
+## QA Checklist
+
+### Google Drive
+
+- [ ] **Happy path — auth link generation:**
+  - User in `ONBOARDING_START` sends "1" (or any Google variant).
+  - `InitiateCloudConnection` generates a 32-byte hex `state`.
+  - Redis stores `oauth:state:{state}` with 15-minute TTL.
+  - BullMQ `oauth-reminder` job scheduled with 10-minute delay.
+  - Auth link sent to user via `MessagingOutputPort`.
+  - FSM transitions to `ONBOARDING_DRIVE` with payload `{ provider: 'google', state }`.
+
+- [ ] **Happy path — callback success:**
+  - Browser redirects to `/auth/google/callback?code=...&state=...`.
+  - `HandleOAuthCallback` validates `state` against Redis.
+  - Tokens exchanged via `GoogleDriveOAuthAdapter.exchangeCode()`.
+  - Tokens encrypted (AES-256-GCM) and persisted via `IOAuthTokenRepository.upsert()`.
+  - Reminder job cancelled via `Queue.remove(reminderJobId)`.
+  - Redis CSRF key deleted.
+  - Success message sent to user.
+  - FSM transitions to `ONBOARDING_FILE`.
+  - Route returns 200 HTML: "You can close this window".
+
+- [ ] **Happy path — reminder firing:**
+  - 10 minutes elapse without callback.
+  - BullMQ job triggers `SendOAuthReminder`.
+  - Tokens checked; if absent, fresh `state` generated, new Redis key, new job scheduled, auth link resent.
+  - FSM self-transition `ONBOARDING_DRIVE` → `ONBOARDING_DRIVE`.
+
+- [ ] **Happy path — cancellation:**
+  - User types "cancelar" in `ONBOARDING_DRIVE`.
+  - `CancelCloudConnection` removes Redis state and cancels reminder job.
+  - FSM transitions to `IDLE`.
+  - Cancellation message sent to user.
+
+- [ ] **Error path — user denies authorization:**
+  - `exchangeCode` throws `OAuthDeniedError`.
+  - `HandleOAuthCallback` returns `success: false`, `canRetry: true`.
+  - No success message sent; no token persisted.
+  - Route returns 200 HTML with failure message.
+
+- [ ] **Error path — network failure during token exchange:**
+  - `exchangeCode` throws `OAuthNetworkError`.
+  - Same behavior as denial: `success: false`, `canRetry: true`.
+
+- [ ] **Error path — invalid or missing `state`:**
+  - Redis key missing or payload is invalid JSON.
+  - `HandleOAuthCallback` returns `success: false`, `canRetry: true`.
+  - No external calls made.
+
+- [ ] **Error path — token persistence failure:**
+  - `IOAuthTokenRepository.upsert()` rejects.
+  - `HandleOAuthCallback` returns `success: false`, `canRetry: true`.
+  - No success message sent; no FSM transition to `ONBOARDING_FILE`.
+
+- [ ] **Error path — reminder cancellation failure:**
+  - `Queue.remove()` rejects (e.g. job already processed).
+  - Error logged via `console.error` with structured object `{ endpoint, code, jobId, error }`.
+  - Callback still returns `success: true`.
+
+- [ ] **Validation — route layer:**
+  - Missing `code` → 400.
+  - Missing `state` → 400.
+
+### OneDrive
+
+- **Out of scope for MVP.** The `InitiateCloudConnection` use case returns a "coming soon" message for OneDrive selections. A `MicrosoftOneDriveOAuthAdapter` and dedicated callback route wiring are planned for a future release.

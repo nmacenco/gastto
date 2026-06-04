@@ -28,7 +28,7 @@ function buildJob(): Job<{ userId: string; externalId: string; channel: 'telegra
       externalId: '987654321',
       channel: 'telegram',
     },
-  } as Job;
+  } as Job<{ userId: string; externalId: string; channel: 'telegram' | 'whatsapp' }>;
 }
 
 describe('processOAuthReminderJob', () => {

@@ -139,4 +139,39 @@ describe('SendOAuthReminder', () => {
       expect(storedValue.reminderJobId).toMatch(/^fallback-\d+$/);
     });
   });
+
+  describe('buildAuthUrl failure', () => {
+    it('propagates error and performs no side effects', async () => {
+      mockTokenFind.mockResolvedValue(null);
+      mockBuildAuthUrl.mockImplementation(() => {
+        throw new Error('Invalid provider');
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new SendOAuthReminder(deps);
+
+      await expect(useCase.execute(baseInput)).rejects.toThrow('Invalid provider');
+
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(mockRedisSetex).not.toHaveBeenCalled();
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('BullMQ queue.add failure', () => {
+    it('propagates error and does not call Redis, transition, or messaging', async () => {
+      mockTokenFind.mockResolvedValue(null);
+      mockQueueAdd.mockRejectedValue(new Error('Queue unreachable'));
+
+      const deps = buildMockDeps();
+      const useCase = new SendOAuthReminder(deps);
+
+      await expect(useCase.execute(baseInput)).rejects.toThrow('Queue unreachable');
+
+      expect(mockRedisSetex).not.toHaveBeenCalled();
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+  });
 });

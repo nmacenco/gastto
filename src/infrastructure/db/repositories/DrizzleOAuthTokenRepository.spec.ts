@@ -149,7 +149,9 @@ describe('DrizzleOAuthTokenRepository', () => {
       } as unknown as PostgresJsDatabase<typeof schema>;
 
       const repo = new DrizzleOAuthTokenRepository(db);
-      await expect(repo.markRevoked('token-123')).resolves.toBeUndefined();
+      await expect(
+        repo.markRefreshed('token-123', Buffer.from('new'), Buffer.from('iv'), new Date()),
+      ).resolves.toBeUndefined();
     });
 
     it('throws when update returns no row', async () => {
