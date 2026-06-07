@@ -50,7 +50,7 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
 
       expect(result).toHaveLength(2);
       const first = result[0];
-      if (!first) throw new Error("Expected first to be defined");
+      if (!first) throw new Error('Expected first to be defined');
       expect(first).toBeInstanceOf(CloudFile);
       expect(first.id).toBe('file-1');
       expect(first.name).toBe('Budget 2024');
@@ -78,9 +78,9 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
     });
 
     it('throws InvalidProviderError for non-google providers', async () => {
-      await expect(
-        adapter.listRecentSpreadsheets('token', 'microsoft'),
-      ).rejects.toBeInstanceOf(InvalidProviderError);
+      await expect(adapter.listRecentSpreadsheets('token', 'microsoft')).rejects.toBeInstanceOf(
+        InvalidProviderError,
+      );
     });
 
     it('throws FileDiscoveryError on non-2xx HTTP', async () => {
@@ -90,9 +90,9 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
         json: () => Promise.resolve({ error: 'unauthorized' }),
       });
 
-      await expect(
-        adapter.listRecentSpreadsheets('token', 'google'),
-      ).rejects.toBeInstanceOf(FileDiscoveryError);
+      await expect(adapter.listRecentSpreadsheets('token', 'google')).rejects.toBeInstanceOf(
+        FileDiscoveryError,
+      );
     });
 
     it('throws FileDiscoveryError on invalid JSON response', async () => {
@@ -102,17 +102,17 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
         json: () => Promise.reject(new SyntaxError('Unexpected token')),
       });
 
-      await expect(
-        adapter.listRecentSpreadsheets('token', 'google'),
-      ).rejects.toBeInstanceOf(FileDiscoveryError);
+      await expect(adapter.listRecentSpreadsheets('token', 'google')).rejects.toBeInstanceOf(
+        FileDiscoveryError,
+      );
     });
 
     it('throws FileDiscoveryError on network failure', async () => {
       fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
 
-      await expect(
-        adapter.listRecentSpreadsheets('token', 'google'),
-      ).rejects.toBeInstanceOf(FileDiscoveryError);
+      await expect(adapter.listRecentSpreadsheets('token', 'google')).rejects.toBeInstanceOf(
+        FileDiscoveryError,
+      );
     });
   });
 
@@ -138,7 +138,7 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
 
       expect(result).toHaveLength(1);
       const first = result[0];
-      if (!first) throw new Error("Expected first to be defined");
+      if (!first) throw new Error('Expected first to be defined');
       expect(first.name).toBe('Monthly Budget');
 
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
