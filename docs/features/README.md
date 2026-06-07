@@ -6,6 +6,5 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-<!-- Add features as they are implemented -->
-
-- (empty — add features as they are implemented)
+- [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow for linking Google Drive (MVP) and OneDrive (future).
+- [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, search, and selection for spreadsheet records.

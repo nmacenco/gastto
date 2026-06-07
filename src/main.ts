@@ -27,25 +27,34 @@ import { env } from '@config/env';
 import { DrizzleUserRepository } from './infrastructure/db/repositories/DrizzleUserRepository';
 import { DrizzleConversationStateRepository } from './infrastructure/db/repositories/DrizzleConversationStateRepository';
 import { DrizzleOperationLogRepository } from './infrastructure/db/repositories/DrizzleOperationLogRepository';
+import { DrizzleOAuthTokenRepository } from './infrastructure/db/repositories/DrizzleOAuthTokenRepository';
 import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/TelegramMessengerAdapter';
+import { GoogleDriveOAuthAdapter } from './infrastructure/adapters/oauth';
+import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
 
 // Application
 import { ResolveUserIdentityUseCase } from './application/use-cases/user/ResolveUserIdentity';
+import { InitiateCloudConnection } from './application/use-cases/spreadsheet/InitiateCloudConnection';
+import { HandleOAuthCallback } from './application/use-cases/spreadsheet/HandleOAuthCallback';
+import { SendOAuthReminder } from './application/use-cases/spreadsheet/SendOAuthReminder';
+import { CancelCloudConnection } from './application/use-cases/spreadsheet/CancelCloudConnection';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
 import { TransitionConversationState } from './application/use-cases/conversation/TransitionConversationState';
 import { RecoverCorruptedState } from './application/use-cases/conversation/RecoverCorruptedState';
 import { GetConversationState } from './application/use-cases/conversation/GetConversationState';
+import { HandleExpiredSessions } from './application/use-cases/conversation/HandleExpiredSessions';
 import type { ProcessMessageJobData } from './application/ports/ProcessMessageJob';
 import type { IncomingMessageJobData } from './application/ports/IncomingMessageJob';
 
 // Interfaces
 import { registerTelegramWebhook } from './interfaces/http/routes/telegram.webhook';
+import { registerOAuthCallback } from './interfaces/http/routes/oauth.callback';
 import { createIncomingMessageWorker } from './interfaces/workers/incomingMessage.worker';
 import { createMessageWorker } from './interfaces/workers/message.worker';
 import { createSessionTimeoutWorker } from './interfaces/workers/sessionTimeout.worker';
-import { HandleExpiredSessions } from './application/use-cases/conversation/HandleExpiredSessions';
+import { createOAuthReminderWorker } from './interfaces/workers/oauthReminder.worker';
 
 async function bootstrap(): Promise<void> {
   // -- Sentry: inicializar antes que todo (ADR -- observabilidad) -------------
@@ -83,6 +92,7 @@ async function bootstrap(): Promise<void> {
       tags: [
         { name: 'Health', description: 'System health checks' },
         { name: 'Webhooks', description: 'External messaging webhooks' },
+        { name: 'Auth', description: 'OAuth provider callbacks' },
       ],
     },
     transform: jsonSchemaTransform,
@@ -134,6 +144,10 @@ async function bootstrap(): Promise<void> {
     const conversationRepo = new DrizzleConversationStateRepository(db);
     // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
     const operationLogRepo = new DrizzleOperationLogRepository(db);
+    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+    const tokenRepo = new DrizzleOAuthTokenRepository(db);
+
+    const tokenEncryption = new TokenEncryptionAdapter(env.ENCRYPTION_KEY);
 
     const resolveIdentity = new ResolveUserIdentityUseCase(userRepo, conversationRepo);
     const getConversationState = new GetConversationState(conversationRepo);
@@ -181,6 +195,73 @@ async function bootstrap(): Promise<void> {
         `Started incoming-message worker (concurrency: ${incomingMessageWorker.opts.concurrency})`,
       );
 
+      // Google Drive OAuth adapter (optional until credentials are configured)
+      const googleOAuthAdapter =
+        env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REDIRECT_URI
+          ? new GoogleDriveOAuthAdapter({
+              clientId: env.GOOGLE_CLIENT_ID,
+              clientSecret: env.GOOGLE_CLIENT_SECRET,
+              redirectUri: env.GOOGLE_REDIRECT_URI,
+            })
+          : null;
+
+      const reminderQueue = new Queue('oauth-reminder', {
+        connection: redis,
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 1000 },
+          removeOnComplete: 100,
+          removeOnFail: 500,
+        },
+      });
+
+      const initiateCloudConnection =
+        googleOAuthAdapter !== null
+          ? new InitiateCloudConnection({
+              oauthService: googleOAuthAdapter,
+              redis,
+              reminderQueue,
+              transitionState,
+              messagingPort: telegramAdapter,
+              redirectUri: env.GOOGLE_REDIRECT_URI!,
+            })
+          : null;
+
+      const handleOAuthCallback =
+        googleOAuthAdapter !== null
+          ? new HandleOAuthCallback({
+              redis,
+              oauthService: googleOAuthAdapter,
+              tokenRepository: tokenRepo,
+              reminderQueue,
+              transitionState,
+              messagingPort: telegramAdapter,
+              tokenEncryption,
+            })
+          : null;
+
+      const sendOAuthReminder =
+        googleOAuthAdapter !== null
+          ? new SendOAuthReminder({
+              redis,
+              oauthService: googleOAuthAdapter,
+              tokenRepository: tokenRepo,
+              reminderQueue,
+              transitionState,
+              messagingPort: telegramAdapter,
+            })
+          : null;
+
+      const cancelCloudConnection =
+        googleOAuthAdapter !== null
+          ? new CancelCloudConnection({
+              redis,
+              reminderQueue,
+              transitionState,
+              messagingPort: telegramAdapter,
+            })
+          : null;
+
       // Thick worker (ADR-005): FSM → NLP → user response
       const messageWorker = createMessageWorker({
         redis,
@@ -195,6 +276,8 @@ async function bootstrap(): Promise<void> {
           // TODO: replace with real WhatsApp adapter when implemented
           whatsapp: telegramAdapter,
         },
+        initiateCloudConnection,
+        cancelCloudConnection,
       });
       app.log.info(
         `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,
@@ -206,6 +289,21 @@ async function bootstrap(): Promise<void> {
         handleStartCommand,
         resolveIdentity,
       });
+
+      if (handleOAuthCallback !== null) {
+        registerOAuthCallback(app, { handleOAuthCallback });
+      }
+
+      if (sendOAuthReminder !== null) {
+        const oauthReminderWorker = createOAuthReminderWorker({
+          redis,
+          sendOAuthReminder,
+          redirectUri: env.GOOGLE_REDIRECT_URI!,
+        });
+        app.log.info(
+          `Started oauth-reminder worker (concurrency: ${oauthReminderWorker.opts.concurrency})`,
+        );
+      }
 
       // Session timeout worker — periodic job that transitions expired states to IDLE
       try {

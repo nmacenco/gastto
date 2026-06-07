@@ -7,6 +7,10 @@ import { processMessageJob, createMessageWorker, type MessageWorkerDeps } from '
 import type { Job } from 'bullmq';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ConversationState } from '../../domain/entities/ConversationState';
+import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
+import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
+import { expenseCopies } from '../../application/copies/expense.copies';
+import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
@@ -14,6 +18,8 @@ const mockTransitionStateExecute = vi.fn();
 const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
 const mockRegisterExpenseInterpret = vi.fn();
+const mockInitiateCloudConnectionExecute = vi.fn();
+const mockCancelCloudConnectionExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -37,6 +43,12 @@ function buildMockDeps(): MessageWorkerDeps {
       telegram: { sendMessage: mockSendMessage },
       whatsapp: { sendMessage: mockSendMessage },
     },
+    initiateCloudConnection: {
+      execute: mockInitiateCloudConnectionExecute,
+    } as unknown as InitiateCloudConnection,
+    cancelCloudConnection: {
+      execute: mockCancelCloudConnectionExecute,
+    } as unknown as CancelCloudConnection,
   };
 }
 
@@ -89,7 +101,10 @@ describe('processMessageJob', () => {
         channel: 'telegram',
         defaultCurrency: null,
       });
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', '¿Cuánto gastaste?');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationAmount(),
+      );
     });
 
     it('sends expense summary when interpretation succeeds', async () => {
@@ -128,7 +143,7 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
 
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Guardando tu gasto…');
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saving());
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
     });
 
@@ -147,10 +162,7 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         targetState: 'IDLE',
       });
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        'Registro cancelado. No se guardó nada.',
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.cancelled());
     });
 
     it('asks for clarification on ambiguous response', async () => {
@@ -165,10 +177,7 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'maybe' }), deps);
 
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        '¿Querías confirmar, corregir o cancelar el registro?',
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
     });
   });
 
@@ -218,14 +227,112 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: '850' }), deps);
 
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', '¿En qué moneda fue ese gasto?');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationCurrency(),
+      );
     });
   });
 
   describe('ONBOARDING states', () => {
+    it('delegates ONBOARDING_START to InitiateCloudConnection when available', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_START' }),
+      );
+      mockInitiateCloudConnectionExecute.mockResolvedValue({
+        nextState: 'ONBOARDING_DRIVE',
+        message: 'Auth link sent.',
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Cafe 850',
+        externalId: '123456789',
+        channel: 'telegram',
+      });
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('falls back to placeholder when ONBOARDING_START and InitiateCloudConnection is not wired', async () => {
+      const deps = buildMockDeps();
+      deps.initiateCloudConnection = null;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_START' }),
+      );
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        onboardingCopies.onboardingPlaceholder(),
+      );
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+    });
+
+    describe('ONBOARDING_DRIVE', () => {
+      it('triggers CancelCloudConnection when user types cancelar', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_DRIVE',
+            statePayload: { provider: 'google', state: 'csrf-state-123' },
+          }),
+        );
+        mockCancelCloudConnectionExecute.mockResolvedValue({
+          nextState: 'IDLE',
+          message: onboardingCopies.cancelledMessage(),
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+
+        expect(mockCancelCloudConnectionExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          state: 'csrf-state-123',
+          externalId: '123456789',
+          channel: 'telegram',
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('sends wait prompt for non-cancelar messages', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_DRIVE',
+            statePayload: { provider: 'google', state: 'csrf-state-123' },
+          }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'anything else' }), deps);
+
+        expect(mockCancelCloudConnectionExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.waitForAuthPrompt(),
+        );
+      });
+
+      it('falls back to placeholder when CancelCloudConnection is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.cancelCloudConnection = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_DRIVE' }),
+        );
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+        expect(mockCancelCloudConnectionExecute).not.toHaveBeenCalled();
+      });
+    });
+
     it.each([
-      'ONBOARDING_START',
-      'ONBOARDING_DRIVE',
       'ONBOARDING_FILE',
       'ONBOARDING_SHEET',
       'ONBOARDING_MAPPING',
@@ -240,7 +347,7 @@ describe('processMessageJob', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
+        onboardingCopies.onboardingPlaceholder(),
       );
     });
   });
@@ -285,10 +392,7 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         targetState: 'IDLE',
       });
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        'Parece que algo falló. Vamos a empezar de nuevo.',
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.fallbackError());
     });
   });
 
@@ -304,7 +408,10 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob(baseJobData), deps);
 
       expect(mockRegisterExpenseInterpret).toHaveBeenCalled();
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', '¿Cuánto gastaste?');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationAmount(),
+      );
     });
   });
 });

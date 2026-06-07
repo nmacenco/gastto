@@ -1,11 +1,9 @@
 // LAYER: Tests / Integration Helpers
 // Manages a PostgreSQL test container using testcontainers.
-// Starts once per test suite and exposes a connection string for Drizzle.
+// Each test suite starts its own container to avoid cross-suite interference.
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { execSync } from 'node:child_process';
-
-let container: StartedPostgreSqlContainer | null = null;
 
 export function isDockerAvailable(): boolean {
   try {
@@ -17,27 +15,17 @@ export function isDockerAvailable(): boolean {
 }
 
 export async function startDbContainer(): Promise<StartedPostgreSqlContainer> {
-  if (container) return container;
-
-  container = await new PostgreSqlContainer('postgres:16-alpine')
+  return new PostgreSqlContainer('postgres:16-alpine')
     .withDatabase('gastto_test')
     .withUsername('test')
     .withPassword('test')
     .start();
-
-  return container;
 }
 
-export function getConnectionString(): string {
-  if (!container) {
-    throw new Error('DB container not started. Call startDbContainer() first.');
-  }
+export function getConnectionString(container: StartedPostgreSqlContainer): string {
   return container.getConnectionUri();
 }
 
-export async function stopDbContainer(): Promise<void> {
-  if (container) {
-    await container.stop();
-    container = null;
-  }
+export async function stopDbContainer(container: StartedPostgreSqlContainer): Promise<void> {
+  await container.stop();
 }

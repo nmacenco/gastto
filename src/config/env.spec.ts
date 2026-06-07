@@ -14,6 +14,10 @@ describe('envSchema', () => {
     OPENAI_API_KEY: 'sk-test-openai',
     TELEGRAM_WEBHOOK_SECRET: 'webhook-secret',
     TELEGRAM_BOT_TOKEN: 'test-bot-token',
+    ENCRYPTION_KEY: 'a'.repeat(64),
+    GOOGLE_CLIENT_ID: 'google-client-id',
+    GOOGLE_CLIENT_SECRET: 'google-client-secret',
+    GOOGLE_REDIRECT_URI: 'http://localhost:3000/oauth/callback',
   };
 
   it('accepts a valid environment object', () => {
@@ -31,6 +35,7 @@ describe('envSchema', () => {
       NODE_ENV: 'development',
       PORT: '3000',
       LOG_LEVEL: 'info',
+      ENCRYPTION_KEY: 'a'.repeat(64),
     };
     const result = envSchema.safeParse(minimal);
     expect(result.success).toBe(true);
@@ -40,6 +45,9 @@ describe('envSchema', () => {
       expect(result.data.OPENAI_API_KEY).toBeUndefined();
       expect(result.data.TELEGRAM_WEBHOOK_SECRET).toBeUndefined();
       expect(result.data.TELEGRAM_BOT_TOKEN).toBeUndefined();
+      expect(result.data.GOOGLE_CLIENT_ID).toBeUndefined();
+      expect(result.data.GOOGLE_CLIENT_SECRET).toBeUndefined();
+      expect(result.data.GOOGLE_REDIRECT_URI).toBeUndefined();
     }
   });
 
@@ -104,6 +112,7 @@ describe('envSchema', () => {
       NODE_ENV: 'development',
       PORT: '3000',
       LOG_LEVEL: 'info',
+      ENCRYPTION_KEY: 'a'.repeat(64),
     });
     expect(withoutToken.success).toBe(true);
     if (withoutToken.success) {

@@ -17,6 +17,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-009](./ADR-009-fastify-persistent.md)      | Use Persistent Node.js Server with Fastify                       | Accepted |
 | [ADR-010](./ADR-010-multi-environment-flyio.md) | Multi-Environment Deployment on Fly.io                           | Accepted |
 | [ADR-011](./ADR-011-two-stage-pipeline.md)      | Two-Queue Pipeline for FIFO Message Ordering                     | Accepted |
+| [ADR-012](./ADR-012-user-facing-text-copies.md) | Centralize User-Facing Text in Application Copy Modules          | Accepted |
 
 ## Template
 
