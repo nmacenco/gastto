@@ -132,80 +132,42 @@ async function bootstrap(): Promise<void> {
 
   // -- Infraestructura condicional (solo cuando las env vars estan presentes) --
   if (env.DATABASE_URL && env.REDIS_URL) {
-    const sql = postgres(env.DATABASE_URL);
-    const db = drizzle(sql);
-    const redis = new Redis(env.REDIS_URL, {
-      maxRetriesPerRequest: null,
-    });
-
-    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
-    const userRepo = new DrizzleUserRepository(db, redis);
-    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
-    const conversationRepo = new DrizzleConversationStateRepository(db);
-    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
-    const operationLogRepo = new DrizzleOperationLogRepository(db);
-    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
-    const tokenRepo = new DrizzleOAuthTokenRepository(db);
-
-    const tokenEncryption = new TokenEncryptionAdapter(env.ENCRYPTION_KEY);
-
-    const resolveIdentity = new ResolveUserIdentityUseCase(userRepo, conversationRepo);
-    const getConversationState = new GetConversationState(conversationRepo);
-    const transitionState = new TransitionConversationState(conversationRepo);
-    const recoverCorruptedState = new RecoverCorruptedState(conversationRepo, operationLogRepo);
-
-    const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
-      connection: redis,
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 1000 },
-        removeOnComplete: 100,
-        removeOnFail: 500,
-      },
-    });
-
-    const incomingMessageQueue = new Queue<IncomingMessageJobData>('incoming-message', {
-      connection: redis,
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 1000 },
-        removeOnComplete: 100,
-        removeOnFail: 500,
-      },
-    });
-
-    if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET) {
-      const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN);
-      const handleStartCommand = new HandleStartCommand(telegramAdapter, conversationRepo);
-
-      const handleUnsupportedMessage = new HandleUnsupportedMessage(telegramAdapter);
-      const routeIncomingMessage = new RouteIncomingMessage({
-        messageQueue,
-        resolveIdentity,
-        messagingPort: telegramAdapter,
-        handleUnsupportedMessage,
+    try {
+      const sql = postgres(env.DATABASE_URL);
+      const db = drizzle(sql);
+      const redis = new Redis(env.REDIS_URL, {
+        maxRetriesPerRequest: null,
+        // Fly.io Upstash Redis requiere TLS (rediss://). Si el URL usa redis:// sin TLS,
+        // la conexion sera reseteada por el proxy de Fly.io (ECONNRESET).
+        // Verifica: fly secrets list | grep REDIS_URL
       });
 
-      // Thin FIFO worker (ADR-011): guarantees per-user message ordering
-      const incomingMessageWorker = createIncomingMessageWorker({
-        redis,
-        routeIncomingMessage,
+      // Prevent Redis connection errors from crashing the process (ECONNRESET on Fly.io)
+      redis.on('error', (err) => {
+        app.log.error({
+          msg: 'Redis connection error',
+          error: err.message,
+          code: (err as NodeJS.ErrnoException).code,
+        });
       });
-      app.log.info(
-        `Started incoming-message worker (concurrency: ${incomingMessageWorker.opts.concurrency})`,
-      );
 
-      // Google Drive OAuth adapter (optional until credentials are configured)
-      const googleOAuthAdapter =
-        env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REDIRECT_URI
-          ? new GoogleDriveOAuthAdapter({
-              clientId: env.GOOGLE_CLIENT_ID,
-              clientSecret: env.GOOGLE_CLIENT_SECRET,
-              redirectUri: env.GOOGLE_REDIRECT_URI,
-            })
-          : null;
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const userRepo = new DrizzleUserRepository(db, redis);
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const conversationRepo = new DrizzleConversationStateRepository(db);
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const operationLogRepo = new DrizzleOperationLogRepository(db);
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const tokenRepo = new DrizzleOAuthTokenRepository(db);
 
-      const reminderQueue = new Queue('oauth-reminder', {
+      const tokenEncryption = new TokenEncryptionAdapter(env.ENCRYPTION_KEY);
+
+      const resolveIdentity = new ResolveUserIdentityUseCase(userRepo, conversationRepo);
+      const getConversationState = new GetConversationState(conversationRepo);
+      const transitionState = new TransitionConversationState(conversationRepo);
+      const recoverCorruptedState = new RecoverCorruptedState(conversationRepo, operationLogRepo);
+
+      const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
         connection: redis,
         defaultJobOptions: {
           attempts: 3,
@@ -215,118 +177,172 @@ async function bootstrap(): Promise<void> {
         },
       });
 
-      const initiateCloudConnection =
-        googleOAuthAdapter !== null
-          ? new InitiateCloudConnection({
-              oauthService: googleOAuthAdapter,
-              redis,
-              reminderQueue,
-              transitionState,
-              messagingPort: telegramAdapter,
-              redirectUri: env.GOOGLE_REDIRECT_URI!,
-            })
-          : null;
-
-      const handleOAuthCallback =
-        googleOAuthAdapter !== null
-          ? new HandleOAuthCallback({
-              redis,
-              oauthService: googleOAuthAdapter,
-              tokenRepository: tokenRepo,
-              reminderQueue,
-              transitionState,
-              messagingPort: telegramAdapter,
-              tokenEncryption,
-            })
-          : null;
-
-      const sendOAuthReminder =
-        googleOAuthAdapter !== null
-          ? new SendOAuthReminder({
-              redis,
-              oauthService: googleOAuthAdapter,
-              tokenRepository: tokenRepo,
-              reminderQueue,
-              transitionState,
-              messagingPort: telegramAdapter,
-            })
-          : null;
-
-      const cancelCloudConnection =
-        googleOAuthAdapter !== null
-          ? new CancelCloudConnection({
-              redis,
-              reminderQueue,
-              transitionState,
-              messagingPort: telegramAdapter,
-            })
-          : null;
-
-      // Thick worker (ADR-005): FSM → NLP → user response
-      const messageWorker = createMessageWorker({
-        redis,
-        // @ts-expect-error TODO: implement RegisterExpenseUseCase wiring
-        registerExpense: null,
-        getConversationState,
-        transitionState,
-        recoverCorruptedState,
-        userRepo,
-        messagingAdapters: {
-          telegram: telegramAdapter,
-          // TODO: replace with real WhatsApp adapter when implemented
-          whatsapp: telegramAdapter,
+      const incomingMessageQueue = new Queue<IncomingMessageJobData>('incoming-message', {
+        connection: redis,
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 1000 },
+          removeOnComplete: 100,
+          removeOnFail: 500,
         },
-        initiateCloudConnection,
-        cancelCloudConnection,
-      });
-      app.log.info(
-        `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,
-      );
-
-      registerTelegramWebhook(app, {
-        webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
-        incomingMessageQueue,
-        handleStartCommand,
-        resolveIdentity,
       });
 
-      if (handleOAuthCallback !== null) {
-        registerOAuthCallback(app, { handleOAuthCallback });
-      }
+      if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET) {
+        const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN);
+        const handleStartCommand = new HandleStartCommand(telegramAdapter, conversationRepo);
 
-      if (sendOAuthReminder !== null) {
-        const oauthReminderWorker = createOAuthReminderWorker({
+        const handleUnsupportedMessage = new HandleUnsupportedMessage(telegramAdapter);
+        const routeIncomingMessage = new RouteIncomingMessage({
+          messageQueue,
+          resolveIdentity,
+          messagingPort: telegramAdapter,
+          handleUnsupportedMessage,
+        });
+
+        // Thin FIFO worker (ADR-011): guarantees per-user message ordering
+        const incomingMessageWorker = createIncomingMessageWorker({
           redis,
-          sendOAuthReminder,
-          redirectUri: env.GOOGLE_REDIRECT_URI!,
+          routeIncomingMessage,
         });
         app.log.info(
-          `Started oauth-reminder worker (concurrency: ${oauthReminderWorker.opts.concurrency})`,
+          `Started incoming-message worker (concurrency: ${incomingMessageWorker.opts.concurrency})`,
         );
-      }
 
-      // Session timeout worker — periodic job that transitions expired states to IDLE
-      try {
-        const sessionTimeoutQueue = new Queue('session-timeout', {
+        // Google Drive OAuth adapter (optional until credentials are configured)
+        const googleOAuthAdapter =
+          env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REDIRECT_URI
+            ? new GoogleDriveOAuthAdapter({
+                clientId: env.GOOGLE_CLIENT_ID,
+                clientSecret: env.GOOGLE_CLIENT_SECRET,
+                redirectUri: env.GOOGLE_REDIRECT_URI,
+              })
+            : null;
+
+        const reminderQueue = new Queue('oauth-reminder', {
           connection: redis,
+          defaultJobOptions: {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 1000 },
+            removeOnComplete: 100,
+            removeOnFail: 500,
+          },
         });
-        await sessionTimeoutQueue.add('session-timeout', {}, { repeat: { every: 60000 } });
 
-        const handleExpiredSessions = new HandleExpiredSessions(
-          conversationRepo,
-          userRepo,
+        const initiateCloudConnection =
+          googleOAuthAdapter !== null
+            ? new InitiateCloudConnection({
+                oauthService: googleOAuthAdapter,
+                redis,
+                reminderQueue,
+                transitionState,
+                messagingPort: telegramAdapter,
+                redirectUri: env.GOOGLE_REDIRECT_URI!,
+              })
+            : null;
+
+        const handleOAuthCallback =
+          googleOAuthAdapter !== null
+            ? new HandleOAuthCallback({
+                redis,
+                oauthService: googleOAuthAdapter,
+                tokenRepository: tokenRepo,
+                reminderQueue,
+                transitionState,
+                messagingPort: telegramAdapter,
+                tokenEncryption,
+              })
+            : null;
+
+        const sendOAuthReminder =
+          googleOAuthAdapter !== null
+            ? new SendOAuthReminder({
+                redis,
+                oauthService: googleOAuthAdapter,
+                tokenRepository: tokenRepo,
+                reminderQueue,
+                transitionState,
+                messagingPort: telegramAdapter,
+              })
+            : null;
+
+        const cancelCloudConnection =
+          googleOAuthAdapter !== null
+            ? new CancelCloudConnection({
+                redis,
+                reminderQueue,
+                transitionState,
+                messagingPort: telegramAdapter,
+              })
+            : null;
+
+        // Thick worker (ADR-005): FSM → NLP → user response
+        const messageWorker = createMessageWorker({
+          redis,
+          // @ts-expect-error TODO: implement RegisterExpenseUseCase wiring
+          registerExpense: null,
+          getConversationState,
           transitionState,
-          telegramAdapter,
+          recoverCorruptedState,
+          userRepo,
+          messagingAdapters: {
+            telegram: telegramAdapter,
+            // TODO: replace with real WhatsApp adapter when implemented
+            whatsapp: telegramAdapter,
+          },
+          initiateCloudConnection,
+          cancelCloudConnection,
+        });
+        app.log.info(
+          `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,
         );
 
-        createSessionTimeoutWorker({
-          redis,
-          handleExpiredSessions,
+        registerTelegramWebhook(app, {
+          webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
+          incomingMessageQueue,
+          handleStartCommand,
+          resolveIdentity,
         });
-        app.log.info('Started session-timeout worker (repeat every 60s)');
-      } catch (err) {
-        app.log.error({ msg: 'Failed to start session-timeout worker', error: err });
+
+        if (handleOAuthCallback !== null) {
+          registerOAuthCallback(app, { handleOAuthCallback });
+        }
+
+        if (sendOAuthReminder !== null) {
+          const oauthReminderWorker = createOAuthReminderWorker({
+            redis,
+            sendOAuthReminder,
+            redirectUri: env.GOOGLE_REDIRECT_URI!,
+          });
+          app.log.info(
+            `Started oauth-reminder worker (concurrency: ${oauthReminderWorker.opts.concurrency})`,
+          );
+        }
+
+        // Session timeout worker — periodic job that transitions expired states to IDLE
+        try {
+          const sessionTimeoutQueue = new Queue('session-timeout', {
+            connection: redis,
+          });
+          await sessionTimeoutQueue.add('session-timeout', {}, { repeat: { every: 60000 } });
+
+          const handleExpiredSessions = new HandleExpiredSessions(
+            conversationRepo,
+            userRepo,
+            transitionState,
+            telegramAdapter,
+          );
+
+          createSessionTimeoutWorker({
+            redis,
+            handleExpiredSessions,
+          });
+          app.log.info('Started session-timeout worker (repeat every 60s)');
+        } catch (err) {
+          app.log.error({ msg: 'Failed to start session-timeout worker', error: err });
+        }
       }
+    } catch (err) {
+      app.log.error({ msg: 'Failed to initialize infrastructure', error: err });
     }
   }
 
