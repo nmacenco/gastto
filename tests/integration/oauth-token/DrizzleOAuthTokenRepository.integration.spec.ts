@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq, and } from 'drizzle-orm';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import * as schema from '../../../src/infrastructure/db/schema';
 import {
   startDbContainer,
@@ -18,21 +19,22 @@ import { createUser } from '../helpers/fixtures';
 import { DrizzleOAuthTokenRepository } from '../../../src/infrastructure/db/repositories/DrizzleOAuthTokenRepository';
 
 describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepository', () => {
+  let container: StartedPostgreSqlContainer;
   let pgClient: postgres.Sql;
   let db: ReturnType<typeof drizzle<typeof schema>>;
   let repo: DrizzleOAuthTokenRepository;
 
   beforeAll(async () => {
-    await startDbContainer();
-    pgClient = postgres(getConnectionString(), { max: 1 });
+    container = await startDbContainer();
+    pgClient = postgres(getConnectionString(container), { max: 1 });
     await runMigrations(pgClient);
     db = drizzle(pgClient, { schema });
     repo = new DrizzleOAuthTokenRepository(db);
-  });
+  }, 60000);
 
   afterAll(async () => {
-    await pgClient.end();
-    await stopDbContainer();
+    if (pgClient) await pgClient.end();
+    if (container) await stopDbContainer(container);
   });
 
   describe('upsert and findByUserAndProvider', () => {

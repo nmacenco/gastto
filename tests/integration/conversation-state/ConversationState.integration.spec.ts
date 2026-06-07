@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import * as schema from '../../../src/infrastructure/db/schema';
 import {
   startDbContainer,
@@ -28,6 +29,7 @@ import type { MessagingOutputPort } from '../../../src/application/ports/output/
 import type { Redis } from 'ioredis';
 
 describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', () => {
+  let container: StartedPostgreSqlContainer;
   let pgClient: postgres.Sql;
   let db: ReturnType<typeof drizzle<typeof schema>>;
   let conversationRepo: DrizzleConversationStateRepository;
@@ -35,8 +37,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
   let userRepo: DrizzleUserRepository;
 
   beforeAll(async () => {
-    await startDbContainer();
-    pgClient = postgres(getConnectionString(), { max: 1 });
+    container = await startDbContainer();
+    pgClient = postgres(getConnectionString(container), { max: 1 });
     await runMigrations(pgClient);
     db = drizzle(pgClient, { schema });
 
@@ -49,11 +51,11 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     } as unknown as Redis;
 
     userRepo = new DrizzleUserRepository(db, fakeRedis);
-  });
+  }, 60000);
 
   afterAll(async () => {
-    await pgClient.end();
-    await stopDbContainer();
+    if (pgClient) await pgClient.end();
+    if (container) await stopDbContainer(container);
   });
 
   it('Scenario 1: New user initialization via /start creates IDLE state', async () => {
@@ -115,7 +117,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     });
 
     // Simulate application restart with a fresh DB connection
-    const freshPgClient = postgres(getConnectionString(), { max: 1 });
+    const freshPgClient = postgres(getConnectionString(container), { max: 1 });
     const freshDb = drizzle(freshPgClient, { schema });
     const freshRepo = new DrizzleConversationStateRepository(freshDb);
     const getState = new GetConversationState(freshRepo);

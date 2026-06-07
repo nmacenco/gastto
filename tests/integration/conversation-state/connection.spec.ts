@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import * as schema from '../../../src/infrastructure/db/schema';
 import {
   startDbContainer,
@@ -17,19 +18,20 @@ import { createUser, createConversationState } from '../helpers/fixtures';
 import { DrizzleConversationStateRepository } from '../../../src/infrastructure/db/repositories/DrizzleConversationStateRepository';
 
 describe.skipIf(!isDockerAvailable())('Integration :: DB Connectivity', () => {
+  let container: StartedPostgreSqlContainer;
   let pgClient: postgres.Sql;
   let db: ReturnType<typeof drizzle<typeof schema>>;
 
   beforeAll(async () => {
-    await startDbContainer();
-    pgClient = postgres(getConnectionString(), { max: 1 });
+    container = await startDbContainer();
+    pgClient = postgres(getConnectionString(container), { max: 1 });
     await runMigrations(pgClient);
     db = drizzle(pgClient, { schema });
-  });
+  }, 60000);
 
   afterAll(async () => {
-    await pgClient.end();
-    await stopDbContainer();
+    if (pgClient) await pgClient.end();
+    if (container) await stopDbContainer(container);
   });
 
   it('seeds a user, persists a conversation state, and reads it back via the repository', async () => {
