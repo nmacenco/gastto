@@ -16,9 +16,9 @@ primary_region = 'cdg'
   internal_port = 3000
   force_https = true
   # NOTE: auto_stop_machines must be set to false when BullMQ workers are introduced (per ADR-009).
-  auto_stop_machines = true
+  auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[vm]]
