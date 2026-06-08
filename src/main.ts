@@ -29,6 +29,7 @@ import { DrizzleConversationStateRepository } from './infrastructure/db/reposito
 import { DrizzleOperationLogRepository } from './infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from './infrastructure/db/repositories/DrizzleOAuthTokenRepository';
 import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/TelegramMessengerAdapter';
+import { TelegramWebhookConfigurator } from './infrastructure/adapters/telegram/TelegramWebhookConfigurator';
 import { GoogleDriveOAuthAdapter } from './infrastructure/adapters/oauth';
 import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
 
@@ -302,6 +303,20 @@ async function bootstrap(): Promise<void> {
           handleStartCommand,
           resolveIdentity,
         });
+
+        // Auto-register Telegram webhook on startup so Telegram knows where to deliver updates
+        if (env.WEBHOOK_BASE_URL) {
+          try {
+            const webhookUrl = `${env.WEBHOOK_BASE_URL.replace(/\/$/, '')}/webhook/telegram`;
+            const configurator = new TelegramWebhookConfigurator(env.TELEGRAM_BOT_TOKEN);
+            await configurator.setWebhook(webhookUrl, env.TELEGRAM_WEBHOOK_SECRET);
+            app.log.info(`Telegram webhook registered: ${webhookUrl}`);
+          } catch (err) {
+            app.log.error({ msg: 'Failed to register Telegram webhook', error: err });
+          }
+        } else {
+          app.log.warn('WEBHOOK_BASE_URL not set — Telegram webhook auto-registration skipped');
+        }
 
         if (handleOAuthCallback !== null) {
           registerOAuthCallback(app, { handleOAuthCallback });
