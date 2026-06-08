@@ -4,4 +4,5 @@
 
 export interface TokenEncryptionPort {
   encrypt(plaintext: string): { ciphertext: Buffer; iv: Buffer };
+  decrypt(ciphertext: Buffer, iv: Buffer): string;
 }
