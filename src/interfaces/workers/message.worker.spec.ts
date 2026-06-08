@@ -9,6 +9,7 @@ import type { ProcessMessageJobData } from '../../application/ports/ProcessMessa
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
+import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
@@ -20,6 +21,7 @@ const mockUserRepoFindById = vi.fn();
 const mockRegisterExpenseInterpret = vi.fn();
 const mockInitiateCloudConnectionExecute = vi.fn();
 const mockCancelCloudConnectionExecute = vi.fn();
+const mockHandleSpreadsheetFileSelectionExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -49,6 +51,9 @@ function buildMockDeps(): MessageWorkerDeps {
     cancelCloudConnection: {
       execute: mockCancelCloudConnectionExecute,
     } as unknown as CancelCloudConnection,
+    handleSpreadsheetFileSelection: {
+      execute: mockHandleSpreadsheetFileSelectionExecute,
+    } as unknown as HandleSpreadsheetFileSelection,
   };
 }
 
@@ -332,24 +337,65 @@ describe('processMessageJob', () => {
       });
     });
 
-    it.each([
-      'ONBOARDING_FILE',
-      'ONBOARDING_SHEET',
-      'ONBOARDING_MAPPING',
-      'ONBOARDING_CATEGORIES',
-    ] as const)('sends onboarding placeholder for %s', async (state) => {
-      const deps = buildMockDeps();
-      mockGetConversationStateExecute.mockResolvedValue(
-        buildConversationState({ currentState: state }),
-      );
+    describe('ONBOARDING_FILE', () => {
+      it('delegates to HandleSpreadsheetFileSelection when wired', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_FILE',
+            statePayload: { provider: 'google', fileList: [{ id: 'f1', name: 'file1' }] },
+          }),
+        );
+        mockHandleSpreadsheetFileSelectionExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_SHEET',
+          message: 'File selected.',
+        });
 
-      await processMessageJob(buildJob(baseJobData), deps);
+        await processMessageJob(buildJob(baseJobData), deps);
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        onboardingCopies.onboardingPlaceholder(),
-      );
+        expect(mockHandleSpreadsheetFileSelectionExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          rawMessage: 'Cafe 850',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: { provider: 'google', fileList: [{ id: 'f1', name: 'file1' }] },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('falls back to placeholder when HandleSpreadsheetFileSelection is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.handleSpreadsheetFileSelection = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_FILE' }),
+        );
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+        expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+      });
     });
+
+    it.each(['ONBOARDING_SHEET', 'ONBOARDING_MAPPING', 'ONBOARDING_CATEGORIES'] as const)(
+      'sends onboarding placeholder for %s',
+      async (state) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: state }),
+        );
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+      },
+    );
   });
 
   describe('unknown / corrupted state', () => {
