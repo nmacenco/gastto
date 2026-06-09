@@ -10,6 +10,7 @@ import {
 } from './oauthReminder.worker';
 import type { Job } from 'bullmq';
 import type { SendOAuthReminder } from '../../application/use-cases/spreadsheet/SendOAuthReminder';
+import { InvalidStateTransitionError } from '../../domain/errors/InvalidStateTransitionError';
 
 const mockExecute = vi.fn();
 
@@ -56,6 +57,30 @@ describe('processOAuthReminderJob', () => {
     await processOAuthReminderJob(buildJob(), deps);
 
     expect(mockExecute).toHaveBeenCalledWith(expect.objectContaining({ provider: 'microsoft' }));
+  });
+
+  it('logs warning and resolves gracefully on InvalidStateTransitionError', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockExecute.mockRejectedValue(new InvalidStateTransitionError('IDLE', 'ONBOARDING_DRIVE'));
+
+    const deps = buildMockDeps();
+    await processOAuthReminderJob(buildJob(), deps);
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        msg: 'OAuth reminder skipped: invalid state transition',
+        userId: 'user-123',
+        error: 'Invalid state transition from IDLE to ONBOARDING_DRIVE',
+      }),
+    );
+    consoleWarnSpy.mockRestore();
+  });
+
+  it('re-throws non-state-transition errors', async () => {
+    mockExecute.mockRejectedValue(new Error('Database down'));
+
+    const deps = buildMockDeps();
+    await expect(processOAuthReminderJob(buildJob(), deps)).rejects.toThrow('Database down');
   });
 });
 

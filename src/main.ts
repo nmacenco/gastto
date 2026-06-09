@@ -262,6 +262,7 @@ async function bootstrap(): Promise<void> {
                 redis,
                 oauthService: googleOAuthAdapter,
                 tokenRepository: tokenRepo,
+                conversationRepo,
                 reminderQueue,
                 transitionState,
                 messagingPort: telegramAdapter,

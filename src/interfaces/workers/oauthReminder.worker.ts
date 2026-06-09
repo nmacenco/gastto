@@ -5,6 +5,7 @@
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { SendOAuthReminder } from '../../application/use-cases/spreadsheet/SendOAuthReminder';
+import { InvalidStateTransitionError } from '../../domain/errors/InvalidStateTransitionError';
 
 export interface OAuthReminderJobData {
   userId: string;
@@ -26,13 +27,26 @@ export async function processOAuthReminderJob(
   const { userId, externalId, channel } = job.data;
   const provider = deps.provider ?? 'google';
 
-  await deps.sendOAuthReminder.execute({
-    userId,
-    externalId,
-    channel,
-    provider,
-    redirectUri: deps.redirectUri,
-  });
+  try {
+    await deps.sendOAuthReminder.execute({
+      userId,
+      externalId,
+      channel,
+      provider,
+      redirectUri: deps.redirectUri,
+    });
+  } catch (err) {
+    if (err instanceof InvalidStateTransitionError) {
+      console.warn({
+        msg: 'OAuth reminder skipped: invalid state transition',
+        jobId: job.id,
+        userId,
+        error: err.message,
+      });
+      return;
+    }
+    throw err;
+  }
 }
 
 export function createOAuthReminderWorker(
