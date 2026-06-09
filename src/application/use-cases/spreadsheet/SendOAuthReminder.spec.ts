@@ -43,7 +43,7 @@ const baseInput: SendOAuthReminderInput = {
   externalId: '987654321',
   channel: 'telegram',
   provider: 'google',
-  redirectUri: 'http://localhost:3000/oauth/callback',
+  redirectUri: 'http://localhost:3000/auth/google/callback',
 };
 
 beforeEach(() => {
@@ -67,7 +67,7 @@ describe('SendOAuthReminder', () => {
       expect(mockBuildAuthUrl).toHaveBeenCalledWith(
         'google',
         'fresh-state-789',
-        'http://localhost:3000/oauth/callback',
+        'http://localhost:3000/auth/google/callback',
       );
       expect(mockQueueAdd).toHaveBeenCalledWith(
         'oauth-reminder',

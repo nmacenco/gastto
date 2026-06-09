@@ -30,7 +30,7 @@ function buildMockDeps(
     reminderQueue: { add: mockQueueAdd } as unknown as Queue,
     transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
-    redirectUri: 'http://localhost:3000/oauth/callback',
+    redirectUri: 'http://localhost:3000/auth/google/callback',
     generateState: () => 'test-state-123',
     ...overrides,
   };

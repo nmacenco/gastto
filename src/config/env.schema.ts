@@ -12,34 +12,29 @@ export const envSchema = z.object({
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
 
   // ── Database ────────────────────────────────────────────────────────────────
-  // Required once persistence is wired; optional during skeleton bootstrap.
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required').optional(),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
   // ── Cache / Queue ─────────────────────────────────────────────────────────────
-  // Required once BullMQ workers are wired; optional during skeleton bootstrap.
-  REDIS_URL: z.string().min(1, 'REDIS_URL is required').optional(),
+  REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
 
   // ── LLM ───────────────────────────────────────────────────────────────────────
-  // Required once NLP extraction is wired; optional during skeleton bootstrap.
-  OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY is required').optional(),
+  OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY is required'),
   ANTHROPIC_API_KEY: z.string().optional(),
 
   // ── Messaging ─────────────────────────────────────────────────────────────────
-  // Required once Telegram webhook is fully wired; optional during skeleton bootstrap.
-  TELEGRAM_WEBHOOK_SECRET: z.string().min(1, 'TELEGRAM_WEBHOOK_SECRET is required').optional(),
-  TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required').optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().min(1, 'TELEGRAM_WEBHOOK_SECRET is required'),
+  TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required'),
   // Base URL where the Telegram webhook is reachable (e.g. https://gastto-develop.fly.dev).
   // Used to auto-register the webhook with Telegram Bot API on startup.
-  WEBHOOK_BASE_URL: z.string().min(1, 'WEBHOOK_BASE_URL is required').optional(),
+  WEBHOOK_BASE_URL: z.string().min(1, 'WEBHOOK_BASE_URL is required'),
 
   // ── Observability ─────────────────────────────────────────────────────────────
   SENTRY_DSN: z.string().optional(),
 
   // ── OAuth ─────────────────────────────────────────────────────────────────────
-  // Google OAuth credentials (optional until Google Drive adapter is wired).
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
-  GOOGLE_REDIRECT_URI: z.string().optional(),
+  GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),
+  GOOGLE_CLIENT_SECRET: z.string().min(1, 'GOOGLE_CLIENT_SECRET is required'),
+  GOOGLE_REDIRECT_URI: z.string().min(1, 'GOOGLE_REDIRECT_URI is required'),
 
   // ── Security ──────────────────────────────────────────────────────────────────
   // AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars).
