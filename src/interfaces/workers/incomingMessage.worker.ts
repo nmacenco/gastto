@@ -41,6 +41,7 @@ export function createIncomingMessageWorker(opts: {
     {
       connection: opts.redis,
       concurrency: 1, // strict FIFO per user (ADR-011)
+      stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
       // Retry policy is set on Queue, not Worker
     },
   );

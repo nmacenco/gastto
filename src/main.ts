@@ -359,7 +359,7 @@ async function bootstrap(): Promise<void> {
           const sessionTimeoutQueue = new Queue('session-timeout', {
             connection: redis,
           });
-          await sessionTimeoutQueue.add('session-timeout', {}, { repeat: { every: 60000 } });
+          await sessionTimeoutQueue.add('session-timeout', {}, { repeat: { every: 120_000 } });
 
           const handleExpiredSessions = new HandleExpiredSessions(
             conversationRepo,

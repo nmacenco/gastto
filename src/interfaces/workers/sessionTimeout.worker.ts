@@ -26,6 +26,7 @@ export function createSessionTimeoutWorker(opts: SessionTimeoutWorkerOpts): Work
     {
       connection: opts.redis,
       concurrency: 1,
+      stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
     },
   );
 

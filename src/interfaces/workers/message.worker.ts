@@ -160,6 +160,9 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
     {
       connection: opts.redis,
       concurrency: 2, // max 2 simultaneous jobs to not saturate LLM API (ADR-005)
+      stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
+      lockDuration: 120_000, // 2 min (default 30s) — LLM jobs can run >30s
+      lockRenewTime: 60_000, // 1 min (default 15s) — fewer lock renewals
       // Retry policy is set on Queue, not Worker
     },
   );
