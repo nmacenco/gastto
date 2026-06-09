@@ -148,6 +148,7 @@ export class HandleOAuthCallback {
     await this.deps.transitionState.execute({
       userId: metadata.userId,
       targetState: 'ONBOARDING_FILE',
+      payload: { provider: metadata.provider },
     });
 
     return {

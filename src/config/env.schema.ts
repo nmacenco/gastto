@@ -28,6 +28,9 @@ export const envSchema = z.object({
   // Required once Telegram webhook is fully wired; optional during skeleton bootstrap.
   TELEGRAM_WEBHOOK_SECRET: z.string().min(1, 'TELEGRAM_WEBHOOK_SECRET is required').optional(),
   TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required').optional(),
+  // Base URL where the Telegram webhook is reachable (e.g. https://gastto-develop.fly.dev).
+  // Used to auto-register the webhook with Telegram Bot API on startup.
+  WEBHOOK_BASE_URL: z.string().min(1, 'WEBHOOK_BASE_URL is required').optional(),
 
   // ── Observability ─────────────────────────────────────────────────────────────
   SENTRY_DSN: z.string().optional(),

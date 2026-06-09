@@ -15,6 +15,7 @@ import type { ExpenseReviewPayload } from '../../application/use-cases/expense/R
 import type { IUserRepository } from '../../domain/ports/repositories';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
+import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 
@@ -28,6 +29,7 @@ export interface MessageWorkerDeps {
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
   initiateCloudConnection?: InitiateCloudConnection | null;
   cancelCloudConnection?: CancelCloudConnection | null;
+  handleSpreadsheetFileSelection?: HandleSpreadsheetFileSelection | null;
 }
 
 export async function processMessageJob(
@@ -111,7 +113,21 @@ export async function processMessageJob(
       break;
     }
 
-    case 'ONBOARDING_FILE':
+    case 'ONBOARDING_FILE': {
+      if (opts.handleSpreadsheetFileSelection) {
+        await opts.handleSpreadsheetFileSelection.execute({
+          userId,
+          rawMessage,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      }
+      break;
+    }
+
     case 'ONBOARDING_SHEET':
     case 'ONBOARDING_MAPPING':
     case 'ONBOARDING_CATEGORIES': {

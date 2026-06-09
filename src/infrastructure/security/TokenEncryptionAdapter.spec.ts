@@ -4,7 +4,6 @@
 
 import { describe, it, expect } from 'vitest';
 import { TokenEncryptionAdapter } from './TokenEncryptionAdapter';
-import { decrypt } from './aes256gcm';
 
 describe('TokenEncryptionAdapter', () => {
   // A valid 32-byte key represented as 64 hex characters
@@ -18,15 +17,21 @@ describe('TokenEncryptionAdapter', () => {
     expect(result.iv.length).toBe(16);
   });
 
-  it('decrypt round-trip recovers original plaintext', () => {
+  it('decrypt round-trip recovers original plaintext via adapter', () => {
     const adapter = new TokenEncryptionAdapter(validKeyHex);
     const plaintext = 'sensitive-token-data-123';
     const encrypted = adapter.encrypt(plaintext);
 
-    const key = Buffer.from(validKeyHex, 'hex');
-    const decrypted = decrypt(encrypted.ciphertext, encrypted.iv, key);
-
+    const decrypted = adapter.decrypt(encrypted.ciphertext, encrypted.iv);
     expect(decrypted).toBe(plaintext);
+  });
+
+  it('throws when decrypting invalid ciphertext', () => {
+    const adapter = new TokenEncryptionAdapter(validKeyHex);
+    const badCiphertext = Buffer.from('not-valid-ciphertext');
+    const iv = Buffer.alloc(16, 0);
+
+    expect(() => adapter.decrypt(badCiphertext, iv)).toThrow();
   });
 
   it('throws when key is not 64 hex characters', () => {

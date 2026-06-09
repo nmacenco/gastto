@@ -11,9 +11,9 @@ The Select Spreadsheet File feature enables users to choose which spreadsheet fi
 
 ## FSM States
 
-| State              | Description                                                         | Next                                                                 |
-| ------------------ | ------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `ONBOARDING_FILE`  | User is selecting a spreadsheet file from their cloud storage         | `ONBOARDING_SHEET` (file selected), self-transition (search / list)    |
+| State             | Description                                                   | Next                                                                |
+| ----------------- | ------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `ONBOARDING_FILE` | User is selecting a spreadsheet file from their cloud storage | `ONBOARDING_SHEET` (file selected), self-transition (search / list) |
 
 ## File Discovery Flow Sequence
 
@@ -32,6 +32,7 @@ The Select Spreadsheet File feature enables users to choose which spreadsheet fi
 8. The use case validates the choice and calls `CloudStoragePort.validateFileAccess` to confirm permissions.
 9. A confirmation message with the full file name is sent via `MessagingOutputPort`.
 10. The selected `fileId` and `fileName` are stored in the payload.
+    > **Note:** The selected file is stored in `conversationStates.statePayload` until HU-4.04 creates the definitive `spreadsheet_configs` record.
 11. FSM transitions to `ONBOARDING_SHEET`.
 
 ### Search by Name
@@ -85,6 +86,18 @@ interface HandleSpreadsheetFileSelectionOutput {
 }
 ```
 
+#### `HandleSpreadsheetFileSelectionDeps`
+
+```ts
+interface HandleSpreadsheetFileSelectionDeps {
+  cloudStorage: CloudStoragePort;
+  tokenRepository: IOAuthTokenRepository;
+  transitionState: TransitionConversationState;
+  messagingPort: MessagingOutputPort;
+  tokenEncryption: TokenEncryptionPort;
+}
+```
+
 ### Domain Port
 
 #### `CloudStoragePort`
@@ -92,8 +105,16 @@ interface HandleSpreadsheetFileSelectionOutput {
 ```ts
 interface CloudStoragePort {
   listRecentSpreadsheets(accessToken: string, provider: SpreadsheetProvider): Promise<CloudFile[]>;
-  searchSpreadsheets(accessToken: string, provider: SpreadsheetProvider, query: string): Promise<CloudFile[]>;
-  validateFileAccess(fileId: string, accessToken: string, provider: SpreadsheetProvider): Promise<boolean>;
+  searchSpreadsheets(
+    accessToken: string,
+    provider: SpreadsheetProvider,
+    query: string,
+  ): Promise<CloudFile[]>;
+  validateFileAccess(
+    fileId: string,
+    accessToken: string,
+    provider: SpreadsheetProvider,
+  ): Promise<boolean>;
 }
 ```
 
@@ -110,20 +131,20 @@ class CloudFile {
 
 ## Error Handling
 
-| Scenario                              | Behavior                                                                 |
-| ------------------------------------- | ------------------------------------------------------------------------- |
-| Invalid provider (`microsoft`)        | `InvalidProviderError` thrown by adapter.                                 |
-| Network failure during discovery      | `FileDiscoveryError` thrown with network context.                         |
-| Non-2xx HTTP from Google Drive API    | `FileDiscoveryError` thrown with HTTP status.                               |
-| Invalid JSON response                 | `FileDiscoveryError` thrown.                                              |
-| File access denied (403/404)          | `validateFileAccess` returns `false`; use case informs user.               |
-| Unexpected HTTP during validation   | `FileDiscoveryError` thrown.                                              |
+| Scenario                           | Behavior                                                     |
+| ---------------------------------- | ------------------------------------------------------------ |
+| Invalid provider (`microsoft`)     | `InvalidProviderError` thrown by adapter.                    |
+| Network failure during discovery   | `FileDiscoveryError` thrown with network context.            |
+| Non-2xx HTTP from Google Drive API | `FileDiscoveryError` thrown with HTTP status.                |
+| Invalid JSON response              | `FileDiscoveryError` thrown.                                 |
+| File access denied (403/404)       | `validateFileAccess` returns `false`; use case informs user. |
+| Unexpected HTTP during validation  | `FileDiscoveryError` thrown.                                 |
 
 ## QA Checklist
 
 ### Google Drive
 
-- [ ] **Happy path — list recent files:**
+- [x] **Happy path — list recent files:**
   - User enters `ONBOARDING_FILE`.
   - `GoogleDriveFileDiscoveryAdapter` queries Drive API with correct mimeTypes, orderBy, pageSize, and fields.
   - Response mapped to `CloudFile[]` with correct `id`, `name`, `mimeType`, `modifiedAt`.
@@ -131,40 +152,40 @@ class CloudFile {
   - "None of these / search by name" option appended.
   - File list stored in `statePayload`.
 
-- [ ] **Happy path — selection by number:**
+- [x] **Happy path — selection by number:**
   - User sends a number matching `statePayload.fileList`.
   - `validateFileAccess` returns `true`.
   - Confirmation message sent with full file name.
   - `selectedFileId` and `selectedFileName` stored in payload.
   - FSM transitions to `ONBOARDING_SHEET`.
 
-- [ ] **Happy path — search by name:**
+- [x] **Happy path — search by name:**
   - User selects "None of these / search by name".
   - `searchSpreadsheets` called with user query.
   - Refined list presented and payload updated.
 
-- [ ] **Happy path — direct URL:**
+- [x] **Happy path — direct URL:**
   - User pastes a Google Drive URL.
   - `fileId` extracted and `validateFileAccess` returns `true`.
   - File selected and confirmed.
 
-- [ ] **Error path — access denied:**
+- [x] **Error path — access denied:**
   - `validateFileAccess` returns `false` on 403/404.
   - User informed of permission issues.
 
-- [ ] **Error path — no files found:**
+- [x] **Error path — no files found:**
   - `listRecentSpreadsheets` returns `[]`.
   - Clear message sent suggesting verification.
   - Manual name entry offered.
 
-- [ ] **Error path — invalid provider:**
+- [x] **Error path — invalid provider:**
   - `listRecentSpreadsheets` with `microsoft` throws `InvalidProviderError`.
 
-- [ ] **Error path — network failure:**
+- [x] **Error path — network failure:**
   - `fetch` throws network error.
   - `FileDiscoveryError` propagated with context.
 
-- [ ] **Error path — API error:**
+- [x] **Error path — API error:**
   - Google Drive returns 401/500.
   - `FileDiscoveryError` thrown with HTTP status.
 

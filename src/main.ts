@@ -29,7 +29,9 @@ import { DrizzleConversationStateRepository } from './infrastructure/db/reposito
 import { DrizzleOperationLogRepository } from './infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from './infrastructure/db/repositories/DrizzleOAuthTokenRepository';
 import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/TelegramMessengerAdapter';
+import { TelegramWebhookConfigurator } from './infrastructure/adapters/telegram/TelegramWebhookConfigurator';
 import { GoogleDriveOAuthAdapter } from './infrastructure/adapters/oauth';
+import { GoogleDriveFileDiscoveryAdapter } from './infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
 import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
 
 // Application
@@ -38,6 +40,7 @@ import { InitiateCloudConnection } from './application/use-cases/spreadsheet/Ini
 import { HandleOAuthCallback } from './application/use-cases/spreadsheet/HandleOAuthCallback';
 import { SendOAuthReminder } from './application/use-cases/spreadsheet/SendOAuthReminder';
 import { CancelCloudConnection } from './application/use-cases/spreadsheet/CancelCloudConnection';
+import { HandleSpreadsheetFileSelection } from './application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
@@ -275,6 +278,20 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
+        const googleDriveFileDiscovery =
+          googleOAuthAdapter !== null ? new GoogleDriveFileDiscoveryAdapter() : null;
+
+        const handleSpreadsheetFileSelection =
+          googleDriveFileDiscovery !== null
+            ? new HandleSpreadsheetFileSelection({
+                cloudStorage: googleDriveFileDiscovery,
+                tokenRepository: tokenRepo,
+                transitionState,
+                messagingPort: telegramAdapter,
+                tokenEncryption,
+              })
+            : null;
+
         // Thick worker (ADR-005): FSM → NLP → user response
         const messageWorker = createMessageWorker({
           redis,
@@ -291,6 +308,7 @@ async function bootstrap(): Promise<void> {
           },
           initiateCloudConnection,
           cancelCloudConnection,
+          handleSpreadsheetFileSelection,
         });
         app.log.info(
           `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,
@@ -302,6 +320,20 @@ async function bootstrap(): Promise<void> {
           handleStartCommand,
           resolveIdentity,
         });
+
+        // Auto-register Telegram webhook on startup so Telegram knows where to deliver updates
+        if (env.WEBHOOK_BASE_URL) {
+          try {
+            const webhookUrl = `${env.WEBHOOK_BASE_URL.replace(/\/$/, '')}/webhook/telegram`;
+            const configurator = new TelegramWebhookConfigurator(env.TELEGRAM_BOT_TOKEN);
+            await configurator.setWebhook(webhookUrl, env.TELEGRAM_WEBHOOK_SECRET);
+            app.log.info(`Telegram webhook registered: ${webhookUrl}`);
+          } catch (err) {
+            app.log.error({ msg: 'Failed to register Telegram webhook', error: err });
+          }
+        } else {
+          app.log.warn('WEBHOOK_BASE_URL not set — Telegram webhook auto-registration skipped');
+        }
 
         if (handleOAuthCallback !== null) {
           registerOAuthCallback(app, { handleOAuthCallback });

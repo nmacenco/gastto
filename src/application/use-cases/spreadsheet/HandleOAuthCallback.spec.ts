@@ -38,7 +38,7 @@ function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): Handle
     reminderQueue: { remove: mockQueueRemove } as unknown as Queue,
     transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
-    tokenEncryption: { encrypt: mockEncrypt },
+    tokenEncryption: { encrypt: mockEncrypt, decrypt: vi.fn() },
     ...overrides,
   };
 }
@@ -102,6 +102,7 @@ describe('HandleOAuthCallback', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_FILE',
+        payload: { provider: 'google' },
       });
 
       expect(result.success).toBe(true);
