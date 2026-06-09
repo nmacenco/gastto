@@ -32,6 +32,7 @@ The Select Spreadsheet File feature enables users to choose which spreadsheet fi
 8. The use case validates the choice and calls `CloudStoragePort.validateFileAccess` to confirm permissions.
 9. A confirmation message with the full file name is sent via `MessagingOutputPort`.
 10. The selected `fileId` and `fileName` are stored in the payload.
+    > **Note:** The selected file is stored in `conversationStates.statePayload` until HU-4.04 creates the definitive `spreadsheet_configs` record.
 11. FSM transitions to `ONBOARDING_SHEET`.
 
 ### Search by Name
