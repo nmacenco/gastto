@@ -12,7 +12,7 @@ import { InvalidProviderError } from '../../../domain/errors/InvalidProviderErro
 const CONFIG = {
   clientId: 'test-client-id',
   clientSecret: 'test-client-secret',
-  redirectUri: 'http://localhost:3000/oauth/callback',
+  redirectUri: 'http://localhost:3000/auth/google/callback',
 };
 
 describe('GoogleDriveOAuthAdapter', () => {
@@ -33,14 +33,16 @@ describe('GoogleDriveOAuthAdapter', () => {
       const url = adapter.buildAuthUrl(
         'google',
         'csrf-state-123',
-        'http://localhost:3000/oauth/callback',
+        'http://localhost:3000/auth/google/callback',
       );
 
       const parsed = new URL(url);
       expect(parsed.origin).toBe('https://accounts.google.com');
       expect(parsed.pathname).toBe('/o/oauth2/v2/auth');
       expect(parsed.searchParams.get('client_id')).toBe(CONFIG.clientId);
-      expect(parsed.searchParams.get('redirect_uri')).toBe('http://localhost:3000/oauth/callback');
+      expect(parsed.searchParams.get('redirect_uri')).toBe(
+        'http://localhost:3000/auth/google/callback',
+      );
       expect(parsed.searchParams.get('response_type')).toBe('code');
       expect(parsed.searchParams.get('scope')).toBe(
         'https://www.googleapis.com/auth/drive.readonly',

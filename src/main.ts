@@ -239,7 +239,7 @@ async function bootstrap(): Promise<void> {
                 reminderQueue,
                 transitionState,
                 messagingPort: telegramAdapter,
-                redirectUri: env.GOOGLE_REDIRECT_URI!,
+                redirectUri: env.GOOGLE_REDIRECT_URI,
               })
             : null;
 
@@ -347,7 +347,7 @@ async function bootstrap(): Promise<void> {
           const oauthReminderWorker = createOAuthReminderWorker({
             redis,
             sendOAuthReminder,
-            redirectUri: env.GOOGLE_REDIRECT_URI!,
+            redirectUri: env.GOOGLE_REDIRECT_URI,
           });
           app.log.info(
             `Started oauth-reminder worker (concurrency: ${oauthReminderWorker.opts.concurrency})`,

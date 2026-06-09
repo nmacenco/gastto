@@ -18,7 +18,7 @@ describe('envSchema', () => {
     ENCRYPTION_KEY: 'a'.repeat(64),
     GOOGLE_CLIENT_ID: 'google-client-id',
     GOOGLE_CLIENT_SECRET: 'google-client-secret',
-    GOOGLE_REDIRECT_URI: 'http://localhost:3000/oauth/callback',
+    GOOGLE_REDIRECT_URI: 'http://localhost:3000/auth/google/callback',
   };
 
   it('accepts a valid environment object', () => {
