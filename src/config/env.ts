@@ -6,6 +6,7 @@
 // - Every process.env access must go through this file. No inline `process.env.FOO!` elsewhere.
 // - Optional vars are typed with `undefined` (exactOptionalPropertyTypes: true).
 
+import 'dotenv/config';
 import { envSchema } from './env.schema';
 
 const parsed = envSchema.safeParse(process.env);

@@ -322,7 +322,9 @@ async function bootstrap(): Promise<void> {
         });
 
         // Auto-register Telegram webhook on startup so Telegram knows where to deliver updates
-        if (env.WEBHOOK_BASE_URL) {
+        // Skip for localhost since Telegram servers cannot reach local addresses.
+        const isLocalhost = /^(https?:\/\/)?(localhost|127\.0\.0\.1)/i.test(env.WEBHOOK_BASE_URL);
+        if (!isLocalhost) {
           try {
             const webhookUrl = `${env.WEBHOOK_BASE_URL.replace(/\/$/, '')}/webhook/telegram`;
             const configurator = new TelegramWebhookConfigurator(env.TELEGRAM_BOT_TOKEN);
@@ -332,7 +334,9 @@ async function bootstrap(): Promise<void> {
             app.log.error({ msg: 'Failed to register Telegram webhook', error: err });
           }
         } else {
-          app.log.warn('WEBHOOK_BASE_URL not set — Telegram webhook auto-registration skipped');
+          app.log.warn(
+            'WEBHOOK_BASE_URL is localhost — Telegram webhook auto-registration skipped',
+          );
         }
 
         if (handleOAuthCallback !== null) {
