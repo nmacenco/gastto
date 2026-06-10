@@ -10,6 +10,7 @@ import {
   type HandleOAuthCallbackInput,
 } from './HandleOAuthCallback';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
+import type { Logger } from 'pino';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { Redis } from 'ioredis';
 import type { Queue } from 'bullmq';
@@ -26,6 +27,7 @@ const mockQueueRemove = vi.fn();
 const mockTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockEncrypt = vi.fn();
+const mockLoggerError = vi.fn();
 
 function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): HandleOAuthCallbackDeps {
   return {
@@ -39,6 +41,7 @@ function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): Handle
     transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
     tokenEncryption: { encrypt: mockEncrypt, decrypt: vi.fn() },
+    logger: { error: mockLoggerError } as unknown as Logger,
     ...overrides,
   };
 }
@@ -230,13 +233,11 @@ describe('HandleOAuthCallback', () => {
       mockTokenUpsert.mockResolvedValue({ id: 'token-789' });
       mockQueueRemove.mockRejectedValue(new Error('Job not found'));
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       const deps = buildMockDeps();
       const useCase = new HandleOAuthCallback(deps);
       const result = await useCase.execute(baseInput);
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(mockLoggerError).toHaveBeenCalledWith(
         expect.objectContaining({
           endpoint: 'HandleOAuthCallback',
           code: 'REMINDER_CANCEL_FAILED',
@@ -246,8 +247,6 @@ describe('HandleOAuthCallback', () => {
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(mockSendMessage).toHaveBeenCalled();
       expect(mockTransitionExecute).toHaveBeenCalled();
-
-      consoleSpy.mockRestore();
     });
   });
 });

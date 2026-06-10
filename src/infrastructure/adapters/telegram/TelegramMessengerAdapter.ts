@@ -8,6 +8,7 @@ import type {
   MessagingOutputPort,
   SendResult,
 } from '../../../application/ports/output/messaging.port';
+import type { Logger } from 'pino';
 
 const MAX_TEXT_LENGTH = 4096;
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
@@ -53,7 +54,10 @@ function chunkText(text: string, maxLength: number): string[] {
 export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutputPort {
   private readonly baseUrl: string;
 
-  constructor(private readonly botToken: string) {
+  constructor(
+    private readonly botToken: string,
+    private readonly logger: Logger,
+  ) {
     this.baseUrl = `https://api.telegram.org/bot${botToken}`;
   }
 
@@ -69,7 +73,7 @@ export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutput
     const fragments = chunkText(text, MAX_TEXT_LENGTH);
 
     if (fragments.length > 1) {
-      console.log({
+      this.logger.info({
         event: 'message_chunked',
         chatId,
         originalLength: text.length,
@@ -103,7 +107,7 @@ export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutput
       if (response.ok) {
         const json = (await response.json()) as { ok: boolean; description?: string };
         if (json.ok) {
-          console.log({
+          this.logger.info({
             event: 'message_sent',
             chatId,
             textLength: text.length,
@@ -113,7 +117,7 @@ export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutput
           return { status: 'success' };
         }
 
-        console.log({
+        this.logger.info({
           event: 'message_sent',
           chatId,
           textLength: text.length,
@@ -127,7 +131,7 @@ export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutput
       const status = response.status;
 
       if (status === 400 || status === 403) {
-        console.error({
+        this.logger.error({
           event: 'message_send_failed',
           chatId,
           textLength: text.length,
@@ -138,7 +142,7 @@ export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutput
       }
 
       if (status >= 500 && attempt < maxAttempts) {
-        console.log({
+        this.logger.info({
           event: 'retry_scheduled',
           chatId,
           textLength: text.length,
@@ -150,7 +154,7 @@ export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutput
       }
 
       if (status >= 500) {
-        console.log({
+        this.logger.info({
           event: 'message_sent',
           chatId,
           textLength: text.length,
@@ -161,7 +165,7 @@ export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutput
         return { status: 'failure', errorCode: 'MAX_RETRIES_EXCEEDED' };
       }
 
-      console.log({
+      this.logger.info({
         event: 'message_sent',
         chatId,
         textLength: text.length,
@@ -172,7 +176,7 @@ export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutput
       return { status: 'failure', errorCode: 'SEND_FAILED' };
     }
 
-    console.log({
+    this.logger.info({
       event: 'message_sent',
       chatId,
       textLength: text.length,

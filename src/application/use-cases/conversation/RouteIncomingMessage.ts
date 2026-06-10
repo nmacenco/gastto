@@ -4,6 +4,7 @@
 // only deserialises the raw body and delegates to this use case.
 
 import type { Queue } from 'bullmq';
+import type { Logger } from 'pino';
 import type { NormalizedPayload } from '../../../domain/ports/messaging';
 import type { ResolveUserIdentityUseCase } from '../user/ResolveUserIdentity';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
@@ -15,6 +16,7 @@ export interface RouteIncomingMessageDeps {
   resolveIdentity: ResolveUserIdentityUseCase;
   messagingPort: MessagingOutputPort;
   handleUnsupportedMessage: HandleUnsupportedMessage;
+  logger: Logger;
 }
 
 export class RouteIncomingMessage {
@@ -62,7 +64,7 @@ export class RouteIncomingMessage {
     this.deps.messagingPort
       .sendMessage(payload.chatId, 'Recibido, procesando tu gasto…')
       .catch((err: Error) =>
-        console.error({
+        this.deps.logger.error({
           endpoint: '/webhook/telegram',
           code: 'ACK_SEND_FAILED',
           chatId: payload.chatId,
