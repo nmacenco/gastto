@@ -17,7 +17,7 @@ const SPREADSHEET_MIME_TYPES = [
 ];
 
 function buildMimeTypeQuery(): string {
-  return `mimeType in ('${SPREADSHEET_MIME_TYPES.join("', '")}')`;
+  return SPREADSHEET_MIME_TYPES.map((type) => `mimeType = '${type}'`).join(' or ');
 }
 
 export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
@@ -86,6 +86,18 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
       return false;
     }
 
+    let errorBody: unknown;
+    try {
+      errorBody = await response.json();
+    } catch {
+      errorBody = 'Could not parse error body';
+    }
+    console.error({
+      endpoint: 'GoogleDriveFileDiscovery',
+      code: 'DRIVE_API_ERROR',
+      status: response.status,
+      errorBody,
+    });
     throw new FileDiscoveryError(
       `Google Drive API error during file access validation: HTTP ${response.status}`,
     );
@@ -111,6 +123,18 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
     }
 
     if (!response.ok) {
+      let errorBody: unknown;
+      try {
+        errorBody = await response.json();
+      } catch {
+        errorBody = 'Could not parse error body';
+      }
+      console.error({
+        endpoint: 'GoogleDriveFileDiscovery',
+        code: 'DRIVE_API_ERROR',
+        status: response.status,
+        errorBody,
+      });
       throw new FileDiscoveryError(
         `Google Drive API error during file discovery: HTTP ${response.status}`,
       );

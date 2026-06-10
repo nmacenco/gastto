@@ -14,6 +14,7 @@ import type { TransitionConversationState } from '../conversation/TransitionConv
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
+import type { IConversationStateRepository } from '../../../domain/ports/repositories';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 
 export interface SendOAuthReminderInput {
@@ -33,6 +34,7 @@ export interface SendOAuthReminderDeps {
   redis: Redis;
   oauthService: OAuthServicePort;
   tokenRepository: IOAuthTokenRepository;
+  conversationRepo: IConversationStateRepository;
   reminderQueue: Queue;
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
@@ -48,6 +50,12 @@ export class SendOAuthReminder {
     const existingToken = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
     if (existingToken) {
       return { message: '', nextState: 'ONBOARDING_DRIVE' };
+    }
+
+    const currentState = await this.deps.conversationRepo.findByUserId(userId);
+    if (currentState?.currentState !== 'ONBOARDING_DRIVE') {
+      // Stale reminder: user already cancelled, timed out, or completed OAuth.
+      return { message: '', nextState: currentState?.currentState ?? 'IDLE' };
     }
 
     const state = (this.deps.generateState ?? (() => randomBytes(32).toString('hex')))();

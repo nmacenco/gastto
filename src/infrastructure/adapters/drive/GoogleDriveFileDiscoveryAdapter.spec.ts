@@ -64,6 +64,15 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
       expect(url).toContain('pageSize=5');
       expect(url).toContain('fields=files%28id%2Cname%2CmimeType%2CmodifiedTime%29');
       expect(init.headers).toEqual({ Authorization: 'Bearer access-token-123' });
+
+      const parsedUrl = new URL(url);
+      const q = parsedUrl.searchParams.get('q');
+      expect(q).toContain("mimeType = 'application/vnd.google-apps.spreadsheet'");
+      expect(q).toContain('or');
+      expect(q).toContain(
+        "mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'",
+      );
+      expect(q).toContain("mimeType = 'application/vnd.oasis.opendocument.spreadsheet'");
     });
 
     it('returns empty array when no files found', async () => {
@@ -84,6 +93,7 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
     });
 
     it('throws FileDiscoveryError on non-2xx HTTP', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 401,
@@ -93,6 +103,16 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
       await expect(adapter.listRecentSpreadsheets('token', 'google')).rejects.toBeInstanceOf(
         FileDiscoveryError,
       );
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'GoogleDriveFileDiscovery',
+          code: 'DRIVE_API_ERROR',
+          status: 401,
+          errorBody: { error: 'unauthorized' },
+        }),
+      );
+      consoleErrorSpy.mockRestore();
     });
 
     it('throws FileDiscoveryError on invalid JSON response', async () => {
@@ -143,6 +163,12 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
 
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toContain('name+contains+%27Budget%27');
+
+      const parsedUrl = new URL(url);
+      const q = parsedUrl.searchParams.get('q');
+      expect(q).toContain("mimeType = 'application/vnd.google-apps.spreadsheet'");
+      expect(q).toContain('or');
+      expect(q).toContain("name contains 'Budget'");
     });
 
     it('throws InvalidProviderError for non-google providers', async () => {
@@ -194,14 +220,26 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
     });
 
     it('throws FileDiscoveryError on unexpected HTTP error', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 500,
+        json: () => Promise.resolve({ error: 'internal_error' }),
       });
 
       await expect(
         adapter.validateFileAccess('file-123', 'token', 'google'),
       ).rejects.toBeInstanceOf(FileDiscoveryError);
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'GoogleDriveFileDiscovery',
+          code: 'DRIVE_API_ERROR',
+          status: 500,
+          errorBody: { error: 'internal_error' },
+        }),
+      );
+      consoleErrorSpy.mockRestore();
     });
 
     it('throws FileDiscoveryError on network failure', async () => {
