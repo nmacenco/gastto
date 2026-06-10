@@ -17,6 +17,7 @@ import { onboardingCopies } from '../../copies/onboarding.copies';
 
 const mockBuildAuthUrl = vi.fn();
 const mockTokenFind = vi.fn();
+const mockConversationFind = vi.fn();
 const mockRedisSetex = vi.fn().mockResolvedValue('OK');
 const mockQueueAdd = vi.fn();
 const mockTransitionExecute = vi.fn();
@@ -30,6 +31,9 @@ function buildMockDeps(overrides: Partial<SendOAuthReminderDeps> = {}): SendOAut
       exchangeCode: vi.fn(),
     },
     tokenRepository: { findByUserAndProvider: mockTokenFind } as unknown as IOAuthTokenRepository,
+    conversationRepo: {
+      findByUserId: mockConversationFind,
+    } as unknown as SendOAuthReminderDeps['conversationRepo'],
     reminderQueue: { add: mockQueueAdd } as unknown as Queue,
     transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
@@ -52,6 +56,14 @@ beforeEach(() => {
     'https://accounts.google.com/o/oauth2/v2/auth?state=fresh-state-789',
   );
   mockQueueAdd.mockResolvedValue({ id: 'job-789' } as Job);
+  mockConversationFind.mockResolvedValue({
+    userId: 'user-123',
+    currentState: 'ONBOARDING_DRIVE',
+    statePayload: null,
+    enteredAt: new Date(),
+    expiresAt: null,
+    updatedAt: new Date(),
+  });
 });
 
 describe('SendOAuthReminder', () => {
@@ -116,6 +128,32 @@ describe('SendOAuthReminder', () => {
 
       expect(result.message).toBe('');
       expect(result.nextState).toBe('ONBOARDING_DRIVE');
+      expect(mockBuildAuthUrl).not.toHaveBeenCalled();
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(mockRedisSetex).not.toHaveBeenCalled();
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('stale reminder', () => {
+    it('skips when user is no longer in ONBOARDING_DRIVE', async () => {
+      mockTokenFind.mockResolvedValue(null);
+      mockConversationFind.mockResolvedValue({
+        userId: 'user-123',
+        currentState: 'IDLE',
+        statePayload: null,
+        enteredAt: new Date(),
+        expiresAt: null,
+        updatedAt: new Date(),
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new SendOAuthReminder(deps);
+      const result = await useCase.execute(baseInput);
+
+      expect(result.message).toBe('');
+      expect(result.nextState).toBe('IDLE');
       expect(mockBuildAuthUrl).not.toHaveBeenCalled();
       expect(mockQueueAdd).not.toHaveBeenCalled();
       expect(mockRedisSetex).not.toHaveBeenCalled();
