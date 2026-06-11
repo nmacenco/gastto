@@ -226,6 +226,7 @@ Immutable audit trail of critical operations.
 - **Partial indexes for hot queries.** Indexes with `WHERE` clauses reduce index size and improve read performance for the most frequent access patterns: active categories, non-deleted expenses, and expired conversation states.
 - **`expense_records.spreadsheet_id` uses `ON DELETE NO ACTION`.** This is the only non-cascading foreign key. It preserves the internal expense history even if the user unlinks or deletes a spreadsheet configuration, supporting future analytics and audit requirements.
 - **AES-256-GCM token storage.** OAuth tokens are encrypted at rest with a per-row IV. The encryption key is a runtime secret; the database contains no plaintext credentials. See ADR-007.
+- **Placeholder `access_verified_at` on first creation (Option A).** When `spreadsheet_configs` is first created during HU-4.03 sheet selection, `access_verified_at` is initialized to the current timestamp as a placeholder. The real read/write permission verification is performed later during HU-4.04 and the timestamp is updated to the actual verification time via `updateAccessVerified`. This allows the record to be persisted immediately while keeping the verification step separate.
 
 ## Related ADRs
 
