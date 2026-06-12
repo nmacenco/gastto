@@ -211,7 +211,7 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.invalidSheetRePrompt(3));
+      expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
       expect(mockCreateConfig).not.toHaveBeenCalled();
     });
   });
@@ -328,7 +328,7 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.invalidSheetRePrompt(3));
+      expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
       expect(mockCreateConfig).not.toHaveBeenCalled();
     });
   });

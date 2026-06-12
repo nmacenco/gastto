@@ -41,15 +41,25 @@ export const onboardingCopies = {
   // Sheet selection copies (HU-4.03)
   singleSheetAutoConfirm: (sheetName: string) =>
     `Solo encontré una hoja: *${sheetName}*. La usaré para registrar tus gastos.`,
+  singleSheetConfirmation: (sheetName: string) =>
+    `Solo encontré una hoja: *${sheetName}*. La usaré para registrar tus gastos.`,
   sheetListPrompt: (sheets: SheetInfo[]) => {
     const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
-    return `El archivo tiene ${sheets.length} hojas. ¿Cuál querés usar?\n${lines.join('\n')}\n\nEscribí el número o el nombre. Si no sabés, escribí *no sé*.`;
+    lines.push(`${sheets.length + 1}. No sé / ninguna de estas`);
+    return `El archivo tiene ${sheets.length} hojas. ¿Cuál querés usar?\n${lines.join('\n')}`;
   },
   sheetSelectedConfirmation: (sheetName: string) =>
     `Elegiste la hoja *${sheetName}*. Ahora vamos a analizar la estructura.`,
   invalidSheetRePrompt: (sheetCount: number) =>
     `No encontré esa hoja. Escribí un número del *1* al *${sheetCount}*, o el nombre exacto.`,
+  sheetNotFoundRePrompt: (sheets: SheetInfo[]) => {
+    const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
+    return `No encontré esa hoja. Elegí una de estas:\n${lines.join('\n')}`;
+  },
   sheetHeadersDescription: (sheetName: string, headers: string[]) =>
     `Hoja *${sheetName}*: tiene las columnas ${headers.join(', ')}`,
+  sheetHeaderDescription: (descriptions: { sheetName: string; headers: string[] }[]) =>
+    descriptions.map((d) => `Hoja *${d.sheetName}*: tiene las columnas ${d.headers.join(', ')}`).join('\n'),
   sheetIdkPrompt: () => `No te preocupes. Te describo las hojas para que elijas:`,
+  sheetMappingTransition: () => `Ahora vamos a analizar la estructura.`,
 };

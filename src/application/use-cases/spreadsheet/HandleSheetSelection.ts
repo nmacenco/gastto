@@ -259,7 +259,7 @@ export class HandleSheetSelection {
     }
 
     // Scenario 5: Invalid name — re-prompt
-    const message = onboardingCopies.invalidSheetRePrompt(sheetList.length);
+    const message = onboardingCopies.sheetNotFoundRePrompt(sheetList);
     await this.deps.messagingPort.sendMessage(externalId, message);
     return { nextState: 'ONBOARDING_SHEET', message };
   }
