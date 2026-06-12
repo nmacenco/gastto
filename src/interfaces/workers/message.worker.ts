@@ -16,6 +16,7 @@ import type { IUserRepository } from '../../domain/ports/repositories';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
+import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 
@@ -30,6 +31,7 @@ export interface MessageWorkerDeps {
   initiateCloudConnection?: InitiateCloudConnection | null;
   cancelCloudConnection?: CancelCloudConnection | null;
   handleSpreadsheetFileSelection?: HandleSpreadsheetFileSelection | null;
+  handleSheetSelection?: HandleSheetSelection | null;
 }
 
 export async function processMessageJob(
@@ -128,7 +130,21 @@ export async function processMessageJob(
       break;
     }
 
-    case 'ONBOARDING_SHEET':
+    case 'ONBOARDING_SHEET': {
+      if (opts.handleSheetSelection) {
+        await opts.handleSheetSelection.execute({
+          userId,
+          rawMessage,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      }
+      break;
+    }
+
     case 'ONBOARDING_MAPPING':
     case 'ONBOARDING_CATEGORIES': {
       // Onboarding: delegate to specific handler (pending implementation)

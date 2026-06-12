@@ -10,6 +10,7 @@ import type { ConversationState } from '../../domain/entities/ConversationState'
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
+import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
@@ -22,6 +23,7 @@ const mockRegisterExpenseInterpret = vi.fn();
 const mockInitiateCloudConnectionExecute = vi.fn();
 const mockCancelCloudConnectionExecute = vi.fn();
 const mockHandleSpreadsheetFileSelectionExecute = vi.fn();
+const mockHandleSheetSelectionExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -54,6 +56,9 @@ function buildMockDeps(): MessageWorkerDeps {
     handleSpreadsheetFileSelection: {
       execute: mockHandleSpreadsheetFileSelectionExecute,
     } as unknown as HandleSpreadsheetFileSelection,
+    handleSheetSelection: {
+      execute: mockHandleSheetSelectionExecute,
+    } as unknown as HandleSheetSelection,
   };
 }
 
@@ -380,7 +385,50 @@ describe('processMessageJob', () => {
       });
     });
 
-    it.each(['ONBOARDING_SHEET', 'ONBOARDING_MAPPING', 'ONBOARDING_CATEGORIES'] as const)(
+    describe('ONBOARDING_SHEET', () => {
+      it('delegates to HandleSheetSelection when wired', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_SHEET',
+            statePayload: { selectedFileId: 'f1', selectedFileName: 'file1', provider: 'google' },
+          }),
+        );
+        mockHandleSheetSelectionExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_MAPPING',
+          message: 'Sheet selected.',
+        });
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockHandleSheetSelectionExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          rawMessage: 'Cafe 850',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: { selectedFileId: 'f1', selectedFileName: 'file1', provider: 'google' },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('falls back to placeholder when HandleSheetSelection is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.handleSheetSelection = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_SHEET' }),
+        );
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+        expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      });
+    });
+
+    it.each(['ONBOARDING_MAPPING', 'ONBOARDING_CATEGORIES'] as const)(
       'sends onboarding placeholder for %s',
       async (state) => {
         const deps = buildMockDeps();

@@ -67,3 +67,12 @@ export interface SpreadsheetPort {
   // Verifica acceso de lectura/escritura (append de prueba + delete inmediato)
   validateAccess(fileId: string, sheetName: string): Promise<boolean>;
 }
+
+// ── SpreadsheetPortFactory (ADR-004) ─────────────────────────────────────────
+// Creates a SpreadsheetPort instance with a decrypted OAuth token.
+// Allows the Application layer to obtain a port per-request without
+// storing the token in the adapter's constructor at bootstrap time.
+
+export interface SpreadsheetPortFactory {
+  create(accessToken: string): SpreadsheetPort;
+}

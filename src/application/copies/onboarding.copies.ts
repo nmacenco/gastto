@@ -1,4 +1,5 @@
 import type { CloudFile } from '../../domain/entities/CloudFile';
+import type { SheetInfo } from '../../domain/entities/SheetInfo';
 
 export const onboardingCopies = {
   providerPrompt: () => '¿Dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
@@ -36,4 +37,19 @@ export const onboardingCopies = {
     'No pude acceder a ese archivo. Verificá que el enlace sea correcto y que tengas permisos.',
   urlValidationSuccess: (fileName: string) =>
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
+
+  // Sheet selection copies (HU-4.03)
+  singleSheetAutoConfirm: (sheetName: string) =>
+    `Solo encontré una hoja: *${sheetName}*. La usaré para registrar tus gastos.`,
+  sheetListPrompt: (sheets: SheetInfo[]) => {
+    const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
+    return `El archivo tiene ${sheets.length} hojas. ¿Cuál querés usar?\n${lines.join('\n')}\n\nEscribí el número o el nombre. Si no sabés, escribí *no sé*.`;
+  },
+  sheetSelectedConfirmation: (sheetName: string) =>
+    `Elegiste la hoja *${sheetName}*. Ahora vamos a analizar la estructura.`,
+  invalidSheetRePrompt: (sheetCount: number) =>
+    `No encontré esa hoja. Escribí un número del *1* al *${sheetCount}*, o el nombre exacto.`,
+  sheetHeadersDescription: (sheetName: string, headers: string[]) =>
+    `Hoja *${sheetName}*: tiene las columnas ${headers.join(', ')}`,
+  sheetIdkPrompt: () => `No te preocupes. Te describo las hojas para que elijas:`,
 };
