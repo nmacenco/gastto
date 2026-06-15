@@ -214,6 +214,35 @@ describe('HandleSheetSelection', () => {
       expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
       expect(mockCreateConfig).not.toHaveBeenCalled();
     });
+
+    it('returns invalid re-prompt for selection "0"', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '0',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
+      expect(mockCreateConfig).not.toHaveBeenCalled();
+    });
+
+    it('accepts selection by number with surrounding whitespace', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '  2  ',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(mockCreateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ sheetName: 'Resumen' }),
+      );
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
   });
 
   describe('selection by name (fuzzy matching)', () => {
@@ -262,6 +291,21 @@ describe('HandleSheetSelection', () => {
 
       expect(mockCreateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Gastos del Mes' }),
+      );
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('matches name with surrounding whitespace', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '  Resumen  ',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(mockCreateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ sheetName: 'Resumen' }),
       );
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
     });
@@ -324,6 +368,20 @@ describe('HandleSheetSelection', () => {
       const result = await useCase.execute({
         ...baseInput,
         rawMessage: 'hoja inexistente',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
+      expect(mockCreateConfig).not.toHaveBeenCalled();
+    });
+
+    it('re-prompts for empty rawMessage when sheetList is present', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '',
         statePayload: { ...mockFilePayload, sheetList: mockSheets },
       });
 
@@ -439,6 +497,21 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
       expect(result.message).toContain('permission denied');
+    });
+
+    it('returns connection failed on generic error during getHeaders', async () => {
+      mockGetHeaders.mockRejectedValue(new Error('network timeout'));
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'no sé',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
     });
 
     it('returns connection failed when fileId is missing from statePayload', async () => {

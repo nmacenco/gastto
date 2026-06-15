@@ -124,6 +124,62 @@ describe('GoogleSheetsAdapter', () => {
 
       await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
     });
+
+    it('throws SpreadsheetError when sheet item is null', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            sheets: [null],
+          }),
+      });
+
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
+    });
+
+    it('throws SpreadsheetError when sheet item lacks properties', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            sheets: [{ otherField: 'value' }],
+          }),
+      });
+
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
+    });
+
+    it('throws SpreadsheetError when sheet title is empty', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            sheets: [
+              {
+                properties: {
+                  title: '',
+                  index: 0,
+                },
+              },
+            ],
+          }),
+      });
+
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
+    });
+
+    it('throws SpreadsheetError when error body parsing fails on non-2xx', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      });
+
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
+    });
   });
 
   describe('getHeaders', () => {
@@ -230,6 +286,44 @@ describe('GoogleSheetsAdapter', () => {
 
     it('throws SpreadsheetError on network failure', async () => {
       fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      await expect(adapter.getHeaders('spreadsheet-123', 'Gastos')).rejects.toBeInstanceOf(
+        SpreadsheetError,
+      );
+    });
+
+    it('throws SpreadsheetError when first row is not an array', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: ['not-an-array'] }),
+      });
+
+      await expect(adapter.getHeaders('spreadsheet-123', 'Gastos')).rejects.toBeInstanceOf(
+        SpreadsheetError,
+      );
+    });
+
+    it('converts mixed-type cell values to strings', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            values: [['Fecha', 123, null, true]],
+          }),
+      });
+
+      const result = await adapter.getHeaders('spreadsheet-123', 'Gastos');
+      expect(result).toEqual(['Fecha', '123', 'null', 'true']);
+    });
+
+    it('throws SpreadsheetError when error body parsing fails on non-2xx', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      });
 
       await expect(adapter.getHeaders('spreadsheet-123', 'Gastos')).rejects.toBeInstanceOf(
         SpreadsheetError,
