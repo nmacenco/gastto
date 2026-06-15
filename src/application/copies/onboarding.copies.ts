@@ -59,7 +59,9 @@ export const onboardingCopies = {
   sheetHeadersDescription: (sheetName: string, headers: string[]) =>
     `Hoja *${sheetName}*: tiene las columnas ${headers.join(', ')}`,
   sheetHeaderDescription: (descriptions: { sheetName: string; headers: string[] }[]) =>
-    descriptions.map((d) => `Hoja *${d.sheetName}*: tiene las columnas ${d.headers.join(', ')}`).join('\n'),
+    descriptions
+      .map((d) => `Hoja *${d.sheetName}*: tiene las columnas ${d.headers.join(', ')}`)
+      .join('\n'),
   sheetIdkPrompt: () => `No te preocupes. Te describo las hojas para que elijas:`,
   sheetMappingTransition: () => `Ahora vamos a analizar la estructura.`,
 };

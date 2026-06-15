@@ -216,9 +216,7 @@ describe('onboardingCopies', () => {
     });
 
     it('handles a single sheet description', () => {
-      const descriptions = [
-        { sheetName: 'Gastos', headers: ['Fecha', 'Monto'] },
-      ];
+      const descriptions = [{ sheetName: 'Gastos', headers: ['Fecha', 'Monto'] }];
 
       const result = onboardingCopies.sheetHeaderDescription(descriptions);
 
