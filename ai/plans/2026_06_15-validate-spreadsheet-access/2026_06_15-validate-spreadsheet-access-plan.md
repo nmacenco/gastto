@@ -55,11 +55,11 @@ export type SpreadsheetAccessResult =
 
 ### Phase 2 — Google Sheets adapter
 
-- [ ] Implement `ValidateSpreadsheetAccessPort` in `GoogleSheetsAdapter`.
-- [ ] Read first 10 rows via `GET https://sheets.googleapis.com/v4/spreadsheets/{fileId}/values/{sheetName}!1:10`.
-- [ ] Detect empty sheet when `values` is missing or empty.
-- [ ] Verify write permission via Drive API `GET https://www.googleapis.com/drive/v3/files/{fileId}?fields=capabilities(canEdit)`.
-- [ ] Map outcomes to `SpreadsheetAccessResult`:
+- [x] Implement `ValidateSpreadsheetAccessPort` in `GoogleSheetsAdapter`.
+- [x] Read first 10 rows via `GET https://sheets.googleapis.com/v4/spreadsheets/{fileId}/values/{sheetName}!1:10`.
+- [x] Detect empty sheet when `values` is missing or empty.
+- [x] Verify write permission via Drive API `GET https://www.googleapis.com/drive/v3/files/{fileId}?fields=capabilities(canEdit)`.
+- [x] Map outcomes to `SpreadsheetAccessResult`:
   - Read OK + can edit → `success`
   - Read OK + cannot edit → `read-only`
   - Empty sheet → `empty-sheet`
@@ -67,26 +67,30 @@ export type SpreadsheetAccessResult =
   - HTTP 401 → `access-error/token-expired/retryable: true`
   - HTTP 403 → `access-error/permission-denied/retryable: true`
   - Other API failures → `access-error/unknown/retryable: true`
-- [ ] Extend `src/infrastructure/adapters/sheets/GoogleSheetsAdapter.spec.ts` with mocked `fetch` scenarios covering all four result variants.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Extend `src/infrastructure/adapters/sheets/GoogleSheetsAdapter.spec.ts` with mocked `fetch` scenarios covering all four result variants.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3 — Excel Online adapter and docs
 
-- [ ] Create `src/infrastructure/adapters/sheets/ExcelOnlineAdapter.ts`.
-- [ ] Implement `SpreadsheetPort` methods with `SpreadsheetError('not yet implemented')` for methods outside this HU.
-- [ ] Implement `ValidateSpreadsheetAccessPort`:
+- [x] Create `src/infrastructure/adapters/sheets/ExcelOnlineAdapter.ts`.
+- [x] Implement `SpreadsheetPort` methods with `SpreadsheetError('not yet implemented')` for methods outside this HU.
+- [x] Implement `ValidateSpreadsheetAccessPort`:
   - Read first 10 rows via Microsoft Graph `GET https://graph.microsoft.com/v1.0/me/drive/items/{fileId}/workbook/worksheets/{sheetName}/range(address='A1:J10')`.
   - Detect empty sheet when `values` is missing or empty.
   - Verify write permission via `GET https://graph.microsoft.com/v1.0/me/drive/items/{fileId}?$select=capabilities` and check `capabilities.canEdit`.
   - Map errors to the same `SpreadsheetAccessResult` taxonomy used by Google.
-- [ ] Create `src/infrastructure/adapters/sheets/ExcelOnlineAdapter.spec.ts` with mocked `fetch` covering all four result variants.
-- [ ] Create `src/infrastructure/adapters/sheets/index.ts` exporting both adapters.
-- [ ] Create `docs/features/validate-spreadsheet-access.md` documenting the port, value objects, adapters, and error taxonomy.
-- [ ] Update `docs/features/README.md` index.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create `src/infrastructure/adapters/sheets/ExcelOnlineAdapter.spec.ts` with mocked `fetch` covering all four result variants.
+- [x] Create `src/infrastructure/adapters/sheets/index.ts` exporting both adapters.
+- [x] Create `docs/features/validate-spreadsheet-access.md` documenting the port, value objects, adapters, and error taxonomy.
+- [x] Update `docs/features/README.md` index.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Execute Phase 2 — Google Sheets adapter: implement `ValidateSpreadsheetAccessPort` in `GoogleSheetsAdapter` with preview reading, empty-sheet detection, Drive API capability check, and error mapping.
+All phases complete. The domain contracts and both adapters (Google Sheets and Excel Online) are implemented and tested.
+
+Next tasks from HU-4.04:
+- **T-4.04-04:** Implement the Application layer use case that orchestrates access validation with retry logic.
+- **T-4.04-05:** Wire the use case into the Interfaces layer (conversation handler or HTTP route).

@@ -6,8 +6,5 @@
 import type { SpreadsheetAccessResult } from '../value-objects/SpreadsheetAccessResult';
 
 export interface ValidateSpreadsheetAccessPort {
-  validateSpreadsheetAccess(
-    fileId: string,
-    sheetName: string,
-  ): Promise<SpreadsheetAccessResult>;
+  validateSpreadsheetAccess(fileId: string, sheetName: string): Promise<SpreadsheetAccessResult>;
 }

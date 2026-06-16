@@ -1,6 +1,6 @@
 // LAYER: Infrastructure
-// Google Sheets adapter. Uses direct fetch calls to Google Sheets API v4.
-// Does not depend on googleapis SDK to keep the dependency surface minimal.
+// Excel Online adapter. Uses direct fetch calls to Microsoft Graph API.
+// Does not depend on @microsoft/microsoft-graph-client SDK to keep the dependency surface minimal.
 
 import type {
   SpreadsheetPort,
@@ -14,14 +14,13 @@ import { SheetInfo } from '../../../domain/entities/SheetInfo';
 import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
-const GOOGLE_SHEETS_API_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
-const GOOGLE_DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
+const GRAPH_API_URL = 'https://graph.microsoft.com/v1.0';
 
-export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheetAccessPort {
+export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetAccessPort {
   constructor(private readonly accessToken: string) {}
 
   async listSheets(fileId: string): Promise<SheetInfo[]> {
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}?fields=sheets.properties(title,index)`;
+    const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets`;
 
     let response: Response;
     try {
@@ -37,7 +36,7 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
       data = await response.json();
     } catch {
       throw new SpreadsheetError(
-        `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
+        `Invalid JSON response from Graph API: HTTP ${response.status}`,
       );
     }
 
@@ -49,13 +48,13 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
         errorBody = 'Could not parse error body';
       }
       console.error({
-        endpoint: 'GoogleSheetsAdapter.listSheets',
-        code: 'SHEETS_API_ERROR',
+        endpoint: 'ExcelOnlineAdapter.listSheets',
+        code: 'GRAPH_API_ERROR',
         status: response.status,
         errorBody,
       });
       throw new SpreadsheetError(
-        `Google Sheets API error during sheet listing: HTTP ${response.status}`,
+        `Graph API error during sheet listing: HTTP ${response.status}`,
       );
     }
 
@@ -64,7 +63,7 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
 
   async getHeaders(fileId: string, sheetName: string): Promise<string[]> {
     const encodedSheetName = encodeURIComponent(sheetName);
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!1:1`;
+    const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets/${encodedSheetName}/range(address='1:1')`;
 
     let response: Response;
     try {
@@ -80,7 +79,7 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
       data = await response.json();
     } catch {
       throw new SpreadsheetError(
-        `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
+        `Invalid JSON response from Graph API: HTTP ${response.status}`,
       );
     }
 
@@ -92,13 +91,13 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
         errorBody = 'Could not parse error body';
       }
       console.error({
-        endpoint: 'GoogleSheetsAdapter.getHeaders',
-        code: 'SHEETS_API_ERROR',
+        endpoint: 'ExcelOnlineAdapter.getHeaders',
+        code: 'GRAPH_API_ERROR',
         status: response.status,
         errorBody,
       });
       throw new SpreadsheetError(
-        `Google Sheets API error during header retrieval: HTTP ${response.status}`,
+        `Graph API error during header retrieval: HTTP ${response.status}`,
       );
     }
 
@@ -161,7 +160,7 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
     | { kind: 'access-error'; errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown'; retryable: boolean }
   > {
     const encodedSheetName = encodeURIComponent(sheetName);
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!1:10`;
+    const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets/${encodedSheetName}/range(address='A1:J10')`;
 
     let response: Response;
     try {
@@ -182,8 +181,8 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
 
     if (!response.ok) {
       console.error({
-        endpoint: 'GoogleSheetsAdapter.fetchPreview',
-        code: 'SHEETS_API_ERROR',
+        endpoint: 'ExcelOnlineAdapter.fetchPreview',
+        code: 'GRAPH_API_ERROR',
         status: response.status,
       });
       return { kind: 'access-error', errorType: 'unknown', retryable: true };
@@ -203,7 +202,7 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
     }
 
     const preview = new SpreadsheetPreview({
-      provider: 'google',
+      provider: 'microsoft',
       fileId,
       sheetName,
       rows,
@@ -219,7 +218,7 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
     | { kind: 'cannot-edit'; canEdit: false }
     | { kind: 'access-error'; errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown'; retryable: boolean }
   > {
-    const url = `${GOOGLE_DRIVE_API_URL}/${fileId}?fields=capabilities(canEdit)`;
+    const url = `${GRAPH_API_URL}/me/drive/items/${fileId}?$select=capabilities`;
 
     let response: Response;
     try {
@@ -240,8 +239,8 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
 
     if (!response.ok) {
       console.error({
-        endpoint: 'GoogleSheetsAdapter.checkWritePermission',
-        code: 'DRIVE_API_ERROR',
+        endpoint: 'ExcelOnlineAdapter.checkWritePermission',
+        code: 'GRAPH_API_ERROR',
         status: response.status,
       });
       return { kind: 'access-error', errorType: 'unknown', retryable: true };
@@ -262,48 +261,35 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
 // ── Response parsers ─────────────────────────────────────────────────────────
 
 function parseListSheetsResponse(data: unknown): SheetInfo[] {
-  if (typeof data !== 'object' || data === null || !('sheets' in data)) {
-    throw new SpreadsheetError('Unexpected response format from Google Sheets API');
+  if (typeof data !== 'object' || data === null || !('value' in data)) {
+    throw new SpreadsheetError('Unexpected response format from Graph API');
   }
 
-  const sheets = (data as Record<string, unknown>).sheets;
+  const sheets = (data as Record<string, unknown>).value;
   if (!Array.isArray(sheets)) {
-    throw new SpreadsheetError('Unexpected response format from Google Sheets API');
+    throw new SpreadsheetError('Unexpected response format from Graph API');
   }
 
   return sheets.map((item, index) => {
     if (typeof item !== 'object' || item === null) {
-      throw new SpreadsheetError('Invalid sheet item in Google Sheets API response');
+      throw new SpreadsheetError('Invalid sheet item in Graph API response');
     }
 
     const obj = item as Record<string, unknown>;
-    const properties =
-      typeof obj.properties === 'object' && obj.properties !== null
-        ? (obj.properties as Record<string, unknown>)
-        : null;
+    const name = typeof obj.name === 'string' ? obj.name : '';
+    const position = typeof obj.position === 'number' ? obj.position : index;
 
-    if (!properties) {
-      throw new SpreadsheetError('Invalid sheet item in Google Sheets API response');
+    if (!name) {
+      throw new SpreadsheetError('Invalid sheet item in Graph API response');
     }
 
-    const title = typeof properties.title === 'string' ? properties.title : '';
-    const sheetIndex = typeof properties.index === 'number' ? properties.index : index;
-
-    if (!title) {
-      throw new SpreadsheetError('Invalid sheet item in Google Sheets API response');
-    }
-
-    return new SheetInfo({ name: title, index: sheetIndex });
+    return new SheetInfo({ name, index: position });
   });
 }
 
 function parseGetHeadersResponse(data: unknown): string[] {
   if (typeof data !== 'object' || data === null) {
-    throw new SpreadsheetError('Unexpected response format from Google Sheets API');
-  }
-
-  if (!('values' in data)) {
-    return [];
+    throw new SpreadsheetError('Unexpected response format from Graph API');
   }
 
   const values = (data as Record<string, unknown>).values;
@@ -313,7 +299,7 @@ function parseGetHeadersResponse(data: unknown): string[] {
 
   const firstRow = values[0] as unknown;
   if (!Array.isArray(firstRow)) {
-    throw new SpreadsheetError('Unexpected response format from Google Sheets API');
+    throw new SpreadsheetError('Unexpected response format from Graph API');
   }
 
   return firstRow.map((cell) => (typeof cell === 'string' ? cell : String(cell)));
@@ -321,10 +307,6 @@ function parseGetHeadersResponse(data: unknown): string[] {
 
 function parsePreviewRows(data: unknown): Row[] {
   if (typeof data !== 'object' || data === null) {
-    return [];
-  }
-
-  if (!('values' in data)) {
     return [];
   }
 
