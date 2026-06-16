@@ -3,3 +3,4 @@
 
 export * from './IncomingMessage';
 export * from './MessageType';
+export * from './SpreadsheetAccessResult';
