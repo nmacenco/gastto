@@ -34,6 +34,7 @@ import { TelegramWebhookConfigurator } from './infrastructure/adapters/telegram/
 import { GoogleDriveOAuthAdapter } from './infrastructure/adapters/oauth';
 import { GoogleDriveFileDiscoveryAdapter } from './infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
 import { GoogleSheetsAdapterFactory } from './infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
+import { SpreadsheetAccessAdapterFactory } from './infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
 
 // Application
@@ -44,6 +45,7 @@ import { SendOAuthReminder } from './application/use-cases/spreadsheet/SendOAuth
 import { CancelCloudConnection } from './application/use-cases/spreadsheet/CancelCloudConnection';
 import { HandleSpreadsheetFileSelection } from './application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import { HandleSheetSelection } from './application/use-cases/spreadsheet/HandleSheetSelection';
+import { ValidateSpreadsheetAccess } from './application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
@@ -299,11 +301,24 @@ async function bootstrap(): Promise<void> {
             : null;
 
         const googleSheetsAdapterFactory = new GoogleSheetsAdapterFactory();
+        const spreadsheetAccessAdapterFactory = new SpreadsheetAccessAdapterFactory();
 
         const handleSheetSelection =
           googleOAuthAdapter !== null
             ? new HandleSheetSelection({
                 spreadsheetPortFactory: googleSheetsAdapterFactory,
+                tokenRepository: tokenRepo,
+                transitionState,
+                messagingPort: telegramAdapter,
+                tokenEncryption,
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+              })
+            : null;
+
+        const validateSpreadsheetAccess =
+          googleOAuthAdapter !== null
+            ? new ValidateSpreadsheetAccess({
+                validateSpreadsheetAccessPortFactory: spreadsheetAccessAdapterFactory,
                 tokenRepository: tokenRepo,
                 transitionState,
                 messagingPort: telegramAdapter,
@@ -330,6 +345,7 @@ async function bootstrap(): Promise<void> {
           cancelCloudConnection,
           handleSpreadsheetFileSelection,
           handleSheetSelection,
+          validateSpreadsheetAccess,
         });
         app.log.info(
           `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,

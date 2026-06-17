@@ -15,6 +15,13 @@
       "when": 1779996087381,
       "tag": "0001_add_check_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782097200000,
+      "tag": "0002_add_onboarding_validating_access_state",
+      "breakpoints": true
     }
   ]
 }

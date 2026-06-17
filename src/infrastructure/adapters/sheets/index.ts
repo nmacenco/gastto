@@ -4,3 +4,4 @@
 export { GoogleSheetsAdapter } from './GoogleSheetsAdapter';
 export { GoogleSheetsAdapterFactory } from './GoogleSheetsAdapterFactory';
 export { ExcelOnlineAdapter } from './ExcelOnlineAdapter';
+export { SpreadsheetAccessAdapterFactory } from './SpreadsheetAccessAdapterFactory';

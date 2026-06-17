@@ -106,7 +106,7 @@ beforeEach(() => {
 
 describe('HandleSheetSelection', () => {
   describe('initial listing — single sheet', () => {
-    it('auto-confirms, persists, and transitions to ONBOARDING_MAPPING', async () => {
+    it('auto-confirms, persists, and transitions to ONBOARDING_VALIDATING_ACCESS', async () => {
       mockListSheets.mockResolvedValue([mockSheets[0]]);
 
       const deps = buildMockDeps();
@@ -127,7 +127,7 @@ describe('HandleSheetSelection', () => {
       });
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
-        targetState: 'ONBOARDING_MAPPING',
+        targetState: 'ONBOARDING_VALIDATING_ACCESS',
         payload: {
           selectedFileId: 'file-123',
           selectedFileName: 'Mi Planilla',
@@ -135,7 +135,7 @@ describe('HandleSheetSelection', () => {
           provider: 'google',
         },
       });
-      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
       expect(result.message).toContain('Gastos');
     });
   });
@@ -183,7 +183,7 @@ describe('HandleSheetSelection', () => {
   });
 
   describe('selection by number', () => {
-    it('confirms, persists, and transitions to ONBOARDING_MAPPING', async () => {
+    it('confirms, persists, and transitions to ONBOARDING_VALIDATING_ACCESS', async () => {
       const deps = buildMockDeps();
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
@@ -196,9 +196,9 @@ describe('HandleSheetSelection', () => {
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
       expect(mockTransitionExecute).toHaveBeenCalledWith(
-        expect.objectContaining({ targetState: 'ONBOARDING_MAPPING' }),
+        expect.objectContaining({ targetState: 'ONBOARDING_VALIDATING_ACCESS' }),
       );
-      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
     });
 
     it('returns invalid re-prompt for out-of-range number', async () => {
@@ -241,7 +241,7 @@ describe('HandleSheetSelection', () => {
       expect(mockCreateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
-      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
     });
   });
 
@@ -258,7 +258,7 @@ describe('HandleSheetSelection', () => {
       expect(mockCreateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
-      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
     });
 
     it('matches with accent normalization', async () => {
@@ -273,7 +273,7 @@ describe('HandleSheetSelection', () => {
       expect(mockCreateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
-      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
     });
 
     it('matches with accent and case normalization', async () => {
@@ -292,7 +292,7 @@ describe('HandleSheetSelection', () => {
       expect(mockCreateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Gastos del Mes' }),
       );
-      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
     });
 
     it('matches name with surrounding whitespace', async () => {
@@ -307,7 +307,7 @@ describe('HandleSheetSelection', () => {
       expect(mockCreateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
-      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
     });
   });
 

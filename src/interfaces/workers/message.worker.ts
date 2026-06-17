@@ -17,6 +17,7 @@ import type { InitiateCloudConnection } from '../../application/use-cases/spread
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
+import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 
@@ -32,6 +33,7 @@ export interface MessageWorkerDeps {
   cancelCloudConnection?: CancelCloudConnection | null;
   handleSpreadsheetFileSelection?: HandleSpreadsheetFileSelection | null;
   handleSheetSelection?: HandleSheetSelection | null;
+  validateSpreadsheetAccess?: ValidateSpreadsheetAccess | null;
 }
 
 export async function processMessageJob(
@@ -135,6 +137,20 @@ export async function processMessageJob(
         await opts.handleSheetSelection.execute({
           userId,
           rawMessage,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      }
+      break;
+    }
+
+    case 'ONBOARDING_VALIDATING_ACCESS': {
+      if (opts.validateSpreadsheetAccess) {
+        await opts.validateSpreadsheetAccess.execute({
+          userId,
           externalId,
           channel,
           statePayload: conversationState?.statePayload ?? null,

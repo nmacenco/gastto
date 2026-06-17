@@ -8,7 +8,7 @@
 // "I don't know", and re-prompt for invalid names. After confirmation, it
 // calls ISpreadsheetConfigRepository.create to persist the
 // spreadsheet_configs record with sheetName and a placeholder
-// accessVerifiedAt, then transitions the FSM to ONBOARDING_MAPPING.
+// accessVerifiedAt, then transitions the FSM to ONBOARDING_VALIDATING_ACCESS.
 
 import type { SpreadsheetPort, SpreadsheetPortFactory } from '../../../domain/ports/services';
 import type {
@@ -333,10 +333,10 @@ export class HandleSheetSelection {
 
     await this.deps.transitionState.execute({
       userId,
-      targetState: 'ONBOARDING_MAPPING',
+      targetState: 'ONBOARDING_VALIDATING_ACCESS',
       payload,
     });
 
-    return { nextState: 'ONBOARDING_MAPPING', message, payload };
+    return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message, payload };
   }
 }

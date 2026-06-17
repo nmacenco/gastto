@@ -11,6 +11,7 @@ import type { InitiateCloudConnection } from '../../application/use-cases/spread
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
+import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
@@ -24,6 +25,7 @@ const mockInitiateCloudConnectionExecute = vi.fn();
 const mockCancelCloudConnectionExecute = vi.fn();
 const mockHandleSpreadsheetFileSelectionExecute = vi.fn();
 const mockHandleSheetSelectionExecute = vi.fn();
+const mockValidateSpreadsheetAccessExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -59,6 +61,9 @@ function buildMockDeps(): MessageWorkerDeps {
     handleSheetSelection: {
       execute: mockHandleSheetSelectionExecute,
     } as unknown as HandleSheetSelection,
+    validateSpreadsheetAccess: {
+      execute: mockValidateSpreadsheetAccessExecute,
+    } as unknown as ValidateSpreadsheetAccess,
   };
 }
 
@@ -425,6 +430,58 @@ describe('processMessageJob', () => {
           onboardingCopies.onboardingPlaceholder(),
         );
         expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('ONBOARDING_VALIDATING_ACCESS', () => {
+      it('delegates to ValidateSpreadsheetAccess when wired', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_VALIDATING_ACCESS',
+            statePayload: {
+              selectedFileId: 'f1',
+              selectedFileName: 'file1',
+              selectedSheetName: 'Gastos',
+              provider: 'google',
+            },
+          }),
+        );
+        mockValidateSpreadsheetAccessExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_MAPPING',
+          message: '',
+        });
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockValidateSpreadsheetAccessExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: {
+            selectedFileId: 'f1',
+            selectedFileName: 'file1',
+            selectedSheetName: 'Gastos',
+            provider: 'google',
+          },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('falls back to placeholder when ValidateSpreadsheetAccess is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.validateSpreadsheetAccess = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_VALIDATING_ACCESS' }),
+        );
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+        expect(mockValidateSpreadsheetAccessExecute).not.toHaveBeenCalled();
       });
     });
 
