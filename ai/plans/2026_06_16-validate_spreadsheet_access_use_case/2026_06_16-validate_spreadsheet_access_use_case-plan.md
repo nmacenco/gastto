@@ -43,27 +43,27 @@ Implement the Application-layer `ValidateSpreadsheetAccess` use case, wire it in
 
 **Description:** Implement the four HU-4.04 result branches, automatic retry, user-facing copies, and empty-sheet confirmation handling.
 
-- [ ] Implement `read-only` branch in `ValidateSpreadsheetAccess`: send a message explaining missing write permission and how to fix it in Google Drive / OneDrive; stay in `ONBOARDING_VALIDATING_ACCESS`.
-- [ ] Implement `empty-sheet` branch: send a message asking the user to confirm the sheet or choose another; transition to `ONBOARDING_SHEET` with `step: 'empty-sheet-confirm'` and preserved `sheetList`.
-- [ ] Implement `access-error` branch: retry once automatically when `retryable: true`; on persistent error send a reconnect-account message and transition to `ONBOARDING_START`.
-- [ ] Add message copies to `src/application/copies/onboarding.copies.ts` for read-only, empty-sheet, and reconnect-account scenarios.
-- [ ] Extend `HandleSheetSelection` to handle `step === 'empty-sheet-confirm'`: confirm words send an out-of-MVP message; otherwise treat the reply as a sheet selection attempt using `sheetList`.
-- [ ] Add unit tests in `ValidateSpreadsheetAccess.spec.ts` for success, read-only, empty-sheet, access-error with automatic retry, persistent access-error, missing token, expired/revoked token, and decryption failure.
-- [ ] Update `message.worker.spec.ts` to cover routing and the new branches.
-- [ ] Run `pnpm lint` and `pnpm typecheck`. Fix issues.
+- [x] Implement `read-only` branch in `ValidateSpreadsheetAccess`: send a message explaining missing write permission and how to fix it in Google Drive / OneDrive; stay in `ONBOARDING_VALIDATING_ACCESS`.
+- [x] Implement `empty-sheet` branch: send a message asking the user to confirm the sheet or choose another; transition to `ONBOARDING_SHEET` with `step: 'empty-sheet-confirm'` and preserved `sheetList`.
+- [x] Implement `access-error` branch: retry once automatically when `retryable: true`; on persistent error send a reconnect-account message and transition to `ONBOARDING_START`.
+- [x] Add message copies to `src/application/copies/onboarding.copies.ts` for read-only, empty-sheet, and reconnect-account scenarios.
+- [x] Extend `HandleSheetSelection` to handle `step === 'empty-sheet-confirm'`: confirm words send an out-of-MVP message; otherwise treat the reply as a sheet selection attempt using `sheetList`.
+- [x] Add unit tests in `ValidateSpreadsheetAccess.spec.ts` for success, read-only, empty-sheet, access-error with automatic retry, persistent access-error, missing token, expired/revoked token, and decryption failure.
+- [x] Update `message.worker.spec.ts` to cover routing and the new branches.
+- [x] Run `pnpm lint` and `pnpm typecheck`. Fix issues.
 - [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3 — Documentation, integration, and ship check
 
 **Description:** Update canonical docs, add integration-level coverage, run the full ship check, and sync the backlog task files.
 
-- [ ] Update `docs/features/validate-spreadsheet-access.md`: mark user-facing messages, retry logic, and empty-sheet handling as implemented; remove TODOs; update API/Interface and Tests sections.
-- [ ] Update `docs/architecture/data-model.md` to list `ONBOARDING_VALIDATING_ACCESS` in the FSM state description.
-- [ ] Add or extend integration tests for the full handler-to-use-case flow, including a simulated expired-token test.
-- [ ] Run `pnpm lint && pnpm typecheck && pnpm test`. Fix issues.
-- [ ] Update `docs/user-stories/01-mvp/01-Vinculación de planilla · Release 1 MVP/HU-4.04-read-and-validate-spreadsheet-access/tasks/T-4.04-04.md`, `T-4.04-05.md`, and `T-4.04-06.md` by checking off satisfied acceptance criteria.
+- [x] Update `docs/features/validate-spreadsheet-access.md`: mark user-facing messages, retry logic, and empty-sheet handling as implemented; remove TODOs; update API/Interface and Tests sections.
+- [x] Update `docs/architecture/data-model.md` to list `ONBOARDING_VALIDATING_ACCESS` in the FSM state description.
+- [x] Add or extend integration tests for the full handler-to-use-case flow, including a simulated expired-token test.
+- [x] Run `pnpm lint && pnpm typecheck && pnpm test`. Fix issues.
+- [x] Update `docs/user-stories/01-mvp/01-Vinculación de planilla · Release 1 MVP/HU-4.04-read-and-validate-spreadsheet-access/tasks/T-4.04-04.md`, `T-4.04-05.md`, and `T-4.04-06.md` by checking off satisfied acceptance criteria.
 - [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Start Phase 2 by implementing the full access-validation business logic (read-only, empty-sheet, access-error with retry).
+All phases completed. Suggest exporting the conversation and storing it alongside the plan.

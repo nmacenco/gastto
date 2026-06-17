@@ -20,6 +20,7 @@ import type { HandleSheetSelection } from '../../application/use-cases/spreadshe
 import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
+import { isConfirmIntent, isCancelIntent } from '../../application/utils/intents';
 
 export interface MessageWorkerDeps {
   redis: Redis;
@@ -235,29 +236,11 @@ async function handleExpenseReview(
   messaging: MessagingOutputPort,
 ): Promise<void> {
   const { userId, rawMessage, externalId } = jobData;
-  const lower = rawMessage.toLowerCase().trim();
 
-  const CONFIRM_WORDS = [
-    'sí',
-    'si',
-    'ok',
-    'dale',
-    'confirmo',
-    'correcto',
-    'listo',
-    'va',
-    'bárbaro',
-    'okey',
-    'perfecto',
-    'yep',
-    'sip',
-  ];
-  const CANCEL_WORDS = ['no', 'cancelar', 'cancela', 'no registres', 'para', 'stop', 'salir'];
-
-  if (CONFIRM_WORDS.some((w) => lower === w || lower.startsWith(w + ' '))) {
+  if (isConfirmIntent(rawMessage)) {
     // Guardado — pendiente de implementar llamada a registerExpense.save()
     await messaging.sendMessage(externalId, expenseCopies.saving());
-  } else if (CANCEL_WORDS.some((w) => lower === w || lower.startsWith(w))) {
+  } else if (isCancelIntent(rawMessage)) {
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
     await messaging.sendMessage(externalId, expenseCopies.cancelled());
   } else {

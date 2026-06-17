@@ -53,7 +53,7 @@ Persisted finite-state machine (FSM) state for each user. One row per user.
 | Column          | Type          | Constraints                        | Description                                                    |
 | --------------- | ------------- | ---------------------------------- | -------------------------------------------------------------- |
 | `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | 1:1 with the user.                                             |
-| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 13 FSM states defined in ADR-003.                       |
+| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 14 FSM states defined in ADR-003.                       |
 | `state_payload` | `JSONB`       | NULL                               | State context: expense in progress, onboarding data, etc.      |
 | `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.                            |
 | `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute expiration for timed states (e.g., `EXPENSE_REVIEW`). |
@@ -230,7 +230,7 @@ Immutable audit trail of critical operations.
 
 ## Related ADRs
 
-- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/adr.md#adr-003--estado-conversacional-fsm-persistida-en-postgresql) — Defines the 13 FSM states stored in `conversation_states`.
+- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/adr.md#adr-003--estado-conversacional-fsm-persistida-en-postgresql) — Defines the 14 FSM states stored in `conversation_states`.
 - [ADR-004: Spreadsheet Integration — Adapter Pattern](../adr/adr.md#adr-004--integración-con-planillas-adapter-pattern) — Motivates `spreadsheet_configs`, `column_mappings`, and dynamic column mapping.
 - [ADR-007: Security — OAuth Token Storage with AES-256](../adr/adr.md#adr-007--seguridad-almacenamiento-de-tokens-oauth-con-aes-256) — Describes the encryption strategy for `oauth_tokens`.
 - [ADR-008: User Identity — Local Registration with Own userId](../adr/adr.md#adr-008--identidad-de-usuario-registro-local-con-userid-propio) — Explains the `users` / `messaging_identities` split and the internal `user_id` anchor.

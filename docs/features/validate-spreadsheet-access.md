@@ -7,19 +7,30 @@ Before the user can start recording expenses, the system must verify that it has
 ## Behavior (Implemented)
 
 - **Read and write access confirmed (success):** The adapter reads the first 10 rows of the selected sheet and verifies write permissions via the provider's API. If both succeed, the flow continues transparently to column mapping (HU-4.05) without notifying the user.
-- **Read-only access (read-only):** The adapter successfully reads the sheet but detects that write permissions are missing. Returns a structured result with a preview and a `read-only` kind.
-- **Empty sheet (empty-sheet):** The adapter detects that the selected sheet contains no data. Returns a structured result with an `empty-sheet` kind.
-- **Access error (access-error):** The adapter encounters a network failure, expired token, or permission error while attempting to read or verify permissions. Returns a structured result with an `access-error` kind, an error type (`network-error`, `token-expired`, `permission-denied`, or `unknown`), and a `retryable` flag.
-
-## Behavior (TODO)
-
-- **User-facing messages:** The Application layer use case (T-4.04-04) that translates these results into conversational messages is not yet implemented.
-- **Retry logic:** The use case will implement automatic retry for `retryable: true` errors.
-- **Empty sheet handling:** The use case will prompt the user to confirm whether the empty sheet is correct or to choose another.
+- **Read-only access (read-only):** The adapter successfully reads the sheet but detects that write permissions are missing. Returns a structured result with a preview and a `read-only` kind. The use case sends a message explaining how to fix permissions in Google Drive or OneDrive, and stays in `ONBOARDING_VALIDATING_ACCESS` so the user can retry.
+- **Empty sheet (empty-sheet):** The adapter detects that the selected sheet contains no data. Returns a structured result with an `empty-sheet` kind. The use case asks the user to confirm the sheet or choose another, transitioning to `ONBOARDING_SHEET` with `step: 'empty-sheet-confirm'`. If the user confirms, an out-of-MVP message is sent. If they choose another sheet, the selection flow is re-invoked.
+- **Access error (access-error):** The adapter encounters a network failure, expired token, or permission error while attempting to read or verify permissions. Returns a structured result with an `access-error` kind, an error type (`network-error`, `token-expired`, `permission-denied`, or `unknown`), and a `retryable` flag. The use case automatically retries once for `retryable: true` errors. If the retry fails, or if the error is non-retryable, a reconnect-account message is sent and the FSM transitions to `ONBOARDING_START`.
+- **Token errors:** Missing, expired, revoked, or undecryptable tokens trigger the reconnect-account message and transition to `ONBOARDING_START`.
 
 ## API / Interface
 
-This feature does not expose HTTP endpoints. It is invoked internally by the Application layer after sheet selection.
+This feature does not expose HTTP endpoints. It is invoked internally by the Application layer after sheet selection via the `ValidateSpreadsheetAccess` use case, which is routed by the FSM state `ONBOARDING_VALIDATING_ACCESS` in `message.worker.ts`.
+
+### Application Use Case
+
+```typescript
+// src/application/use-cases/spreadsheet/ValidateSpreadsheetAccess.ts
+export class ValidateSpreadsheetAccess {
+  async execute(input: ValidateSpreadsheetAccessInput): Promise<ValidateSpreadsheetAccessOutput>;
+}
+```
+
+The use case:
+1. Resolves the provider and retrieves/decrypts the OAuth token.
+2. Creates the appropriate port via `ValidateSpreadsheetAccessPortFactory`.
+3. Calls `validateSpreadsheetAccess(fileId, sheetName)`.
+4. On `access-error` with `retryable: true`, retries once automatically.
+5. Translates the result into the appropriate FSM transition and user-facing message.
 
 ### Domain Port
 
@@ -67,7 +78,7 @@ export class SpreadsheetPreview {
 
 ## Data Model
 
-No database changes. The validation is a transient check that does not persist state. The `spreadsheet_configs` table's `access_verified_at` field will be updated by the use case (T-4.04-04) upon successful validation.
+The validation updates the `spreadsheet_configs.access_verified_at` field upon successful validation. The FSM adds a new state `ONBOARDING_VALIDATING_ACCESS` which transitions to `ONBOARDING_MAPPING` on success, `ONBOARDING_SHEET` on empty-sheet, and `ONBOARDING_START` on persistent errors.
 
 ## Tests
 
@@ -123,6 +134,43 @@ No database changes. The validation is a transient check that does not persist s
 
 - [x] All four variants compile and have correct shape
 - [x] Discriminated union narrowing works correctly
+
+### ValidateSpreadsheetAccess use case
+
+- [x] Updates `accessVerifiedAt`, transitions to `ONBOARDING_MAPPING`, and sends no message on success
+- [x] Sends read-only warning and stays in `ONBOARDING_VALIDATING_ACCESS` on read-only
+- [x] Sends empty-sheet confirm, transitions to `ONBOARDING_SHEET` with step and sheetList on empty-sheet
+- [x] Omits sheetList from payload when not present in statePayload on empty-sheet
+- [x] Retries once automatically when retryable and succeeds on retry
+- [x] Sends reconnect message and transitions to `ONBOARDING_START` when retry also fails
+- [x] Does not retry when error is not retryable
+- [x] Sends reconnect message and transitions to `ONBOARDING_START` when token is missing
+- [x] Sends reconnect message and transitions to `ONBOARDING_START` when token is expired
+- [x] Sends reconnect message and transitions to `ONBOARDING_START` when token is revoked
+- [x] Sends reconnect message and transitions to `ONBOARDING_START` when decryption fails
+- [x] Sends reconnect message when fileId is missing
+- [x] Sends reconnect message when sheetName is missing
+- [x] Sends coming soon message and stays in `ONBOARDING_VALIDATING_ACCESS` for microsoft provider
+
+### HandleSheetSelection (empty-sheet-confirm step)
+
+- [x] Sends out-of-MVP message when user confirms with "sí"
+- [x] Sends out-of-MVP message when user confirms with "si"
+- [x] Sends out-of-MVP message when user confirms with "dale"
+- [x] Treats non-confirm input as sheet selection by number
+- [x] Treats non-confirm input as sheet selection by name
+- [x] Re-prompts when selection is invalid
+- [x] Returns connection failed when token is missing
+- [x] Returns connection failed when sheetList is missing
+
+### Intents utility
+
+- [x] `isConfirmIntent` returns true for all confirm words (sí, si, ok, dale, etc.)
+- [x] `isConfirmIntent` handles trailing text, whitespace, and uppercase
+- [x] `isConfirmIntent` returns false for non-confirm words and partial matches
+- [x] `isCancelIntent` returns true for all cancel words (no, cancelar, etc.)
+- [x] `isCancelIntent` handles trailing text, whitespace, and uppercase
+- [x] `isCancelIntent` returns false for non-cancel words
 
 ## Related User Stories
 

@@ -23,6 +23,7 @@ import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetCo
 import type { SheetInfo } from '../../../domain/entities/SheetInfo';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { isConfirmIntent } from '../../utils/intents';
 
 export interface HandleSheetSelectionInput {
   userId: string;
@@ -105,6 +106,16 @@ export class HandleSheetSelection {
       return { nextState: 'ONBOARDING_SHEET', message };
     }
 
+    if (statePayload?.step === 'empty-sheet-confirm') {
+      return this.handleEmptySheetConfirm(
+        userId,
+        externalId,
+        rawMessage,
+        provider,
+        statePayload,
+      );
+    }
+
     // 1. Retrieve and decrypt OAuth token
     const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
     if (!token) {
@@ -170,6 +181,61 @@ export class HandleSheetSelection {
     const p = statePayload?.provider;
     if (p === 'microsoft') return 'microsoft';
     return 'google';
+  }
+
+  private async handleEmptySheetConfirm(
+    userId: string,
+    externalId: string,
+    rawMessage: string,
+    provider: SpreadsheetProvider,
+    statePayload: Record<string, unknown>,
+  ): Promise<HandleSheetSelectionOutput> {
+    const trimmed = rawMessage.trim();
+
+    if (isConfirmIntent(trimmed)) {
+      const message = onboardingCopies.emptySheetConfirmedOutOfMvp();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+
+    const sheetList = statePayload?.sheetList as SheetInfo[] | undefined;
+    const fileId = statePayload?.selectedFileId as string;
+    const fileName = statePayload?.selectedFileName as string;
+
+    if (!Array.isArray(sheetList) || sheetList.length === 0 || !fileId) {
+      const message = onboardingCopies.connectionFailed(true);
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+
+    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
+    if (!token || token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
+      const message = onboardingCopies.connectionFailed(true);
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+
+    let accessToken: string;
+    try {
+      accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
+    } catch {
+      const message = onboardingCopies.connectionFailed(true);
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+
+    const spreadsheetPort = this.deps.spreadsheetPortFactory.create(accessToken);
+
+    return this.handleSelection(
+      userId,
+      externalId,
+      fileId,
+      fileName,
+      provider,
+      trimmed,
+      sheetList,
+      spreadsheetPort,
+    );
   }
 
   private async handleInitialListing(
@@ -248,6 +314,7 @@ export class HandleSheetSelection {
         fileName,
         provider,
         sheetList[choice - 1]!,
+        sheetList,
       );
     }
 
@@ -255,7 +322,7 @@ export class HandleSheetSelection {
     const normalizedInput = normalizeForComparison(trimmed);
     const matched = sheetList.find((s) => normalizeForComparison(s.name) === normalizedInput);
     if (matched) {
-      return this.confirmSheet(userId, externalId, fileId, fileName, provider, matched);
+      return this.confirmSheet(userId, externalId, fileId, fileName, provider, matched, sheetList);
     }
 
     // Scenario 5: Invalid name — re-prompt
@@ -310,6 +377,7 @@ export class HandleSheetSelection {
     fileName: string,
     provider: SpreadsheetProvider,
     sheet: SheetInfo,
+    sheetList?: SheetInfo[],
   ): Promise<HandleSheetSelectionOutput> {
     const message = onboardingCopies.sheetSelectedConfirmation(sheet.name);
     await this.deps.messagingPort.sendMessage(externalId, message);
@@ -324,12 +392,16 @@ export class HandleSheetSelection {
       accessVerifiedAt: new Date(),
     });
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       selectedFileId: fileId,
       selectedFileName: fileName,
       selectedSheetName: sheet.name,
       provider,
     };
+
+    if (sheetList) {
+      payload.sheetList = sheetList as unknown as Record<string, unknown>[];
+    }
 
     await this.deps.transitionState.execute({
       userId,

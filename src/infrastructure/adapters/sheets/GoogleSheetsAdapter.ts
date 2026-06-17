@@ -2,12 +2,7 @@
 // Google Sheets adapter. Uses direct fetch calls to Google Sheets API v4.
 // Does not depend on googleapis SDK to keep the dependency surface minimal.
 
-import type {
-  SpreadsheetPort,
-  Row,
-  AppendResult,
-  CellValue,
-} from '../../../domain/ports/services';
+import type { SpreadsheetPort, Row, AppendResult, CellValue } from '../../../domain/ports/services';
 import type { ValidateSpreadsheetAccessPort } from '../../../domain/ports/spreadsheetAccess';
 import type { SpreadsheetAccessResult } from '../../../domain/value-objects/SpreadsheetAccessResult';
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
@@ -158,7 +153,11 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
   ): Promise<
     | { kind: 'preview'; preview: SpreadsheetPreview }
     | { kind: 'empty-sheet' }
-    | { kind: 'access-error'; errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown'; retryable: boolean }
+    | {
+        kind: 'access-error';
+        errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown';
+        retryable: boolean;
+      }
   > {
     const encodedSheetName = encodeURIComponent(sheetName);
     const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!1:10`;
@@ -217,7 +216,11 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
   ): Promise<
     | { kind: 'can-edit'; canEdit: true }
     | { kind: 'cannot-edit'; canEdit: false }
-    | { kind: 'access-error'; errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown'; retryable: boolean }
+    | {
+        kind: 'access-error';
+        errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown';
+        retryable: boolean;
+      }
   > {
     const url = `${GOOGLE_DRIVE_API_URL}/${fileId}?fields=capabilities(canEdit)`;
 

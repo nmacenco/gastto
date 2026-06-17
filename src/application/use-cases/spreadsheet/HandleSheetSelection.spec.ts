@@ -545,4 +545,146 @@ describe('HandleSheetSelection', () => {
       expect(result.message).toBe(onboardingCopies.comingSoon('OneDrive'));
     });
   });
+
+  describe('empty-sheet-confirm step', () => {
+    const emptySheetPayload = {
+      selectedFileId: 'file-123',
+      selectedFileName: 'Mi Planilla',
+      selectedSheetName: 'Gastos',
+      provider: 'google',
+      step: 'empty-sheet-confirm',
+      sheetList: mockSheets as unknown as Record<string, unknown>[],
+    };
+
+    it('sends out-of-MVP message when user confirms with "sí"', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'sí',
+        statePayload: emptySheetPayload,
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.emptySheetConfirmedOutOfMvp(),
+      );
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockCreateConfig).not.toHaveBeenCalled();
+      expect(mockListSheets).not.toHaveBeenCalled();
+    });
+
+    it('sends out-of-MVP message when user confirms with "si"', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'si',
+        statePayload: emptySheetPayload,
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.emptySheetConfirmedOutOfMvp(),
+      );
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+    });
+
+    it('sends out-of-MVP message when user confirms with "dale"', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'dale',
+        statePayload: emptySheetPayload,
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.emptySheetConfirmedOutOfMvp(),
+      );
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+    });
+
+    it('treats non-confirm input as sheet selection by number', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '2',
+        statePayload: emptySheetPayload,
+      });
+
+      expect(mockCreateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ sheetName: 'Resumen' }),
+      );
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'ONBOARDING_VALIDATING_ACCESS' }),
+      );
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+    });
+
+    it('treats non-confirm input as sheet selection by name', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'Presupuesto',
+        statePayload: emptySheetPayload,
+      });
+
+      expect(mockCreateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ sheetName: 'Presupuesto' }),
+      );
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+    });
+
+    it('re-prompts when selection is invalid', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'hoja inexistente',
+        statePayload: emptySheetPayload,
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
+      expect(mockCreateConfig).not.toHaveBeenCalled();
+    });
+
+    it('returns connection failed when token is missing', async () => {
+      mockFindToken.mockResolvedValue(null);
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '2',
+        statePayload: emptySheetPayload,
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(mockCreateConfig).not.toHaveBeenCalled();
+    });
+
+    it('returns connection failed when sheetList is missing', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '2',
+        statePayload: {
+          selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          provider: 'google',
+          step: 'empty-sheet-confirm',
+        },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+    });
+  });
 });

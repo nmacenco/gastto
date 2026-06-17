@@ -2,12 +2,7 @@
 // Excel Online adapter. Uses direct fetch calls to Microsoft Graph API.
 // Does not depend on @microsoft/microsoft-graph-client SDK to keep the dependency surface minimal.
 
-import type {
-  SpreadsheetPort,
-  Row,
-  AppendResult,
-  CellValue,
-} from '../../../domain/ports/services';
+import type { SpreadsheetPort, Row, AppendResult, CellValue } from '../../../domain/ports/services';
 import type { ValidateSpreadsheetAccessPort } from '../../../domain/ports/spreadsheetAccess';
 import type { SpreadsheetAccessResult } from '../../../domain/value-objects/SpreadsheetAccessResult';
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
@@ -35,9 +30,7 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     try {
       data = await response.json();
     } catch {
-      throw new SpreadsheetError(
-        `Invalid JSON response from Graph API: HTTP ${response.status}`,
-      );
+      throw new SpreadsheetError(`Invalid JSON response from Graph API: HTTP ${response.status}`);
     }
 
     if (!response.ok) {
@@ -53,9 +46,7 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
         status: response.status,
         errorBody,
       });
-      throw new SpreadsheetError(
-        `Graph API error during sheet listing: HTTP ${response.status}`,
-      );
+      throw new SpreadsheetError(`Graph API error during sheet listing: HTTP ${response.status}`);
     }
 
     return parseListSheetsResponse(data);
@@ -78,9 +69,7 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     try {
       data = await response.json();
     } catch {
-      throw new SpreadsheetError(
-        `Invalid JSON response from Graph API: HTTP ${response.status}`,
-      );
+      throw new SpreadsheetError(`Invalid JSON response from Graph API: HTTP ${response.status}`);
     }
 
     if (!response.ok) {
@@ -157,7 +146,11 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
   ): Promise<
     | { kind: 'preview'; preview: SpreadsheetPreview }
     | { kind: 'empty-sheet' }
-    | { kind: 'access-error'; errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown'; retryable: boolean }
+    | {
+        kind: 'access-error';
+        errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown';
+        retryable: boolean;
+      }
   > {
     const encodedSheetName = encodeURIComponent(sheetName);
     const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets/${encodedSheetName}/range(address='A1:J10')`;
@@ -216,7 +209,11 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
   ): Promise<
     | { kind: 'can-edit'; canEdit: true }
     | { kind: 'cannot-edit'; canEdit: false }
-    | { kind: 'access-error'; errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown'; retryable: boolean }
+    | {
+        kind: 'access-error';
+        errorType: 'network-error' | 'token-expired' | 'permission-denied' | 'unknown';
+        retryable: boolean;
+      }
   > {
     const url = `${GRAPH_API_URL}/me/drive/items/${fileId}?$select=capabilities`;
 

@@ -15,6 +15,8 @@ import type { TransitionConversationState } from '../conversation/TransitionConv
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
+import type { SpreadsheetAccessResult } from '../../../domain/value-objects/SpreadsheetAccessResult';
+import { onboardingCopies } from '../../copies/onboarding.copies';
 
 export interface ValidateSpreadsheetAccessInput {
   userId: string;
@@ -45,51 +47,57 @@ function isExpiredToken(expiresAt: Date): boolean {
 export class ValidateSpreadsheetAccess {
   constructor(private readonly deps: ValidateSpreadsheetAccessDeps) {}
 
-  async execute(
-    input: ValidateSpreadsheetAccessInput,
-  ): Promise<ValidateSpreadsheetAccessOutput> {
+  async execute(input: ValidateSpreadsheetAccessInput): Promise<ValidateSpreadsheetAccessOutput> {
     const { userId, externalId, statePayload } = input;
 
     const provider = this.resolveProvider(statePayload);
     if (provider === 'microsoft') {
-      const message = 'OneDrive validation is not yet supported.';
+      const message = onboardingCopies.comingSoon('OneDrive');
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message };
     }
 
     const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
     if (!token) {
-      const message = 'No se pudo conectar. Hacé clic en el enlace de arriba para intentar de nuevo.';
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message };
+      return this.handleReconnect(externalId, userId);
     }
 
     if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      const message = 'No se pudo conectar. Hacé clic en el enlace de arriba para intentar de nuevo.';
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message };
+      return this.handleReconnect(externalId, userId);
     }
 
     let accessToken: string;
     try {
       accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
     } catch {
-      const message = 'No se pudo conectar. Hacé clic en el enlace de arriba para intentar de nuevo.';
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message };
+      return this.handleReconnect(externalId, userId);
     }
 
     const fileId = statePayload?.selectedFileId as string;
     const sheetName = statePayload?.selectedSheetName as string;
 
     if (!fileId || typeof fileId !== 'string' || !sheetName || typeof sheetName !== 'string') {
-      const message = 'No se pudo conectar. Hacé clic en el enlace de arriba para intentar de nuevo.';
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message };
+      return this.handleReconnect(externalId, userId);
     }
 
     const port = this.deps.validateSpreadsheetAccessPortFactory.create(provider, accessToken);
-    const result = await port.validateSpreadsheetAccess(fileId, sheetName);
+    let result = await port.validateSpreadsheetAccess(fileId, sheetName);
+
+    if (result.kind === 'access-error' && result.retryable) {
+      result = await port.validateSpreadsheetAccess(fileId, sheetName);
+    }
+
+    return this.handleResult(result, input, provider, fileId, sheetName);
+  }
+
+  private async handleResult(
+    result: SpreadsheetAccessResult,
+    input: ValidateSpreadsheetAccessInput,
+    provider: SpreadsheetProvider,
+    fileId: string,
+    sheetName: string,
+  ): Promise<ValidateSpreadsheetAccessOutput> {
+    const { userId, externalId, statePayload } = input;
 
     switch (result.kind) {
       case 'success': {
@@ -115,23 +123,28 @@ export class ValidateSpreadsheetAccess {
       }
 
       case 'read-only': {
-        const message =
-          'Puedo ver tu planilla pero no tengo permiso para escribir en ella. Cambiá los permisos en Google Drive o OneDrive para que pueda escribir.';
+        const message = onboardingCopies.readOnlyWarning();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message };
       }
 
       case 'empty-sheet': {
-        const message = `La hoja *${sheetName}* parece estar vacía. ¿Es la correcta? Respondé *sí* para confirmar o elegí otra hoja.`;
+        const message = onboardingCopies.emptySheetConfirm(sheetName);
         await this.deps.messagingPort.sendMessage(externalId, message);
 
-        const payload = {
+        const sheetList = statePayload?.sheetList as Record<string, unknown>[] | undefined;
+
+        const payload: Record<string, unknown> = {
           selectedFileId: fileId,
           selectedFileName: statePayload?.selectedFileName as string,
           selectedSheetName: sheetName,
           provider,
           step: 'empty-sheet-confirm',
         };
+
+        if (sheetList) {
+          payload.sheetList = sheetList;
+        }
 
         await this.deps.transitionState.execute({
           userId,
@@ -143,17 +156,24 @@ export class ValidateSpreadsheetAccess {
       }
 
       case 'access-error': {
-        const message =
-          'No pude acceder a tu planilla. Intentá de nuevo o reconectá tu cuenta.';
-        await this.deps.messagingPort.sendMessage(externalId, message);
-
-        if (result.retryable) {
-          return { nextState: 'ONBOARDING_START', message };
-        }
-
-        return { nextState: 'ONBOARDING_START', message };
+        return this.handleReconnect(externalId, userId);
       }
     }
+  }
+
+  private async handleReconnect(
+    externalId: string,
+    userId: string,
+  ): Promise<ValidateSpreadsheetAccessOutput> {
+    const message = onboardingCopies.reconnectAccount();
+    await this.deps.messagingPort.sendMessage(externalId, message);
+
+    await this.deps.transitionState.execute({
+      userId,
+      targetState: 'ONBOARDING_START',
+    });
+
+    return { nextState: 'ONBOARDING_START', message };
   }
 
   private resolveProvider(statePayload: Record<string, unknown> | null): SpreadsheetProvider {

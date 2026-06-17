@@ -64,4 +64,16 @@ export const onboardingCopies = {
       .join('\n'),
   sheetIdkPrompt: () => `No te preocupes. Te describo las hojas para que elijas:`,
   sheetMappingTransition: () => `Ahora vamos a analizar la estructura.`,
+
+  readOnlyWarning: () =>
+    `Puedo ver tu planilla pero no tengo permiso para escribir en ella.\n\nPara corregirlo:\n• *Google Drive:* Abrí el archivo → Compartir → Agregá tu cuenta de Gastto con rol *Editor*.\n• *OneDrive:* Abrí el archivo → Compartir → Dale permisos de *Edición*.\n\nCuando lo hayas hecho, escribí *reintentar* para volver a verificar.`,
+
+  emptySheetConfirm: (sheetName: string) =>
+    `La hoja *${sheetName}* parece estar vacía. ¿Es la correcta?\n\nRespondé *sí* para confirmar o escribí el nombre/número de otra hoja.`,
+
+  emptySheetConfirmedOutOfMvp: () =>
+    `Entendido. La funcionalidad de planillas vacías estará disponible próximamente. Por ahora, elegí una hoja que tenga datos para continuar.`,
+
+  reconnectAccount: () =>
+    `No pude acceder a tu planilla. Puede que la conexión con tu cuenta se haya vencido.\n\nEscribí *empezar* para reconectar tu cuenta e intentar de nuevo.`,
 };
