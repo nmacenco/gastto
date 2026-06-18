@@ -107,13 +107,7 @@ export class HandleSheetSelection {
     }
 
     if (statePayload?.step === 'empty-sheet-confirm') {
-      return this.handleEmptySheetConfirm(
-        userId,
-        externalId,
-        rawMessage,
-        provider,
-        statePayload,
-      );
+      return this.handleEmptySheetConfirm(userId, externalId, rawMessage, provider, statePayload);
     }
 
     // 1. Retrieve and decrypt OAuth token
@@ -400,7 +394,7 @@ export class HandleSheetSelection {
     };
 
     if (sheetList) {
-      payload.sheetList = sheetList as unknown as Record<string, unknown>[];
+      payload.sheetList = sheetList;
     }
 
     await this.deps.transitionState.execute({

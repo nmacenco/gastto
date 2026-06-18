@@ -204,9 +204,7 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     return { kind: 'preview', preview };
   }
 
-  private async checkWritePermission(
-    fileId: string,
-  ): Promise<
+  private async checkWritePermission(fileId: string): Promise<
     | { kind: 'can-edit'; canEdit: true }
     | { kind: 'cannot-edit'; canEdit: false }
     | {

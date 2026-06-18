@@ -148,10 +148,7 @@ describe('ValidateSpreadsheetAccess', () => {
         statePayload: mockStatePayload,
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '987654321',
-        onboardingCopies.readOnlyWarning(),
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.readOnlyWarning());
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
       expect(result.message).toBe(onboardingCopies.readOnlyWarning());
       expect(mockTransitionExecute).not.toHaveBeenCalled();

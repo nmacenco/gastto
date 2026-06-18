@@ -136,7 +136,7 @@ export class ValidateSpreadsheetAccess {
 
         const payload: Record<string, unknown> = {
           selectedFileId: fileId,
-          selectedFileName: statePayload?.selectedFileName as string,
+          selectedFileName: statePayload?.selectedFileName,
           selectedSheetName: sheetName,
           provider,
           step: 'empty-sheet-confirm',
