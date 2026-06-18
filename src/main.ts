@@ -29,12 +29,14 @@ import { DrizzleConversationStateRepository } from './infrastructure/db/reposito
 import { DrizzleOperationLogRepository } from './infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from './infrastructure/db/repositories/DrizzleOAuthTokenRepository';
 import { DrizzleSpreadsheetConfigRepository } from './infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
+import { DrizzleColumnMappingRepository } from './infrastructure/db/repositories/DrizzleColumnMappingRepository';
 import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/TelegramMessengerAdapter';
 import { TelegramWebhookConfigurator } from './infrastructure/adapters/telegram/TelegramWebhookConfigurator';
 import { GoogleDriveOAuthAdapter } from './infrastructure/adapters/oauth';
 import { GoogleDriveFileDiscoveryAdapter } from './infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
 import { GoogleSheetsAdapterFactory } from './infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
 import { SpreadsheetAccessAdapterFactory } from './infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
+import { RuleBasedColumnInferenceAdapter } from './infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
 import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
 
 // Application
@@ -46,6 +48,7 @@ import { CancelCloudConnection } from './application/use-cases/spreadsheet/Cance
 import { HandleSpreadsheetFileSelection } from './application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import { HandleSheetSelection } from './application/use-cases/spreadsheet/HandleSheetSelection';
 import { ValidateSpreadsheetAccess } from './application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
+import { InferColumnMapping } from './application/use-cases/spreadsheet/InferColumnMapping';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
@@ -169,6 +172,8 @@ async function bootstrap(): Promise<void> {
       const tokenRepo = new DrizzleOAuthTokenRepository(db);
       // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
       const spreadsheetConfigRepo = new DrizzleSpreadsheetConfigRepository(db);
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const columnMappingRepo = new DrizzleColumnMappingRepository(db);
 
       const tokenEncryption = new TokenEncryptionAdapter(env.ENCRYPTION_KEY);
 
@@ -327,6 +332,21 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
+        const ruleBasedColumnInferenceAdapter = new RuleBasedColumnInferenceAdapter();
+
+        const inferColumnMapping =
+          googleOAuthAdapter !== null
+            ? new InferColumnMapping({
+                tokenRepository: tokenRepo,
+                tokenEncryption,
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+                columnMappingRepository: columnMappingRepo,
+                columnInferencePort: ruleBasedColumnInferenceAdapter,
+                messagingPort: telegramAdapter,
+                transitionState,
+              })
+            : null;
+
         // Thick worker (ADR-005): FSM → NLP → user response
         const messageWorker = createMessageWorker({
           redis,
@@ -346,6 +366,7 @@ async function bootstrap(): Promise<void> {
           handleSpreadsheetFileSelection,
           handleSheetSelection,
           validateSpreadsheetAccess,
+          inferColumnMapping,
         });
         app.log.info(
           `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,

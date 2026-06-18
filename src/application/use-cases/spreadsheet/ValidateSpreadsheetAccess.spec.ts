@@ -129,6 +129,12 @@ describe('ValidateSpreadsheetAccess', () => {
           selectedFileName: 'Mi Planilla',
           selectedSheetName: 'Gastos',
           provider: 'google',
+          preview: {
+            provider: 'google',
+            fileId: 'file-123',
+            sheetName: 'Gastos',
+            rows: [{ index: 1, values: ['Fecha', 'Concepto', 'Monto'] }],
+          },
         },
       });
       expect(result.nextState).toBe('ONBOARDING_MAPPING');

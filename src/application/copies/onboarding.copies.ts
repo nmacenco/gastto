@@ -1,5 +1,7 @@
 import type { CloudFile } from '../../domain/entities/CloudFile';
 import type { SheetInfo } from '../../domain/entities/SheetInfo';
+import type { ColumnInferenceMapping } from '../../domain/ports/columnInference';
+import type { GasttoField } from '../../domain/entities/SpreadsheetConfig';
 
 export const onboardingCopies = {
   providerPrompt: () => '¿Dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
@@ -76,4 +78,60 @@ export const onboardingCopies = {
 
   reconnectAccount: () =>
     `No pude acceder a tu planilla. Puede que la conexión con tu cuenta se haya vencido.\n\nEscribí *empezar* para reconectar tu cuenta e intentar de nuevo.`,
+
+  // Column mapping copies (HU-4.05)
+  mappingProposalHighConfidence: (mappings: ColumnInferenceMapping[], unmappedFields: GasttoField[]) => {
+    const lines = mappings.map(
+      (m) => `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
+    );
+    let message = `Esto encontré en tu planilla:\n${lines.join('\n')}\n\n¿Está correcto?`;
+    if (unmappedFields.length > 0) {
+      message += `\n\n${formatUnmappedFields(unmappedFields)}`;
+    }
+    return message;
+  },
+
+  mappingProposalLowConfidence: (mappings: ColumnInferenceMapping[], unmappedFields: GasttoField[]) => {
+    const lines = mappings.map(
+      (m) => `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
+    );
+    let message = `No estoy seguro de algunos campos, este es mi mejor intento:\n${lines.join('\n')}`;
+    if (unmappedFields.length > 0) {
+      message += `\n\n${formatUnmappedFields(unmappedFields)}`;
+    }
+    message += '\n\n¿Está correcto?';
+    return message;
+  },
+
+  noHeaderPrompt: () =>
+    `Parece que tu planilla no tiene una fila de encabezados.\n\n¿En qué fila comienzan los datos? Escribí el número de fila.`,
+
+  unmappedFieldsNote: (fields: GasttoField[]) => formatUnmappedFields(fields),
 };
+
+const GASTTO_FIELD_LABELS: Record<GasttoField, string> = {
+  fecha: 'Fecha',
+  monto: 'Monto',
+  categoria: 'Categoría',
+  concepto: 'Concepto',
+  medio_pago: 'Medio de pago',
+  moneda: 'Moneda',
+};
+
+const GASTTO_FIELD_EMOJI: Record<GasttoField, string> = {
+  fecha: '📅',
+  monto: '💰',
+  categoria: '🏷️',
+  concepto: '📝',
+  medio_pago: '💳',
+  moneda: '💱',
+};
+
+function columnIndexToLetter(index: number): string {
+  return String.fromCharCode(65 + index);
+}
+
+function formatUnmappedFields(fields: GasttoField[]): string {
+  const labels = fields.map((f) => GASTTO_FIELD_LABELS[f]).join(', ');
+  return `No encontré columnas para: ${labels}. Estos campos se omitirán al registrar.`;
+}

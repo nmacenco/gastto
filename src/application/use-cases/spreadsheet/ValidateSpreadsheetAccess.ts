@@ -106,11 +106,18 @@ export class ValidateSpreadsheetAccess {
           await this.deps.spreadsheetConfigRepository.updateAccessVerified(config.id);
         }
 
+        const preview = result.preview;
         const payload = {
           selectedFileId: fileId,
           selectedFileName: statePayload?.selectedFileName as string,
           selectedSheetName: sheetName,
           provider,
+          preview: {
+            provider: preview.provider,
+            fileId: preview.fileId,
+            sheetName: preview.sheetName,
+            rows: preview.rows.map((row) => ({ index: row.index, values: [...row.values] })),
+          },
         };
 
         await this.deps.transitionState.execute({

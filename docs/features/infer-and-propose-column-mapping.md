@@ -16,18 +16,57 @@ Analyze the headers and data of the user's spreadsheet and suggest which column 
 - The system supports Spanish, English, and Portuguese headers.
 - The FSM allows `ONBOARDING_MAPPING` self-transition for the no-header sub-step.
 - Inferred mappings are persisted via `DrizzleColumnMappingRepository` with `upsertMany`.
+- The `InferColumnMapping` use case orchestrates the full inference flow: retrieves OAuth token, loads spreadsheet config, extracts preview from FSM state payload, invokes inference port, persists mappings, and sends proposal message.
+- High-confidence mappings are presented with emoji indicators (📅💰🏷️📝💳💱) and column letters.
+- Low-confidence mappings include an uncertainty indicator.
+- No-header detection triggers a prompt asking the user which row data starts at.
+- Unmapped fields are listed with a note that they will be omitted during expense recording.
+- Token errors (missing/expired/revoked/decrypt failure) send a reconnect message and transition to `ONBOARDING_START`.
+- Missing spreadsheet config sends a reconnect message and transitions to `ONBOARDING_START`.
+- Missing preview in payload sends a reconnect message and transitions to `ONBOARDING_START`.
 
 ## Behavior (TODO)
 
-- Present the proposed mapping to the user in a conversational message (requires integration with messaging layer).
-- Allow the user to confirm or correct the mapping field by field (requires FSM integration).
-- Handle the no-header sub-flow where the system asks which row data starts at (requires FSM integration).
-- Persist confirmed mappings with `confirmed_at` timestamp (requires user confirmation flow).
+- Allow the user to confirm or correct the mapping field by field (requires FSM integration — HU-4.06).
+- Persist confirmed mappings with `confirmed_at` timestamp (requires user confirmation flow — HU-4.06).
 
 ## API / Interface
 
-- `ColumnInferencePort.infer(headers: string[], sampleRows: string[][]): Promise<ColumnInferenceResult>`
-  - Returns mappings with confidence levels, no-header flag, and unmapped fields.
+### Application Use Case
+
+```typescript
+// src/application/use-cases/spreadsheet/InferColumnMapping.ts
+export class InferColumnMapping {
+  async execute(input: InferColumnMappingInput): Promise<InferColumnMappingOutput>;
+}
+```
+
+The use case:
+1. Resolves the provider and retrieves/decrypts the OAuth token.
+2. Loads the `SpreadsheetConfig` via `ISpreadsheetConfigRepository`.
+3. Extracts the `SpreadsheetPreview` from the FSM state payload (stored by `ValidateSpreadsheetAccess`).
+4. Extracts headers (row 1) and sample rows (rows 2-10) from the preview.
+5. Invokes `ColumnInferencePort.infer(headers, sampleRows)`.
+6. Persists inferred mappings via `IColumnMappingRepository.upsertMany()` with `inferred: true` and `confirmedAt: null`.
+7. Formats a proposal message based on confidence level and unmapped fields.
+8. Sends the message via `MessagingOutputPort`.
+9. Self-transitions to `ONBOARDING_MAPPING` with updated payload.
+
+### Domain Port
+
+```typescript
+// src/domain/ports/columnInference.ts
+export interface ColumnInferencePort {
+  infer(headers: string[], sampleRows: string[][]): Promise<ColumnInferenceResult>;
+}
+```
+
+### Infrastructure Adapter
+
+- **RuleBasedColumnInferenceAdapter:** Implements `ColumnInferencePort` using header normalization, multi-language dictionaries, Levenshtein fuzzy matching, and content-type heuristics.
+
+### Repository Ports
+
 - `IColumnMappingRepository.findBySpreadsheetId(spreadsheetId: string): Promise<ColumnMapping[]>`
   - Returns all mappings for a spreadsheet.
 - `IColumnMappingRepository.upsertMany(mappings: Omit<ColumnMapping, 'id'>[]): Promise<void>`
@@ -49,6 +88,8 @@ Analyze the headers and data of the user's spreadsheet and suggest which column 
 
 ## Tests
 
+### RuleBasedColumnInferenceAdapter
+
 - [x] Exact header match returns `confidence: 'alta'` for all 6 `GasttoField` values.
 - [x] Synonym match (e.g., "Fecha" → `fecha`, "Date" → `fecha`, "Data" → `fecha`) returns `confidence: 'alta'`.
 - [x] Fuzzy match (e.g., "Fcha" → `fecha` with Levenshtein ratio ≥ 0.75) returns `confidence: 'baja'`.
@@ -57,12 +98,27 @@ Analyze the headers and data of the user's spreadsheet and suggest which column 
 - [x] Unmapped fields are reported in `unmappedFields` when no column matches.
 - [x] Content-type validation: a column with date-like values in sample rows increases date mapping confidence.
 - [x] No imports from Application or Interfaces layers.
+
+### DrizzleColumnMappingRepository
+
 - [x] FSM self-transition: `canTransition('ONBOARDING_MAPPING', 'ONBOARDING_MAPPING')` returns `true`.
 - [x] Repository: `findBySpreadsheetId` returns mapped `ColumnMapping[]` with correct field types.
 - [x] Repository: `upsertMany` inserts new mappings in a single query.
 - [x] Repository: `upsertMany` updates existing mappings on conflict.
 - [x] Repository: `confirm(id)` sets `confirmedAt` to current timestamp.
 - [x] Repository: `confirm(id)` throws when mapping does not exist.
+
+### InferColumnMapping use case
+
+- [x] High-confidence mapping: message includes emoji indicators, mappings persisted with `inferred: true` and `confirmedAt: null`.
+- [x] Low-confidence mapping: message includes uncertainty indicator.
+- [x] No-header detection: self-transition to `ONBOARDING_MAPPING` with `step: 'no-header'`, message asks which row data starts at.
+- [x] Unmapped fields: message lists omitted fields.
+- [x] Multi-language headers: ES/EN/PT headers recognized and mapped correctly.
+- [x] Token errors: missing/expired/revoked/decrypt failure send reconnect message and transition to `ONBOARDING_START`.
+- [x] Missing spreadsheet config: sends reconnect message and transitions to `ONBOARDING_START`.
+- [x] Missing preview in payload: sends reconnect message and transitions to `ONBOARDING_START`.
+- [x] No imports from Infrastructure or Interfaces layers.
 
 ## Related User Stories
 

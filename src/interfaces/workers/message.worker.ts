@@ -18,6 +18,7 @@ import type { CancelCloudConnection } from '../../application/use-cases/spreadsh
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
 import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
+import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { isConfirmIntent, isCancelIntent } from '../../application/utils/intents';
@@ -35,6 +36,7 @@ export interface MessageWorkerDeps {
   handleSpreadsheetFileSelection?: HandleSpreadsheetFileSelection | null;
   handleSheetSelection?: HandleSheetSelection | null;
   validateSpreadsheetAccess?: ValidateSpreadsheetAccess | null;
+  inferColumnMapping?: InferColumnMapping | null;
 }
 
 export async function processMessageJob(
@@ -162,9 +164,21 @@ export async function processMessageJob(
       break;
     }
 
-    case 'ONBOARDING_MAPPING':
+    case 'ONBOARDING_MAPPING': {
+      if (opts.inferColumnMapping) {
+        await opts.inferColumnMapping.execute({
+          userId,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      }
+      break;
+    }
+
     case 'ONBOARDING_CATEGORIES': {
-      // Onboarding: delegate to specific handler (pending implementation)
       await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
       break;
     }
