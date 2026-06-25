@@ -12,7 +12,13 @@ import { envSchema } from './env.schema';
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error('❌ Invalid environment variables:', parsed.error.flatten().fieldErrors);
+  // Logger cannot exist before env vars are parsed — use stderr for pre-bootstrap failure.
+  process.stderr.write(
+    JSON.stringify({
+      msg: 'Invalid environment variables',
+      errors: parsed.error.flatten().fieldErrors,
+    }) + '\n',
+  );
   throw new Error('Invalid environment variables — see errors above');
 }
 

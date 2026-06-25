@@ -5,6 +5,7 @@
 
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
+import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
@@ -24,6 +25,7 @@ import { isConfirmIntent, isCancelIntent } from '../../application/utils/intents
 
 export interface MessageWorkerDeps {
   redis: Redis;
+  logger: Logger;
   registerExpense: RegisterExpenseUseCase;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
@@ -202,7 +204,7 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
 
   // Dead letter: jobs que agotan reintentos → log estructurado (ADR-005)
   worker.on('failed', (job, err) => {
-    console.error({
+    opts.logger.error({
       msg: 'Job failed permanently',
       jobId: job?.id,
       data: job?.data,

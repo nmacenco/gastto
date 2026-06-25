@@ -7,6 +7,7 @@ import type {
   IConversationStateRepository,
   IUserRepository,
 } from '../../../domain/ports/repositories';
+import type { Logger } from 'pino';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { type TransitionConversationState } from './TransitionConversationState';
 
@@ -16,6 +17,7 @@ export class HandleExpiredSessions {
     private readonly userRepo: IUserRepository,
     private readonly transitionState: TransitionConversationState,
     private readonly messagingPort: MessagingOutputPort,
+    private readonly logger: Logger,
   ) {}
 
   async execute(): Promise<void> {
@@ -39,7 +41,7 @@ export class HandleExpiredSessions {
               'Tu sesion expiro. Queres continuar o empezar de nuevo?',
             );
           } catch (err) {
-            console.error({
+            this.logger.error({
               msg: 'Failed to send session timeout message',
               userId: state.userId,
               channel: identity.channel,
@@ -49,7 +51,7 @@ export class HandleExpiredSessions {
           }
         }
       } catch (err) {
-        console.error({
+        this.logger.error({
           msg: 'Failed to process expired session',
           userId: state.userId,
           error: err instanceof Error ? err.message : String(err),

@@ -5,6 +5,7 @@
 
 import type { Redis } from 'ioredis';
 import type { Queue } from 'bullmq';
+import type { Logger } from 'pino';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
@@ -27,6 +28,7 @@ export interface CancelCloudConnectionDeps {
   reminderQueue: Queue;
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
+  logger: Logger;
 }
 
 export class CancelCloudConnection {
@@ -58,7 +60,7 @@ export class CancelCloudConnection {
       try {
         await this.deps.reminderQueue.remove(reminderJobId);
       } catch (removeErr) {
-        console.error({
+        this.deps.logger.error({
           endpoint: 'CancelCloudConnection',
           code: 'REMINDER_CANCEL_FAILED',
           jobId: reminderJobId,

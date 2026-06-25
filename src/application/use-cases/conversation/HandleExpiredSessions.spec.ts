@@ -10,6 +10,7 @@ import type {
   IUserRepository,
 } from '../../../domain/ports/repositories';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
+import type { Logger } from 'pino';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
 import type { MessagingIdentity } from '../../../domain/entities/User';
 
@@ -17,6 +18,8 @@ const mockFindExpired = vi.fn();
 const mockTransitionExecute = vi.fn();
 const mockFindMessagingIdentities = vi.fn();
 const mockSendMessage = vi.fn();
+const mockLoggerError = vi.fn();
+const mockLogger = { error: mockLoggerError } as unknown as Logger;
 
 function buildMockConversationRepo(
   overrides: Partial<IConversationStateRepository> = {},
@@ -102,6 +105,7 @@ describe('HandleExpiredSessions', () => {
       userRepo,
       transitionState,
       messagingPort,
+      mockLogger,
     );
     await useCase.execute();
 
@@ -147,6 +151,7 @@ describe('HandleExpiredSessions', () => {
       userRepo,
       transitionState,
       messagingPort,
+      mockLogger,
     );
     await useCase.execute();
 
@@ -155,7 +160,6 @@ describe('HandleExpiredSessions', () => {
   });
 
   it('continues processing remaining users when one transition fails', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const conversationRepo = buildMockConversationRepo();
     const userRepo = buildMockUserRepo();
     const transitionState = buildMockTransitionState();
@@ -179,6 +183,7 @@ describe('HandleExpiredSessions', () => {
       userRepo,
       transitionState,
       messagingPort,
+      mockLogger,
     );
     await useCase.execute();
 
@@ -189,19 +194,16 @@ describe('HandleExpiredSessions', () => {
       'Tu sesion expiro. Queres continuar o empezar de nuevo?',
     );
 
-    expect(consoleError).toHaveBeenCalledWith(
+    expect(mockLoggerError).toHaveBeenCalledWith(
       expect.objectContaining({
         msg: 'Failed to process expired session',
         userId: 'user-1',
         error: 'Transition failed',
       }),
     );
-
-    consoleError.mockRestore();
   });
 
   it('continues sending to remaining identities when one send fails', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const conversationRepo = buildMockConversationRepo();
     const userRepo = buildMockUserRepo();
     const transitionState = buildMockTransitionState();
@@ -222,6 +224,7 @@ describe('HandleExpiredSessions', () => {
       userRepo,
       transitionState,
       messagingPort,
+      mockLogger,
     );
     await useCase.execute();
 
@@ -237,7 +240,7 @@ describe('HandleExpiredSessions', () => {
       'Tu sesion expiro. Queres continuar o empezar de nuevo?',
     );
 
-    expect(consoleError).toHaveBeenCalledWith(
+    expect(mockLoggerError).toHaveBeenCalledWith(
       expect.objectContaining({
         msg: 'Failed to send session timeout message',
         userId: 'user-1',
@@ -246,7 +249,5 @@ describe('HandleExpiredSessions', () => {
         error: 'Send failed',
       }),
     );
-
-    consoleError.mockRestore();
   });
 });

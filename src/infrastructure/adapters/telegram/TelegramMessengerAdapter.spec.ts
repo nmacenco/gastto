@@ -3,6 +3,7 @@
 // Mocks the global fetch API so no real Telegram calls are made.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Logger } from 'pino';
 import { TelegramMessengerAdapter } from './TelegramMessengerAdapter';
 
 const BOT_TOKEN = 'test-token-123';
@@ -16,14 +17,14 @@ interface TelegramSendMessageBody {
 
 describe('TelegramMessengerAdapter', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
-  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
-  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+  const mockLoggerInfo = vi.fn();
+  const mockLoggerError = vi.fn();
+  const mockLogger = { info: mockLoggerInfo, error: mockLoggerError } as unknown as Logger;
 
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock;
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -38,7 +39,7 @@ describe('TelegramMessengerAdapter', () => {
         json: () => Promise.resolve({ ok: true }),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const result = await adapter.sendMessage(CHAT_ID, 'Hello world');
 
       expect(result).toEqual({ status: 'success' });
@@ -59,7 +60,7 @@ describe('TelegramMessengerAdapter', () => {
         json: () => Promise.resolve({ ok: true }),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const result = await adapter.sendMessage(CHAT_ID, 'Hello world');
 
       expect(result).toEqual({ status: 'success' });
@@ -72,7 +73,7 @@ describe('TelegramMessengerAdapter', () => {
         text: () => Promise.resolve('Unauthorized'),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const result = await adapter.sendMessage(CHAT_ID, 'test');
 
       expect(result).toEqual({ status: 'failure', errorCode: 'SEND_FAILED' });
@@ -84,7 +85,7 @@ describe('TelegramMessengerAdapter', () => {
         json: () => Promise.resolve({ ok: false, description: 'Bad Request: chat not found' }),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const result = await adapter.sendMessage(CHAT_ID, 'test');
 
       expect(result).toEqual({ status: 'failure', errorCode: 'TELEGRAM_API_ERROR' });
@@ -98,7 +99,7 @@ describe('TelegramMessengerAdapter', () => {
         json: () => Promise.resolve({ ok: true }),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const result = await adapter.sendMessage(CHAT_ID, longText);
 
       expect(result).toEqual({ status: 'success' });
@@ -114,7 +115,7 @@ describe('TelegramMessengerAdapter', () => {
       expect(firstBody.text.length).toBe(4096);
       expect(secondBody.text).toBe('B'.repeat(100));
 
-      const chunkLog = consoleLogSpy.mock.calls.find(
+      const chunkLog = mockLoggerInfo.mock.calls.find(
         (call) => (call[0] as { event?: string }).event === 'message_chunked',
       );
       expect(chunkLog).toBeDefined();
@@ -140,7 +141,7 @@ describe('TelegramMessengerAdapter', () => {
           text: () => Promise.resolve('Forbidden'),
         });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const result = await adapter.sendMessage(CHAT_ID, longText);
 
       expect(result).toEqual({ status: 'failure', errorCode: 'PERMANENT_FAILURE' });
@@ -158,7 +159,7 @@ describe('TelegramMessengerAdapter', () => {
         text: () => Promise.resolve('Internal Server Error'),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const sendPromise = adapter.sendMessage(CHAT_ID, 'test');
 
       // Initial attempt + 3 retries = 4 calls total
@@ -177,7 +178,7 @@ describe('TelegramMessengerAdapter', () => {
       const result = await sendPromise;
       expect(result).toEqual({ status: 'failure', errorCode: 'MAX_RETRIES_EXCEEDED' });
 
-      const retryLogs = consoleLogSpy.mock.calls.filter(
+      const retryLogs = mockLoggerInfo.mock.calls.filter(
         (call) => (call[0] as { event?: string }).event === 'retry_scheduled',
       );
       expect(retryLogs).toHaveLength(3);
@@ -193,13 +194,13 @@ describe('TelegramMessengerAdapter', () => {
         text: () => Promise.resolve('Bad Request'),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const result = await adapter.sendMessage(CHAT_ID, 'test');
 
       expect(result).toEqual({ status: 'failure', errorCode: 'PERMANENT_FAILURE' });
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      const errorLog = consoleErrorSpy.mock.calls.find(
+      const errorLog = mockLoggerError.mock.calls.find(
         (call) => (call[0] as { event?: string }).event === 'message_send_failed',
       );
       expect(errorLog).toBeDefined();
@@ -218,7 +219,7 @@ describe('TelegramMessengerAdapter', () => {
         text: () => Promise.resolve('Forbidden'),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const result = await adapter.sendMessage(CHAT_ID, 'test');
 
       expect(result).toEqual({ status: 'failure', errorCode: 'PERMANENT_FAILURE' });
@@ -244,7 +245,7 @@ describe('TelegramMessengerAdapter', () => {
           json: () => Promise.resolve({ ok: true }),
         });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       const sendPromise = adapter.sendMessage(CHAT_ID, 'test');
 
       await vi.advanceTimersByTimeAsync(1000);
@@ -256,7 +257,7 @@ describe('TelegramMessengerAdapter', () => {
       const result = await sendPromise;
       expect(result).toEqual({ status: 'success' });
 
-      const successLog = consoleLogSpy.mock.calls.find(
+      const successLog = mockLoggerInfo.mock.calls.find(
         (call) =>
           (call[0] as { event?: string; result?: string }).event === 'message_sent' &&
           (call[0] as { result?: string }).result === 'success',
@@ -273,10 +274,10 @@ describe('TelegramMessengerAdapter', () => {
         json: () => Promise.resolve({ ok: true }),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       await adapter.sendMessage(CHAT_ID, 'Hello world');
 
-      const sentLog = consoleLogSpy.mock.calls.find(
+      const sentLog = mockLoggerInfo.mock.calls.find(
         (call) => (call[0] as { event?: string }).event === 'message_sent',
       );
       expect(sentLog).toBeDefined();
@@ -296,10 +297,10 @@ describe('TelegramMessengerAdapter', () => {
         text: () => Promise.resolve('Unauthorized'),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       await adapter.sendMessage(CHAT_ID, 'test');
 
-      const sentLog = consoleLogSpy.mock.calls.find(
+      const sentLog = mockLoggerInfo.mock.calls.find(
         (call) => (call[0] as { event?: string }).event === 'message_sent',
       );
       expect(sentLog).toBeDefined();
@@ -318,7 +319,7 @@ describe('TelegramMessengerAdapter', () => {
         json: () => Promise.resolve({ ok: true }),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       await adapter.sendWelcome(CHAT_ID, 'María');
 
       const body = JSON.parse(
@@ -333,7 +334,7 @@ describe('TelegramMessengerAdapter', () => {
         json: () => Promise.resolve({ ok: true }),
       });
 
-      const adapter = new TelegramMessengerAdapter(BOT_TOKEN);
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
       await adapter.sendWelcome(CHAT_ID);
 
       const body = JSON.parse(
