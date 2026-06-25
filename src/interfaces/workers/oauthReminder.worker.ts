@@ -60,6 +60,7 @@ export function createOAuthReminderWorker(
     {
       connection: deps.redis,
       concurrency: 2,
+      stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
     },
   );
 

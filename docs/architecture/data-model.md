@@ -53,7 +53,7 @@ Persisted finite-state machine (FSM) state for each user. One row per user.
 | Column          | Type          | Constraints                        | Description                                                    |
 | --------------- | ------------- | ---------------------------------- | -------------------------------------------------------------- |
 | `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | 1:1 with the user.                                             |
-| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 13 FSM states defined in ADR-003.                       |
+| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 14 FSM states defined in ADR-003.                       |
 | `state_payload` | `JSONB`       | NULL                               | State context: expense in progress, onboarding data, etc.      |
 | `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.                            |
 | `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute expiration for timed states (e.g., `EXPENSE_REVIEW`). |
@@ -226,10 +226,11 @@ Immutable audit trail of critical operations.
 - **Partial indexes for hot queries.** Indexes with `WHERE` clauses reduce index size and improve read performance for the most frequent access patterns: active categories, non-deleted expenses, and expired conversation states.
 - **`expense_records.spreadsheet_id` uses `ON DELETE NO ACTION`.** This is the only non-cascading foreign key. It preserves the internal expense history even if the user unlinks or deletes a spreadsheet configuration, supporting future analytics and audit requirements.
 - **AES-256-GCM token storage.** OAuth tokens are encrypted at rest with a per-row IV. The encryption key is a runtime secret; the database contains no plaintext credentials. See ADR-007.
+- **Placeholder `access_verified_at` on first creation (Option A).** When `spreadsheet_configs` is first created during HU-4.03 sheet selection, `access_verified_at` is initialized to the current timestamp as a placeholder. The real read/write permission verification is performed later during HU-4.04 and the timestamp is updated to the actual verification time via `updateAccessVerified`. This allows the record to be persisted immediately while keeping the verification step separate.
 
 ## Related ADRs
 
-- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/adr.md#adr-003--estado-conversacional-fsm-persistida-en-postgresql) — Defines the 13 FSM states stored in `conversation_states`.
+- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/adr.md#adr-003--estado-conversacional-fsm-persistida-en-postgresql) — Defines the 14 FSM states stored in `conversation_states`.
 - [ADR-004: Spreadsheet Integration — Adapter Pattern](../adr/adr.md#adr-004--integración-con-planillas-adapter-pattern) — Motivates `spreadsheet_configs`, `column_mappings`, and dynamic column mapping.
 - [ADR-007: Security — OAuth Token Storage with AES-256](../adr/adr.md#adr-007--seguridad-almacenamiento-de-tokens-oauth-con-aes-256) — Describes the encryption strategy for `oauth_tokens`.
 - [ADR-008: User Identity — Local Registration with Own userId](../adr/adr.md#adr-008--identidad-de-usuario-registro-local-con-userid-propio) — Explains the `users` / `messaging_identities` split and the internal `user_id` anchor.

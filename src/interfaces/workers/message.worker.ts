@@ -17,8 +17,12 @@ import type { IUserRepository } from '../../domain/ports/repositories';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
+import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
+import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
+import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
+import { isConfirmIntent, isCancelIntent } from '../../application/utils/intents';
 
 export interface MessageWorkerDeps {
   redis: Redis;
@@ -32,6 +36,9 @@ export interface MessageWorkerDeps {
   initiateCloudConnection?: InitiateCloudConnection | null;
   cancelCloudConnection?: CancelCloudConnection | null;
   handleSpreadsheetFileSelection?: HandleSpreadsheetFileSelection | null;
+  handleSheetSelection?: HandleSheetSelection | null;
+  validateSpreadsheetAccess?: ValidateSpreadsheetAccess | null;
+  inferColumnMapping?: InferColumnMapping | null;
 }
 
 export async function processMessageJob(
@@ -130,10 +137,50 @@ export async function processMessageJob(
       break;
     }
 
-    case 'ONBOARDING_SHEET':
-    case 'ONBOARDING_MAPPING':
+    case 'ONBOARDING_SHEET': {
+      if (opts.handleSheetSelection) {
+        await opts.handleSheetSelection.execute({
+          userId,
+          rawMessage,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      }
+      break;
+    }
+
+    case 'ONBOARDING_VALIDATING_ACCESS': {
+      if (opts.validateSpreadsheetAccess) {
+        await opts.validateSpreadsheetAccess.execute({
+          userId,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      }
+      break;
+    }
+
+    case 'ONBOARDING_MAPPING': {
+      if (opts.inferColumnMapping) {
+        await opts.inferColumnMapping.execute({
+          userId,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      }
+      break;
+    }
+
     case 'ONBOARDING_CATEGORIES': {
-      // Onboarding: delegate to specific handler (pending implementation)
       await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
       break;
     }
@@ -162,6 +209,9 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
     {
       connection: opts.redis,
       concurrency: 2, // max 2 simultaneous jobs to not saturate LLM API (ADR-005)
+      stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
+      lockDuration: 120_000, // 2 min (default 30s) — LLM jobs can run >30s
+      lockRenewTime: 60_000, // 1 min (default 15s) — fewer lock renewals
       // Retry policy is set on Queue, not Worker
     },
   );
@@ -202,29 +252,11 @@ async function handleExpenseReview(
   messaging: MessagingOutputPort,
 ): Promise<void> {
   const { userId, rawMessage, externalId } = jobData;
-  const lower = rawMessage.toLowerCase().trim();
 
-  const CONFIRM_WORDS = [
-    'sí',
-    'si',
-    'ok',
-    'dale',
-    'confirmo',
-    'correcto',
-    'listo',
-    'va',
-    'bárbaro',
-    'okey',
-    'perfecto',
-    'yep',
-    'sip',
-  ];
-  const CANCEL_WORDS = ['no', 'cancelar', 'cancela', 'no registres', 'para', 'stop', 'salir'];
-
-  if (CONFIRM_WORDS.some((w) => lower === w || lower.startsWith(w + ' '))) {
+  if (isConfirmIntent(rawMessage)) {
     // Guardado — pendiente de implementar llamada a registerExpense.save()
     await messaging.sendMessage(externalId, expenseCopies.saving());
-  } else if (CANCEL_WORDS.some((w) => lower === w || lower.startsWith(w))) {
+  } else if (isCancelIntent(rawMessage)) {
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
     await messaging.sendMessage(externalId, expenseCopies.cancelled());
   } else {

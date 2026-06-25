@@ -6,6 +6,8 @@ import {
   users,
   messagingIdentities,
   conversationStates,
+  oauthTokens,
+  spreadsheetConfigs,
 } from '../../../src/infrastructure/db/schema';
 import type * as schema from '../../../src/infrastructure/db/schema';
 
@@ -58,5 +60,49 @@ export async function createConversationState(
     .returning();
 
   if (!row) throw new Error('Failed to create conversation state');
+  return row;
+}
+
+export async function createOAuthToken(
+  db: PostgresJsDatabase<typeof schema>,
+  overrides: Partial<typeof oauthTokens.$inferInsert> & { userId: string },
+): Promise<typeof oauthTokens.$inferSelect> {
+  const [row] = await db
+    .insert(oauthTokens)
+    .values({
+      provider: 'google',
+      accessTokenEnc: Buffer.from('encrypted-access-token'),
+      refreshTokenEnc: Buffer.from('encrypted-refresh-token'),
+      iv: Buffer.from('initialization-vector'),
+      accessTokenExpiresAt: new Date(Date.now() + 3600_000),
+      scope: ['https://www.googleapis.com/auth/drive.file'],
+      grantedAt: new Date(),
+      lastRefreshedAt: null,
+      revokedAt: null,
+      ...overrides,
+    })
+    .returning();
+
+  if (!row) throw new Error('Failed to create OAuth token');
+  return row;
+}
+
+export async function createSpreadsheetConfig(
+  db: PostgresJsDatabase<typeof schema>,
+  overrides: Partial<typeof spreadsheetConfigs.$inferInsert> & { userId: string },
+): Promise<typeof spreadsheetConfigs.$inferSelect> {
+  const [row] = await db
+    .insert(spreadsheetConfigs)
+    .values({
+      provider: 'google',
+      fileId: 'file-123',
+      fileName: 'Test Spreadsheet',
+      sheetName: 'Gastos',
+      accessVerifiedAt: new Date(),
+      ...overrides,
+    })
+    .returning();
+
+  if (!row) throw new Error('Failed to create spreadsheet config');
   return row;
 }

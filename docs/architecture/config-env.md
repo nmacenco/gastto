@@ -35,6 +35,44 @@ This document describes the configuration and environment setup for this project
 | `.env.*`       | No (gitignored) | Other local environment files.                               |
 | `.env.example` | Yes             | Template for local setup. Copy to `.env` and fill in values. |
 
+## Local Development Examples
+
+See [`docs/development/local-setup.md`](../development/local-setup.md) for the full step-by-step guide. Below are common local connection strings:
+
+### PostgreSQL (Supabase)
+
+| Source         | Example `DATABASE_URL`                                                |
+| -------------- | --------------------------------------------------------------------- |
+| Supabase (dev) | `postgresql://postgres:password@db.project.supabase.co:5432/postgres` |
+
+### Redis
+
+| Source                       | Example `REDIS_URL`                              |
+| ---------------------------- | ------------------------------------------------ |
+| Docker Compose (recommended) | `redis://localhost:6379`                         |
+| Upstash (dev)                | `rediss://default:password@host.upstash.io:6379` |
+
+> **Why Docker Compose is recommended for Redis:** Upstash free tier limits to 10,000 commands/day. BullMQ generates ~10–20 Redis commands per job. Local development with repeated restarts and tests quickly exhausts the free tier.
+
+### Google OAuth Redirect URI
+
+```
+http://localhost:3000/auth/google/callback
+```
+
+This URI must be registered **exactly** in Google Cloud Console > APIs & Credentials > Authorized redirect URIs.
+
+### Telegram Webhook
+
+For local development, Telegram requires a public HTTPS URL. Use **ngrok**:
+
+```bash
+ngrok http 3000
+# Then set: WEBHOOK_BASE_URL=https://abcd-123.ngrok.io
+```
+
+The app auto-detects `localhost` and skips webhook registration, so ngrok is required to receive messages.
+
 ## Production secrets (Fly.io)
 
 Set secrets via the Fly.io CLI. Never commit production credentials to source control.

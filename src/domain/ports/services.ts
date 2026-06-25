@@ -3,6 +3,7 @@
 // modifying any use case (ADR-002 for LLM, ADR-004 for spreadsheets).
 
 import type { ExtractedExpense } from '../entities/ExpenseRecord';
+import type { SheetInfo } from '../entities/SheetInfo';
 import type { Currency } from '../entities/User';
 
 // ── LLMPort (ADR-002) ─────────────────────────────────────────────────────────
@@ -60,6 +61,18 @@ export interface SpreadsheetPort {
   // Obtiene encabezados de la primera fila de una hoja
   getHeaders(fileId: string, sheetName: string): Promise<string[]>;
 
+  // Lists all sheet names and indices in a spreadsheet
+  listSheets(fileId: string): Promise<SheetInfo[]>;
+
   // Verifica acceso de lectura/escritura (append de prueba + delete inmediato)
   validateAccess(fileId: string, sheetName: string): Promise<boolean>;
+}
+
+// ── SpreadsheetPortFactory (ADR-004) ─────────────────────────────────────────
+// Creates a SpreadsheetPort instance with a decrypted OAuth token.
+// Allows the Application layer to obtain a port per-request without
+// storing the token in the adapter's constructor at bootstrap time.
+
+export interface SpreadsheetPortFactory {
+  create(accessToken: string): SpreadsheetPort;
 }

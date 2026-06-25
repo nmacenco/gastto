@@ -13,7 +13,8 @@
 | `ONBOARDING_START`      | First contact, no spreadsheet linked    | → `ONBOARDING_DRIVE`                                 | 30 min  |
 | `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | → `ONBOARDING_FILE`                                  | 30 min  |
 | `ONBOARDING_FILE`       | Waiting for file selection              | → `ONBOARDING_SHEET`                                 | 30 min  |
-| `ONBOARDING_SHEET`      | Waiting for sheet selection             | → `ONBOARDING_MAPPING`                               | 30 min  |
+| `ONBOARDING_SHEET`      | Waiting for sheet selection             | → `ONBOARDING_VALIDATING_ACCESS`                     | 30 min  |
+| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` | 30 min  |
 | `ONBOARDING_MAPPING`    | Waiting for column-mapping confirmation | → `ONBOARDING_CATEGORIES`                            | 30 min  |
 | `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | → `IDLE`                                             | 30 min  |
 | `EXPENSE_RECEIVING`     | Message received, processing NLP        | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW`           | —       |
@@ -35,7 +36,10 @@ flowchart TD
     ONBOARDING_START -->|OAuth initiated| ONBOARDING_DRIVE
     ONBOARDING_DRIVE -->|drive linked| ONBOARDING_FILE
     ONBOARDING_FILE -->|file picked| ONBOARDING_SHEET
-    ONBOARDING_SHEET -->|sheet picked| ONBOARDING_MAPPING
+    ONBOARDING_SHEET -->|sheet picked| ONBOARDING_VALIDATING_ACCESS
+    ONBOARDING_VALIDATING_ACCESS -->|access OK| ONBOARDING_MAPPING
+    ONBOARDING_VALIDATING_ACCESS -->|empty sheet| ONBOARDING_SHEET
+    ONBOARDING_VALIDATING_ACCESS -->|persistent error| ONBOARDING_START
     ONBOARDING_MAPPING -->|mapping confirmed| ONBOARDING_CATEGORIES
     ONBOARDING_CATEGORIES -->|categories confirmed| IDLE
 
@@ -70,6 +74,7 @@ The `state_payload` column in the `conversation_states` table is a `JSONB` blob 
 | `ONBOARDING_DRIVE`      | `oauth_state: string`                                                                                                                       | PKCE / OAuth state token for CSRF protection               |
 | `ONBOARDING_FILE`       | `drive_folder_id?: string`, `files: Array<{id, name}>`                                                                                      | List of candidate files to show the user                   |
 | `ONBOARDING_SHEET`      | `file_id: string`, `sheets: Array<{name, id}>`                                                                                              | Selected file and its internal sheets                      |
+| `ONBOARDING_VALIDATING_ACCESS` | `selectedFileId: string`, `selectedFileName: string`, `selectedSheetName: string`, `provider: SpreadsheetProvider`, `sheetList?: SheetInfo[]`, `step?: 'empty-sheet-confirm'` | File and sheet being validated; `step` and `sheetList` present when transitioning back to `ONBOARDING_SHEET` after empty-sheet |
 | `ONBOARDING_MAPPING`    | `file_id`, `sheet_id`, `headers: string[]`, `mapping: Record<string, string>`                                                               | Detected column mapping waiting for confirmation           |
 | `ONBOARDING_CATEGORIES` | `file_id`, `sheet_id`, `mapping`, `categories: string[]`                                                                                    | Detected category list waiting for confirmation            |
 | `EXPENSE_RECEIVING`     | `raw_message: string`, `extracted?: ExtractedExpense`                                                                                       | The incoming message and any partial NLP result            |

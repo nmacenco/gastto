@@ -80,10 +80,10 @@ BullMQ worker picks up job:
 
 ## Conversation state
 
-- FSM with 13 states persisted in PostgreSQL (`conversation_states` table).
+- FSM with 14 states persisted in PostgreSQL (`conversation_states` table).
 - Redis is never the source of truth for conversation state.
 - Timeouts are implemented as delayed BullMQ jobs, not cron.
-- States: `IDLE`, `ONBOARDING_START`, `ONBOARDING_DRIVE`, `ONBOARDING_FILE`, `ONBOARDING_SHEET`, `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `EXPENSE_CORRECTING`, `EXPENSE_SAVING`, `EXPENSE_SAVING_RETRY`.
+- States: `IDLE`, `ONBOARDING_START`, `ONBOARDING_DRIVE`, `ONBOARDING_FILE`, `ONBOARDING_SHEET`, `ONBOARDING_VALIDATING_ACCESS`, `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `EXPENSE_CORRECTING`, `EXPENSE_SAVING`, `EXPENSE_SAVING_RETRY`.
 - Full transition table: `docs/architecture/fsm-states.md`.
 
 ## OAuth and spreadsheet access

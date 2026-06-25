@@ -10,6 +10,9 @@ import type { ConversationState } from '../../domain/entities/ConversationState'
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
+import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
+import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
+import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
@@ -22,6 +25,9 @@ const mockRegisterExpenseInterpret = vi.fn();
 const mockInitiateCloudConnectionExecute = vi.fn();
 const mockCancelCloudConnectionExecute = vi.fn();
 const mockHandleSpreadsheetFileSelectionExecute = vi.fn();
+const mockHandleSheetSelectionExecute = vi.fn();
+const mockValidateSpreadsheetAccessExecute = vi.fn();
+const mockInferColumnMappingExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -55,6 +61,15 @@ function buildMockDeps(): MessageWorkerDeps {
     handleSpreadsheetFileSelection: {
       execute: mockHandleSpreadsheetFileSelectionExecute,
     } as unknown as HandleSpreadsheetFileSelection,
+    handleSheetSelection: {
+      execute: mockHandleSheetSelectionExecute,
+    } as unknown as HandleSheetSelection,
+    validateSpreadsheetAccess: {
+      execute: mockValidateSpreadsheetAccessExecute,
+    } as unknown as ValidateSpreadsheetAccess,
+    inferColumnMapping: {
+      execute: mockInferColumnMappingExecute,
+    } as unknown as InferColumnMapping,
   };
 }
 
@@ -381,12 +396,37 @@ describe('processMessageJob', () => {
       });
     });
 
-    it.each(['ONBOARDING_SHEET', 'ONBOARDING_MAPPING', 'ONBOARDING_CATEGORIES'] as const)(
-      'sends onboarding placeholder for %s',
-      async (state) => {
+    describe('ONBOARDING_SHEET', () => {
+      it('delegates to HandleSheetSelection when wired', async () => {
         const deps = buildMockDeps();
         mockGetConversationStateExecute.mockResolvedValue(
-          buildConversationState({ currentState: state }),
+          buildConversationState({
+            currentState: 'ONBOARDING_SHEET',
+            statePayload: { selectedFileId: 'f1', selectedFileName: 'file1', provider: 'google' },
+          }),
+        );
+        mockHandleSheetSelectionExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_MAPPING',
+          message: 'Sheet selected.',
+        });
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockHandleSheetSelectionExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          rawMessage: 'Cafe 850',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: { selectedFileId: 'f1', selectedFileName: 'file1', provider: 'google' },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('falls back to placeholder when HandleSheetSelection is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.handleSheetSelection = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_SHEET' }),
         );
 
         await processMessageJob(buildJob(baseJobData), deps);
@@ -395,8 +435,129 @@ describe('processMessageJob', () => {
           '123456789',
           onboardingCopies.onboardingPlaceholder(),
         );
-      },
-    );
+        expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('ONBOARDING_VALIDATING_ACCESS', () => {
+      it('delegates to ValidateSpreadsheetAccess when wired', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_VALIDATING_ACCESS',
+            statePayload: {
+              selectedFileId: 'f1',
+              selectedFileName: 'file1',
+              selectedSheetName: 'Gastos',
+              provider: 'google',
+            },
+          }),
+        );
+        mockValidateSpreadsheetAccessExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_MAPPING',
+          message: '',
+        });
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockValidateSpreadsheetAccessExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: {
+            selectedFileId: 'f1',
+            selectedFileName: 'file1',
+            selectedSheetName: 'Gastos',
+            provider: 'google',
+          },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('falls back to placeholder when ValidateSpreadsheetAccess is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.validateSpreadsheetAccess = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_VALIDATING_ACCESS' }),
+        );
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+        expect(mockValidateSpreadsheetAccessExecute).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('ONBOARDING_MAPPING', () => {
+      it('delegates to InferColumnMapping when wired', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: {
+              selectedFileId: 'f1',
+              selectedFileName: 'file1',
+              selectedSheetName: 'Gastos',
+              provider: 'google',
+              preview: { provider: 'google', fileId: 'f1', sheetName: 'Gastos', rows: [] },
+            },
+          }),
+        );
+        mockInferColumnMappingExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_MAPPING',
+          message: 'Mapping proposal sent.',
+        });
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockInferColumnMappingExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: {
+            selectedFileId: 'f1',
+            selectedFileName: 'file1',
+            selectedSheetName: 'Gastos',
+            provider: 'google',
+            preview: { provider: 'google', fileId: 'f1', sheetName: 'Gastos', rows: [] },
+          },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('falls back to placeholder when InferColumnMapping is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.inferColumnMapping = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_MAPPING' }),
+        );
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+      });
+    });
+
+    it('sends onboarding placeholder for ONBOARDING_CATEGORIES', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
+      );
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        onboardingCopies.onboardingPlaceholder(),
+      );
+    });
   });
 
   describe('unknown / corrupted state', () => {
