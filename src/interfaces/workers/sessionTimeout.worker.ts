@@ -5,11 +5,13 @@
 
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
+import type { Logger } from 'pino';
 import type { HandleExpiredSessions } from '../../application/use-cases/conversation/HandleExpiredSessions';
 
 export interface SessionTimeoutWorkerOpts {
   redis: Redis;
   handleExpiredSessions: HandleExpiredSessions;
+  logger: Logger;
 }
 
 export async function processSessionTimeoutJob(
@@ -31,7 +33,7 @@ export function createSessionTimeoutWorker(opts: SessionTimeoutWorkerOpts): Work
   );
 
   worker.on('failed', (job, err) => {
-    console.error({
+    opts.logger.error({
       msg: 'Session timeout worker failed permanently',
       jobId: job?.id,
       data: job?.data as unknown,

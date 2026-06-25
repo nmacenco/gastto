@@ -4,6 +4,7 @@
 
 import type { CloudStoragePort } from '../../../domain/ports/cloudStorage';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
+import type { Logger } from 'pino';
 import { CloudFile } from '../../../domain/entities/CloudFile';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
 import { InvalidProviderError } from '../../../domain/errors/InvalidProviderError';
@@ -21,6 +22,7 @@ function buildMimeTypeQuery(): string {
 }
 
 export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
+  constructor(private readonly logger: Logger) {}
   async listRecentSpreadsheets(
     accessToken: string,
     provider: SpreadsheetProvider,
@@ -92,7 +94,7 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
     } catch {
       errorBody = 'Could not parse error body';
     }
-    console.error({
+    this.logger.error({
       endpoint: 'GoogleDriveFileDiscovery',
       code: 'DRIVE_API_ERROR',
       status: response.status,
@@ -129,7 +131,7 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
       } catch {
         errorBody = 'Could not parse error body';
       }
-      console.error({
+      this.logger.error({
         endpoint: 'GoogleDriveFileDiscovery',
         code: 'DRIVE_API_ERROR',
         status: response.status,

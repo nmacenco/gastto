@@ -4,6 +4,7 @@
 // UNSUPPORTED delegation, and MALFORMED logging.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Logger } from 'pino';
 import { RouteIncomingMessage } from './RouteIncomingMessage';
 import type { NormalizedPayload } from '../../../domain/ports/messaging';
 import type { ProcessMessageJobData } from '../../ports/ProcessMessageJob';
@@ -13,6 +14,7 @@ const mockSendMessage = vi.fn();
 const mockAdd = vi.fn();
 const mockResolveExecute = vi.fn();
 const mockUnsupportedExecute = vi.fn();
+const mockLoggerError = vi.fn();
 
 function buildMockDeps() {
   return {
@@ -22,6 +24,7 @@ function buildMockDeps() {
     handleUnsupportedMessage: {
       execute: mockUnsupportedExecute,
     },
+    logger: { error: mockLoggerError } as unknown as Logger,
   };
 }
 
@@ -82,7 +85,6 @@ describe('RouteIncomingMessage', () => {
     });
 
     it('logs structured error but does not throw when ack send fails', async () => {
-      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
       const deps = buildMockDeps();
       const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
       mockSendMessage.mockRejectedValue(new Error('Network timeout'));
@@ -90,14 +92,12 @@ describe('RouteIncomingMessage', () => {
       await router.execute(buildTextPayload());
 
       expect(mockAdd).toHaveBeenCalledTimes(1);
-      expect(consoleError).toHaveBeenCalledWith({
+      expect(mockLoggerError).toHaveBeenCalledWith({
         endpoint: '/webhook/telegram',
         code: 'ACK_SEND_FAILED',
         chatId: '123456789',
         error: 'Network timeout',
       });
-
-      consoleError.mockRestore();
     });
 
     it('delegates to unsupported handler when TEXT payload has no text', async () => {

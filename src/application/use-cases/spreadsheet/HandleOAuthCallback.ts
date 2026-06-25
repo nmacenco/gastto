@@ -5,6 +5,7 @@
 
 import type { Redis } from 'ioredis';
 import type { Queue } from 'bullmq';
+import type { Logger } from 'pino';
 import type { OAuthServicePort } from '../../../domain/ports/oauth';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
@@ -46,6 +47,7 @@ export interface HandleOAuthCallbackDeps {
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
   tokenEncryption: TokenEncryptionPort;
+  logger: Logger;
 }
 
 export class HandleOAuthCallback {
@@ -124,7 +126,7 @@ export class HandleOAuthCallback {
     try {
       await this.deps.reminderQueue.remove(metadata.reminderJobId);
     } catch (removeErr) {
-      console.error({
+      this.deps.logger.error({
         endpoint: 'HandleOAuthCallback',
         code: 'REMINDER_CANCEL_FAILED',
         jobId: metadata.reminderJobId,

@@ -22,6 +22,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import * as Sentry from '@sentry/node';
 
 import { env } from '@config/env';
+import { createLogger } from './infrastructure/logger';
 
 // Infrastructure
 import { DrizzleUserRepository } from './infrastructure/db/repositories/DrizzleUserRepository';
@@ -68,6 +69,12 @@ import { createSessionTimeoutWorker } from './interfaces/workers/sessionTimeout.
 import { createOAuthReminderWorker } from './interfaces/workers/oauthReminder.worker';
 
 async function bootstrap(): Promise<void> {
+  // -- Structured logger (ADR-013) ---------------------------------------------
+  const rootLogger = createLogger({
+    level: env.LOG_LEVEL,
+    pretty: env.NODE_ENV !== 'production',
+  });
+
   // -- Sentry: inicializar antes que todo (ADR -- observabilidad) -------------
   if (env.SENTRY_DSN) {
     Sentry.init({
@@ -203,7 +210,7 @@ async function bootstrap(): Promise<void> {
       });
 
       if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET) {
-        const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN);
+        const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN, rootLogger);
         const handleStartCommand = new HandleStartCommand(telegramAdapter, conversationRepo);
 
         const handleUnsupportedMessage = new HandleUnsupportedMessage(telegramAdapter);
@@ -212,12 +219,14 @@ async function bootstrap(): Promise<void> {
           resolveIdentity,
           messagingPort: telegramAdapter,
           handleUnsupportedMessage,
+          logger: rootLogger,
         });
 
         // Thin FIFO worker (ADR-011): guarantees per-user message ordering
         const incomingMessageWorker = createIncomingMessageWorker({
           redis,
           routeIncomingMessage,
+          logger: rootLogger,
         });
         app.log.info(
           `Started incoming-message worker (concurrency: ${incomingMessageWorker.opts.concurrency})`,
@@ -259,6 +268,7 @@ async function bootstrap(): Promise<void> {
           googleOAuthAdapter !== null
             ? new HandleOAuthCallback({
                 redis,
+                logger: rootLogger,
                 oauthService: googleOAuthAdapter,
                 tokenRepository: tokenRepo,
                 reminderQueue,
@@ -288,11 +298,12 @@ async function bootstrap(): Promise<void> {
                 reminderQueue,
                 transitionState,
                 messagingPort: telegramAdapter,
+                logger: rootLogger,
               })
             : null;
 
         const googleDriveFileDiscovery =
-          googleOAuthAdapter !== null ? new GoogleDriveFileDiscoveryAdapter() : null;
+          googleOAuthAdapter !== null ? new GoogleDriveFileDiscoveryAdapter(rootLogger) : null;
 
         const handleSpreadsheetFileSelection =
           googleDriveFileDiscovery !== null
@@ -350,6 +361,7 @@ async function bootstrap(): Promise<void> {
         // Thick worker (ADR-005): FSM → NLP → user response
         const messageWorker = createMessageWorker({
           redis,
+          logger: rootLogger,
           // @ts-expect-error TODO: implement RegisterExpenseUseCase wiring
           registerExpense: null,
           getConversationState,
@@ -404,6 +416,7 @@ async function bootstrap(): Promise<void> {
         if (sendOAuthReminder !== null) {
           const oauthReminderWorker = createOAuthReminderWorker({
             redis,
+            logger: rootLogger,
             sendOAuthReminder,
             redirectUri: env.GOOGLE_REDIRECT_URI,
           });
@@ -424,11 +437,13 @@ async function bootstrap(): Promise<void> {
             userRepo,
             transitionState,
             telegramAdapter,
+            rootLogger,
           );
 
           createSessionTimeoutWorker({
             redis,
             handleExpiredSessions,
+            logger: rootLogger,
           });
           app.log.info('Started session-timeout worker (repeat every 60s)');
         } catch (err) {
@@ -446,6 +461,7 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((err) => {
-  console.error('Fatal error during bootstrap:', err);
+  const logger = createLogger({ level: 'info', pretty: false });
+  logger.fatal(err, 'Fatal error during bootstrap');
   process.exit(1);
 });
