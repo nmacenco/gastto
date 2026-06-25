@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
+import type { Logger } from 'pino';
 import type { HandleExpiredSessions } from '../../application/use-cases/conversation/HandleExpiredSessions';
 import { processSessionTimeoutJob, createSessionTimeoutWorker } from './sessionTimeout.worker';
 
@@ -26,6 +27,11 @@ vi.mock('bullmq', () => ({
 }));
 
 const mockExecute = vi.fn();
+const mockLoggerError = vi.fn();
+
+function buildMockLogger(): Logger {
+  return { error: mockLoggerError } as unknown as Logger;
+}
 
 function buildMockHandleExpiredSessions(): HandleExpiredSessions {
   return { execute: mockExecute } as unknown as HandleExpiredSessions;
@@ -72,6 +78,7 @@ describe('createSessionTimeoutWorker', () => {
     createSessionTimeoutWorker({
       redis: buildMockRedis(),
       handleExpiredSessions: buildMockHandleExpiredSessions(),
+      logger: buildMockLogger(),
     });
 
     const WorkerMock = vi.mocked(Worker);
@@ -88,6 +95,7 @@ describe('createSessionTimeoutWorker', () => {
     createSessionTimeoutWorker({
       redis: buildMockRedis(),
       handleExpiredSessions: buildMockHandleExpiredSessions(),
+      logger: buildMockLogger(),
     });
 
     const WorkerMock = vi.mocked(Worker);
@@ -104,11 +112,12 @@ describe('createSessionTimeoutWorker', () => {
   });
 
   it('logs structured error on worker failed events', () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mockLogger = buildMockLogger();
 
     const worker = createSessionTimeoutWorker({
       redis: buildMockRedis(),
       handleExpiredSessions: buildMockHandleExpiredSessions(),
+      logger: mockLogger,
     });
 
     const mockJob = { id: 'job-99', data: {} } as Job;
@@ -120,14 +129,12 @@ describe('createSessionTimeoutWorker', () => {
       error,
     );
 
-    expect(consoleError).toHaveBeenCalledTimes(1);
-    expect(consoleError).toHaveBeenCalledWith({
+    expect(mockLoggerError).toHaveBeenCalledTimes(1);
+    expect(mockLoggerError).toHaveBeenCalledWith({
       msg: 'Session timeout worker failed permanently',
       jobId: 'job-99',
       data: {},
       error: 'Redis connection lost',
     });
-
-    consoleError.mockRestore();
   });
 });

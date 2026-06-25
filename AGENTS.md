@@ -210,7 +210,7 @@ If the agent needs to know whether an environment variable is set or what a conf
 
 # Observability & Rollback
 
-- Server-side errors: `console.error` with a structured object (`{ endpoint, code, userId? }`). Do not leak stack traces to the client.
+- Server-side errors: `logger.error` with a structured object (`{ msg, endpoint, code, userId? }`). Use the Pino logger injected via constructor DI (`src/infrastructure/logger.ts`). Do not use `console.*`. Do not leak stack traces to the client.
 - Destructive DB changes require a manual snapshot (`pg_dump` or equivalent) before applying.
 - Rollback of release: revert the merge commit (`git revert -m 1 <sha>`). No force-push to `main`.
 - Rollback of migration: **new** migration that reverts changes. Never edit/delete a merged migration.

@@ -10,6 +10,7 @@ import {
 } from './CancelCloudConnection';
 import type { Redis } from 'ioredis';
 import type { Queue } from 'bullmq';
+import type { Logger } from 'pino';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 
@@ -18,6 +19,7 @@ const mockRedisDel = vi.fn();
 const mockQueueRemove = vi.fn();
 const mockTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+const mockLoggerError = vi.fn();
 
 function buildMockDeps(
   overrides: Partial<CancelCloudConnectionDeps> = {},
@@ -27,6 +29,7 @@ function buildMockDeps(
     reminderQueue: { remove: mockQueueRemove } as unknown as Queue,
     transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
+    logger: { error: mockLoggerError } as unknown as Logger,
     ...overrides,
   };
 }
@@ -106,13 +109,11 @@ describe('CancelCloudConnection', () => {
       mockRedisGet.mockResolvedValue(baseRedisPayload);
       mockQueueRemove.mockRejectedValue(new Error('Job not found'));
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       const deps = buildMockDeps();
       const useCase = new CancelCloudConnection(deps);
       const result = await useCase.execute(baseInput);
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(mockLoggerError).toHaveBeenCalledWith(
         expect.objectContaining({
           endpoint: 'CancelCloudConnection',
           code: 'REMINDER_CANCEL_FAILED',
@@ -121,8 +122,6 @@ describe('CancelCloudConnection', () => {
       expect(mockRedisDel).toHaveBeenCalled();
       expect(mockTransitionExecute).toHaveBeenCalled();
       expect(result.nextState).toBe('IDLE');
-
-      consoleSpy.mockRestore();
     });
   });
 });

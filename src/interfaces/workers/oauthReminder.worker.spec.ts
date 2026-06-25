@@ -9,14 +9,17 @@ import {
   type OAuthReminderWorkerDeps,
 } from './oauthReminder.worker';
 import type { Job } from 'bullmq';
+import type { Logger } from 'pino';
 import type { SendOAuthReminder } from '../../application/use-cases/spreadsheet/SendOAuthReminder';
 import { InvalidStateTransitionError } from '../../domain/errors/InvalidStateTransitionError';
 
 const mockExecute = vi.fn();
+const mockLoggerWarn = vi.fn();
 
 function buildMockDeps(): OAuthReminderWorkerDeps {
   return {
     redis: {} as unknown as OAuthReminderWorkerDeps['redis'],
+    logger: { warn: mockLoggerWarn } as unknown as Logger,
     sendOAuthReminder: { execute: mockExecute } as unknown as SendOAuthReminder,
     redirectUri: 'http://localhost:3000/auth/google/callback',
   };
@@ -60,20 +63,18 @@ describe('processOAuthReminderJob', () => {
   });
 
   it('logs warning and resolves gracefully on InvalidStateTransitionError', async () => {
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockExecute.mockRejectedValue(new InvalidStateTransitionError('IDLE', 'ONBOARDING_DRIVE'));
 
     const deps = buildMockDeps();
     await processOAuthReminderJob(buildJob(), deps);
 
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
       expect.objectContaining({
         msg: 'OAuth reminder skipped: invalid state transition',
         userId: 'user-123',
         error: 'Invalid state transition from IDLE to ONBOARDING_DRIVE',
       }),
     );
-    consoleWarnSpy.mockRestore();
   });
 
   it('re-throws non-state-transition errors', async () => {

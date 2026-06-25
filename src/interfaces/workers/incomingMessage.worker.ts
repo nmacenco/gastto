@@ -7,6 +7,7 @@
 
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
+import type { Logger } from 'pino';
 import type { RouteIncomingMessage } from '../../application/use-cases/conversation/RouteIncomingMessage';
 import type { IncomingMessageJobData } from '../../application/ports/IncomingMessageJob';
 import type { NormalizedPayload } from '../../domain/ports/messaging';
@@ -33,6 +34,7 @@ export async function processIncomingMessageJob(
 export function createIncomingMessageWorker(opts: {
   redis: Redis;
   routeIncomingMessage: RouteIncomingMessage;
+  logger: Logger;
 }): Worker<IncomingMessageJobData> {
   const worker = new Worker<IncomingMessageJobData>(
     'incoming-message',
@@ -47,7 +49,7 @@ export function createIncomingMessageWorker(opts: {
 
   // Structured error logging so the worker does not crash on processor errors
   worker.on('failed', (job, err) => {
-    console.error({
+    opts.logger.error({
       msg: 'Incoming message worker failed permanently',
       jobId: job?.id,
       data: job?.data,

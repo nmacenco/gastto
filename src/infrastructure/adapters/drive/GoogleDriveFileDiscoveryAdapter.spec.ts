@@ -3,6 +3,7 @@
 // Mocks the global fetch API so no real Google calls are made.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Logger } from 'pino';
 import { GoogleDriveFileDiscoveryAdapter } from './GoogleDriveFileDiscoveryAdapter';
 import { CloudFile } from '../../../domain/entities/CloudFile';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
@@ -11,11 +12,13 @@ import { InvalidProviderError } from '../../../domain/errors/InvalidProviderErro
 describe('GoogleDriveFileDiscoveryAdapter', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let adapter: GoogleDriveFileDiscoveryAdapter;
+  const mockLoggerError = vi.fn();
+  const mockLogger = { error: mockLoggerError } as unknown as Logger;
 
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock;
-    adapter = new GoogleDriveFileDiscoveryAdapter();
+    adapter = new GoogleDriveFileDiscoveryAdapter(mockLogger);
   });
 
   afterEach(() => {
@@ -93,7 +96,6 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
     });
 
     it('throws FileDiscoveryError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 401,
@@ -104,7 +106,7 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
         FileDiscoveryError,
       );
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect(mockLoggerError).toHaveBeenCalledWith(
         expect.objectContaining({
           endpoint: 'GoogleDriveFileDiscovery',
           code: 'DRIVE_API_ERROR',
@@ -112,7 +114,6 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
           errorBody: { error: 'unauthorized' },
         }),
       );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws FileDiscoveryError on invalid JSON response', async () => {
@@ -220,7 +221,6 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
     });
 
     it('throws FileDiscoveryError on unexpected HTTP error', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 500,
@@ -231,7 +231,7 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
         adapter.validateFileAccess('file-123', 'token', 'google'),
       ).rejects.toBeInstanceOf(FileDiscoveryError);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect(mockLoggerError).toHaveBeenCalledWith(
         expect.objectContaining({
           endpoint: 'GoogleDriveFileDiscovery',
           code: 'DRIVE_API_ERROR',
@@ -239,7 +239,6 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
           errorBody: { error: 'internal_error' },
         }),
       );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws FileDiscoveryError on network failure', async () => {

@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
+import type { Logger } from 'pino';
 import type { RouteIncomingMessage } from '../../application/use-cases/conversation/RouteIncomingMessage';
 import type { IncomingMessageJobData } from '../../application/ports/IncomingMessageJob';
 import type { NormalizedPayload } from '../../domain/ports/messaging';
@@ -29,6 +30,11 @@ vi.mock('bullmq', () => ({
 }));
 
 const mockExecute = vi.fn();
+const mockLoggerError = vi.fn();
+
+function buildMockLogger(): Logger {
+  return { error: mockLoggerError } as unknown as Logger;
+}
 
 function buildMockRouteIncomingMessage(): RouteIncomingMessage {
   return { execute: mockExecute } as unknown as RouteIncomingMessage;
@@ -143,6 +149,7 @@ describe('createIncomingMessageWorker', () => {
     createIncomingMessageWorker({
       redis: buildMockRedis(),
       routeIncomingMessage: buildMockRouteIncomingMessage(),
+      logger: buildMockLogger(),
     });
 
     const WorkerMock = vi.mocked(Worker);
@@ -159,6 +166,7 @@ describe('createIncomingMessageWorker', () => {
     createIncomingMessageWorker({
       redis: buildMockRedis(),
       routeIncomingMessage: buildMockRouteIncomingMessage(),
+      logger: buildMockLogger(),
     });
 
     const WorkerMock = vi.mocked(Worker);
@@ -181,11 +189,12 @@ describe('createIncomingMessageWorker', () => {
   });
 
   it('logs structured error on worker failed events', () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mockLogger = buildMockLogger();
 
     const worker = createIncomingMessageWorker({
       redis: buildMockRedis(),
       routeIncomingMessage: buildMockRouteIncomingMessage(),
+      logger: mockLogger,
     });
 
     const mockJob = { id: 'job-99', data: { messageType: 'TEXT' } } as Job<IncomingMessageJobData>;
@@ -198,14 +207,12 @@ describe('createIncomingMessageWorker', () => {
       error,
     );
 
-    expect(consoleError).toHaveBeenCalledTimes(1);
-    expect(consoleError).toHaveBeenCalledWith({
+    expect(mockLoggerError).toHaveBeenCalledTimes(1);
+    expect(mockLoggerError).toHaveBeenCalledWith({
       msg: 'Incoming message worker failed permanently',
       jobId: 'job-99',
       data: { messageType: 'TEXT' },
       error: 'Queue connection lost',
     });
-
-    consoleError.mockRestore();
   });
 });

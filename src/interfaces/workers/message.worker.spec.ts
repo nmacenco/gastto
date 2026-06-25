@@ -26,6 +26,7 @@ const mockHandleSpreadsheetFileSelectionExecute = vi.fn();
 function buildMockDeps(): MessageWorkerDeps {
   return {
     redis: {} as unknown as MessageWorkerDeps['redis'],
+    logger: {} as unknown as MessageWorkerDeps['logger'],
     registerExpense: {
       interpret: mockRegisterExpenseInterpret,
     } as unknown as MessageWorkerDeps['registerExpense'],
