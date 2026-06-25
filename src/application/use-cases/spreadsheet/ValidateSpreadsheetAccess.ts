@@ -178,6 +178,7 @@ export class ValidateSpreadsheetAccess {
     await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
     });
 
     return { nextState: 'ONBOARDING_START', message };

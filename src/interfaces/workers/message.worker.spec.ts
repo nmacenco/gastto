@@ -256,10 +256,13 @@ describe('processMessageJob', () => {
   });
 
   describe('ONBOARDING states', () => {
-    it('delegates ONBOARDING_START to InitiateCloudConnection when available', async () => {
+    it('delegates ONBOARDING_START to InitiateCloudConnection when prompt was already shown', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
-        buildConversationState({ currentState: 'ONBOARDING_START' }),
+        buildConversationState({
+          currentState: 'ONBOARDING_START',
+          statePayload: { promptShown: true },
+        }),
       );
       mockInitiateCloudConnectionExecute.mockResolvedValue({
         nextState: 'ONBOARDING_DRIVE',
@@ -277,11 +280,37 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
 
+    it('sends welcome prompt and marks promptShown on first ONBOARDING_START interaction', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_START',
+          statePayload: { promptShown: false },
+        }),
+      );
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        onboardingCopies.welcomePrompt(),
+      );
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+    });
+
     it('falls back to placeholder when ONBOARDING_START and InitiateCloudConnection is not wired', async () => {
       const deps = buildMockDeps();
       deps.initiateCloudConnection = null;
       mockGetConversationStateExecute.mockResolvedValue(
-        buildConversationState({ currentState: 'ONBOARDING_START' }),
+        buildConversationState({
+          currentState: 'ONBOARDING_START',
+          statePayload: { promptShown: true },
+        }),
       );
 
       await processMessageJob(buildJob(baseJobData), deps);

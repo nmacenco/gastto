@@ -272,6 +272,7 @@ describe('ValidateSpreadsheetAccess', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
       });
       expect(result.nextState).toBe('ONBOARDING_START');
     });
@@ -298,6 +299,7 @@ describe('ValidateSpreadsheetAccess', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
       });
       expect(result.nextState).toBe('ONBOARDING_START');
     });
@@ -321,6 +323,7 @@ describe('ValidateSpreadsheetAccess', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
       });
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(mockValidateAccess).not.toHaveBeenCalled();
@@ -346,6 +349,7 @@ describe('ValidateSpreadsheetAccess', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
       });
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(mockValidateAccess).not.toHaveBeenCalled();
@@ -371,6 +375,7 @@ describe('ValidateSpreadsheetAccess', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
       });
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(mockValidateAccess).not.toHaveBeenCalled();
@@ -395,6 +400,7 @@ describe('ValidateSpreadsheetAccess', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
       });
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(mockValidateAccess).not.toHaveBeenCalled();

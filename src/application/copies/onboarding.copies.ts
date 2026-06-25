@@ -4,6 +4,8 @@ import type { ColumnInferenceMapping } from '../../domain/ports/columnInference'
 import type { GasttoField } from '../../domain/entities/SpreadsheetConfig';
 
 export const onboardingCopies = {
+  welcomePrompt: () =>
+    '¡Hola! Bienvenido a Gastto. Soy tu asistente financiero conversacional. Para empezar, ¿dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
   providerPrompt: () => '¿Dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
   invalidRePrompt: () => 'No entendí. Escribí _1_ para Google Drive o _2_ para OneDrive.',
   comingSoon: (provider: string) =>

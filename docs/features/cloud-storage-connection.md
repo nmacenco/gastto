@@ -11,26 +11,29 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 
 ## FSM States
 
-| State              | Description                                                         | Next                                                                                         |
-| ------------------ | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `ONBOARDING_START` | User is asked to choose a cloud provider                            | `ONBOARDING_DRIVE` (Google) or stays here (invalid / OneDrive)                               |
-| `ONBOARDING_DRIVE` | User has received the Google auth link and is expected to authorize | `ONBOARDING_FILE` (callback success), `IDLE` (cancel), self-transition (`SendOAuthReminder`) |
+| State              | Description                                                         | Next                                                                                         | Payload                                    |
+| ------------------ | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `ONBOARDING_START` | User is asked to choose a cloud provider                            | `ONBOARDING_DRIVE` (Google) or stays here (invalid / OneDrive), self-transition to set `promptShown` | `{ promptShown: boolean }`                 |
+| `ONBOARDING_DRIVE` | User has received the Google auth link and is expected to authorize | `ONBOARDING_FILE` (callback success), `IDLE` (cancel), self-transition (`SendOAuthReminder`) | `{ provider: 'google', state: string }`    |
 
 ## OAuth Flow Sequence
 
 ### Initiation (`InitiateCloudConnection`)
 
-1. User sends a message while in `ONBOARDING_START`.
-2. `InitiateCloudConnection` parses the provider choice.
-3. For **Google Drive**:
+1. New users are created in `ONBOARDING_START` with `statePayload: { promptShown: false }` by `ResolveUserIdentity`.
+2. The first time the message worker sees `ONBOARDING_START` with `promptShown: false`, it sends a welcome prompt (`onboardingCopies.welcomePrompt()`) that explains the bot and asks the user to choose a provider. It then self-transitions to `ONBOARDING_START` with `promptShown: true`.
+3. Once the provider prompt has been shown, `InitiateCloudConnection` parses the provider choice.
+4. For **Google Drive**:
    - Generates a cryptographically random `state` (32 bytes hex).
    - Builds the Google OAuth URL via `GoogleDriveOAuthAdapter.buildAuthUrl()`.
    - Stores `oauth:state:{state}` in Redis with a **15-minute TTL**.
    - Schedules a BullMQ job on the `oauth-reminder` queue with a **10-minute delay**.
    - Sends the auth link to the user via `MessagingOutputPort`.
    - Transitions FSM to `ONBOARDING_DRIVE`.
-4. For **OneDrive**: returns a "coming soon" message; state remains `ONBOARDING_START`.
-5. For **invalid input**: returns a re-prompt; state remains `ONBOARDING_START`.
+5. For **OneDrive**: returns a "coming soon" message; state remains `ONBOARDING_START`.
+6. For **invalid input**: returns a re-prompt; state remains `ONBOARDING_START`.
+
+Reconnection paths (e.g., expired token during file or sheet selection) transition back to `ONBOARDING_START` with `promptShown: true`, so the user receives the standard re-prompt instead of the welcome message.
 
 ### Callback (`HandleOAuthCallback`)
 

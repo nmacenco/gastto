@@ -27,6 +27,7 @@ describe('ConversationState FSM', () => {
     it.each([
       ['IDLE', 'ONBOARDING_START'],
       ['IDLE', 'EXPENSE_RECEIVING'],
+      ['ONBOARDING_START', 'ONBOARDING_START'],
       ['ONBOARDING_START', 'ONBOARDING_DRIVE'],
       ['ONBOARDING_DRIVE', 'ONBOARDING_FILE'],
       ['ONBOARDING_DRIVE', 'ONBOARDING_DRIVE'],

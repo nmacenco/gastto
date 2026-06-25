@@ -163,7 +163,7 @@ Los estados definidos para el MVP son los siguientes:
 | Estado                  | Descripción                                 | Transiciones salientes                               |
 | ----------------------- | ------------------------------------------- | ---------------------------------------------------- |
 | `IDLE`                  | Sin flujo activo                            | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`          |
-| `ONBOARDING_START`      | Primer contacto, sin planilla vinculada     | → `ONBOARDING_DRIVE`                                 |
+| `ONBOARDING_START`      | Primer contacto, sin planilla vinculada     | → `ONBOARDING_START` (marcar `promptShown`) \| `ONBOARDING_DRIVE` |
 | `ONBOARDING_DRIVE`      | Esperando conexión OAuth                    | → `ONBOARDING_FILE`                                  |
 | `ONBOARDING_FILE`       | Esperando selección de archivo              | → `ONBOARDING_SHEET`                                 |
 | `ONBOARDING_SHEET`      | Esperando selección de hoja                 | → `ONBOARDING_MAPPING`                               |

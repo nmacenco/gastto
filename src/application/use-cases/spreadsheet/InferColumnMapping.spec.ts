@@ -340,6 +340,7 @@ describe('InferColumnMapping', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
       });
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(mockInfer).not.toHaveBeenCalled();

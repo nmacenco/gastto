@@ -96,7 +96,11 @@ export class InferColumnMapping {
     if (!preview || !Array.isArray(preview.rows) || preview.rows.length === 0) {
       const message = onboardingCopies.reconnectAccount();
       await this.deps.messagingPort.sendMessage(externalId, message);
-      await this.deps.transitionState.execute({ userId, targetState: 'ONBOARDING_START' });
+      await this.deps.transitionState.execute({
+        userId,
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
       return { nextState: 'ONBOARDING_START', message };
     }
 
@@ -173,6 +177,7 @@ export class InferColumnMapping {
     await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
     });
 
     return { nextState: 'ONBOARDING_START', message };

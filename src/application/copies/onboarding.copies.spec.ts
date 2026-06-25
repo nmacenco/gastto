@@ -8,6 +8,16 @@ import { CloudFile } from '../../domain/entities/CloudFile';
 import { SheetInfo } from '../../domain/entities/SheetInfo';
 
 describe('onboardingCopies', () => {
+  describe('welcomePrompt', () => {
+    it('returns a welcome message with provider options', () => {
+      const result = onboardingCopies.welcomePrompt();
+
+      expect(result).toContain('Bienvenido a Gastto');
+      expect(result).toContain('1. Google Drive');
+      expect(result).toContain('2. OneDrive');
+    });
+  });
+
   describe('fileListPrompt', () => {
     it('returns a numbered list with file names and a "None of these" option', () => {
       const files = [

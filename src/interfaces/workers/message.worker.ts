@@ -94,6 +94,18 @@ export async function processMessageJob(
     }
 
     case 'ONBOARDING_START': {
+      const promptShown = conversationState?.statePayload?.promptShown === true;
+
+      if (!promptShown) {
+        await messaging.sendMessage(externalId, onboardingCopies.welcomePrompt());
+        await opts.transitionState.execute({
+          userId,
+          targetState: 'ONBOARDING_START',
+          payload: { promptShown: true },
+        });
+        break;
+      }
+
       if (opts.initiateCloudConnection) {
         await opts.initiateCloudConnection.execute({ userId, rawMessage, externalId, channel });
       } else {
