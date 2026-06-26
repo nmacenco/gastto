@@ -313,6 +313,7 @@ async function bootstrap(): Promise<void> {
                 transitionState,
                 messagingPort: telegramAdapter,
                 tokenEncryption,
+                logger: rootLogger,
               })
             : null;
 
@@ -328,6 +329,7 @@ async function bootstrap(): Promise<void> {
                 messagingPort: telegramAdapter,
                 tokenEncryption,
                 spreadsheetConfigRepository: spreadsheetConfigRepo,
+                logger: rootLogger,
               })
             : null;
 

@@ -59,10 +59,15 @@ export class HandleOAuthCallback {
 
     const raw = await this.deps.redis.get(redisKey);
     if (!raw) {
+      this.deps.logger.error({
+        endpoint: 'HandleOAuthCallback',
+        code: 'OAUTH_STATE_MISSING',
+        state,
+      });
       return {
         success: false,
         nextState: 'ONBOARDING_DRIVE',
-        message: onboardingCopies.connectionFailed(true),
+        message: onboardingCopies.oauthConnectionFailed(true),
         canRetry: true,
       };
     }
@@ -70,11 +75,17 @@ export class HandleOAuthCallback {
     let metadata: OAuthStatePayload;
     try {
       metadata = JSON.parse(raw) as OAuthStatePayload;
-    } catch {
+    } catch (err) {
+      this.deps.logger.error({
+        endpoint: 'HandleOAuthCallback',
+        code: 'OAUTH_STATE_INVALID',
+        state,
+        error: String(err),
+      });
       return {
         success: false,
         nextState: 'ONBOARDING_DRIVE',
-        message: onboardingCopies.connectionFailed(true),
+        message: onboardingCopies.oauthConnectionFailed(true),
         canRetry: true,
       };
     }
@@ -107,18 +118,34 @@ export class HandleOAuthCallback {
         err instanceof OAuthNetworkError ||
         err instanceof OAuthStateMismatchError
       ) {
+        this.deps.logger.error({
+          endpoint: 'HandleOAuthCallback',
+          code: 'OAUTH_EXCHANGE_REJECTED',
+          state,
+          provider: metadata.provider,
+          errorType: err instanceof Error ? err.constructor.name : 'unknown',
+          error: err instanceof Error ? err.message : String(err),
+        });
         return {
           success: false,
           nextState: 'ONBOARDING_DRIVE',
-          message: onboardingCopies.connectionFailed(true),
+          message: onboardingCopies.oauthConnectionFailed(true),
           canRetry: true,
         };
       }
 
+      this.deps.logger.error({
+        endpoint: 'HandleOAuthCallback',
+        code: 'OAUTH_EXCHANGE_UNEXPECTED_ERROR',
+        state,
+        provider: metadata.provider,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: err instanceof Error ? err.message : String(err),
+      });
       return {
         success: false,
         nextState: 'ONBOARDING_DRIVE',
-        message: onboardingCopies.connectionFailed(true),
+        message: onboardingCopies.oauthConnectionFailed(true),
         canRetry: true,
       };
     }

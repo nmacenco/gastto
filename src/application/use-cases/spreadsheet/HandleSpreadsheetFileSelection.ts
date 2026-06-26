@@ -3,6 +3,7 @@
 // Retrieves the user's OAuth token, calls CloudStoragePort to list/search/validate
 // spreadsheet files, handles the user's reply, and transitions FSM accordingly.
 
+import type { Logger } from 'pino';
 import type { CloudStoragePort } from '../../../domain/ports/cloudStorage';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
@@ -34,6 +35,7 @@ export interface HandleSpreadsheetFileSelectionDeps {
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
   tokenEncryption: TokenEncryptionPort;
+  logger: Logger;
 }
 
 const NONE_OF_THESE_VARIANTS = [
@@ -89,24 +91,18 @@ export class HandleSpreadsheetFileSelection {
     // 1. Retrieve and decrypt OAuth token
     const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
     if (!token) {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_FILE', message };
+      return this.handleReconnect(externalId, userId, 'TOKEN_MISSING');
     }
 
     if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_FILE', message };
+      return this.handleReconnect(externalId, userId, 'TOKEN_EXPIRED_OR_REVOKED');
     }
 
     let accessToken: string;
     try {
       accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_FILE', message };
+    } catch (err) {
+      return this.handleReconnect(externalId, userId, 'TOKEN_DECRYPTION_FAILED', err);
     }
 
     // 2. Handle search step
@@ -185,10 +181,27 @@ export class HandleSpreadsheetFileSelection {
 
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
-      const message =
-        err instanceof FileDiscoveryError
-          ? `Hubo un problema al buscar archivos: ${err.message}. Intentá de nuevo en unos segundos.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof FileDiscoveryError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSpreadsheetFileSelection',
+          code: 'FILE_DISCOVERY_ERROR',
+          userId,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al buscar archivos: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_FILE', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'FILE_DISCOVERY_UNEXPECTED_ERROR',
+        userId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.fileDiscoveryFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_FILE', message };
     }
@@ -222,10 +235,29 @@ export class HandleSpreadsheetFileSelection {
         return { nextState: 'ONBOARDING_FILE', message };
       }
     } catch (err) {
-      const message =
-        err instanceof FileDiscoveryError
-          ? `Hubo un problema al validar el acceso: ${err.message}. Intentá de nuevo.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof FileDiscoveryError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSpreadsheetFileSelection',
+          code: 'FILE_ACCESS_ERROR',
+          userId,
+          fileId: selected.id,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al validar el acceso: ${errorMessage}. Intentá de nuevo.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_FILE', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'FILE_ACCESS_UNEXPECTED_ERROR',
+        userId,
+        fileId: selected.id,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.fileAccessFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_FILE', message };
     }
@@ -292,10 +324,29 @@ export class HandleSpreadsheetFileSelection {
 
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
-      const message =
-        err instanceof FileDiscoveryError
-          ? `Hubo un problema al buscar archivos: ${err.message}. Intentá de nuevo en unos segundos.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof FileDiscoveryError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSpreadsheetFileSelection',
+          code: 'FILE_SEARCH_ERROR',
+          userId,
+          query,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al buscar archivos: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_FILE', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'FILE_SEARCH_UNEXPECTED_ERROR',
+        userId,
+        query,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.fileDiscoveryFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_FILE', message };
     }
@@ -322,10 +373,29 @@ export class HandleSpreadsheetFileSelection {
         return { nextState: 'ONBOARDING_FILE', message };
       }
     } catch (err) {
-      const message =
-        err instanceof FileDiscoveryError
-          ? `Hubo un problema al validar el acceso: ${err.message}. Intentá de nuevo.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof FileDiscoveryError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSpreadsheetFileSelection',
+          code: 'URL_ACCESS_ERROR',
+          userId,
+          fileId,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al validar el acceso: ${errorMessage}. Intentá de nuevo.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_FILE', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'URL_ACCESS_UNEXPECTED_ERROR',
+        userId,
+        fileId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.fileAccessFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_FILE', message };
     }
@@ -347,5 +417,31 @@ export class HandleSpreadsheetFileSelection {
     });
 
     return { nextState: 'ONBOARDING_SHEET', message, payload };
+  }
+
+  private async handleReconnect(
+    externalId: string,
+    userId: string,
+    code: string,
+    err?: unknown,
+  ): Promise<HandleSpreadsheetFileSelectionOutput> {
+    this.deps.logger.error({
+      endpoint: 'HandleSpreadsheetFileSelection',
+      code,
+      userId,
+      errorType: err instanceof Error ? err.constructor.name : undefined,
+      error: err instanceof Error ? err.message : undefined,
+    });
+
+    const message = onboardingCopies.reconnectAccount();
+    await this.deps.messagingPort.sendMessage(externalId, message);
+
+    await this.deps.transitionState.execute({
+      userId,
+      targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
+    });
+
+    return { nextState: 'ONBOARDING_START', message };
   }
 }

@@ -23,6 +23,7 @@ const mockTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockEncrypt = vi.fn();
 const mockDecrypt = vi.fn();
+const mockLoggerError = vi.fn();
 
 function buildMockDeps(
   overrides: Partial<HandleSpreadsheetFileSelectionDeps> = {},
@@ -40,6 +41,7 @@ function buildMockDeps(
       encrypt: mockEncrypt,
       decrypt: mockDecrypt,
     },
+    logger: { error: mockLoggerError } as unknown as HandleSpreadsheetFileSelectionDeps['logger'],
     ...overrides,
   };
 }
@@ -281,18 +283,30 @@ describe('HandleSpreadsheetFileSelection', () => {
   });
 
   describe('error paths', () => {
-    it('returns connection failed when token is missing', async () => {
+    it('returns reconnect message and transitions to ONBOARDING_START when token is missing', async () => {
       mockFindToken.mockResolvedValue(null);
 
       const deps = buildMockDeps();
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
-      expect(result.nextState).toBe('ONBOARDING_FILE');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+      expect(mockLoggerError).toHaveBeenCalledWith({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'TOKEN_MISSING',
+        userId: 'user-123',
+        errorType: undefined,
+        error: undefined,
+      });
     });
 
-    it('returns connection failed when token is expired', async () => {
+    it('returns reconnect message and transitions to ONBOARDING_START when token is expired', async () => {
       mockFindToken.mockResolvedValue({
         ...mockToken,
         accessTokenExpiresAt: new Date(Date.now() - 3600_000),
@@ -302,11 +316,16 @@ describe('HandleSpreadsheetFileSelection', () => {
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
-      expect(result.nextState).toBe('ONBOARDING_FILE');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
     });
 
-    it('returns connection failed when token is revoked', async () => {
+    it('returns reconnect message and transitions to ONBOARDING_START when token is revoked', async () => {
       mockFindToken.mockResolvedValue({
         ...mockToken,
         revokedAt: new Date(),
@@ -316,8 +335,13 @@ describe('HandleSpreadsheetFileSelection', () => {
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
-      expect(result.nextState).toBe('ONBOARDING_FILE');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
     });
 
     it('returns coming soon for microsoft provider', async () => {

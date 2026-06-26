@@ -125,7 +125,7 @@ describe('HandleOAuthCallback', () => {
       expect(result.success).toBe(false);
       expect(result.nextState).toBe('ONBOARDING_DRIVE');
       expect(result.canRetry).toBe(true);
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.message).toBe(onboardingCopies.oauthConnectionFailed(true));
       expect(mockExchangeCode).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
       expect(mockTransitionExecute).not.toHaveBeenCalled();

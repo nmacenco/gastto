@@ -133,12 +133,15 @@ class CloudFile {
 
 | Scenario                           | Behavior                                                     |
 | ---------------------------------- | ------------------------------------------------------------ |
-| Invalid provider (`microsoft`)     | `InvalidProviderError` thrown by adapter.                    |
-| Network failure during discovery   | `FileDiscoveryError` thrown with network context.            |
-| Non-2xx HTTP from Google Drive API | `FileDiscoveryError` thrown with HTTP status.                |
-| Invalid JSON response              | `FileDiscoveryError` thrown.                                 |
-| File access denied (403/404)       | `validateFileAccess` returns `false`; use case informs user. |
-| Unexpected HTTP during validation  | `FileDiscoveryError` thrown.                                 |
+| Invalid provider (`microsoft`)     | `InvalidProviderError` thrown by adapter; use case sends `comingSoon`. |
+| Missing / expired / revoked token  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`. |
+| Token decryption failure           | `reconnectAccount` message sent; transitions to `ONBOARDING_START`. |
+| Missing `fileId` in statePayload   | `fileAccessFailed` message returned; stays in `ONBOARDING_FILE`. |
+| Network failure during discovery   | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned. |
+| Non-2xx HTTP from Google Drive API | `FileDiscoveryError` thrown with HTTP status; error message returned. |
+| Invalid JSON response              | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned. |
+| File access denied (403/404)       | `validateFileAccess` returns `false`; `urlValidationFailed` returned. |
+| Unexpected HTTP during validation  | `FileDiscoveryError` thrown; `fileAccessFailed` returned.     |
 
 ## QA Checklist
 

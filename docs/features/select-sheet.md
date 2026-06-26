@@ -147,13 +147,13 @@ interface ISpreadsheetConfigRepository {
 | Scenario                           | Behavior                                                     |
 | ---------------------------------- | ------------------------------------------------------------ |
 | Invalid provider (`microsoft`)     | `comingSoon` message returned; stays in `ONBOARDING_SHEET`.  |
-| Missing OAuth token                | `connectionFailed` message returned; stays in `ONBOARDING_SHEET`. |
-| Expired / revoked token            | `connectionFailed` message returned; stays in `ONBOARDING_SHEET`. |
-| Token decryption failure           | `connectionFailed` message returned; stays in `ONBOARDING_SHEET`. |
-| Missing `fileId` in statePayload   | `connectionFailed` message returned; stays in `ONBOARDING_SHEET`. |
-| Network failure during `listSheets`| `SpreadsheetError` thrown; generic `connectionFailed` returned. |
+| Missing OAuth token                | `reconnectAccount` message sent; transitions to `ONBOARDING_START`. |
+| Expired / revoked token            | `reconnectAccount` message sent; transitions to `ONBOARDING_START`. |
+| Token decryption failure           | `reconnectAccount` message sent; transitions to `ONBOARDING_START`. |
+| Missing `fileId` in statePayload   | `fileAccessFailed` message returned; stays in `ONBOARDING_SHEET`. |
+| Network failure during `listSheets`| `SpreadsheetError` thrown; `sheetDiscoveryFailed` returned. |
 | Non-2xx HTTP from Sheets API       | `SpreadsheetError` thrown with HTTP status; error message returned. |
-| Invalid JSON response              | `SpreadsheetError` thrown; generic `connectionFailed` returned. |
+| Invalid JSON response              | `SpreadsheetError` thrown; `sheetDiscoveryFailed` returned. |
 | Empty sheet list (0 sheets)        | Error message sent; no state transition.                     |
 | Invalid selection number (0, 99)   | Re-prompt with sheet list; stays in `ONBOARDING_SHEET`.      |
 | Invalid name (no fuzzy match)      | Re-prompt with sheet list; stays in `ONBOARDING_SHEET`.      |
@@ -212,29 +212,33 @@ interface ISpreadsheetConfigRepository {
 
 - [x] **Error path — missing token:**
   - `findByUserAndProvider` returns `null`.
-  - `connectionFailed` message sent.
+  - `reconnectAccount` message sent.
+  - FSM transitions to `ONBOARDING_START`.
 
 - [x] **Error path — expired token:**
   - `accessTokenExpiresAt` is in the past.
-  - `connectionFailed` message sent.
+  - `reconnectAccount` message sent.
+  - FSM transitions to `ONBOARDING_START`.
 
 - [x] **Error path — revoked token:**
   - `revokedAt` is set.
-  - `connectionFailed` message sent.
+  - `reconnectAccount` message sent.
+  - FSM transitions to `ONBOARDING_START`.
 
 - [x] **Error path — token decryption failure:**
   - `decrypt` throws.
-  - `connectionFailed` message sent.
+  - `reconnectAccount` message sent.
+  - FSM transitions to `ONBOARDING_START`.
 
 - [x] **Error path — missing fileId:**
   - `statePayload` lacks `selectedFileId`.
-  - `connectionFailed` message sent.
+  - `fileAccessFailed` message sent.
   - `listSheets` not called.
 
 - [x] **Error path — network failure during listSheets:**
   - `fetch` throws network error.
   - `SpreadsheetError` propagated.
-  - `connectionFailed` message sent.
+  - `sheetDiscoveryFailed` message sent.
 
 - [x] **Error path — API error during listSheets:**
   - Google Sheets returns 403/500.

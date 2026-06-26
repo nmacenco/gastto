@@ -23,6 +23,7 @@ const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockEncrypt = vi.fn();
 const mockDecrypt = vi.fn();
 const mockCreateConfig = vi.fn();
+const mockLoggerError = vi.fn();
 const mockCreatePort = vi.fn().mockReturnValue({
   listSheets: mockListSheets,
   getHeaders: mockGetHeaders,
@@ -49,6 +50,7 @@ function buildMockDeps(
     spreadsheetConfigRepository: {
       create: mockCreateConfig,
     } as unknown as HandleSheetSelectionDeps['spreadsheetConfigRepository'],
+    logger: { error: mockLoggerError } as unknown as HandleSheetSelectionDeps['logger'],
     ...overrides,
   };
 }
@@ -392,7 +394,7 @@ describe('HandleSheetSelection', () => {
   });
 
   describe('error paths', () => {
-    it('returns connection failed when token is missing', async () => {
+    it('returns reconnect message when token is missing', async () => {
       mockFindToken.mockResolvedValue(null);
 
       const deps = buildMockDeps();
@@ -402,11 +404,16 @@ describe('HandleSheetSelection', () => {
         statePayload: mockFilePayload,
       });
 
-      expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
     });
 
-    it('returns connection failed when token is expired', async () => {
+    it('returns reconnect message when token is expired', async () => {
       mockFindToken.mockResolvedValue({
         ...mockToken,
         accessTokenExpiresAt: new Date(Date.now() - 3600_000),
@@ -419,11 +426,11 @@ describe('HandleSheetSelection', () => {
         statePayload: mockFilePayload,
       });
 
-      expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
     });
 
-    it('returns connection failed when token is revoked', async () => {
+    it('returns reconnect message when token is revoked', async () => {
       mockFindToken.mockResolvedValue({
         ...mockToken,
         revokedAt: new Date(),
@@ -436,11 +443,11 @@ describe('HandleSheetSelection', () => {
         statePayload: mockFilePayload,
       });
 
-      expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
     });
 
-    it('returns connection failed when token decryption fails', async () => {
+    it('returns reconnect message when token decryption fails', async () => {
       mockDecrypt.mockImplementation(() => {
         throw new Error('decryption failed');
       });
@@ -452,8 +459,8 @@ describe('HandleSheetSelection', () => {
         statePayload: mockFilePayload,
       });
 
-      expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
     });
 
     it('returns error message on SpreadsheetError during listSheets', async () => {
@@ -470,7 +477,7 @@ describe('HandleSheetSelection', () => {
       expect(result.message).toContain('network error');
     });
 
-    it('returns connection failed on generic error during listSheets', async () => {
+    it('returns sheet discovery failed on generic error during listSheets', async () => {
       mockListSheets.mockRejectedValue(new Error('unexpected'));
 
       const deps = buildMockDeps();
@@ -481,7 +488,7 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.message).toBe(onboardingCopies.sheetDiscoveryFailed());
     });
 
     it('returns error message on SpreadsheetError during getHeaders', async () => {
@@ -499,7 +506,7 @@ describe('HandleSheetSelection', () => {
       expect(result.message).toContain('permission denied');
     });
 
-    it('returns connection failed on generic error during getHeaders', async () => {
+    it('returns sheet discovery failed on generic error during getHeaders', async () => {
       mockGetHeaders.mockRejectedValue(new Error('network timeout'));
 
       const deps = buildMockDeps();
@@ -511,10 +518,10 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.message).toBe(onboardingCopies.sheetDiscoveryFailed());
     });
 
-    it('returns connection failed when fileId is missing from statePayload', async () => {
+    it('returns file access failed when fileId is missing from statePayload', async () => {
       const deps = buildMockDeps();
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
@@ -523,7 +530,7 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.message).toBe(onboardingCopies.fileAccessFailed());
       expect(mockListSheets).not.toHaveBeenCalled();
     });
   });
@@ -653,7 +660,7 @@ describe('HandleSheetSelection', () => {
       expect(mockCreateConfig).not.toHaveBeenCalled();
     });
 
-    it('returns connection failed when token is missing', async () => {
+    it('returns reconnect message when token is missing', async () => {
       mockFindToken.mockResolvedValue(null);
 
       const deps = buildMockDeps();
@@ -664,12 +671,12 @@ describe('HandleSheetSelection', () => {
         statePayload: emptySheetPayload,
       });
 
-      expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
       expect(mockCreateConfig).not.toHaveBeenCalled();
     });
 
-    it('returns connection failed when sheetList is missing', async () => {
+    it('returns file access failed when sheetList is missing', async () => {
       const deps = buildMockDeps();
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
@@ -684,7 +691,7 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.message).toBe(onboardingCopies.fileAccessFailed());
     });
   });
 });
