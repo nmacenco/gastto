@@ -10,15 +10,34 @@ import {
   type HandleSheetSelectionInput,
 } from './HandleSheetSelection';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
-import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import type {
+  TransitionConversationState,
+  TransitionConversationStateInput,
+} from '../conversation/TransitionConversationState';
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
+import { canTransition, type FsmState } from '../../../domain/entities/ConversationState';
+import { InvalidStateTransitionError } from '../../../domain/errors/InvalidStateTransitionError';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 const mockListSheets = vi.fn();
 const mockGetHeaders = vi.fn();
 const mockFindToken = vi.fn();
-const mockTransitionExecute = vi.fn();
+const mockTransitionExecute = vi.fn((input: TransitionConversationStateInput) => {
+  const fromState: FsmState = 'ONBOARDING_SHEET';
+  if (!canTransition(fromState, input.targetState)) {
+    throw new InvalidStateTransitionError(fromState, input.targetState);
+  }
+  return Promise.resolve({
+    userId: input.userId,
+    currentState: input.targetState,
+    statePayload: input.payload ?? null,
+    enteredAt: new Date(),
+    expiresAt: input.expiresAt ?? null,
+    updatedAt: new Date(),
+  });
+});
+const mockReconnectTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockEncrypt = vi.fn();
 const mockDecrypt = vi.fn();
@@ -39,9 +58,7 @@ function buildMockDeps(
     tokenRepository: {
       findByUserAndProvider: mockFindToken,
     } as unknown as IOAuthTokenRepository,
-    transitionState: {
-      execute: mockTransitionExecute,
-    } as unknown as TransitionConversationState,
+    transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
     tokenEncryption: {
       encrypt: mockEncrypt,
@@ -397,7 +414,9 @@ describe('HandleSheetSelection', () => {
     it('returns reconnect message when token is missing', async () => {
       mockFindToken.mockResolvedValue(null);
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
         ...baseInput,
@@ -406,7 +425,7 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(result.message).toBe(onboardingCopies.reconnectAccount());
-      expect(mockTransitionExecute).toHaveBeenCalledWith({
+      expect(mockReconnectTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
         payload: { promptShown: true },
@@ -419,7 +438,9 @@ describe('HandleSheetSelection', () => {
         accessTokenExpiresAt: new Date(Date.now() - 3600_000),
       });
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
         ...baseInput,
@@ -436,7 +457,9 @@ describe('HandleSheetSelection', () => {
         revokedAt: new Date(),
       });
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
         ...baseInput,
@@ -452,7 +475,9 @@ describe('HandleSheetSelection', () => {
         throw new Error('decryption failed');
       });
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
         ...baseInput,
@@ -663,7 +688,9 @@ describe('HandleSheetSelection', () => {
     it('returns reconnect message when token is missing', async () => {
       mockFindToken.mockResolvedValue(null);
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
         ...baseInput,

@@ -72,7 +72,10 @@ describe('RouteIncomingMessage', () => {
       });
       expect(new Date(jobData.receivedAt).getTime()).toBeGreaterThan(0);
 
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu gasto…');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        'Recibido, procesando tu mensaje…',
+      );
     });
 
     it('does not send ack if enqueue fails', async () => {

@@ -10,8 +10,13 @@ import {
   type HandleSpreadsheetFileSelectionInput,
 } from './HandleSpreadsheetFileSelection';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
-import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import type {
+  TransitionConversationState,
+  TransitionConversationStateInput,
+} from '../conversation/TransitionConversationState';
 import { CloudFile } from '../../../domain/entities/CloudFile';
+import { canTransition, type FsmState } from '../../../domain/entities/ConversationState';
+import { InvalidStateTransitionError } from '../../../domain/errors/InvalidStateTransitionError';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
 
@@ -19,7 +24,21 @@ const mockListRecent = vi.fn();
 const mockSearch = vi.fn();
 const mockValidateAccess = vi.fn();
 const mockFindToken = vi.fn();
-const mockTransitionExecute = vi.fn();
+const mockTransitionExecute = vi.fn((input: TransitionConversationStateInput) => {
+  const fromState: FsmState = 'ONBOARDING_FILE';
+  if (!canTransition(fromState, input.targetState)) {
+    throw new InvalidStateTransitionError(fromState, input.targetState);
+  }
+  return Promise.resolve({
+    userId: input.userId,
+    currentState: input.targetState,
+    statePayload: input.payload ?? null,
+    enteredAt: new Date(),
+    expiresAt: input.expiresAt ?? null,
+    updatedAt: new Date(),
+  });
+});
+const mockReconnectTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockEncrypt = vi.fn();
 const mockDecrypt = vi.fn();
@@ -104,7 +123,7 @@ describe('HandleSpreadsheetFileSelection', () => {
         expect.stringContaining('Gastos 2026'),
       );
       expect(mockTransitionExecute).toHaveBeenCalledOnce();
-      const transitionCall = mockTransitionExecute.mock.calls[0]![0] as {
+      const transitionCall = mockTransitionExecute.mock.calls[0]![0] as unknown as {
         payload: { fileList: unknown[] };
       };
       expect(transitionCall.payload.fileList).toHaveLength(2);
@@ -220,7 +239,7 @@ describe('HandleSpreadsheetFileSelection', () => {
         expect.stringContaining('Gastos 2026'),
       );
       expect(mockTransitionExecute).toHaveBeenCalledOnce();
-      const transitionCall = mockTransitionExecute.mock.calls[0]![0] as {
+      const transitionCall = mockTransitionExecute.mock.calls[0]![0] as unknown as {
         payload: { fileList: unknown[] };
       };
       expect(transitionCall.payload.fileList).toHaveLength(1);
@@ -286,13 +305,15 @@ describe('HandleSpreadsheetFileSelection', () => {
     it('returns reconnect message and transitions to ONBOARDING_START when token is missing', async () => {
       mockFindToken.mockResolvedValue(null);
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(result.message).toBe(onboardingCopies.reconnectAccount());
-      expect(mockTransitionExecute).toHaveBeenCalledWith({
+      expect(mockReconnectTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
         payload: { promptShown: true },
@@ -312,13 +333,15 @@ describe('HandleSpreadsheetFileSelection', () => {
         accessTokenExpiresAt: new Date(Date.now() - 3600_000),
       });
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(result.message).toBe(onboardingCopies.reconnectAccount());
-      expect(mockTransitionExecute).toHaveBeenCalledWith({
+      expect(mockReconnectTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
         payload: { promptShown: true },
@@ -331,13 +354,15 @@ describe('HandleSpreadsheetFileSelection', () => {
         revokedAt: new Date(),
       });
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(result.message).toBe(onboardingCopies.reconnectAccount());
-      expect(mockTransitionExecute).toHaveBeenCalledWith({
+      expect(mockReconnectTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
         payload: { promptShown: true },

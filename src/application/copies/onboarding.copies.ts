@@ -88,9 +88,13 @@ export const onboardingCopies = {
     `No pude acceder a tu planilla. Puede que la conexión con tu cuenta se haya vencido.\n\nEscribí *empezar* para reconectar tu cuenta e intentar de nuevo.`,
 
   // Column mapping copies (HU-4.05)
-  mappingProposalHighConfidence: (mappings: ColumnInferenceMapping[], unmappedFields: GasttoField[]) => {
+  mappingProposalHighConfidence: (
+    mappings: ColumnInferenceMapping[],
+    unmappedFields: GasttoField[],
+  ) => {
     const lines = mappings.map(
-      (m) => `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
+      (m) =>
+        `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
     );
     let message = `Esto encontré en tu planilla:\n${lines.join('\n')}\n\n¿Está correcto?`;
     if (unmappedFields.length > 0) {
@@ -99,9 +103,13 @@ export const onboardingCopies = {
     return message;
   },
 
-  mappingProposalLowConfidence: (mappings: ColumnInferenceMapping[], unmappedFields: GasttoField[]) => {
+  mappingProposalLowConfidence: (
+    mappings: ColumnInferenceMapping[],
+    unmappedFields: GasttoField[],
+  ) => {
     const lines = mappings.map(
-      (m) => `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
+      (m) =>
+        `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
     );
     let message = `No estoy seguro de algunos campos, este es mi mejor intento:\n${lines.join('\n')}`;
     if (unmappedFields.length > 0) {

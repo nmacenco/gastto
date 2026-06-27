@@ -291,10 +291,7 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob(baseJobData), deps);
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        onboardingCopies.welcomePrompt(),
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', onboardingCopies.welcomePrompt());
       expect(mockTransitionStateExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',

@@ -43,7 +43,12 @@ export class ResolveUserIdentityUseCase {
 
     // 3. Estado inicial IDLE → ONBOARDING_START
     await this.conversationRepo.create(user.userId);
-    await this.conversationRepo.transition(user.userId, 'ONBOARDING_START', { promptShown: false }, null);
+    await this.conversationRepo.transition(
+      user.userId,
+      'ONBOARDING_START',
+      { promptShown: false },
+      null,
+    );
 
     return {
       userId: user.userId,

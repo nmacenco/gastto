@@ -165,8 +165,8 @@ Los estados definidos para el MVP son los siguientes:
 | `IDLE`                  | Sin flujo activo                            | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`          |
 | `ONBOARDING_START`      | Primer contacto, sin planilla vinculada     | → `ONBOARDING_START` (marcar `promptShown`) \| `ONBOARDING_DRIVE` |
 | `ONBOARDING_DRIVE`      | Esperando conexión OAuth                    | → `ONBOARDING_FILE`                                  |
-| `ONBOARDING_FILE`       | Esperando selección de archivo              | → `ONBOARDING_SHEET`                                 |
-| `ONBOARDING_SHEET`      | Esperando selección de hoja                 | → `ONBOARDING_MAPPING`                               |
+| `ONBOARDING_FILE`       | Esperando selección de archivo              | → `ONBOARDING_FILE` (guardar `fileList` / `step`) \| `ONBOARDING_SHEET` |
+| `ONBOARDING_SHEET`      | Esperando selección de hoja                 | → `ONBOARDING_SHEET` (guardar `sheetList` / `step`) \| `ONBOARDING_MAPPING` |
 | `ONBOARDING_MAPPING`    | Esperando confirmación de mapeo de columnas | → `ONBOARDING_CATEGORIES`                            |
 | `ONBOARDING_CATEGORIES` | Esperando confirmación de categorías        | → `IDLE`                                             |
 | `EXPENSE_RECEIVING`     | Mensaje recibido, procesando NLP            | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW`           |

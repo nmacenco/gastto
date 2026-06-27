@@ -9,6 +9,7 @@ import type { NormalizedPayload } from '../../../domain/ports/messaging';
 import type { ResolveUserIdentityUseCase } from '../user/ResolveUserIdentity';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../ports/ProcessMessageJob';
+import { sharedCopies } from '../../copies/shared.copies';
 import type { HandleUnsupportedMessage } from './HandleUnsupportedMessage';
 
 export interface RouteIncomingMessageDeps {
@@ -62,7 +63,7 @@ export class RouteIncomingMessage {
 
     // Acknowledgment is fire-and-forget so the HTTP response is not blocked.
     this.deps.messagingPort
-      .sendMessage(payload.chatId, 'Recibido, procesando tu gasto…')
+      .sendMessage(payload.chatId, sharedCopies.processingAcknowledgment())
       .catch((err: Error) =>
         this.deps.logger.error({
           endpoint: '/webhook/telegram',
