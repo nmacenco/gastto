@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DrizzleColumnMappingRepository } from './DrizzleColumnMappingRepository';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type * as schema from '../schema';
+import * as schema from '../schema';
 
 function buildColumnMappingRow(overrides: Partial<typeof schema.columnMappings.$inferSelect> = {}) {
   return {
@@ -113,6 +113,41 @@ describe('DrizzleColumnMappingRepository', () => {
       ]);
 
       expect(insertMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('configures ON CONFLICT update for spreadsheet_id and gastto_field', async () => {
+      const onConflictDoUpdateMock = vi.fn().mockResolvedValue(undefined);
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoUpdate: onConflictDoUpdateMock });
+      const insertMock = vi.fn().mockReturnValue({ values: valuesMock });
+      const db = { insert: insertMock } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const repo = new DrizzleColumnMappingRepository(db);
+      await repo.upsertMany([
+        {
+          spreadsheetId: 'config-123',
+          GasttoField: 'monto',
+          columnIndex: 1,
+          columnHeader: 'Amount',
+          inferred: true,
+          confirmedAt: null,
+        },
+      ]);
+
+      expect(valuesMock).toHaveBeenCalledWith([
+        {
+          spreadsheetId: 'config-123',
+          gasttoField: 'monto',
+          columnIndex: 1,
+          columnHeader: 'Amount',
+          inferred: true,
+          confirmedAt: null,
+        },
+      ]);
+      expect(onConflictDoUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: [schema.columnMappings.spreadsheetId, schema.columnMappings.gasttoField],
+        }),
+      );
     });
 
     it('does nothing when mappings array is empty', async () => {
