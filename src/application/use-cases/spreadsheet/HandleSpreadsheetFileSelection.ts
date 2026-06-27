@@ -12,6 +12,7 @@ import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
 import type { CloudFile } from '../../../domain/entities/CloudFile';
+import type { HandleSheetSelection } from './HandleSheetSelection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
 
@@ -36,6 +37,7 @@ export interface HandleSpreadsheetFileSelectionDeps {
   messagingPort: MessagingOutputPort;
   tokenEncryption: TokenEncryptionPort;
   logger: Logger;
+  handleSheetSelection: HandleSheetSelection;
 }
 
 const NONE_OF_THESE_VARIANTS = [
@@ -79,7 +81,7 @@ export class HandleSpreadsheetFileSelection {
   async execute(
     input: HandleSpreadsheetFileSelectionInput,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
-    const { userId, rawMessage, externalId, statePayload } = input;
+    const { userId, rawMessage, externalId, channel, statePayload } = input;
 
     const provider = this.resolveProvider(statePayload);
     if (provider === 'microsoft') {
@@ -122,7 +124,15 @@ export class HandleSpreadsheetFileSelection {
     const choice = parseInt(rawMessage.trim(), 10);
 
     if (!Number.isNaN(choice) && choice >= 1 && choice <= files.length) {
-      return this.handleNumberSelection(userId, externalId, accessToken, provider, files, choice);
+      return this.handleNumberSelection(
+        userId,
+        externalId,
+        channel,
+        accessToken,
+        provider,
+        files,
+        choice,
+      );
     }
 
     if (choice === files.length + 1 || isNoneOfThese(rawMessage)) {
@@ -135,6 +145,7 @@ export class HandleSpreadsheetFileSelection {
       return this.handleDirectUrl(
         userId,
         externalId,
+        channel,
         accessToken,
         provider,
         fileIdFromUrl,
@@ -210,6 +221,7 @@ export class HandleSpreadsheetFileSelection {
   private async handleNumberSelection(
     userId: string,
     externalId: string,
+    channel: 'telegram' | 'whatsapp',
     accessToken: string,
     provider: SpreadsheetProvider,
     files: CloudFile[],
@@ -268,6 +280,7 @@ export class HandleSpreadsheetFileSelection {
     const payload = {
       selectedFileId: selected.id,
       selectedFileName: selected.name,
+      provider,
     };
 
     await this.deps.transitionState.execute({
@@ -275,6 +288,15 @@ export class HandleSpreadsheetFileSelection {
       targetState: 'ONBOARDING_SHEET',
       payload,
     });
+
+    await this.triggerSheetSelection(
+      userId,
+      externalId,
+      channel,
+      selected.id,
+      selected.name,
+      provider,
+    );
 
     return { nextState: 'ONBOARDING_SHEET', message, payload };
   }
@@ -355,6 +377,7 @@ export class HandleSpreadsheetFileSelection {
   private async handleDirectUrl(
     userId: string,
     externalId: string,
+    channel: 'telegram' | 'whatsapp',
     accessToken: string,
     provider: SpreadsheetProvider,
     fileId: string,
@@ -408,6 +431,7 @@ export class HandleSpreadsheetFileSelection {
     const payload = {
       selectedFileId: fileId,
       selectedFileName: fileName,
+      provider,
     };
 
     await this.deps.transitionState.execute({
@@ -416,7 +440,45 @@ export class HandleSpreadsheetFileSelection {
       payload,
     });
 
+    await this.triggerSheetSelection(
+      userId,
+      externalId,
+      channel,
+      fileId,
+      fileName,
+      provider,
+    );
+
     return { nextState: 'ONBOARDING_SHEET', message, payload };
+  }
+
+  private async triggerSheetSelection(
+    userId: string,
+    externalId: string,
+    channel: 'telegram' | 'whatsapp',
+    fileId: string,
+    fileName: string,
+    provider: SpreadsheetProvider,
+  ): Promise<void> {
+    try {
+      await this.deps.handleSheetSelection.execute({
+        userId,
+        rawMessage: '',
+        externalId,
+        channel,
+        statePayload: { selectedFileId: fileId, selectedFileName: fileName, provider },
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'POST_SELECTION_SHEET_DISCOVERY_FAILED',
+        userId,
+        fileId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+    }
   }
 
   private async handleReconnect(

@@ -9,6 +9,7 @@ import {
   type HandleSpreadsheetFileSelectionDeps,
   type HandleSpreadsheetFileSelectionInput,
 } from './HandleSpreadsheetFileSelection';
+import type { HandleSheetSelection } from './HandleSheetSelection';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type {
   TransitionConversationState,
@@ -24,6 +25,7 @@ const mockListRecent = vi.fn();
 const mockSearch = vi.fn();
 const mockValidateAccess = vi.fn();
 const mockFindToken = vi.fn();
+const mockHandleSheetSelectionExecute = vi.fn();
 const mockTransitionExecute = vi.fn((input: TransitionConversationStateInput) => {
   const fromState: FsmState = 'ONBOARDING_FILE';
   if (!canTransition(fromState, input.targetState)) {
@@ -61,6 +63,9 @@ function buildMockDeps(
       decrypt: mockDecrypt,
     },
     logger: { error: mockLoggerError } as unknown as HandleSpreadsheetFileSelectionDeps['logger'],
+    handleSheetSelection: {
+      execute: mockHandleSheetSelectionExecute,
+    } as unknown as HandleSheetSelection,
     ...overrides,
   };
 }
@@ -128,6 +133,7 @@ describe('HandleSpreadsheetFileSelection', () => {
       };
       expect(transitionCall.payload.fileList).toHaveLength(2);
       expect(result.nextState).toBe('ONBOARDING_FILE');
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns noFilesFoundPrompt when listing is empty', async () => {
@@ -140,6 +146,7 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.noFilesFoundPrompt());
       expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -163,7 +170,18 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_SHEET',
-        payload: { selectedFileId: 'f1', selectedFileName: 'Gastos 2026' },
+        payload: { selectedFileId: 'f1', selectedFileName: 'Gastos 2026', provider: 'google' },
+      });
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: '',
+        externalId: '987654321',
+        channel: 'telegram',
+        statePayload: {
+          selectedFileId: 'f1',
+          selectedFileName: 'Gastos 2026',
+          provider: 'google',
+        },
       });
       expect(result.nextState).toBe('ONBOARDING_SHEET');
     });
@@ -182,6 +200,7 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.urlValidationFailed());
       expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns invalid selection re-prompt for out-of-range number', async () => {
@@ -195,6 +214,7 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.invalidSelectionRePrompt(2));
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -218,6 +238,7 @@ describe('HandleSpreadsheetFileSelection', () => {
         payload: { step: 'searching' },
       });
       expect(result.nextState).toBe('ONBOARDING_FILE');
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -244,6 +265,7 @@ describe('HandleSpreadsheetFileSelection', () => {
       };
       expect(transitionCall.payload.fileList).toHaveLength(1);
       expect(result.nextState).toBe('ONBOARDING_FILE');
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns noFilesFoundPrompt when search returns empty', async () => {
@@ -259,6 +281,7 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.noFilesFoundPrompt());
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -280,7 +303,18 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_SHEET',
-        payload: { selectedFileId: 'ABC123', selectedFileName: url },
+        payload: { selectedFileId: 'ABC123', selectedFileName: url, provider: 'google' },
+      });
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: '',
+        externalId: '987654321',
+        channel: 'telegram',
+        statePayload: {
+          selectedFileId: 'ABC123',
+          selectedFileName: url,
+          provider: 'google',
+        },
       });
       expect(result.nextState).toBe('ONBOARDING_SHEET');
     });
@@ -298,6 +332,7 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.urlValidationFailed());
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -306,7 +341,9 @@ describe('HandleSpreadsheetFileSelection', () => {
       mockFindToken.mockResolvedValue(null);
 
       const deps = buildMockDeps({
-        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
       });
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
@@ -318,6 +355,7 @@ describe('HandleSpreadsheetFileSelection', () => {
         targetState: 'ONBOARDING_START',
         payload: { promptShown: true },
       });
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
       expect(mockLoggerError).toHaveBeenCalledWith({
         endpoint: 'HandleSpreadsheetFileSelection',
         code: 'TOKEN_MISSING',
@@ -334,7 +372,9 @@ describe('HandleSpreadsheetFileSelection', () => {
       });
 
       const deps = buildMockDeps({
-        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
       });
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
@@ -346,6 +386,7 @@ describe('HandleSpreadsheetFileSelection', () => {
         targetState: 'ONBOARDING_START',
         payload: { promptShown: true },
       });
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns reconnect message and transitions to ONBOARDING_START when token is revoked', async () => {
@@ -355,7 +396,9 @@ describe('HandleSpreadsheetFileSelection', () => {
       });
 
       const deps = buildMockDeps({
-        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
       });
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
@@ -367,6 +410,7 @@ describe('HandleSpreadsheetFileSelection', () => {
         targetState: 'ONBOARDING_START',
         payload: { promptShown: true },
       });
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns coming soon for microsoft provider', async () => {
@@ -379,6 +423,7 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.comingSoon('OneDrive'));
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns error message on FileDiscoveryError during listing', async () => {
@@ -390,6 +435,33 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toContain('network error');
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sheet selection delegation', () => {
+    it('still returns success when the delegated sheet selection fails', async () => {
+      mockValidateAccess.mockResolvedValue(true);
+      mockHandleSheetSelectionExecute.mockRejectedValue(new Error('sheet discovery failed'));
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSpreadsheetFileSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '1',
+        statePayload: { fileList: mockFiles },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledTimes(1);
+      expect(mockLoggerError).toHaveBeenCalledWith({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'POST_SELECTION_SHEET_DISCOVERY_FAILED',
+        userId: 'user-123',
+        fileId: 'f1',
+        errorType: 'Error',
+        error: 'sheet discovery failed',
+      });
     });
   });
 });

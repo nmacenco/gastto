@@ -20,12 +20,15 @@ The Select Sheet feature enables users to choose which sheet within their select
 ### Initial Listing (`HandleSheetSelection`)
 
 1. User enters `ONBOARDING_SHEET` state after selecting a file in `ONBOARDING_FILE`.
-2. `HandleSheetSelection` retrieves the OAuth token via `IOAuthTokenRepository` and decrypts it via `TokenEncryptionPort`.
-3. `SpreadsheetPortFactory` creates a `GoogleSheetsAdapter` with the decrypted token.
-4. `listSheets(fileId)` queries the Google Sheets API v4 metadata endpoint.
-5. If the file has **one sheet**, the use case auto-confirms, persists the config, and transitions to `ONBOARDING_MAPPING`.
-6. If the file has **multiple sheets**, the use case formats a numbered list and sends it via `MessagingOutputPort`.
-7. The sheet list is stored in the FSM payload via `TransitionConversationState`.
+2. `HandleSheetSelection` can be triggered in two ways:
+   - Automatically: `HandleSpreadsheetFileSelection` invokes it with an empty `rawMessage` immediately after transitioning to `ONBOARDING_SHEET`.
+   - Manually: the next incoming message in `ONBOARDING_SHEET` is routed by `message.worker` when automatic discovery did not run or when the user is selecting from an already-displayed list.
+3. `HandleSheetSelection` retrieves the OAuth token via `IOAuthTokenRepository` and decrypts it via `TokenEncryptionPort`.
+4. `SpreadsheetPortFactory` creates a `GoogleSheetsAdapter` with the decrypted token.
+5. `listSheets(fileId)` queries the Google Sheets API v4 metadata endpoint.
+6. If the file has **one sheet**, the use case auto-confirms, persists the config, and transitions to `ONBOARDING_MAPPING`.
+7. If the file has **multiple sheets**, the use case formats a numbered list and sends it via `MessagingOutputPort`.
+8. The sheet list is stored in the FSM payload via `TransitionConversationState`.
 
 ### Selection by Number
 
@@ -164,6 +167,7 @@ interface ISpreadsheetConfigRepository {
 
 - [x] **Happy path — single sheet auto-confirm:**
   - File has 1 sheet.
+  - `HandleSheetSelection` triggered automatically from `HandleSpreadsheetFileSelection` with empty `rawMessage`.
   - `listSheets` returns array with 1 item.
   - `ISpreadsheetConfigRepository.create` called with `sheetName`, placeholder `accessVerifiedAt`.
   - Confirmation message sent.
@@ -171,6 +175,7 @@ interface ISpreadsheetConfigRepository {
 
 - [x] **Happy path — multi-sheet list:**
   - File has 3 sheets.
+  - `HandleSheetSelection` triggered automatically from `HandleSpreadsheetFileSelection` with empty `rawMessage`.
   - `listSheets` returns array with 3 items.
   - Numbered list sent to user.
   - "No sé / ninguna de estas" option appended.

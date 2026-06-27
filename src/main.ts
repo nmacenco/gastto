@@ -291,8 +291,24 @@ async function bootstrap(): Promise<void> {
         const googleDriveFileDiscovery =
           googleOAuthAdapter !== null ? new GoogleDriveFileDiscoveryAdapter(rootLogger) : null;
 
+        const googleSheetsAdapterFactory = new GoogleSheetsAdapterFactory();
+        const spreadsheetAccessAdapterFactory = new SpreadsheetAccessAdapterFactory();
+
+        const handleSheetSelection =
+          googleOAuthAdapter !== null
+            ? new HandleSheetSelection({
+                spreadsheetPortFactory: googleSheetsAdapterFactory,
+                tokenRepository: tokenRepo,
+                transitionState,
+                messagingPort: telegramAdapter,
+                tokenEncryption,
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+                logger: rootLogger,
+              })
+            : null;
+
         const handleSpreadsheetFileSelection =
-          googleDriveFileDiscovery !== null
+          googleDriveFileDiscovery !== null && handleSheetSelection !== null
             ? new HandleSpreadsheetFileSelection({
                 cloudStorage: googleDriveFileDiscovery,
                 tokenRepository: tokenRepo,
@@ -300,6 +316,7 @@ async function bootstrap(): Promise<void> {
                 messagingPort: telegramAdapter,
                 tokenEncryption,
                 logger: rootLogger,
+                handleSheetSelection,
               })
             : null;
 
@@ -315,22 +332,6 @@ async function bootstrap(): Promise<void> {
                 messagingPort: telegramAdapter,
                 tokenEncryption,
                 handleSpreadsheetFileSelection: handleSpreadsheetFileSelection!,
-              })
-            : null;
-
-        const googleSheetsAdapterFactory = new GoogleSheetsAdapterFactory();
-        const spreadsheetAccessAdapterFactory = new SpreadsheetAccessAdapterFactory();
-
-        const handleSheetSelection =
-          googleOAuthAdapter !== null
-            ? new HandleSheetSelection({
-                spreadsheetPortFactory: googleSheetsAdapterFactory,
-                tokenRepository: tokenRepo,
-                transitionState,
-                messagingPort: telegramAdapter,
-                tokenEncryption,
-                spreadsheetConfigRepository: spreadsheetConfigRepo,
-                logger: rootLogger,
               })
             : null;
 

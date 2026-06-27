@@ -19,6 +19,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-011](./ADR-011-two-stage-pipeline.md)      | Two-Queue Pipeline for FIFO Message Ordering                     | Accepted |
 | [ADR-012](./ADR-012-user-facing-text-copies.md) | Centralize User-Facing Text in Application Copy Modules          | Accepted |
 | [ADR-013](./2026-06-10-structured-logging.md)   | Adopt Pino as the Single Structured Logger                       | Accepted |
+| [ADR-014](./ADR-014-fsm-eager-advance.md)       | Auto-trigger next use case on deterministic FSM transitions      | Proposed |
 
 ## Template
 

@@ -415,7 +415,9 @@ describe('HandleSheetSelection', () => {
       mockFindToken.mockResolvedValue(null);
 
       const deps = buildMockDeps({
-        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
       });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
@@ -439,7 +441,9 @@ describe('HandleSheetSelection', () => {
       });
 
       const deps = buildMockDeps({
-        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
       });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
@@ -458,7 +462,9 @@ describe('HandleSheetSelection', () => {
       });
 
       const deps = buildMockDeps({
-        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
       });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
@@ -476,7 +482,9 @@ describe('HandleSheetSelection', () => {
       });
 
       const deps = buildMockDeps({
-        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
       });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
@@ -689,7 +697,9 @@ describe('HandleSheetSelection', () => {
       mockFindToken.mockResolvedValue(null);
 
       const deps = buildMockDeps({
-        transitionState: { execute: mockReconnectTransitionExecute } as unknown as TransitionConversationState,
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
       });
       const useCase = new HandleSheetSelection(deps);
       const result = await useCase.execute({
