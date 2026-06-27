@@ -13,6 +13,7 @@ import type { TransitionConversationState } from '../conversation/TransitionConv
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
+import type { HandleSpreadsheetFileSelection } from './HandleSpreadsheetFileSelection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { OAuthDeniedError } from '../../../domain/errors/OAuthDeniedError';
 import { OAuthNetworkError } from '../../../domain/errors/OAuthNetworkError';
@@ -48,6 +49,7 @@ export interface HandleOAuthCallbackDeps {
   messagingPort: MessagingOutputPort;
   tokenEncryption: TokenEncryptionPort;
   logger: Logger;
+  handleSpreadsheetFileSelection: HandleSpreadsheetFileSelection;
 }
 
 export class HandleOAuthCallback {
@@ -59,10 +61,15 @@ export class HandleOAuthCallback {
 
     const raw = await this.deps.redis.get(redisKey);
     if (!raw) {
+      this.deps.logger.error({
+        endpoint: 'HandleOAuthCallback',
+        code: 'OAUTH_STATE_MISSING',
+        state,
+      });
       return {
         success: false,
         nextState: 'ONBOARDING_DRIVE',
-        message: onboardingCopies.connectionFailed(true),
+        message: onboardingCopies.oauthConnectionFailed(true),
         canRetry: true,
       };
     }
@@ -70,11 +77,17 @@ export class HandleOAuthCallback {
     let metadata: OAuthStatePayload;
     try {
       metadata = JSON.parse(raw) as OAuthStatePayload;
-    } catch {
+    } catch (err) {
+      this.deps.logger.error({
+        endpoint: 'HandleOAuthCallback',
+        code: 'OAUTH_STATE_INVALID',
+        state,
+        error: String(err),
+      });
       return {
         success: false,
         nextState: 'ONBOARDING_DRIVE',
-        message: onboardingCopies.connectionFailed(true),
+        message: onboardingCopies.oauthConnectionFailed(true),
         canRetry: true,
       };
     }
@@ -107,18 +120,34 @@ export class HandleOAuthCallback {
         err instanceof OAuthNetworkError ||
         err instanceof OAuthStateMismatchError
       ) {
+        this.deps.logger.error({
+          endpoint: 'HandleOAuthCallback',
+          code: 'OAUTH_EXCHANGE_REJECTED',
+          state,
+          provider: metadata.provider,
+          errorType: err instanceof Error ? err.constructor.name : 'unknown',
+          error: err instanceof Error ? err.message : String(err),
+        });
         return {
           success: false,
           nextState: 'ONBOARDING_DRIVE',
-          message: onboardingCopies.connectionFailed(true),
+          message: onboardingCopies.oauthConnectionFailed(true),
           canRetry: true,
         };
       }
 
+      this.deps.logger.error({
+        endpoint: 'HandleOAuthCallback',
+        code: 'OAUTH_EXCHANGE_UNEXPECTED_ERROR',
+        state,
+        provider: metadata.provider,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: err instanceof Error ? err.message : String(err),
+      });
       return {
         success: false,
         nextState: 'ONBOARDING_DRIVE',
-        message: onboardingCopies.connectionFailed(true),
+        message: onboardingCopies.oauthConnectionFailed(true),
         canRetry: true,
       };
     }
@@ -152,6 +181,25 @@ export class HandleOAuthCallback {
       targetState: 'ONBOARDING_FILE',
       payload: { provider: metadata.provider },
     });
+
+    try {
+      await this.deps.handleSpreadsheetFileSelection.execute({
+        userId: metadata.userId,
+        rawMessage: '',
+        externalId: metadata.externalId,
+        channel: metadata.channel,
+        statePayload: { provider: metadata.provider },
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.deps.logger.error({
+        endpoint: 'HandleOAuthCallback',
+        code: 'POST_CALLBACK_FILE_SELECTION_FAILED',
+        userId: metadata.userId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+    }
 
     return {
       success: true,

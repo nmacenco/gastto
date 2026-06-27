@@ -23,9 +23,7 @@ const mockFindByUserId = vi.fn();
 const mockUpsertMany = vi.fn();
 const mockInfer = vi.fn();
 
-function buildMockDeps(
-  overrides: Partial<InferColumnMappingDeps> = {},
-): InferColumnMappingDeps {
+function buildMockDeps(overrides: Partial<InferColumnMappingDeps> = {}): InferColumnMappingDeps {
   return {
     tokenRepository: {
       findByUserAndProvider: mockFindToken,
@@ -118,7 +116,12 @@ describe('InferColumnMapping', () => {
         mappings: [
           { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
           { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
-          { gasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoria', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
         ],
         noHeaderFound: false,
         unmappedFields: [],
@@ -133,7 +136,10 @@ describe('InferColumnMapping', () => {
 
       expect(mockInfer).toHaveBeenCalledWith(
         ['Fecha', 'Monto', 'Categoria'],
-        [['01/01/2026', '100.50', 'Comida'], ['02/01/2026', '200.75', 'Transporte']],
+        [
+          ['01/01/2026', '100.50', 'Comida'],
+          ['02/01/2026', '200.75', 'Transporte'],
+        ],
       );
       expect(mockUpsertMany).toHaveBeenCalledWith([
         {
@@ -167,7 +173,12 @@ describe('InferColumnMapping', () => {
           [
             { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
             { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
-            { gasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoria', confidence: 'alta' },
+            {
+              gasttoField: 'categoria',
+              columnIndex: 2,
+              columnHeader: 'Categoria',
+              confidence: 'alta',
+            },
           ],
           [],
         ),
@@ -184,7 +195,12 @@ describe('InferColumnMapping', () => {
           mappings: [
             { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
             { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
-            { gasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoria', confidence: 'alta' },
+            {
+              gasttoField: 'categoria',
+              columnIndex: 2,
+              columnHeader: 'Categoria',
+              confidence: 'alta',
+            },
           ],
           unmappedFields: [],
         },
@@ -240,10 +256,7 @@ describe('InferColumnMapping', () => {
         statePayload: mockStatePayload,
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '987654321',
-        onboardingCopies.noHeaderPrompt(),
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_MAPPING',
@@ -298,7 +311,12 @@ describe('InferColumnMapping', () => {
         mappings: [
           { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Date', confidence: 'alta' },
           { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Amount', confidence: 'alta' },
-          { gasttoField: 'categoria', columnIndex: 2, columnHeader: 'Category', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Category',
+            confidence: 'alta',
+          },
         ],
         noHeaderFound: false,
         unmappedFields: [],
@@ -340,6 +358,7 @@ describe('InferColumnMapping', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
       });
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(mockInfer).not.toHaveBeenCalled();

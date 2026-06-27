@@ -163,10 +163,10 @@ Los estados definidos para el MVP son los siguientes:
 | Estado                  | Descripción                                 | Transiciones salientes                               |
 | ----------------------- | ------------------------------------------- | ---------------------------------------------------- |
 | `IDLE`                  | Sin flujo activo                            | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`          |
-| `ONBOARDING_START`      | Primer contacto, sin planilla vinculada     | → `ONBOARDING_DRIVE`                                 |
+| `ONBOARDING_START`      | Primer contacto, sin planilla vinculada     | → `ONBOARDING_START` (marcar `promptShown`) \| `ONBOARDING_DRIVE` |
 | `ONBOARDING_DRIVE`      | Esperando conexión OAuth                    | → `ONBOARDING_FILE`                                  |
-| `ONBOARDING_FILE`       | Esperando selección de archivo              | → `ONBOARDING_SHEET`                                 |
-| `ONBOARDING_SHEET`      | Esperando selección de hoja                 | → `ONBOARDING_MAPPING`                               |
+| `ONBOARDING_FILE`       | Esperando selección de archivo              | → `ONBOARDING_FILE` (guardar `fileList` / `step`) \| `ONBOARDING_SHEET` |
+| `ONBOARDING_SHEET`      | Esperando selección de hoja                 | → `ONBOARDING_SHEET` (guardar `sheetList` / `step`) \| `ONBOARDING_MAPPING` |
 | `ONBOARDING_MAPPING`    | Esperando confirmación de mapeo de columnas | → `ONBOARDING_CATEGORIES`                            |
 | `ONBOARDING_CATEGORIES` | Esperando confirmación de categorías        | → `IDLE`                                             |
 | `EXPENSE_RECEIVING`     | Mensaje recibido, procesando NLP            | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW`           |
@@ -782,6 +782,9 @@ La cola `process-message` y su worker permanecen sin cambios.
 | ADR-009 | Servidor Node.js persistente con Fastify desplegado en Fly.io; Next.js descartado                                                 | Accepted |
 | ADR-010 | Despliegue multi-ambiente en Fly.io con apps `gastto` y `gastto-develop`, Dockerfile multi-etapa y puerto unificado 3000          | Accepted |
 | ADR-011 | Pipeline de dos colas para orden FIFO con thin worker (`incoming-message`, `concurrency: 1`) y thick worker (`process-message`)   | Accepted |
+| ADR-012 | Centralize User-Facing Text in Application Copy Modules                                                                          | Accepted |
+| ADR-013 | Adopt Pino as the Single Structured Logger                                                                                       | Accepted |
+| ADR-014 | Auto-trigger next use case on deterministic FSM transitions                                                                      | Proposed |
 
 ---
 

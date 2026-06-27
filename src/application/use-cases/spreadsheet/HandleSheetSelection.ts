@@ -10,6 +10,7 @@
 // spreadsheet_configs record with sheetName and a placeholder
 // accessVerifiedAt, then transitions the FSM to ONBOARDING_VALIDATING_ACCESS.
 
+import type { Logger } from 'pino';
 import type { SpreadsheetPort, SpreadsheetPortFactory } from '../../../domain/ports/services';
 import type {
   IOAuthTokenRepository,
@@ -46,6 +47,7 @@ export interface HandleSheetSelectionDeps {
   messagingPort: MessagingOutputPort;
   tokenEncryption: TokenEncryptionPort;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
+  logger: Logger;
 }
 
 // ── Normalization helpers ────────────────────────────────────────────────────
@@ -113,24 +115,18 @@ export class HandleSheetSelection {
     // 1. Retrieve and decrypt OAuth token
     const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
     if (!token) {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_SHEET', message };
+      return this.handleReconnect(externalId, userId, 'TOKEN_MISSING');
     }
 
     if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_SHEET', message };
+      return this.handleReconnect(externalId, userId, 'TOKEN_EXPIRED_OR_REVOKED');
     }
 
     let accessToken: string;
     try {
       accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_SHEET', message };
+    } catch (err) {
+      return this.handleReconnect(externalId, userId, 'TOKEN_DECRYPTION_FAILED', err);
     }
 
     // 2. Create SpreadsheetPort
@@ -140,7 +136,12 @@ export class HandleSheetSelection {
     const fileName = statePayload?.selectedFileName as string;
 
     if (!fileId || typeof fileId !== 'string') {
-      const message = onboardingCopies.connectionFailed(true);
+      this.deps.logger.error({
+        endpoint: 'HandleSheetSelection',
+        code: 'MISSING_FILE_ID',
+        userId,
+      });
+      const message = onboardingCopies.fileAccessFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }
@@ -197,25 +198,26 @@ export class HandleSheetSelection {
     const fileName = statePayload?.selectedFileName as string;
 
     if (!Array.isArray(sheetList) || sheetList.length === 0 || !fileId) {
-      const message = onboardingCopies.connectionFailed(true);
+      this.deps.logger.error({
+        endpoint: 'HandleSheetSelection',
+        code: 'EMPTY_SHEET_CONFIRM_MISSING_STATE',
+        userId,
+      });
+      const message = onboardingCopies.fileAccessFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }
 
     const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
     if (!token || token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_SHEET', message };
+      return this.handleReconnect(externalId, userId, 'TOKEN_INVALID_ON_EMPTY_SHEET_CONFIRM');
     }
 
     let accessToken: string;
     try {
       accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_SHEET', message };
+    } catch (err) {
+      return this.handleReconnect(externalId, userId, 'TOKEN_DECRYPTION_FAILED', err);
     }
 
     const spreadsheetPort = this.deps.spreadsheetPortFactory.create(accessToken);
@@ -272,10 +274,29 @@ export class HandleSheetSelection {
 
       return { nextState: 'ONBOARDING_SHEET', message, payload };
     } catch (err) {
-      const message =
-        err instanceof SpreadsheetError
-          ? `Hubo un problema al listar las hojas: ${err.message}. Intentá de nuevo en unos segundos.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof SpreadsheetError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSheetSelection',
+          code: 'SHEET_LIST_ERROR',
+          userId,
+          fileId,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al listar las hojas: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_SHEET', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSheetSelection',
+        code: 'SHEET_LIST_UNEXPECTED_ERROR',
+        userId,
+        fileId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.sheetDiscoveryFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }
@@ -355,10 +376,29 @@ export class HandleSheetSelection {
 
       return { nextState: 'ONBOARDING_SHEET', message, payload };
     } catch (err) {
-      const message =
-        err instanceof SpreadsheetError
-          ? `Hubo un problema al leer las hojas: ${err.message}. Intentá de nuevo.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof SpreadsheetError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSheetSelection',
+          code: 'SHEET_HEADERS_ERROR',
+          userId,
+          fileId,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al leer las hojas: ${errorMessage}. Intentá de nuevo.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_SHEET', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSheetSelection',
+        code: 'SHEET_HEADERS_UNEXPECTED_ERROR',
+        userId,
+        fileId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.sheetDiscoveryFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }
@@ -404,5 +444,31 @@ export class HandleSheetSelection {
     });
 
     return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message, payload };
+  }
+
+  private async handleReconnect(
+    externalId: string,
+    userId: string,
+    code: string,
+    err?: unknown,
+  ): Promise<HandleSheetSelectionOutput> {
+    this.deps.logger.error({
+      endpoint: 'HandleSheetSelection',
+      code,
+      userId,
+      errorType: err instanceof Error ? err.constructor.name : undefined,
+      error: err instanceof Error ? err.message : undefined,
+    });
+
+    const message = onboardingCopies.reconnectAccount();
+    await this.deps.messagingPort.sendMessage(externalId, message);
+
+    await this.deps.transitionState.execute({
+      userId,
+      targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
+    });
+
+    return { nextState: 'ONBOARDING_START', message };
   }
 }

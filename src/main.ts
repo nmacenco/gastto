@@ -264,20 +264,6 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
-        const handleOAuthCallback =
-          googleOAuthAdapter !== null
-            ? new HandleOAuthCallback({
-                redis,
-                logger: rootLogger,
-                oauthService: googleOAuthAdapter,
-                tokenRepository: tokenRepo,
-                reminderQueue,
-                transitionState,
-                messagingPort: telegramAdapter,
-                tokenEncryption,
-              })
-            : null;
-
         const sendOAuthReminder =
           googleOAuthAdapter !== null
             ? new SendOAuthReminder({
@@ -305,17 +291,6 @@ async function bootstrap(): Promise<void> {
         const googleDriveFileDiscovery =
           googleOAuthAdapter !== null ? new GoogleDriveFileDiscoveryAdapter(rootLogger) : null;
 
-        const handleSpreadsheetFileSelection =
-          googleDriveFileDiscovery !== null
-            ? new HandleSpreadsheetFileSelection({
-                cloudStorage: googleDriveFileDiscovery,
-                tokenRepository: tokenRepo,
-                transitionState,
-                messagingPort: telegramAdapter,
-                tokenEncryption,
-              })
-            : null;
-
         const googleSheetsAdapterFactory = new GoogleSheetsAdapterFactory();
         const spreadsheetAccessAdapterFactory = new SpreadsheetAccessAdapterFactory();
 
@@ -328,6 +303,35 @@ async function bootstrap(): Promise<void> {
                 messagingPort: telegramAdapter,
                 tokenEncryption,
                 spreadsheetConfigRepository: spreadsheetConfigRepo,
+                logger: rootLogger,
+              })
+            : null;
+
+        const handleSpreadsheetFileSelection =
+          googleDriveFileDiscovery !== null && handleSheetSelection !== null
+            ? new HandleSpreadsheetFileSelection({
+                cloudStorage: googleDriveFileDiscovery,
+                tokenRepository: tokenRepo,
+                transitionState,
+                messagingPort: telegramAdapter,
+                tokenEncryption,
+                logger: rootLogger,
+                handleSheetSelection,
+              })
+            : null;
+
+        const handleOAuthCallback =
+          googleOAuthAdapter !== null
+            ? new HandleOAuthCallback({
+                redis,
+                logger: rootLogger,
+                oauthService: googleOAuthAdapter,
+                tokenRepository: tokenRepo,
+                reminderQueue,
+                transitionState,
+                messagingPort: telegramAdapter,
+                tokenEncryption,
+                handleSpreadsheetFileSelection: handleSpreadsheetFileSelection!,
               })
             : null;
 

@@ -4,6 +4,8 @@ import type { ColumnInferenceMapping } from '../../domain/ports/columnInference'
 import type { GasttoField } from '../../domain/entities/SpreadsheetConfig';
 
 export const onboardingCopies = {
+  welcomePrompt: () =>
+    '¡Hola! Bienvenido a Gastto. Soy tu asistente financiero conversacional. Para empezar, ¿dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
   providerPrompt: () => '¿Dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
   invalidRePrompt: () => 'No entendí. Escribí _1_ para Google Drive o _2_ para OneDrive.',
   comingSoon: (provider: string) =>
@@ -14,10 +16,16 @@ export const onboardingCopies = {
     'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
   googleConnectedSuccess: () => '¡Google Drive conectado! Ahora elegí el archivo de tu planilla.',
   onedriveConnectedSuccess: () => '¡OneDrive conectado! Ahora elegí el archivo de tu planilla.',
-  connectionFailed: (canRetry: boolean) =>
+  oauthConnectionFailed: (canRetry: boolean) =>
     canRetry
-      ? 'No se pudo conectar. Hacé clic en el enlace de arriba para intentar de nuevo.'
+      ? 'No se pudo conectar con Google Drive. Hacé clic en el enlace de arriba para intentar de nuevo.'
       : 'No se pudo conectar. Escribí *cancelar* para salir o contactá a soporte.',
+  fileDiscoveryFailed: () =>
+    'No pude consultar tus archivos de Google Drive. Intentá de nuevo en unos segundos.',
+  fileAccessFailed: () =>
+    'No pude acceder a ese archivo en Google Drive. Verificá los permisos o intentá con otro.',
+  sheetDiscoveryFailed: () =>
+    'No pude leer las hojas del archivo. Intentá de nuevo en unos segundos.',
   cancelledMessage: () => 'Conexión cancelada. Escribí *empezar* cuando quieras intentar de nuevo.',
   waitForAuthPrompt: () =>
     'Please complete the authorization in your browser or type cancel to abort',
@@ -80,9 +88,13 @@ export const onboardingCopies = {
     `No pude acceder a tu planilla. Puede que la conexión con tu cuenta se haya vencido.\n\nEscribí *empezar* para reconectar tu cuenta e intentar de nuevo.`,
 
   // Column mapping copies (HU-4.05)
-  mappingProposalHighConfidence: (mappings: ColumnInferenceMapping[], unmappedFields: GasttoField[]) => {
+  mappingProposalHighConfidence: (
+    mappings: ColumnInferenceMapping[],
+    unmappedFields: GasttoField[],
+  ) => {
     const lines = mappings.map(
-      (m) => `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
+      (m) =>
+        `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
     );
     let message = `Esto encontré en tu planilla:\n${lines.join('\n')}\n\n¿Está correcto?`;
     if (unmappedFields.length > 0) {
@@ -91,9 +103,13 @@ export const onboardingCopies = {
     return message;
   },
 
-  mappingProposalLowConfidence: (mappings: ColumnInferenceMapping[], unmappedFields: GasttoField[]) => {
+  mappingProposalLowConfidence: (
+    mappings: ColumnInferenceMapping[],
+    unmappedFields: GasttoField[],
+  ) => {
     const lines = mappings.map(
-      (m) => `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
+      (m) =>
+        `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
     );
     let message = `No estoy seguro de algunos campos, este es mi mejor intento:\n${lines.join('\n')}`;
     if (unmappedFields.length > 0) {

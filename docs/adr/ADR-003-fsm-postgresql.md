@@ -33,10 +33,10 @@ The defined MVP states are:
 | State                   | Description                             | Outgoing transitions                                 |
 | ----------------------- | --------------------------------------- | ---------------------------------------------------- |
 | `IDLE`                  | No active flow                          | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`          |
-| `ONBOARDING_START`      | First contact, no linked spreadsheet    | → `ONBOARDING_DRIVE`                                 |
+| `ONBOARDING_START`      | First contact, no linked spreadsheet    | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` |
 | `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | → `ONBOARDING_FILE`                                  |
-| `ONBOARDING_FILE`       | Waiting for file selection              | → `ONBOARDING_SHEET`                                 |
-| `ONBOARDING_SHEET`      | Waiting for sheet selection             | → `ONBOARDING_MAPPING`                               |
+| `ONBOARDING_FILE`       | Waiting for file selection              | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` |
+| `ONBOARDING_SHEET`      | Waiting for sheet selection             | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_MAPPING` |
 | `ONBOARDING_MAPPING`    | Waiting for column mapping confirmation | → `ONBOARDING_CATEGORIES`                            |
 | `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | → `IDLE`                                             |
 | `EXPENSE_RECEIVING`     | Message received, processing NLP        | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW`           |

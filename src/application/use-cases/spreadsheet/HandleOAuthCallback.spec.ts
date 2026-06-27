@@ -14,6 +14,7 @@ import type { Logger } from 'pino';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { Redis } from 'ioredis';
 import type { Queue } from 'bullmq';
+import type { HandleSpreadsheetFileSelection } from './HandleSpreadsheetFileSelection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { OAuthDeniedError } from '../../../domain/errors/OAuthDeniedError';
 import { OAuthNetworkError } from '../../../domain/errors/OAuthNetworkError';
@@ -28,6 +29,10 @@ const mockTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockEncrypt = vi.fn();
 const mockLoggerError = vi.fn();
+const mockHandleSpreadsheetFileSelectionExecute = vi.fn().mockResolvedValue({
+  nextState: 'ONBOARDING_FILE',
+  message: '',
+});
 
 function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): HandleOAuthCallbackDeps {
   return {
@@ -42,6 +47,9 @@ function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): Handle
     messagingPort: { sendMessage: mockSendMessage },
     tokenEncryption: { encrypt: mockEncrypt, decrypt: vi.fn() },
     logger: { error: mockLoggerError } as unknown as Logger,
+    handleSpreadsheetFileSelection: {
+      execute: mockHandleSpreadsheetFileSelectionExecute,
+    } as unknown as HandleSpreadsheetFileSelection,
     ...overrides,
   };
 }
@@ -107,6 +115,13 @@ describe('HandleOAuthCallback', () => {
         targetState: 'ONBOARDING_FILE',
         payload: { provider: 'google' },
       });
+      expect(mockHandleSpreadsheetFileSelectionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: '',
+        externalId: '987654321',
+        channel: 'telegram',
+        statePayload: { provider: 'google' },
+      });
 
       expect(result.success).toBe(true);
       expect(result.nextState).toBe('ONBOARDING_FILE');
@@ -125,7 +140,7 @@ describe('HandleOAuthCallback', () => {
       expect(result.success).toBe(false);
       expect(result.nextState).toBe('ONBOARDING_DRIVE');
       expect(result.canRetry).toBe(true);
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.message).toBe(onboardingCopies.oauthConnectionFailed(true));
       expect(mockExchangeCode).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
       expect(mockTransitionExecute).not.toHaveBeenCalled();
@@ -247,6 +262,41 @@ describe('HandleOAuthCallback', () => {
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(mockSendMessage).toHaveBeenCalled();
       expect(mockTransitionExecute).toHaveBeenCalled();
+    });
+  });
+
+  describe('post-callback file selection failure', () => {
+    it('logs the error and still returns success so the HTTP response is not blocked', async () => {
+      mockRedisGet.mockResolvedValue(baseRedisPayload);
+      mockExchangeCode.mockResolvedValue({
+        accessToken: 'access-123',
+        refreshToken: 'refresh-456',
+        expiresAt: new Date('2026-12-31T23:59:59Z'),
+        scope: ['drive.file'],
+      });
+      mockTokenUpsert.mockResolvedValue({ id: 'token-789' });
+      mockQueueRemove.mockResolvedValue(1);
+      mockHandleSpreadsheetFileSelectionExecute.mockRejectedValue(new Error('Discovery timeout'));
+
+      const deps = buildMockDeps();
+      const useCase = new HandleOAuthCallback(deps);
+      const result = await useCase.execute(baseInput);
+
+      expect(mockHandleSpreadsheetFileSelectionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: '',
+        externalId: '987654321',
+        channel: 'telegram',
+        statePayload: { provider: 'google' },
+      });
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'HandleOAuthCallback',
+          code: 'POST_CALLBACK_FILE_SELECTION_FAILED',
+        }),
+      );
+      expect(result.success).toBe(true);
+      expect(result.nextState).toBe('ONBOARDING_FILE');
     });
   });
 });

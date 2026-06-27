@@ -1,7 +1,9 @@
 # FSM States — Gastto
 
 > **Why this document exists:** The FSM is the operational heart of the system. An agent that generates message-handling code without knowing the valid states and their transitions will produce incoherent logic. ADR-003 mentions the FSM but is not the right place to consult transitions during development.
-> **Related:** [ADR-003 · Estado Conversacional: FSM Persistida en PostgreSQL](../adr/adr.md#adr-003--estado-conversacional-fsm-persistida-en-postgresql)
+> **Related:**
+> - [ADR-003 · Estado Conversacional: FSM Persistida en PostgreSQL](../adr/adr.md#adr-003--estado-conversacional-fsm-persistida-en-postgresql)
+> - [ADR-014 · FSM Eager Advance](../adr/ADR-014-fsm-eager-advance.md)
 
 ---
 
@@ -10,10 +12,10 @@
 | State                   | Description                             | Valid outgoing transitions                           | Timeout |
 | ----------------------- | --------------------------------------- | ---------------------------------------------------- | ------- |
 | `IDLE`                  | No active flow                          | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`          | —       |
-| `ONBOARDING_START`      | First contact, no spreadsheet linked    | → `ONBOARDING_DRIVE`                                 | 30 min  |
+| `ONBOARDING_START`      | First contact, no spreadsheet linked    | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` | 30 min  |
 | `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | → `ONBOARDING_FILE`                                  | 30 min  |
-| `ONBOARDING_FILE`       | Waiting for file selection              | → `ONBOARDING_SHEET`                                 | 30 min  |
-| `ONBOARDING_SHEET`      | Waiting for sheet selection             | → `ONBOARDING_VALIDATING_ACCESS`                     | 30 min  |
+| `ONBOARDING_FILE`       | Waiting for file selection              | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` | 30 min  |
+| `ONBOARDING_SHEET`      | Waiting for sheet selection             | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` | 30 min  |
 | `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` | 30 min  |
 | `ONBOARDING_MAPPING`    | Waiting for column-mapping confirmation | → `ONBOARDING_CATEGORIES`                            | 30 min  |
 | `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | → `IDLE`                                             | 30 min  |
@@ -26,6 +28,23 @@
 
 ---
 
+## Eager advance
+
+Deterministic forward transitions — those that do not require user input or confirmation — may auto-trigger the next use case immediately after the state is persisted. See [ADR-014 · FSM Eager Advance](../adr/ADR-014-fsm-eager-advance.md) for the full decision, rules, and list of applicable transitions.
+
+Current and planned eager-advance transitions:
+
+- `ONBOARDING_DRIVE` → `ONBOARDING_FILE`: OAuth callback triggers file discovery.
+- `ONBOARDING_FILE` → `ONBOARDING_SHEET`: file selection triggers sheet discovery.
+- `ONBOARDING_SHEET` → `ONBOARDING_VALIDATING_ACCESS`: single-sheet auto-confirmation triggers access validation.
+- `ONBOARDING_VALIDATING_ACCESS` → `ONBOARDING_MAPPING`: successful access validation triggers column-mapping inference.
+- `EXPENSE_REVIEW` → `EXPENSE_SAVING`: user confirmation triggers save.
+- `EXPENSE_SAVING` → `IDLE`: successful save triggers final confirmation.
+
+Transitions that present a list or require explicit confirmation (e.g., `ONBOARDING_FILE` self-transition, `ONBOARDING_MAPPING` self-transition) do **not** use eager advance.
+
+---
+
 ## Transition diagram (Mermaid)
 
 ```mermaid
@@ -33,9 +52,12 @@ flowchart TD
     IDLE -->|first contact| ONBOARDING_START
     IDLE -->|expense message| EXPENSE_RECEIVING
 
+    ONBOARDING_START -->|first prompt| ONBOARDING_START
     ONBOARDING_START -->|OAuth initiated| ONBOARDING_DRIVE
     ONBOARDING_DRIVE -->|drive linked| ONBOARDING_FILE
+    ONBOARDING_FILE -->|store fileList| ONBOARDING_FILE
     ONBOARDING_FILE -->|file picked| ONBOARDING_SHEET
+    ONBOARDING_SHEET -->|store sheetList| ONBOARDING_SHEET
     ONBOARDING_SHEET -->|sheet picked| ONBOARDING_VALIDATING_ACCESS
     ONBOARDING_VALIDATING_ACCESS -->|access OK| ONBOARDING_MAPPING
     ONBOARDING_VALIDATING_ACCESS -->|empty sheet| ONBOARDING_SHEET
@@ -70,7 +92,7 @@ The `state_payload` column in the `conversation_states` table is a `JSONB` blob 
 | State                   | Relevant `state_payload` fields                                                                                                             | Meaning                                                    |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `IDLE`                  | _(empty or `{}`)_                                                                                                                           | Nothing to persist                                         |
-| `ONBOARDING_START`      | `provider: 'google' \| 'microsoft'`                                                                                                         | Which OAuth provider the user chose                        |
+| `ONBOARDING_START`      | `promptShown: boolean`, `provider?: 'google' \| 'microsoft'`                                                                                | `promptShown` tracks whether the welcome/provider prompt has been displayed; `provider` may be present transiently |
 | `ONBOARDING_DRIVE`      | `oauth_state: string`                                                                                                                       | PKCE / OAuth state token for CSRF protection               |
 | `ONBOARDING_FILE`       | `drive_folder_id?: string`, `files: Array<{id, name}>`                                                                                      | List of candidate files to show the user                   |
 | `ONBOARDING_SHEET`      | `file_id: string`, `sheets: Array<{name, id}>`                                                                                              | Selected file and its internal sheets                      |

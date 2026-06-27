@@ -3,6 +3,7 @@
 // Retrieves the user's OAuth token, calls CloudStoragePort to list/search/validate
 // spreadsheet files, handles the user's reply, and transitions FSM accordingly.
 
+import type { Logger } from 'pino';
 import type { CloudStoragePort } from '../../../domain/ports/cloudStorage';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
@@ -11,6 +12,7 @@ import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
 import type { CloudFile } from '../../../domain/entities/CloudFile';
+import type { HandleSheetSelection } from './HandleSheetSelection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
 
@@ -34,6 +36,8 @@ export interface HandleSpreadsheetFileSelectionDeps {
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
   tokenEncryption: TokenEncryptionPort;
+  logger: Logger;
+  handleSheetSelection: HandleSheetSelection;
 }
 
 const NONE_OF_THESE_VARIANTS = [
@@ -77,7 +81,7 @@ export class HandleSpreadsheetFileSelection {
   async execute(
     input: HandleSpreadsheetFileSelectionInput,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
-    const { userId, rawMessage, externalId, statePayload } = input;
+    const { userId, rawMessage, externalId, channel, statePayload } = input;
 
     const provider = this.resolveProvider(statePayload);
     if (provider === 'microsoft') {
@@ -89,24 +93,18 @@ export class HandleSpreadsheetFileSelection {
     // 1. Retrieve and decrypt OAuth token
     const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
     if (!token) {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_FILE', message };
+      return this.handleReconnect(externalId, userId, 'TOKEN_MISSING');
     }
 
     if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_FILE', message };
+      return this.handleReconnect(externalId, userId, 'TOKEN_EXPIRED_OR_REVOKED');
     }
 
     let accessToken: string;
     try {
       accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      const message = onboardingCopies.connectionFailed(true);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'ONBOARDING_FILE', message };
+    } catch (err) {
+      return this.handleReconnect(externalId, userId, 'TOKEN_DECRYPTION_FAILED', err);
     }
 
     // 2. Handle search step
@@ -126,7 +124,15 @@ export class HandleSpreadsheetFileSelection {
     const choice = parseInt(rawMessage.trim(), 10);
 
     if (!Number.isNaN(choice) && choice >= 1 && choice <= files.length) {
-      return this.handleNumberSelection(userId, externalId, accessToken, provider, files, choice);
+      return this.handleNumberSelection(
+        userId,
+        externalId,
+        channel,
+        accessToken,
+        provider,
+        files,
+        choice,
+      );
     }
 
     if (choice === files.length + 1 || isNoneOfThese(rawMessage)) {
@@ -139,6 +145,7 @@ export class HandleSpreadsheetFileSelection {
       return this.handleDirectUrl(
         userId,
         externalId,
+        channel,
         accessToken,
         provider,
         fileIdFromUrl,
@@ -185,10 +192,27 @@ export class HandleSpreadsheetFileSelection {
 
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
-      const message =
-        err instanceof FileDiscoveryError
-          ? `Hubo un problema al buscar archivos: ${err.message}. Intentá de nuevo en unos segundos.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof FileDiscoveryError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSpreadsheetFileSelection',
+          code: 'FILE_DISCOVERY_ERROR',
+          userId,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al buscar archivos: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_FILE', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'FILE_DISCOVERY_UNEXPECTED_ERROR',
+        userId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.fileDiscoveryFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_FILE', message };
     }
@@ -197,6 +221,7 @@ export class HandleSpreadsheetFileSelection {
   private async handleNumberSelection(
     userId: string,
     externalId: string,
+    channel: 'telegram' | 'whatsapp',
     accessToken: string,
     provider: SpreadsheetProvider,
     files: CloudFile[],
@@ -222,10 +247,29 @@ export class HandleSpreadsheetFileSelection {
         return { nextState: 'ONBOARDING_FILE', message };
       }
     } catch (err) {
-      const message =
-        err instanceof FileDiscoveryError
-          ? `Hubo un problema al validar el acceso: ${err.message}. Intentá de nuevo.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof FileDiscoveryError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSpreadsheetFileSelection',
+          code: 'FILE_ACCESS_ERROR',
+          userId,
+          fileId: selected.id,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al validar el acceso: ${errorMessage}. Intentá de nuevo.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_FILE', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'FILE_ACCESS_UNEXPECTED_ERROR',
+        userId,
+        fileId: selected.id,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.fileAccessFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_FILE', message };
     }
@@ -236,6 +280,7 @@ export class HandleSpreadsheetFileSelection {
     const payload = {
       selectedFileId: selected.id,
       selectedFileName: selected.name,
+      provider,
     };
 
     await this.deps.transitionState.execute({
@@ -243,6 +288,15 @@ export class HandleSpreadsheetFileSelection {
       targetState: 'ONBOARDING_SHEET',
       payload,
     });
+
+    await this.triggerSheetSelection(
+      userId,
+      externalId,
+      channel,
+      selected.id,
+      selected.name,
+      provider,
+    );
 
     return { nextState: 'ONBOARDING_SHEET', message, payload };
   }
@@ -292,10 +346,29 @@ export class HandleSpreadsheetFileSelection {
 
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
-      const message =
-        err instanceof FileDiscoveryError
-          ? `Hubo un problema al buscar archivos: ${err.message}. Intentá de nuevo en unos segundos.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof FileDiscoveryError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSpreadsheetFileSelection',
+          code: 'FILE_SEARCH_ERROR',
+          userId,
+          query,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al buscar archivos: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_FILE', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'FILE_SEARCH_UNEXPECTED_ERROR',
+        userId,
+        query,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.fileDiscoveryFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_FILE', message };
     }
@@ -304,6 +377,7 @@ export class HandleSpreadsheetFileSelection {
   private async handleDirectUrl(
     userId: string,
     externalId: string,
+    channel: 'telegram' | 'whatsapp',
     accessToken: string,
     provider: SpreadsheetProvider,
     fileId: string,
@@ -322,10 +396,29 @@ export class HandleSpreadsheetFileSelection {
         return { nextState: 'ONBOARDING_FILE', message };
       }
     } catch (err) {
-      const message =
-        err instanceof FileDiscoveryError
-          ? `Hubo un problema al validar el acceso: ${err.message}. Intentá de nuevo.`
-          : onboardingCopies.connectionFailed(true);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof FileDiscoveryError) {
+        this.deps.logger.error({
+          endpoint: 'HandleSpreadsheetFileSelection',
+          code: 'URL_ACCESS_ERROR',
+          userId,
+          fileId,
+          error: errorMessage,
+        });
+        const message = `Hubo un problema al validar el acceso: ${errorMessage}. Intentá de nuevo.`;
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_FILE', message };
+      }
+
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'URL_ACCESS_UNEXPECTED_ERROR',
+        userId,
+        fileId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+      const message = onboardingCopies.fileAccessFailed();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_FILE', message };
     }
@@ -338,6 +431,7 @@ export class HandleSpreadsheetFileSelection {
     const payload = {
       selectedFileId: fileId,
       selectedFileName: fileName,
+      provider,
     };
 
     await this.deps.transitionState.execute({
@@ -346,6 +440,70 @@ export class HandleSpreadsheetFileSelection {
       payload,
     });
 
+    await this.triggerSheetSelection(
+      userId,
+      externalId,
+      channel,
+      fileId,
+      fileName,
+      provider,
+    );
+
     return { nextState: 'ONBOARDING_SHEET', message, payload };
+  }
+
+  private async triggerSheetSelection(
+    userId: string,
+    externalId: string,
+    channel: 'telegram' | 'whatsapp',
+    fileId: string,
+    fileName: string,
+    provider: SpreadsheetProvider,
+  ): Promise<void> {
+    try {
+      await this.deps.handleSheetSelection.execute({
+        userId,
+        rawMessage: '',
+        externalId,
+        channel,
+        statePayload: { selectedFileId: fileId, selectedFileName: fileName, provider },
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.deps.logger.error({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'POST_SELECTION_SHEET_DISCOVERY_FAILED',
+        userId,
+        fileId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+    }
+  }
+
+  private async handleReconnect(
+    externalId: string,
+    userId: string,
+    code: string,
+    err?: unknown,
+  ): Promise<HandleSpreadsheetFileSelectionOutput> {
+    this.deps.logger.error({
+      endpoint: 'HandleSpreadsheetFileSelection',
+      code,
+      userId,
+      errorType: err instanceof Error ? err.constructor.name : undefined,
+      error: err instanceof Error ? err.message : undefined,
+    });
+
+    const message = onboardingCopies.reconnectAccount();
+    await this.deps.messagingPort.sendMessage(externalId, message);
+
+    await this.deps.transitionState.execute({
+      userId,
+      targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
+    });
+
+    return { nextState: 'ONBOARDING_START', message };
   }
 }

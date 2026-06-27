@@ -11,26 +11,29 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 
 ## FSM States
 
-| State              | Description                                                         | Next                                                                                         |
-| ------------------ | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `ONBOARDING_START` | User is asked to choose a cloud provider                            | `ONBOARDING_DRIVE` (Google) or stays here (invalid / OneDrive)                               |
-| `ONBOARDING_DRIVE` | User has received the Google auth link and is expected to authorize | `ONBOARDING_FILE` (callback success), `IDLE` (cancel), self-transition (`SendOAuthReminder`) |
+| State              | Description                                                         | Next                                                                                         | Payload                                    |
+| ------------------ | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `ONBOARDING_START` | User is asked to choose a cloud provider                            | `ONBOARDING_DRIVE` (Google) or stays here (invalid / OneDrive), self-transition to set `promptShown` | `{ promptShown: boolean }`                 |
+| `ONBOARDING_DRIVE` | User has received the Google auth link and is expected to authorize | `ONBOARDING_FILE` (callback success), `IDLE` (cancel), self-transition (`SendOAuthReminder`) | `{ provider: 'google', state: string }`    |
 
 ## OAuth Flow Sequence
 
 ### Initiation (`InitiateCloudConnection`)
 
-1. User sends a message while in `ONBOARDING_START`.
-2. `InitiateCloudConnection` parses the provider choice.
-3. For **Google Drive**:
+1. New users are created in `ONBOARDING_START` with `statePayload: { promptShown: false }` by `ResolveUserIdentity`.
+2. The first time the message worker sees `ONBOARDING_START` with `promptShown: false`, it sends a welcome prompt (`onboardingCopies.welcomePrompt()`) that explains the bot and asks the user to choose a provider. It then self-transitions to `ONBOARDING_START` with `promptShown: true`.
+3. Once the provider prompt has been shown, `InitiateCloudConnection` parses the provider choice.
+4. For **Google Drive**:
    - Generates a cryptographically random `state` (32 bytes hex).
    - Builds the Google OAuth URL via `GoogleDriveOAuthAdapter.buildAuthUrl()`.
    - Stores `oauth:state:{state}` in Redis with a **15-minute TTL**.
    - Schedules a BullMQ job on the `oauth-reminder` queue with a **10-minute delay**.
    - Sends the auth link to the user via `MessagingOutputPort`.
    - Transitions FSM to `ONBOARDING_DRIVE`.
-4. For **OneDrive**: returns a "coming soon" message; state remains `ONBOARDING_START`.
-5. For **invalid input**: returns a re-prompt; state remains `ONBOARDING_START`.
+5. For **OneDrive**: returns a "coming soon" message; state remains `ONBOARDING_START`.
+6. For **invalid input**: returns a re-prompt; state remains `ONBOARDING_START`.
+
+Reconnection paths (e.g., expired token during file or sheet selection) transition back to `ONBOARDING_START` with `promptShown: true`, so the user receives the standard re-prompt instead of the welcome message.
 
 ### Callback (`HandleOAuthCallback`)
 
@@ -79,11 +82,11 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 
 | Scenario                              | Behavior                                                                                                             |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| User denies authorization             | `HandleOAuthCallback` catches `OAuthDeniedError`, returns `success: false` with `canRetry: true` and a retry prompt. |
-| Network failure during token exchange | `HandleOAuthCallback` catches `OAuthNetworkError`, returns `success: false` with `canRetry: true`.                   |
-| Invalid / missing `state` on callback | `HandleOAuthCallback` catches `OAuthStateMismatchError`, returns `success: false` with `canRetry: true`.             |
-| Token persistence failure             | `HandleOAuthCallback` returns `success: false` with `canRetry: true`; no success message is sent.                    |
-| Reminder cancellation failure         | Logged via `console.error` but does not block callback success.                                                      |
+| User denies authorization             | `HandleOAuthCallback` catches `OAuthDeniedError`, logs `OAUTH_EXCHANGE_REJECTED`, returns `success: false` with `canRetry: true` and `oauthConnectionFailed`. |
+| Network failure during token exchange | `HandleOAuthCallback` catches `OAuthNetworkError`, logs `OAUTH_EXCHANGE_REJECTED`, returns `success: false` with `canRetry: true`.                   |
+| Invalid / missing `state` on callback | `HandleOAuthCallback` logs `OAUTH_STATE_MISSING` / `OAUTH_STATE_INVALID`, returns `success: false` with `canRetry: true` and `oauthConnectionFailed`. |
+| Token persistence failure             | `HandleOAuthCallback` logs `OAUTH_EXCHANGE_UNEXPECTED_ERROR`, returns `success: false` with `canRetry: true`; no success message is sent.            |
+| Reminder cancellation failure         | Logged via `logger.error` but does not block callback success.                                                       |
 | Invalid provider requested            | `InitiateCloudConnection` throws `InvalidProviderError` (caught by caller).                                          |
 | BullMQ reminder job failure           | Retries with exponential backoff (3 attempts).                                                                       |
 | Cancellation with missing Redis state | `CancelCloudConnection` still transitions to `IDLE` and sends the cancellation message.                              |
@@ -256,27 +259,29 @@ interface SendOAuthReminderOutput {
 
 - [ ] **Error path — user denies authorization:**
   - `exchangeCode` throws `OAuthDeniedError`.
-  - `HandleOAuthCallback` returns `success: false`, `canRetry: true`.
-  - No success message sent; no token persisted.
+  - `HandleOAuthCallback` logs `OAUTH_EXCHANGE_REJECTED` and returns `success: false`, `canRetry: true`.
+  - `oauthConnectionFailed` message returned; no token persisted.
   - Route returns 200 HTML with failure message.
 
 - [ ] **Error path — network failure during token exchange:**
   - `exchangeCode` throws `OAuthNetworkError`.
-  - Same behavior as denial: `success: false`, `canRetry: true`.
+  - Same behavior as denial: `success: false`, `canRetry: true`, `oauthConnectionFailed` returned.
 
 - [ ] **Error path — invalid or missing `state`:**
   - Redis key missing or payload is invalid JSON.
-  - `HandleOAuthCallback` returns `success: false`, `canRetry: true`.
+  - `HandleOAuthCallback` logs `OAUTH_STATE_MISSING` / `OAUTH_STATE_INVALID`.
+  - Returns `success: false`, `canRetry: true`, `oauthConnectionFailed`.
   - No external calls made.
 
 - [ ] **Error path — token persistence failure:**
   - `IOAuthTokenRepository.upsert()` rejects.
-  - `HandleOAuthCallback` returns `success: false`, `canRetry: true`.
+  - `HandleOAuthCallback` logs `OAUTH_EXCHANGE_UNEXPECTED_ERROR`.
+  - Returns `success: false`, `canRetry: true`, `oauthConnectionFailed`.
   - No success message sent; no FSM transition to `ONBOARDING_FILE`.
 
 - [ ] **Error path — reminder cancellation failure:**
   - `Queue.remove()` rejects (e.g. job already processed).
-  - Error logged via `console.error` with structured object `{ endpoint, code, jobId, error }`.
+  - Error logged via `logger.error` with structured object `{ endpoint, code, jobId, error }`.
   - Callback still returns `success: true`.
 
 - [ ] **Validation — route layer:**

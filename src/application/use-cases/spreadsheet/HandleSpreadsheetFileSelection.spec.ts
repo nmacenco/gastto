@@ -9,9 +9,15 @@ import {
   type HandleSpreadsheetFileSelectionDeps,
   type HandleSpreadsheetFileSelectionInput,
 } from './HandleSpreadsheetFileSelection';
+import type { HandleSheetSelection } from './HandleSheetSelection';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
-import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import type {
+  TransitionConversationState,
+  TransitionConversationStateInput,
+} from '../conversation/TransitionConversationState';
 import { CloudFile } from '../../../domain/entities/CloudFile';
+import { canTransition, type FsmState } from '../../../domain/entities/ConversationState';
+import { InvalidStateTransitionError } from '../../../domain/errors/InvalidStateTransitionError';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
 
@@ -19,10 +25,26 @@ const mockListRecent = vi.fn();
 const mockSearch = vi.fn();
 const mockValidateAccess = vi.fn();
 const mockFindToken = vi.fn();
-const mockTransitionExecute = vi.fn();
+const mockHandleSheetSelectionExecute = vi.fn();
+const mockTransitionExecute = vi.fn((input: TransitionConversationStateInput) => {
+  const fromState: FsmState = 'ONBOARDING_FILE';
+  if (!canTransition(fromState, input.targetState)) {
+    throw new InvalidStateTransitionError(fromState, input.targetState);
+  }
+  return Promise.resolve({
+    userId: input.userId,
+    currentState: input.targetState,
+    statePayload: input.payload ?? null,
+    enteredAt: new Date(),
+    expiresAt: input.expiresAt ?? null,
+    updatedAt: new Date(),
+  });
+});
+const mockReconnectTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockEncrypt = vi.fn();
 const mockDecrypt = vi.fn();
+const mockLoggerError = vi.fn();
 
 function buildMockDeps(
   overrides: Partial<HandleSpreadsheetFileSelectionDeps> = {},
@@ -40,6 +62,10 @@ function buildMockDeps(
       encrypt: mockEncrypt,
       decrypt: mockDecrypt,
     },
+    logger: { error: mockLoggerError } as unknown as HandleSpreadsheetFileSelectionDeps['logger'],
+    handleSheetSelection: {
+      execute: mockHandleSheetSelectionExecute,
+    } as unknown as HandleSheetSelection,
     ...overrides,
   };
 }
@@ -102,11 +128,12 @@ describe('HandleSpreadsheetFileSelection', () => {
         expect.stringContaining('Gastos 2026'),
       );
       expect(mockTransitionExecute).toHaveBeenCalledOnce();
-      const transitionCall = mockTransitionExecute.mock.calls[0]![0] as {
+      const transitionCall = mockTransitionExecute.mock.calls[0]![0] as unknown as {
         payload: { fileList: unknown[] };
       };
       expect(transitionCall.payload.fileList).toHaveLength(2);
       expect(result.nextState).toBe('ONBOARDING_FILE');
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns noFilesFoundPrompt when listing is empty', async () => {
@@ -119,6 +146,7 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.noFilesFoundPrompt());
       expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -142,7 +170,18 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_SHEET',
-        payload: { selectedFileId: 'f1', selectedFileName: 'Gastos 2026' },
+        payload: { selectedFileId: 'f1', selectedFileName: 'Gastos 2026', provider: 'google' },
+      });
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: '',
+        externalId: '987654321',
+        channel: 'telegram',
+        statePayload: {
+          selectedFileId: 'f1',
+          selectedFileName: 'Gastos 2026',
+          provider: 'google',
+        },
       });
       expect(result.nextState).toBe('ONBOARDING_SHEET');
     });
@@ -161,6 +200,7 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.urlValidationFailed());
       expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns invalid selection re-prompt for out-of-range number', async () => {
@@ -174,6 +214,7 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.invalidSelectionRePrompt(2));
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -197,6 +238,7 @@ describe('HandleSpreadsheetFileSelection', () => {
         payload: { step: 'searching' },
       });
       expect(result.nextState).toBe('ONBOARDING_FILE');
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -218,11 +260,12 @@ describe('HandleSpreadsheetFileSelection', () => {
         expect.stringContaining('Gastos 2026'),
       );
       expect(mockTransitionExecute).toHaveBeenCalledOnce();
-      const transitionCall = mockTransitionExecute.mock.calls[0]![0] as {
+      const transitionCall = mockTransitionExecute.mock.calls[0]![0] as unknown as {
         payload: { fileList: unknown[] };
       };
       expect(transitionCall.payload.fileList).toHaveLength(1);
       expect(result.nextState).toBe('ONBOARDING_FILE');
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns noFilesFoundPrompt when search returns empty', async () => {
@@ -238,6 +281,7 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.noFilesFoundPrompt());
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
@@ -259,7 +303,18 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_SHEET',
-        payload: { selectedFileId: 'ABC123', selectedFileName: url },
+        payload: { selectedFileId: 'ABC123', selectedFileName: url, provider: 'google' },
+      });
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: '',
+        externalId: '987654321',
+        channel: 'telegram',
+        statePayload: {
+          selectedFileId: 'ABC123',
+          selectedFileName: url,
+          provider: 'google',
+        },
       });
       expect(result.nextState).toBe('ONBOARDING_SHEET');
     });
@@ -277,47 +332,85 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.urlValidationFailed());
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
   describe('error paths', () => {
-    it('returns connection failed when token is missing', async () => {
+    it('returns reconnect message and transitions to ONBOARDING_START when token is missing', async () => {
       mockFindToken.mockResolvedValue(null);
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
-      expect(result.nextState).toBe('ONBOARDING_FILE');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
+      expect(mockReconnectTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      expect(mockLoggerError).toHaveBeenCalledWith({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'TOKEN_MISSING',
+        userId: 'user-123',
+        errorType: undefined,
+        error: undefined,
+      });
     });
 
-    it('returns connection failed when token is expired', async () => {
+    it('returns reconnect message and transitions to ONBOARDING_START when token is expired', async () => {
       mockFindToken.mockResolvedValue({
         ...mockToken,
         accessTokenExpiresAt: new Date(Date.now() - 3600_000),
       });
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
-      expect(result.nextState).toBe('ONBOARDING_FILE');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
+      expect(mockReconnectTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
-    it('returns connection failed when token is revoked', async () => {
+    it('returns reconnect message and transitions to ONBOARDING_START when token is revoked', async () => {
       mockFindToken.mockResolvedValue({
         ...mockToken,
         revokedAt: new Date(),
       });
 
-      const deps = buildMockDeps();
+      const deps = buildMockDeps({
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
+      });
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
-      expect(result.nextState).toBe('ONBOARDING_FILE');
-      expect(result.message).toBe(onboardingCopies.connectionFailed(true));
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.message).toBe(onboardingCopies.reconnectAccount());
+      expect(mockReconnectTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns coming soon for microsoft provider', async () => {
@@ -330,6 +423,7 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.comingSoon('OneDrive'));
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
 
     it('returns error message on FileDiscoveryError during listing', async () => {
@@ -341,6 +435,33 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toContain('network error');
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sheet selection delegation', () => {
+    it('still returns success when the delegated sheet selection fails', async () => {
+      mockValidateAccess.mockResolvedValue(true);
+      mockHandleSheetSelectionExecute.mockRejectedValue(new Error('sheet discovery failed'));
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSpreadsheetFileSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '1',
+        statePayload: { fileList: mockFiles },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledTimes(1);
+      expect(mockLoggerError).toHaveBeenCalledWith({
+        endpoint: 'HandleSpreadsheetFileSelection',
+        code: 'POST_SELECTION_SHEET_DISCOVERY_FAILED',
+        userId: 'user-123',
+        fileId: 'f1',
+        errorType: 'Error',
+        error: 'sheet discovery failed',
+      });
     });
   });
 });
