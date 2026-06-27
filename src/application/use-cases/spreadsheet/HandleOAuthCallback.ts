@@ -13,6 +13,7 @@ import type { TransitionConversationState } from '../conversation/TransitionConv
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
+import type { HandleSpreadsheetFileSelection } from './HandleSpreadsheetFileSelection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { OAuthDeniedError } from '../../../domain/errors/OAuthDeniedError';
 import { OAuthNetworkError } from '../../../domain/errors/OAuthNetworkError';
@@ -48,6 +49,7 @@ export interface HandleOAuthCallbackDeps {
   messagingPort: MessagingOutputPort;
   tokenEncryption: TokenEncryptionPort;
   logger: Logger;
+  handleSpreadsheetFileSelection: HandleSpreadsheetFileSelection;
 }
 
 export class HandleOAuthCallback {
@@ -179,6 +181,25 @@ export class HandleOAuthCallback {
       targetState: 'ONBOARDING_FILE',
       payload: { provider: metadata.provider },
     });
+
+    try {
+      await this.deps.handleSpreadsheetFileSelection.execute({
+        userId: metadata.userId,
+        rawMessage: '',
+        externalId: metadata.externalId,
+        channel: metadata.channel,
+        statePayload: { provider: metadata.provider },
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.deps.logger.error({
+        endpoint: 'HandleOAuthCallback',
+        code: 'POST_CALLBACK_FILE_SELECTION_FAILED',
+        userId: metadata.userId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: errorMessage,
+      });
+    }
 
     return {
       success: true,

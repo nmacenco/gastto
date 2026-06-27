@@ -19,8 +19,8 @@ The Select Spreadsheet File feature enables users to choose which spreadsheet fi
 
 ### Initial Listing (`HandleSpreadsheetFileSelection`)
 
-1. User enters `ONBOARDING_FILE` state after successful OAuth callback.
-2. If `statePayload.fileList` is absent, `HandleSpreadsheetFileSelection` calls `CloudStoragePort.listRecentSpreadsheets`.
+1. After a successful OAuth callback, `HandleOAuthCallback` transitions the user to `ONBOARDING_FILE` and immediately invokes `HandleSpreadsheetFileSelection` with an empty `rawMessage`.
+2. `HandleSpreadsheetFileSelection` calls `CloudStoragePort.listRecentSpreadsheets`.
 3. The adapter queries Google Drive API v3 for the 5 most recently modified spreadsheet files.
 4. The use case formats a numbered list of files and appends a "None of these / search by name" option.
 5. The file list is stored in the FSM payload via `TransitionConversationState`.

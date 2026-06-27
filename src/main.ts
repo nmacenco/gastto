@@ -264,20 +264,6 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
-        const handleOAuthCallback =
-          googleOAuthAdapter !== null
-            ? new HandleOAuthCallback({
-                redis,
-                logger: rootLogger,
-                oauthService: googleOAuthAdapter,
-                tokenRepository: tokenRepo,
-                reminderQueue,
-                transitionState,
-                messagingPort: telegramAdapter,
-                tokenEncryption,
-              })
-            : null;
-
         const sendOAuthReminder =
           googleOAuthAdapter !== null
             ? new SendOAuthReminder({
@@ -314,6 +300,21 @@ async function bootstrap(): Promise<void> {
                 messagingPort: telegramAdapter,
                 tokenEncryption,
                 logger: rootLogger,
+              })
+            : null;
+
+        const handleOAuthCallback =
+          googleOAuthAdapter !== null
+            ? new HandleOAuthCallback({
+                redis,
+                logger: rootLogger,
+                oauthService: googleOAuthAdapter,
+                tokenRepository: tokenRepo,
+                reminderQueue,
+                transitionState,
+                messagingPort: telegramAdapter,
+                tokenEncryption,
+                handleSpreadsheetFileSelection: handleSpreadsheetFileSelection!,
               })
             : null;
 
