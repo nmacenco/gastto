@@ -440,14 +440,7 @@ export class HandleSpreadsheetFileSelection {
       payload,
     });
 
-    await this.triggerSheetSelection(
-      userId,
-      externalId,
-      channel,
-      fileId,
-      fileName,
-      provider,
-    );
+    await this.triggerSheetSelection(userId, externalId, channel, fileId, fileName, provider);
 
     return { nextState: 'ONBOARDING_SHEET', message, payload };
   }

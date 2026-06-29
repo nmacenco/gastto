@@ -70,9 +70,9 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 | `IDLE`                  | No active flow                          | `ONBOARDING_START`, `EXPENSE_RECEIVING`        |
 | `ONBOARDING_START`      | First contact, no spreadsheet linked    | `ONBOARDING_DRIVE`                             |
 | `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | `ONBOARDING_FILE`                              |
-| `ONBOARDING_FILE`       | Waiting for file selection              | `ONBOARDING_SHEET`                             |
-| `ONBOARDING_SHEET`      | Waiting for sheet selection             | `ONBOARDING_MAPPING`                           |
-| `ONBOARDING_MAPPING`    | Waiting for column mapping confirmation | `ONBOARDING_CATEGORIES`                        |
+| `ONBOARDING_FILE`       | Waiting for file selection              | `ONBOARDING_SHEET`, `ONBOARDING_START`         |
+| `ONBOARDING_SHEET`      | Waiting for sheet selection             | `ONBOARDING_VALIDATING_ACCESS`, `ONBOARDING_START` |
+| `ONBOARDING_MAPPING`    | Waiting for column mapping confirmation | `ONBOARDING_CATEGORIES`, `ONBOARDING_START`    |
 | `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | `IDLE`                                         |
 | `EXPENSE_RECEIVING`     | Message received, NLP processing        | `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`         |
 | `EXPENSE_CLARIFYING`    | Waiting for user clarification          | `EXPENSE_REVIEW`, `IDLE`                       |
