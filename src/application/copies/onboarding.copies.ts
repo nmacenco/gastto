@@ -122,6 +122,12 @@ export const onboardingCopies = {
   noHeaderPrompt: () =>
     `Parece que tu planilla no tiene una fila de encabezados.\n\n¿En qué fila comienzan los datos? Escribí el número de fila.`,
 
+  mappingConfirmedNextStep: () =>
+    `¡Listo! El mapeo de columnas quedó confirmado. Ahora vamos a revisar las categorías de tu planilla.`,
+
+  noMappingToConfirm: () =>
+    `Todavía no tengo una propuesta de mapeo para confirmar. Esperá un momento o escribí *empezar* para reconectar.`,
+
   unmappedFieldsNote: (fields: GasttoField[]) => formatUnmappedFields(fields),
 };
 

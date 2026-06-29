@@ -108,6 +108,12 @@ export interface IColumnMappingRepository {
   findBySpreadsheetId(spreadsheetId: string): Promise<ColumnMapping[]>;
   upsertMany(mappings: Omit<ColumnMapping, 'id'>[]): Promise<void>;
   confirm(id: string): Promise<void>;
+
+  // Marks every mapping for a spreadsheet as confirmed (e.g. user said "yes"/"ok")
+  confirmBySpreadsheetId(spreadsheetId: string): Promise<void>;
+
+  // Updates a single mapping after a user correction (column, header, inferred flag)
+  updateCorrected(mapping: Partial<ColumnMapping> & { id: string }): Promise<void>;
 }
 
 export interface IUserCategoryRepository {

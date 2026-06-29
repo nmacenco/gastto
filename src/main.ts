@@ -50,6 +50,7 @@ import { HandleSpreadsheetFileSelection } from './application/use-cases/spreadsh
 import { HandleSheetSelection } from './application/use-cases/spreadsheet/HandleSheetSelection';
 import { ValidateSpreadsheetAccess } from './application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import { InferColumnMapping } from './application/use-cases/spreadsheet/InferColumnMapping';
+import { ConfirmColumnMapping } from './application/use-cases/spreadsheet/ConfirmColumnMapping';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
@@ -362,6 +363,16 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
+        const confirmColumnMapping =
+          googleOAuthAdapter !== null
+            ? new ConfirmColumnMapping({
+                columnMappingRepository: columnMappingRepo,
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+                messagingPort: telegramAdapter,
+                transitionState,
+              })
+            : null;
+
         // Thick worker (ADR-005): FSM → NLP → user response
         const messageWorker = createMessageWorker({
           redis,
@@ -383,6 +394,7 @@ async function bootstrap(): Promise<void> {
           handleSheetSelection,
           validateSpreadsheetAccess,
           inferColumnMapping,
+          confirmColumnMapping,
         });
         app.log.info(
           `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,

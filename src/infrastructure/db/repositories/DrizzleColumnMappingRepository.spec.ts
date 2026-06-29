@@ -195,4 +195,88 @@ describe('DrizzleColumnMappingRepository', () => {
       await expect(repo.confirm('mapping-999')).rejects.toThrow('Column mapping not found');
     });
   });
+
+  describe('confirmBySpreadsheetId', () => {
+    it('sets confirmedAt for all mappings of the spreadsheet', async () => {
+      const updateMock = vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(undefined),
+        }),
+      });
+      const db = { update: updateMock } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const repo = new DrizzleColumnMappingRepository(db);
+      await expect(repo.confirmBySpreadsheetId('config-123')).resolves.toBeUndefined();
+
+      expect(updateMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('updateCorrected', () => {
+    it('updates the corrected fields for a mapping', async () => {
+      const row = buildColumnMappingRow({
+        columnIndex: 5,
+        columnHeader: 'Categoría',
+        inferred: false,
+      });
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([row]),
+        }),
+      });
+      const db = {
+        update: vi.fn().mockReturnValue({ set: setMock }),
+      } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const repo = new DrizzleColumnMappingRepository(db);
+      await expect(
+        repo.updateCorrected({
+          id: 'mapping-123',
+          columnIndex: 5,
+          columnHeader: 'Categoría',
+          inferred: false,
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(setMock).toHaveBeenCalledWith({
+        columnIndex: 5,
+        columnHeader: 'Categoría',
+        inferred: false,
+      });
+    });
+
+    it('only updates provided fields', async () => {
+      const row = buildColumnMappingRow({ columnIndex: 5 });
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([row]),
+        }),
+      });
+      const db = {
+        update: vi.fn().mockReturnValue({ set: setMock }),
+      } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const repo = new DrizzleColumnMappingRepository(db);
+      await repo.updateCorrected({ id: 'mapping-123', columnIndex: 5 });
+
+      expect(setMock).toHaveBeenCalledWith({ columnIndex: 5 });
+    });
+
+    it('throws when mapping does not exist', async () => {
+      const db = {
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              returning: vi.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
+      } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const repo = new DrizzleColumnMappingRepository(db);
+      await expect(
+        repo.updateCorrected({ id: 'mapping-999', columnIndex: 2 }),
+      ).rejects.toThrow('Column mapping not found');
+    });
+  });
 });

@@ -20,6 +20,7 @@ import type { HandleSpreadsheetFileSelection } from '../../application/use-cases
 import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
 import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
+import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { isConfirmIntent, isCancelIntent } from '../../application/utils/intents';
@@ -39,6 +40,7 @@ export interface MessageWorkerDeps {
   handleSheetSelection?: HandleSheetSelection | null;
   validateSpreadsheetAccess?: ValidateSpreadsheetAccess | null;
   inferColumnMapping?: InferColumnMapping | null;
+  confirmColumnMapping?: ConfirmColumnMapping | null;
 }
 
 export async function processMessageJob(
