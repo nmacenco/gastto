@@ -56,6 +56,29 @@ export class DrizzleColumnMappingRepository implements IColumnMappingRepository 
     if (!row) throw new Error('Column mapping not found');
   }
 
+  async confirmBySpreadsheetId(spreadsheetId: string): Promise<void> {
+    await this.db
+      .update(schema.columnMappings)
+      .set({ confirmedAt: new Date() })
+      .where(eq(schema.columnMappings.spreadsheetId, spreadsheetId));
+  }
+
+  async updateCorrected(mapping: Partial<ColumnMapping> & { id: string }): Promise<void> {
+    const set: Partial<typeof schema.columnMappings.$inferInsert> = {};
+
+    if (mapping.columnIndex !== undefined) set.columnIndex = mapping.columnIndex;
+    if (mapping.columnHeader !== undefined) set.columnHeader = mapping.columnHeader;
+    if (mapping.inferred !== undefined) set.inferred = mapping.inferred;
+
+    const [row] = await this.db
+      .update(schema.columnMappings)
+      .set(set)
+      .where(eq(schema.columnMappings.id, mapping.id))
+      .returning();
+
+    if (!row) throw new Error('Column mapping not found');
+  }
+
   private mapColumnMapping(row: typeof schema.columnMappings.$inferSelect): ColumnMapping {
     return {
       id: row.id,

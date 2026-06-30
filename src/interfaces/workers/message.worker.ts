@@ -13,16 +13,28 @@ import type { GetConversationState } from '../../application/use-cases/conversat
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
-import type { IUserRepository } from '../../domain/ports/repositories';
+import type {
+  IUserRepository,
+  IMappingCorrectionStateRepository,
+} from '../../domain/ports/repositories';
+import { ColumnMappingCorrectionState } from '../../domain/value-objects/ColumnMappingCorrectionState';
+import type { ColumnMapping } from '../../domain/entities/SpreadsheetConfig';
+import type { MappingCorrection } from '../../domain/value-objects/ColumnMappingCorrectionState';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
 import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
+import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
+import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
-import { isConfirmIntent, isCancelIntent } from '../../application/utils/intents';
+import {
+  isConfirmIntent,
+  isCancelIntent,
+  isListColumnsIntent,
+} from '../../application/utils/intents';
 
 export interface MessageWorkerDeps {
   redis: Redis;
@@ -33,12 +45,15 @@ export interface MessageWorkerDeps {
   recoverCorruptedState: RecoverCorruptedState;
   userRepo: IUserRepository;
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
+  mappingCorrectionStateRepository?: IMappingCorrectionStateRepository | null;
   initiateCloudConnection?: InitiateCloudConnection | null;
   cancelCloudConnection?: CancelCloudConnection | null;
   handleSpreadsheetFileSelection?: HandleSpreadsheetFileSelection | null;
   handleSheetSelection?: HandleSheetSelection | null;
   validateSpreadsheetAccess?: ValidateSpreadsheetAccess | null;
   inferColumnMapping?: InferColumnMapping | null;
+  confirmColumnMapping?: ConfirmColumnMapping | null;
+  correctColumnMapping?: CorrectColumnMapping | null;
 }
 
 export async function processMessageJob(
@@ -179,16 +194,12 @@ export async function processMessageJob(
     }
 
     case 'ONBOARDING_MAPPING': {
-      if (opts.inferColumnMapping) {
-        await opts.inferColumnMapping.execute({
-          userId,
-          externalId,
-          channel,
-          statePayload: conversationState?.statePayload ?? null,
-        });
-      } else {
-        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
-      }
+      await handleOnboardingMapping(
+        job.data,
+        conversationState?.statePayload ?? null,
+        opts,
+        messaging,
+      );
       break;
     }
 
@@ -255,6 +266,207 @@ function formatExpenseSummary(payload: ExpenseReviewPayload): string {
     categoryConfidence: extracted.confianzaCategoria,
     date: resolvedDate,
   });
+}
+
+async function handleOnboardingMapping(
+  jobData: ProcessMessageJobData,
+  statePayload: Record<string, unknown> | null,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  const { userId, rawMessage, channel, externalId } = jobData;
+  const isResuming = statePayload?.step === 'resume';
+  const hasProposal = Array.isArray(statePayload?.mappings);
+
+  if (isResuming) {
+    await handleResumeResponse(
+      userId,
+      rawMessage,
+      externalId,
+      channel,
+      statePayload,
+      opts,
+      messaging,
+    );
+    return;
+  }
+
+  if (hasProposal) {
+    await handleMappingConfirmation(
+      userId,
+      rawMessage,
+      externalId,
+      channel,
+      statePayload,
+      opts,
+      messaging,
+    );
+    return;
+  }
+
+  // No proposal in the FSM payload: check for a saved correction snapshot.
+  const repo = opts.mappingCorrectionStateRepository;
+  if (repo) {
+    const snapshot = await repo.load(userId);
+    if (snapshot) {
+      const currentMappings = restoreCorrectionSnapshot(snapshot).getCurrentMapping();
+      const prompt = onboardingCopies.mappingResumePrompt(currentMappings.map(toDisplayMapping));
+      await messaging.sendMessage(externalId, prompt);
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'ONBOARDING_MAPPING',
+        payload: { ...statePayload, step: 'resume' },
+      });
+      return;
+    }
+  }
+
+  if (opts.inferColumnMapping) {
+    await opts.inferColumnMapping.execute({
+      userId,
+      externalId,
+      channel,
+      statePayload,
+    });
+  } else {
+    await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+  }
+}
+
+async function handleResumeResponse(
+  userId: string,
+  rawMessage: string,
+  externalId: string,
+  channel: 'telegram' | 'whatsapp',
+  statePayload: Record<string, unknown> | null,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  const repo = opts.mappingCorrectionStateRepository;
+
+  if (isCancelIntent(rawMessage)) {
+    if (repo) {
+      await repo.clear(userId);
+    }
+
+    if (opts.inferColumnMapping) {
+      await opts.inferColumnMapping.execute({
+        userId,
+        externalId,
+        channel,
+        statePayload,
+      });
+    } else {
+      await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+    }
+    return;
+  }
+
+  if (!isConfirmIntent(rawMessage)) {
+    await messaging.sendMessage(externalId, onboardingCopies.mappingResumePrompt([]));
+    return;
+  }
+
+  if (!repo) {
+    await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+    return;
+  }
+
+  const snapshot = await repo.load(userId);
+  if (!snapshot) {
+    // Snapshot expired while the prompt was shown: fall back to inference.
+    if (opts.inferColumnMapping) {
+      await opts.inferColumnMapping.execute({
+        userId,
+        externalId,
+        channel,
+        statePayload,
+      });
+    } else {
+      await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+    }
+    return;
+  }
+
+  const currentMappings = restoreCorrectionSnapshot(snapshot).getCurrentMapping();
+  const message = onboardingCopies.mappingUpdatedConfirmation(
+    currentMappings.map(toDisplayMapping),
+    [],
+  );
+  await messaging.sendMessage(externalId, message);
+  await opts.transitionState.execute({
+    userId,
+    targetState: 'ONBOARDING_MAPPING',
+    payload: {
+      ...statePayload,
+      mappings: currentMappings.map(toDisplayMapping),
+      unmappedFields: [],
+    },
+  });
+}
+
+async function handleMappingConfirmation(
+  userId: string,
+  rawMessage: string,
+  externalId: string,
+  channel: 'telegram' | 'whatsapp',
+  statePayload: Record<string, unknown> | null,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  if (isConfirmIntent(rawMessage)) {
+    if (opts.confirmColumnMapping) {
+      await opts.confirmColumnMapping.execute({
+        userId,
+        externalId,
+        channel,
+        statePayload,
+      });
+    } else {
+      await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+    }
+  } else if (isListColumnsIntent(rawMessage)) {
+    if (opts.correctColumnMapping) {
+      // Pragmatic Phase-1 shortcut: trigger an invalid-column response so the
+      // available columns are listed without adding a dedicated query use case.
+      await opts.correctColumnMapping.execute({
+        userId,
+        externalId,
+        channel,
+        rawMessage: 'la categoría está en la columna ZZZ',
+      });
+    } else {
+      await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+    }
+  } else if (opts.correctColumnMapping) {
+    await opts.correctColumnMapping.execute({
+      userId,
+      externalId,
+      channel,
+      rawMessage,
+    });
+  } else {
+    await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+  }
+}
+
+function restoreCorrectionSnapshot(snapshot: {
+  originalMapping: readonly ColumnMapping[];
+  corrections: readonly MappingCorrection[];
+}): ColumnMappingCorrectionState {
+  let state = ColumnMappingCorrectionState.create(snapshot.originalMapping);
+  for (const correction of snapshot.corrections) {
+    state = state.applyCorrection(correction);
+  }
+  return state;
+}
+
+function toDisplayMapping(mapping: ColumnMapping) {
+  return {
+    gasttoField: mapping.GasttoField,
+    columnIndex: mapping.columnIndex,
+    columnHeader: mapping.columnHeader,
+  };
 }
 
 async function handleExpenseReview(

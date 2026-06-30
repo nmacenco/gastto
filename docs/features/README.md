@@ -11,4 +11,9 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`select-sheet.md`](./select-sheet.md) — Sheet selection within the chosen spreadsheet file.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive validation of read/write permissions before expense recording.
 - [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based inference engine that analyzes spreadsheet headers and proposes column mappings for Gastto fields.
+- [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and natural-language correction of the proposed column mapping with Redis-backed transient state.
+- [`incoming-message-routing.md`](./incoming-message-routing.md) — Webhook ingestion, payload parsing, and channel-agnostic routing of Telegram messages.
+- [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
+- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM for multi-turn conversational flows with session timeout.
+- [`deployment.md`](./deployment.md) — Multi-environment Fly.io deployment, secrets management, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).

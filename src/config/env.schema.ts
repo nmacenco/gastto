@@ -17,6 +17,10 @@ export const envSchema = z.object({
   // ── Cache / Queue ─────────────────────────────────────────────────────────────
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
 
+  // ── Mapping correction state (HU-4.06) ─────────────────────────────────────────
+  // TTL for the transient Redis-backed correction state. Default: 30 minutes.
+  MAPPING_CORRECTION_TTL_SECONDS: z.coerce.number().default(1800),
+
   // ── LLM ───────────────────────────────────────────────────────────────────────
   OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY is required'),
   ANTHROPIC_API_KEY: z.string().optional(),

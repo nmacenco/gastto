@@ -2,7 +2,7 @@
 // Unit tests for conversational intent detection utilities.
 
 import { describe, it, expect } from 'vitest';
-import { isConfirmIntent, isCancelIntent } from './intents';
+import { isConfirmIntent, isCancelIntent, isListColumnsIntent } from './intents';
 
 describe('isConfirmIntent', () => {
   it('returns true for "sí"', () => {
@@ -118,5 +118,27 @@ describe('isCancelIntent', () => {
     expect(isCancelIntent('sí')).toBe(false);
     expect(isCancelIntent('ok')).toBe(false);
     expect(isCancelIntent('algo random')).toBe(false);
+  });
+});
+
+describe('isListColumnsIntent', () => {
+  it('returns true for Spanish list-columns phrases', () => {
+    expect(isListColumnsIntent('mostrar columnas')).toBe(true);
+    expect(isListColumnsIntent('ver columnas')).toBe(true);
+    expect(isListColumnsIntent('listar columnas')).toBe(true);
+    expect(isListColumnsIntent('qué columnas hay')).toBe(true);
+    expect(isListColumnsIntent('cuáles columnas disponibles')).toBe(true);
+  });
+
+  it('returns true for English list-columns phrases', () => {
+    expect(isListColumnsIntent('show columns')).toBe(true);
+    expect(isListColumnsIntent('list columns')).toBe(true);
+    expect(isListColumnsIntent('available columns')).toBe(true);
+  });
+
+  it('returns false for non-list-columns messages', () => {
+    expect(isListColumnsIntent('sí')).toBe(false);
+    expect(isListColumnsIntent('la categoría está en E')).toBe(false);
+    expect(isListColumnsIntent('ok')).toBe(false);
   });
 });
