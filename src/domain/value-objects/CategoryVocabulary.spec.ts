@@ -4,10 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { CategoryVocabulary, DEFAULT_CATEGORY_SET } from './CategoryVocabulary';
 import { Category } from './Category';
-import type {
-  CategoryVocabularyState,
-  CategoryVocabularySource,
-} from './CategoryVocabulary';
+import type { CategoryVocabularyState, CategoryVocabularySource } from './CategoryVocabulary';
 
 describe('CategoryVocabulary', () => {
   it('creates a vocabulary with default state and source', () => {
@@ -21,11 +18,7 @@ describe('CategoryVocabulary', () => {
   });
 
   it('creates a vocabulary from detected category values', () => {
-    const vocabulary = CategoryVocabulary.fromDetected([
-      'Food',
-      'Transportation',
-      '  food  ',
-    ]);
+    const vocabulary = CategoryVocabulary.fromDetected(['Food', 'Transportation', '  food  ']);
 
     expect(vocabulary.state).toBe<CategoryVocabularyState>('confirming');
     expect(vocabulary.source).toBe<CategoryVocabularySource>('detected');
@@ -39,9 +32,7 @@ describe('CategoryVocabulary', () => {
 
     expect(vocabulary.state).toBe<CategoryVocabularyState>('confirming');
     expect(vocabulary.source).toBe<CategoryVocabularySource>('default');
-    expect(vocabulary.categories.map((c) => c.name)).toEqual([
-      ...DEFAULT_CATEGORY_SET,
-    ]);
+    expect(vocabulary.categories.map((c) => c.name)).toEqual([...DEFAULT_CATEGORY_SET]);
   });
 
   it('confirms the vocabulary', () => {
@@ -53,23 +44,16 @@ describe('CategoryVocabulary', () => {
 
   describe('addCategory', () => {
     it('adds a new category and switches to editing/user-edited', () => {
-      const vocabulary = CategoryVocabulary.fromDetected(['Food']).addCategory(
-        'Health',
-      );
+      const vocabulary = CategoryVocabulary.fromDetected(['Food']).addCategory('Health');
 
       expect(vocabulary.state).toBe<CategoryVocabularyState>('editing');
       expect(vocabulary.source).toBe<CategoryVocabularySource>('user-edited');
-      expect(vocabulary.categories.map((c) => c.name)).toEqual([
-        'Food',
-        'Health',
-      ]);
+      expect(vocabulary.categories.map((c) => c.name)).toEqual(['Food', 'Health']);
       expect(vocabulary.categories[1]!.order).toBe(1);
     });
 
     it('ignores duplicates case-insensitively and accent-insensitively', () => {
-      const vocabulary = CategoryVocabulary.fromDetected(['Food']).addCategory(
-        '  food  ',
-      );
+      const vocabulary = CategoryVocabulary.fromDetected(['Food']).addCategory('  food  ');
 
       expect(vocabulary.categories).toHaveLength(1);
       expect(vocabulary.state).toBe<CategoryVocabularyState>('confirming');
@@ -78,14 +62,11 @@ describe('CategoryVocabulary', () => {
 
   describe('removeCategory', () => {
     it('removes an existing category', () => {
-      const vocabulary = CategoryVocabulary.fromDetected([
+      const vocabulary = CategoryVocabulary.fromDetected(['Food', 'Transportation']).removeCategory(
         'Food',
-        'Transportation',
-      ]).removeCategory('Food');
+      );
 
-      expect(vocabulary.categories.map((c) => c.name)).toEqual([
-        'Transportation',
-      ]);
+      expect(vocabulary.categories.map((c) => c.name)).toEqual(['Transportation']);
       expect(vocabulary.state).toBe<CategoryVocabularyState>('editing');
     });
 
@@ -100,15 +81,12 @@ describe('CategoryVocabulary', () => {
 
   describe('renameCategory', () => {
     it('renames an existing category', () => {
-      const vocabulary = CategoryVocabulary.fromDetected([
+      const vocabulary = CategoryVocabulary.fromDetected(['Food', 'Transportation']).renameCategory(
         'Food',
-        'Transportation',
-      ]).renameCategory('Food', 'Dining');
-
-      expect(vocabulary.categories.map((c) => c.name)).toEqual([
         'Dining',
-        'Transportation',
-      ]);
+      );
+
+      expect(vocabulary.categories.map((c) => c.name)).toEqual(['Dining', 'Transportation']);
       expect(vocabulary.state).toBe<CategoryVocabularyState>('editing');
     });
 
@@ -122,15 +100,12 @@ describe('CategoryVocabulary', () => {
     });
 
     it('prevents renaming to an existing category', () => {
-      const vocabulary = CategoryVocabulary.fromDetected([
+      const vocabulary = CategoryVocabulary.fromDetected(['Food', 'Transportation']).renameCategory(
         'Food',
         'Transportation',
-      ]).renameCategory('Food', 'Transportation');
+      );
 
-      expect(vocabulary.categories.map((c) => c.name)).toEqual([
-        'Food',
-        'Transportation',
-      ]);
+      expect(vocabulary.categories.map((c) => c.name)).toEqual(['Food', 'Transportation']);
     });
 
     it('returns the same vocabulary when the original category is not found', () => {

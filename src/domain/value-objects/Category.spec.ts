@@ -47,7 +47,6 @@ describe('Category', () => {
     expect(() => Category.create({ name: '' })).toThrow('Category name cannot be empty');
     expect(() => Category.create({ name: '   ' })).toThrow('Category name cannot be empty');
   });
-
 });
 
 describe('normalizeCategoryName', () => {

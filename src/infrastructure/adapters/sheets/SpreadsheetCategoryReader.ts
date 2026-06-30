@@ -4,7 +4,10 @@
 // and returns sorted unique strings.
 
 import type { Logger } from 'pino';
-import type { CategoryReaderPort, ReadUniqueCategoriesInput } from '../../../domain/ports/categoryVocabulary';
+import type {
+  CategoryReaderPort,
+  ReadUniqueCategoriesInput,
+} from '../../../domain/ports/categoryVocabulary';
 import type { SpreadsheetPortFactory } from '../../../domain/ports/services';
 import { normalizeCategoryName } from '../../../domain/value-objects/Category';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';

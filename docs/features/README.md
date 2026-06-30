@@ -12,6 +12,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive validation of read/write permissions before expense recording.
 - [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based inference engine that analyzes spreadsheet headers and proposes column mappings for Gastto fields.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and natural-language correction of the proposed column mapping with Redis-backed transient state.
+- [`category-vocabulary.md`](./category-vocabulary.md) — Detection, normalization, and confirmation of the user's category vocabulary after column mapping.
 - [`incoming-message-routing.md`](./incoming-message-routing.md) — Webhook ingestion, payload parsing, and channel-agnostic routing of Telegram messages.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM for multi-turn conversational flows with session timeout.

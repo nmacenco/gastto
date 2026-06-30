@@ -38,9 +38,7 @@ export class CategoryVocabulary {
   }
 
   static fromDetected(values: string[]): CategoryVocabulary {
-    const categories = values.map((name, index) =>
-      Category.create({ name, order: index }),
-    );
+    const categories = values.map((name, index) => Category.create({ name, order: index }));
     return new CategoryVocabulary(categories, 'confirming', 'detected');
   }
 
@@ -57,20 +55,12 @@ export class CategoryVocabulary {
 
   addCategory(name: string): CategoryVocabulary {
     const normalized = normalizeCategoryName(name);
-    if (
-      this.categories.some(
-        (category) => normalizeCategoryName(category.name) === normalized,
-      )
-    ) {
+    if (this.categories.some((category) => normalizeCategoryName(category.name) === normalized)) {
       return this;
     }
 
     const newCategory = Category.create({ name, order: this.categories.length });
-    return new CategoryVocabulary(
-      [...this.categories, newCategory],
-      'editing',
-      'user-edited',
-    );
+    return new CategoryVocabulary([...this.categories, newCategory], 'editing', 'user-edited');
   }
 
   removeCategory(name: string): CategoryVocabulary {
