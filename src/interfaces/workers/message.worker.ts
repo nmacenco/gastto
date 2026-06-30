@@ -13,7 +13,10 @@ import type { GetConversationState } from '../../application/use-cases/conversat
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
-import type { IUserRepository, IMappingCorrectionStateRepository } from '../../domain/ports/repositories';
+import type {
+  IUserRepository,
+  IMappingCorrectionStateRepository,
+} from '../../domain/ports/repositories';
 import { ColumnMappingCorrectionState } from '../../domain/value-objects/ColumnMappingCorrectionState';
 import type { ColumnMapping } from '../../domain/entities/SpreadsheetConfig';
 import type { MappingCorrection } from '../../domain/value-objects/ColumnMappingCorrectionState';
@@ -27,7 +30,11 @@ import type { ConfirmColumnMapping } from '../../application/use-cases/spreadshe
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
-import { isConfirmIntent, isCancelIntent, isListColumnsIntent } from '../../application/utils/intents';
+import {
+  isConfirmIntent,
+  isCancelIntent,
+  isListColumnsIntent,
+} from '../../application/utils/intents';
 
 export interface MessageWorkerDeps {
   redis: Redis;
@@ -272,7 +279,15 @@ async function handleOnboardingMapping(
   const hasProposal = Array.isArray(statePayload?.mappings);
 
   if (isResuming) {
-    await handleResumeResponse(userId, rawMessage, externalId, channel, statePayload, opts, messaging);
+    await handleResumeResponse(
+      userId,
+      rawMessage,
+      externalId,
+      channel,
+      statePayload,
+      opts,
+      messaging,
+    );
     return;
   }
 
@@ -295,9 +310,7 @@ async function handleOnboardingMapping(
     const snapshot = await repo.load(userId);
     if (snapshot) {
       const currentMappings = restoreCorrectionSnapshot(snapshot).getCurrentMapping();
-      const prompt = onboardingCopies.mappingResumePrompt(
-        currentMappings.map(toDisplayMapping),
-      );
+      const prompt = onboardingCopies.mappingResumePrompt(currentMappings.map(toDisplayMapping));
       await messaging.sendMessage(externalId, prompt);
       await opts.transitionState.execute({
         userId,
