@@ -11,11 +11,7 @@ import type {
 export class InMemoryMappingCorrectionStateRepository implements IMappingCorrectionStateRepository {
   private readonly store = new Map<string, MappingCorrectionStateSnapshot>();
 
-  save(
-    userId: string,
-    state: MappingCorrectionStateSnapshot,
-    _ttlSeconds: number,
-  ): Promise<void> {
+  save(userId: string, state: MappingCorrectionStateSnapshot, _ttlSeconds: number): Promise<void> {
     this.store.set(userId, state);
     return Promise.resolve();
   }

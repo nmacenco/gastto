@@ -19,7 +19,9 @@ function buildMockRedis(): Redis {
   } as unknown as Redis;
 }
 
-function buildSnapshot(overrides: Partial<MappingCorrectionStateSnapshot> = {}): MappingCorrectionStateSnapshot {
+function buildSnapshot(
+  overrides: Partial<MappingCorrectionStateSnapshot> = {},
+): MappingCorrectionStateSnapshot {
   return {
     originalMapping: [
       {

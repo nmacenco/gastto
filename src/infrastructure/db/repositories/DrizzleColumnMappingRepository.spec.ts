@@ -274,9 +274,9 @@ describe('DrizzleColumnMappingRepository', () => {
       } as unknown as PostgresJsDatabase<typeof schema>;
 
       const repo = new DrizzleColumnMappingRepository(db);
-      await expect(
-        repo.updateCorrected({ id: 'mapping-999', columnIndex: 2 }),
-      ).rejects.toThrow('Column mapping not found');
+      await expect(repo.updateCorrected({ id: 'mapping-999', columnIndex: 2 })).rejects.toThrow(
+        'Column mapping not found',
+      );
     });
   });
 });

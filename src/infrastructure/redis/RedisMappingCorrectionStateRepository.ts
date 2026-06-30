@@ -16,7 +16,11 @@ export class RedisMappingCorrectionStateRepository implements IMappingCorrection
     return `conversation:${userId}:mapping-correction`;
   }
 
-  async save(userId: string, state: MappingCorrectionStateSnapshot, ttlSeconds: number): Promise<void> {
+  async save(
+    userId: string,
+    state: MappingCorrectionStateSnapshot,
+    ttlSeconds: number,
+  ): Promise<void> {
     await this.redis.setex(this.key(userId), ttlSeconds, JSON.stringify(state));
   }
 

@@ -23,7 +23,9 @@ const mockUpdateCorrected = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockTransitionExecute = vi.fn();
 
-function buildMockDeps(overrides: Partial<ConfirmColumnMappingDeps> = {}): ConfirmColumnMappingDeps {
+function buildMockDeps(
+  overrides: Partial<ConfirmColumnMappingDeps> = {},
+): ConfirmColumnMappingDeps {
   return {
     columnMappingRepository: {
       findBySpreadsheetId: mockFindBySpreadsheetId,
@@ -138,10 +140,7 @@ describe('ConfirmColumnMapping', () => {
       targetState: 'ONBOARDING_START',
       payload: { promptShown: true },
     });
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      onboardingCopies.reconnectAccount(),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
     expect(result.nextState).toBe('ONBOARDING_START');
   });
 

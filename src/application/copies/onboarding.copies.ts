@@ -147,7 +147,10 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     return message;
   },
 
-  invalidColumnPrompt: (columnRef: string, availableColumns: { index: number; columnHeader: string }[]) => {
+  invalidColumnPrompt: (
+    columnRef: string,
+    availableColumns: { index: number; columnHeader: string }[],
+  ) => {
     const lines = availableColumns.map(
       (c) => `${columnIndexToLetter(c.index)} - ${c.columnHeader}`,
     );

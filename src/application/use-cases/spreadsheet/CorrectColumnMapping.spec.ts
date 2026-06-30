@@ -17,13 +17,20 @@ import type {
   MappingCorrectionStateSnapshot,
   IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
-import type { ISpreadsheetColumnPort, AvailableColumn } from '../../../domain/ports/spreadsheetColumns';
+import type {
+  ISpreadsheetColumnPort,
+  AvailableColumn,
+} from '../../../domain/ports/spreadsheetColumns';
 import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { ColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
 import { ColumnMappingCorrectionState } from '../../../domain/value-objects/ColumnMappingCorrectionState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
-import type { ColumnMapping, SpreadsheetConfig, OAuthToken } from '../../../domain/entities/SpreadsheetConfig';
+import type {
+  ColumnMapping,
+  SpreadsheetConfig,
+  OAuthToken,
+} from '../../../domain/entities/SpreadsheetConfig';
 
 const mockFindByUserId = vi.fn();
 const mockFindBySpreadsheetId = vi.fn();
@@ -37,7 +44,9 @@ const mockClearCorrectionState = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockTransitionExecute = vi.fn();
 
-function buildMockDeps(overrides: Partial<CorrectColumnMappingDeps> = {}): CorrectColumnMappingDeps {
+function buildMockDeps(
+  overrides: Partial<CorrectColumnMappingDeps> = {},
+): CorrectColumnMappingDeps {
   return {
     columnMappingRepository: {
       findBySpreadsheetId: mockFindBySpreadsheetId,
@@ -165,7 +174,8 @@ describe('CorrectColumnMapping', () => {
     expect(result.nextState).toBe('ONBOARDING_MAPPING');
 
     expect(mockSaveCorrectionState).toHaveBeenCalledTimes(1);
-    const savedSnapshot = mockSaveCorrectionState.mock.calls[0]![1] as MappingCorrectionStateSnapshot;
+    const savedSnapshot = mockSaveCorrectionState.mock
+      .calls[0]![1] as MappingCorrectionStateSnapshot;
     expect(savedSnapshot.corrections).toHaveLength(1);
     expect(savedSnapshot.corrections[0]).toEqual({
       field: 'categoria',
@@ -220,7 +230,8 @@ describe('CorrectColumnMapping', () => {
     const result = await useCase.execute(baseInput);
 
     expect(result.kind).toBe('updated');
-    const savedSnapshot = mockSaveCorrectionState.mock.calls[0]![1] as MappingCorrectionStateSnapshot;
+    const savedSnapshot = mockSaveCorrectionState.mock
+      .calls[0]![1] as MappingCorrectionStateSnapshot;
     expect(savedSnapshot.corrections).toHaveLength(2);
     expect(savedSnapshot.corrections).toEqual(
       expect.arrayContaining([
@@ -244,7 +255,8 @@ describe('CorrectColumnMapping', () => {
     const result = await useCase.execute(baseInput);
 
     expect(result.kind).toBe('updated');
-    const savedSnapshot = mockSaveCorrectionState.mock.calls[0]![1] as MappingCorrectionStateSnapshot;
+    const savedSnapshot = mockSaveCorrectionState.mock
+      .calls[0]![1] as MappingCorrectionStateSnapshot;
     expect(savedSnapshot.corrections).toHaveLength(1);
     expect(savedSnapshot.corrections[0]).toEqual({
       field: 'categoria',
@@ -304,10 +316,7 @@ describe('CorrectColumnMapping', () => {
     expect(result.kind).toBe('no-proposed-mapping');
     expect(result.nextState).toBe('ONBOARDING_START');
     expect(mockFindBySpreadsheetId).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      onboardingCopies.reconnectAccount(),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
     expect(mockTransitionExecute).toHaveBeenCalledWith({
       userId: 'user-123',
       targetState: 'ONBOARDING_START',
@@ -345,10 +354,7 @@ describe('CorrectColumnMapping', () => {
     expect(result.kind).toBe('no-proposed-mapping');
     expect(result.nextState).toBe('ONBOARDING_START');
     expect(mockListAvailableColumns).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      onboardingCopies.reconnectAccount(),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
     expect(mockTransitionExecute).toHaveBeenCalledWith({
       userId: 'user-123',
       targetState: 'ONBOARDING_START',
@@ -370,10 +376,7 @@ describe('CorrectColumnMapping', () => {
     expect(result.kind).toBe('no-proposed-mapping');
     expect(result.nextState).toBe('ONBOARDING_START');
     expect(mockDecrypt).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      onboardingCopies.reconnectAccount(),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
   });
 
   it('triggers reconnect flow when token decryption fails', async () => {
@@ -389,10 +392,7 @@ describe('CorrectColumnMapping', () => {
     expect(result.kind).toBe('no-proposed-mapping');
     expect(result.nextState).toBe('ONBOARDING_START');
     expect(mockListAvailableColumns).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      onboardingCopies.reconnectAccount(),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
   });
 
   it('does not send confirmation message when correction state save fails', async () => {
@@ -419,10 +419,7 @@ describe('CorrectColumnMapping', () => {
     await expect(useCase.execute(baseInput)).rejects.toThrow('Invalid transition');
 
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      expect.stringContaining('Actualicé'),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', expect.stringContaining('Actualicé'));
   });
 
   it('resolves column references by numeric index and header name', async () => {
@@ -431,10 +428,14 @@ describe('CorrectColumnMapping', () => {
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
 
-    const result = await useCase.execute({ ...baseInput, rawMessage: 'el concepto es Descripción' });
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'el concepto es Descripción',
+    });
 
     expect(result.kind).toBe('updated');
-    const savedSnapshot = mockSaveCorrectionState.mock.calls[0]![1] as MappingCorrectionStateSnapshot;
+    const savedSnapshot = mockSaveCorrectionState.mock
+      .calls[0]![1] as MappingCorrectionStateSnapshot;
     expect(savedSnapshot.corrections[0]).toEqual({
       field: 'concepto',
       columnIndex: 3,

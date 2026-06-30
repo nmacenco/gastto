@@ -26,20 +26,13 @@ export class ColumnMappingCorrectionState {
   applyCorrection(correction: MappingCorrection): ColumnMappingCorrectionState {
     return new ColumnMappingCorrectionState(
       this.originalMapping,
-      [
-        ...this.corrections.filter((c) => c.field !== correction.field),
-        correction,
-      ],
+      [...this.corrections.filter((c) => c.field !== correction.field), correction],
       'correcting',
     );
   }
 
   confirm(): ColumnMappingCorrectionState {
-    return new ColumnMappingCorrectionState(
-      this.originalMapping,
-      this.corrections,
-      'confirmed',
-    );
+    return new ColumnMappingCorrectionState(this.originalMapping, this.corrections, 'confirmed');
   }
 
   getCurrentMapping(): ColumnMapping[] {

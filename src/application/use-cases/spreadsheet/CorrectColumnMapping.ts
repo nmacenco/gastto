@@ -10,7 +10,10 @@ import type {
   MappingCorrectionStateSnapshot,
   IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
-import type { ISpreadsheetColumnPort, AvailableColumn } from '../../../domain/ports/spreadsheetColumns';
+import type {
+  ISpreadsheetColumnPort,
+  AvailableColumn,
+} from '../../../domain/ports/spreadsheetColumns';
 import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';

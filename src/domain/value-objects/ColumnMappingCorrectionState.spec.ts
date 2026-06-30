@@ -31,7 +31,9 @@ describe('ColumnMappingCorrectionState', () => {
   });
 
   it('applies a correction and switches to correcting status', () => {
-    const original = [buildMapping({ GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Cat' })];
+    const original = [
+      buildMapping({ GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Cat' }),
+    ];
     const state = ColumnMappingCorrectionState.create(original);
 
     const corrected = state.applyCorrection({
@@ -47,7 +49,9 @@ describe('ColumnMappingCorrectionState', () => {
   });
 
   it('replaces a previous correction for the same field', () => {
-    const original = [buildMapping({ GasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto' })];
+    const original = [
+      buildMapping({ GasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto' }),
+    ];
     const state = ColumnMappingCorrectionState.create(original)
       .applyCorrection({ field: 'monto', columnIndex: 5, columnHeader: 'Valor' })
       .applyCorrection({ field: 'monto', columnIndex: 6, columnHeader: 'Importe' });
@@ -73,7 +77,9 @@ describe('ColumnMappingCorrectionState', () => {
   });
 
   it('confirms the state without losing corrections', () => {
-    const original = [buildMapping({ GasttoField: 'concepto', columnIndex: 3, columnHeader: 'Desc' })];
+    const original = [
+      buildMapping({ GasttoField: 'concepto', columnIndex: 3, columnHeader: 'Desc' }),
+    ];
     const state = ColumnMappingCorrectionState.create(original)
       .applyCorrection({ field: 'concepto', columnIndex: 4, columnHeader: 'Descripción' })
       .confirm();
@@ -85,7 +91,11 @@ describe('ColumnMappingCorrectionState', () => {
   it('is immutable', () => {
     const original = [buildMapping()];
     const state = ColumnMappingCorrectionState.create(original);
-    const corrected = state.applyCorrection({ field: 'fecha', columnIndex: 7, columnHeader: 'Date' });
+    const corrected = state.applyCorrection({
+      field: 'fecha',
+      columnIndex: 7,
+      columnHeader: 'Date',
+    });
 
     expect(state.status).toBe('proposed');
     expect(state.corrections).toHaveLength(0);

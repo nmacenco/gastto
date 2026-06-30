@@ -16,7 +16,9 @@ import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 const GOOGLE_SHEETS_API_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
 const GOOGLE_DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
 
-export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheetAccessPort, ISpreadsheetColumnPort {
+export class GoogleSheetsAdapter
+  implements SpreadsheetPort, ValidateSpreadsheetAccessPort, ISpreadsheetColumnPort
+{
   constructor(private readonly accessToken: string) {}
 
   async listSheets(fileId: string): Promise<SheetInfo[]> {
