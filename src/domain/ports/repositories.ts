@@ -13,6 +13,10 @@ import type {
   UserCategory,
   OAuthToken,
 } from '../entities/SpreadsheetConfig';
+import type {
+  MappingCorrection,
+  MappingCorrectionStatus,
+} from '../value-objects/ColumnMappingCorrectionState';
 import type { OperationLog, OperationType, ErrorType } from '../entities/OperationLog';
 
 // ── Usuario ─────────────────────────────────────────────────────────────────
@@ -114,6 +118,20 @@ export interface IColumnMappingRepository {
 
   // Updates a single mapping after a user correction (column, header, inferred flag)
   updateCorrected(mapping: Partial<ColumnMapping> & { id: string }): Promise<void>;
+}
+
+// ── Transient mapping correction state (HU-4.06) ─────────────────────────────
+
+export interface MappingCorrectionStateSnapshot {
+  originalMapping: ColumnMapping[];
+  corrections: MappingCorrection[];
+  status: MappingCorrectionStatus;
+}
+
+export interface IMappingCorrectionStateRepository {
+  save(userId: string, state: MappingCorrectionStateSnapshot, ttlSeconds: number): Promise<void>;
+  load(userId: string): Promise<MappingCorrectionStateSnapshot | null>;
+  clear(userId: string): Promise<void>;
 }
 
 export interface IUserCategoryRepository {

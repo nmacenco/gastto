@@ -4,6 +4,10 @@
 
 import type { SpreadsheetPort, Row, AppendResult, CellValue } from '../../../domain/ports/services';
 import type { ValidateSpreadsheetAccessPort } from '../../../domain/ports/spreadsheetAccess';
+import type {
+  ISpreadsheetColumnPort,
+  AvailableColumn,
+} from '../../../domain/ports/spreadsheetColumns';
 import type { SpreadsheetAccessResult } from '../../../domain/value-objects/SpreadsheetAccessResult';
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
 import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
@@ -12,7 +16,7 @@ import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 const GOOGLE_SHEETS_API_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
 const GOOGLE_DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
 
-export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheetAccessPort {
+export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheetAccessPort, ISpreadsheetColumnPort {
   constructor(private readonly accessToken: string) {}
 
   async listSheets(fileId: string): Promise<SheetInfo[]> {
@@ -98,6 +102,19 @@ export class GoogleSheetsAdapter implements SpreadsheetPort, ValidateSpreadsheet
     }
 
     return parseGetHeadersResponse(data);
+  }
+
+  async listAvailableColumns(input: {
+    provider: 'google' | 'microsoft';
+    fileId: string;
+    sheetName: string;
+    accessToken: string;
+  }): Promise<AvailableColumn[]> {
+    // Use the access token supplied in the input so a single port instance can
+    // serve requests for different users/sessions.
+    const client = new GoogleSheetsAdapter(input.accessToken);
+    const headers = await client.getHeaders(input.fileId, input.sheetName);
+    return headers.map((columnHeader, index) => ({ index, columnHeader }));
   }
 
   readRows(_fileId: string, _range: string): Promise<Row[]> {

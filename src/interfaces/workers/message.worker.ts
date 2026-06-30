@@ -21,6 +21,7 @@ import type { HandleSheetSelection } from '../../application/use-cases/spreadshe
 import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
 import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
+import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { isConfirmIntent, isCancelIntent } from '../../application/utils/intents';
@@ -41,6 +42,7 @@ export interface MessageWorkerDeps {
   validateSpreadsheetAccess?: ValidateSpreadsheetAccess | null;
   inferColumnMapping?: InferColumnMapping | null;
   confirmColumnMapping?: ConfirmColumnMapping | null;
+  correctColumnMapping?: CorrectColumnMapping | null;
 }
 
 export async function processMessageJob(
@@ -181,7 +183,23 @@ export async function processMessageJob(
     }
 
     case 'ONBOARDING_MAPPING': {
-      if (opts.inferColumnMapping) {
+      const hasProposal = Array.isArray(conversationState?.statePayload?.mappings);
+
+      if (hasProposal && isConfirmIntent(rawMessage) && opts.confirmColumnMapping) {
+        await opts.confirmColumnMapping.execute({
+          userId,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else if (hasProposal && opts.correctColumnMapping) {
+        await opts.correctColumnMapping.execute({
+          userId,
+          externalId,
+          channel,
+          rawMessage,
+        });
+      } else if (opts.inferColumnMapping) {
         await opts.inferColumnMapping.execute({
           userId,
           externalId,

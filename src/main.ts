@@ -37,7 +37,9 @@ import { GoogleDriveOAuthAdapter } from './infrastructure/adapters/oauth';
 import { GoogleDriveFileDiscoveryAdapter } from './infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
 import { GoogleSheetsAdapterFactory } from './infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
 import { SpreadsheetAccessAdapterFactory } from './infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
+import { GoogleSheetsAdapter } from './infrastructure/adapters/sheets/GoogleSheetsAdapter';
 import { RuleBasedColumnInferenceAdapter } from './infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
+import { RuleBasedColumnMappingCorrectionParser } from './application/services/ColumnMappingCorrectionParser';
 import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
 
 // Application
@@ -51,7 +53,9 @@ import { HandleSheetSelection } from './application/use-cases/spreadsheet/Handle
 import { ValidateSpreadsheetAccess } from './application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import { InferColumnMapping } from './application/use-cases/spreadsheet/InferColumnMapping';
 import { ConfirmColumnMapping } from './application/use-cases/spreadsheet/ConfirmColumnMapping';
+import { CorrectColumnMapping } from './application/use-cases/spreadsheet/CorrectColumnMapping';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
+import { RedisMappingCorrectionStateRepository } from './infrastructure/redis/RedisMappingCorrectionStateRepository';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
 import { TransitionConversationState } from './application/use-cases/conversation/TransitionConversationState';
@@ -373,6 +377,22 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
+        const correctColumnMapping =
+          googleOAuthAdapter !== null
+            ? new CorrectColumnMapping({
+                columnMappingRepository: columnMappingRepo,
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+                tokenRepository: tokenRepo,
+                tokenEncryption,
+                spreadsheetColumnPort: new GoogleSheetsAdapter(''),
+                correctionParser: new RuleBasedColumnMappingCorrectionParser(),
+                correctionStateRepository: new RedisMappingCorrectionStateRepository(redis),
+                messagingPort: telegramAdapter,
+                transitionState,
+                stateTtlSeconds: env.MAPPING_CORRECTION_TTL_SECONDS,
+              })
+            : null;
+
         // Thick worker (ADR-005): FSM → NLP → user response
         const messageWorker = createMessageWorker({
           redis,
@@ -395,6 +415,7 @@ async function bootstrap(): Promise<void> {
           validateSpreadsheetAccess,
           inferColumnMapping,
           confirmColumnMapping,
+          correctColumnMapping,
         });
         app.log.info(
           `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,

@@ -129,6 +129,33 @@ export const onboardingCopies = {
     `Todavía no tengo una propuesta de mapeo para confirmar. Esperá un momento o escribí *empezar* para reconectar.`,
 
   unmappedFieldsNote: (fields: GasttoField[]) => formatUnmappedFields(fields),
+
+  // Mapping correction copies (HU-4.06)
+  mappingUpdatedConfirmation: (
+    mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
+    unmappedFields: GasttoField[],
+  ) => {
+    const lines = mappings.map(
+      (m) =>
+        `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
+    );
+    let message = `Actualicé el mapeo:
+${lines.join('\n')}\n\n¿Está correcto ahora?`;
+    if (unmappedFields.length > 0) {
+      message += `\n\n${formatUnmappedFields(unmappedFields)}`;
+    }
+    return message;
+  },
+
+  invalidColumnPrompt: (columnRef: string, availableColumns: { index: number; columnHeader: string }[]) => {
+    const lines = availableColumns.map(
+      (c) => `${columnIndexToLetter(c.index)} - ${c.columnHeader}`,
+    );
+    return `No encontré la columna *${columnRef}* en tu planilla. Las columnas disponibles son:\n${lines.join('\n')}\n\nEscribí la letra, número o nombre correcto.`;
+  },
+
+  correctionParseFailurePrompt: () =>
+    `No entendí la corrección. Podés escribir algo como: "la categoría está en la columna E" o "el monto va en B".`,
 };
 
 const GASTTO_FIELD_LABELS: Record<GasttoField, string> = {
