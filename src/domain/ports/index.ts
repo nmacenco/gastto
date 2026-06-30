@@ -1,6 +1,7 @@
 // LAYER: Domain
 // Barrel export for domain ports. Keeps imports stable across refactors.
 
+export * from './categoryVocabulary';
 export * from './cloudStorage';
 export * from './columnInference';
 export * from './messaging';

@@ -5,6 +5,7 @@
 import type { ExtractedExpense } from '../entities/ExpenseRecord';
 import type { SheetInfo } from '../entities/SheetInfo';
 import type { Currency } from '../entities/User';
+import type { SpreadsheetProvider } from '../entities/SpreadsheetConfig';
 
 // ── LLMPort (ADR-002) ─────────────────────────────────────────────────────────
 // Default implementation: OpenAIAdapter (gpt-4o).
@@ -74,5 +75,5 @@ export interface SpreadsheetPort {
 // storing the token in the adapter's constructor at bootstrap time.
 
 export interface SpreadsheetPortFactory {
-  create(accessToken: string): SpreadsheetPort;
+  create(provider: SpreadsheetProvider, accessToken: string): SpreadsheetPort;
 }

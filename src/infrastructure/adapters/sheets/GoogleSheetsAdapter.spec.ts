@@ -332,6 +332,90 @@ describe('GoogleSheetsAdapter', () => {
     });
   });
 
+  describe('getUniqueValues', () => {
+    it('returns unique values from a column', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            range: 'Gastos!C:C',
+            majorDimension: 'COLUMNS',
+            values: [['Categoria'], ['Food'], ['Transportation'], ['Food'], ['Health'], ['']],
+          }),
+      });
+
+      const result = await adapter.getUniqueValues('spreadsheet-123', 2, 'Gastos');
+
+      expect(result).toEqual(['Categoria', 'Food', 'Transportation', 'Food', 'Health', '']);
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!C:C',
+      );
+    });
+
+    it('returns empty array when column has no values', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
+
+      const result = await adapter.getUniqueValues('spreadsheet-123', 0, 'Gastos');
+      expect(result).toEqual([]);
+    });
+
+    it('handles multi-letter column indices', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: [['Value']] }),
+      });
+
+      await adapter.getUniqueValues('spreadsheet-123', 27, 'Gastos');
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain('AB:AB');
+    });
+
+    it('throws SpreadsheetError on non-2xx HTTP', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({ error: 'notFound' }),
+      });
+
+      await expect(adapter.getUniqueValues('spreadsheet-123', 0, 'Gastos')).rejects.toBeInstanceOf(
+        SpreadsheetError,
+      );
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'GoogleSheetsAdapter.getUniqueValues',
+          code: 'SHEETS_API_ERROR',
+          status: 404,
+        }),
+      );
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('throws SpreadsheetError on network failure', async () => {
+      fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      await expect(adapter.getUniqueValues('spreadsheet-123', 0, 'Gastos')).rejects.toBeInstanceOf(
+        SpreadsheetError,
+      );
+    });
+
+    it('throws SpreadsheetError for negative column index', async () => {
+      await expect(adapter.getUniqueValues('spreadsheet-123', -1, 'Gastos')).rejects.toBeInstanceOf(
+        SpreadsheetError,
+      );
+    });
+  });
+
   describe('unimplemented methods', () => {
     it('readRows throws SpreadsheetError', async () => {
       await expect(adapter.readRows('id', 'range')).rejects.toBeInstanceOf(SpreadsheetError);
@@ -343,12 +427,6 @@ describe('GoogleSheetsAdapter', () => {
 
     it('deleteRow throws SpreadsheetError', async () => {
       await expect(adapter.deleteRow('id', 'sheet', 1)).rejects.toBeInstanceOf(SpreadsheetError);
-    });
-
-    it('getUniqueValues throws SpreadsheetError', async () => {
-      await expect(adapter.getUniqueValues('id', 0, 'sheet')).rejects.toBeInstanceOf(
-        SpreadsheetError,
-      );
     });
 
     it('validateAccess throws SpreadsheetError', async () => {

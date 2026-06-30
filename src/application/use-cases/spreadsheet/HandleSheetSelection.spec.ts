@@ -43,10 +43,10 @@ const mockEncrypt = vi.fn();
 const mockDecrypt = vi.fn();
 const mockCreateConfig = vi.fn();
 const mockLoggerError = vi.fn();
-const mockCreatePort = vi.fn().mockReturnValue({
+const mockCreatePort = vi.fn().mockImplementation((_provider, _accessToken) => ({
   listSheets: mockListSheets,
   getHeaders: mockGetHeaders,
-});
+}));
 
 function buildMockDeps(
   overrides: Partial<HandleSheetSelectionDeps> = {},

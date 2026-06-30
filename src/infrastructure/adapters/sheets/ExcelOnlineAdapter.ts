@@ -105,8 +105,46 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     return Promise.reject(new SpreadsheetError('deleteRow not yet implemented'));
   }
 
-  getUniqueValues(_fileId: string, _columnIndex: number, _sheetName: string): Promise<string[]> {
-    return Promise.reject(new SpreadsheetError('getUniqueValues not yet implemented'));
+  async getUniqueValues(fileId: string, columnIndex: number, sheetName: string): Promise<string[]> {
+    const encodedSheetName = encodeURIComponent(sheetName);
+    const columnLetter = columnIndexToLetter(columnIndex);
+    const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets/${encodedSheetName}/range(address='${columnLetter}:${columnLetter}')`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+    } catch (err) {
+      throw new SpreadsheetError(`Network error during unique values retrieval: ${String(err)}`);
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new SpreadsheetError(`Invalid JSON response from Graph API: HTTP ${response.status}`);
+    }
+
+    if (!response.ok) {
+      let errorBody: unknown;
+      try {
+        errorBody = await response.json();
+      } catch {
+        errorBody = 'Could not parse error body';
+      }
+      console.error({
+        endpoint: 'ExcelOnlineAdapter.getUniqueValues',
+        code: 'GRAPH_API_ERROR',
+        status: response.status,
+        errorBody,
+      });
+      throw new SpreadsheetError(
+        `Graph API error during unique values retrieval: HTTP ${response.status}`,
+      );
+    }
+
+    return parseUniqueValuesResponse(data);
   }
 
   validateAccess(_fileId: string, _sheetName: string): Promise<boolean> {
@@ -333,4 +371,37 @@ function parseCanEdit(data: unknown): boolean {
 
   const canEdit = (capabilities as Record<string, unknown>).canEdit;
   return canEdit === true;
+}
+
+function columnIndexToLetter(index: number): string {
+  if (index < 0) {
+    throw new SpreadsheetError(`Invalid column index: ${index}`);
+  }
+
+  let result = '';
+  let remaining = index;
+  do {
+    result = String.fromCharCode((remaining % 26) + 65) + result;
+    remaining = Math.floor(remaining / 26) - 1;
+  } while (remaining >= 0);
+
+  return result;
+}
+
+function parseUniqueValuesResponse(data: unknown): string[] {
+  if (typeof data !== 'object' || data === null) {
+    return [];
+  }
+
+  const values = (data as Record<string, unknown>).values;
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return values
+    .filter((row): row is unknown[] => Array.isArray(row) && row.length > 0)
+    .map((row) => {
+      const firstCell = row[0];
+      return typeof firstCell === 'string' ? firstCell : String(firstCell);
+    });
 }

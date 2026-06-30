@@ -35,7 +35,7 @@ import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/Tel
 import { TelegramWebhookConfigurator } from './infrastructure/adapters/telegram/TelegramWebhookConfigurator';
 import { GoogleDriveOAuthAdapter } from './infrastructure/adapters/oauth';
 import { GoogleDriveFileDiscoveryAdapter } from './infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
-import { GoogleSheetsAdapterFactory } from './infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
+import { SpreadsheetPortAdapterFactory } from './infrastructure/adapters/sheets/SpreadsheetPortAdapterFactory';
 import { SpreadsheetAccessAdapterFactory } from './infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import { GoogleSheetsAdapter } from './infrastructure/adapters/sheets/GoogleSheetsAdapter';
 import { RuleBasedColumnInferenceAdapter } from './infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
@@ -296,13 +296,13 @@ async function bootstrap(): Promise<void> {
         const googleDriveFileDiscovery =
           googleOAuthAdapter !== null ? new GoogleDriveFileDiscoveryAdapter(rootLogger) : null;
 
-        const googleSheetsAdapterFactory = new GoogleSheetsAdapterFactory();
+        const spreadsheetPortAdapterFactory = new SpreadsheetPortAdapterFactory();
         const spreadsheetAccessAdapterFactory = new SpreadsheetAccessAdapterFactory();
 
         const handleSheetSelection =
           googleOAuthAdapter !== null
             ? new HandleSheetSelection({
-                spreadsheetPortFactory: googleSheetsAdapterFactory,
+                spreadsheetPortFactory: spreadsheetPortAdapterFactory,
                 tokenRepository: tokenRepo,
                 transitionState,
                 messagingPort: telegramAdapter,

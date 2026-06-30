@@ -130,7 +130,7 @@ export class HandleSheetSelection {
     }
 
     // 2. Create SpreadsheetPort
-    const spreadsheetPort = this.deps.spreadsheetPortFactory.create(accessToken);
+    const spreadsheetPort = this.deps.spreadsheetPortFactory.create(provider, accessToken);
 
     const fileId = statePayload?.selectedFileId as string;
     const fileName = statePayload?.selectedFileName as string;
@@ -220,7 +220,7 @@ export class HandleSheetSelection {
       return this.handleReconnect(externalId, userId, 'TOKEN_DECRYPTION_FAILED', err);
     }
 
-    const spreadsheetPort = this.deps.spreadsheetPortFactory.create(accessToken);
+    const spreadsheetPort = this.deps.spreadsheetPortFactory.create(provider, accessToken);
 
     return this.handleSelection(
       userId,

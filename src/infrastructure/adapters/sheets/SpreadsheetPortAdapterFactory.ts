@@ -1,16 +1,16 @@
 // LAYER: Infrastructure
-// Factory that creates GoogleSheetsAdapter instances with a fresh access token.
-// Implements the SpreadsheetPortFactory domain port for Google provider only.
+// Provider-aware factory that creates SpreadsheetPort implementations.
+// Supports both Google Sheets and Excel Online adapters.
 
 import { GoogleSheetsAdapter } from './GoogleSheetsAdapter';
-import { InvalidProviderError } from '../../../domain/errors/InvalidProviderError';
+import { ExcelOnlineAdapter } from './ExcelOnlineAdapter';
 import type { SpreadsheetPortFactory, SpreadsheetPort } from '../../../domain/ports/services';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
 
-export class GoogleSheetsAdapterFactory implements SpreadsheetPortFactory {
+export class SpreadsheetPortAdapterFactory implements SpreadsheetPortFactory {
   create(provider: SpreadsheetProvider, accessToken: string): SpreadsheetPort {
-    if (provider !== 'google') {
-      throw new InvalidProviderError(provider);
+    if (provider === 'microsoft') {
+      return new ExcelOnlineAdapter(accessToken);
     }
     return new GoogleSheetsAdapter(accessToken);
   }
