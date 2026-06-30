@@ -13,6 +13,8 @@ import type { HandleSpreadsheetFileSelection } from '../../application/use-cases
 import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
 import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
+import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
+import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
@@ -28,6 +30,11 @@ const mockHandleSpreadsheetFileSelectionExecute = vi.fn();
 const mockHandleSheetSelectionExecute = vi.fn();
 const mockValidateSpreadsheetAccessExecute = vi.fn();
 const mockInferColumnMappingExecute = vi.fn();
+const mockConfirmColumnMappingExecute = vi.fn();
+const mockCorrectColumnMappingExecute = vi.fn();
+const mockLoadCorrectionState = vi.fn();
+const mockSaveCorrectionState = vi.fn();
+const mockClearCorrectionState = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -52,6 +59,11 @@ function buildMockDeps(): MessageWorkerDeps {
       telegram: { sendMessage: mockSendMessage },
       whatsapp: { sendMessage: mockSendMessage },
     },
+    mappingCorrectionStateRepository: {
+      load: mockLoadCorrectionState,
+      save: mockSaveCorrectionState,
+      clear: mockClearCorrectionState,
+    },
     initiateCloudConnection: {
       execute: mockInitiateCloudConnectionExecute,
     } as unknown as InitiateCloudConnection,
@@ -70,6 +82,12 @@ function buildMockDeps(): MessageWorkerDeps {
     inferColumnMapping: {
       execute: mockInferColumnMappingExecute,
     } as unknown as InferColumnMapping,
+    confirmColumnMapping: {
+      execute: mockConfirmColumnMappingExecute,
+    } as unknown as ConfirmColumnMapping,
+    correctColumnMapping: {
+      execute: mockCorrectColumnMappingExecute,
+    } as unknown as CorrectColumnMapping,
   };
 }
 
@@ -518,7 +536,18 @@ describe('processMessageJob', () => {
     });
 
     describe('ONBOARDING_MAPPING', () => {
-      it('delegates to InferColumnMapping when wired', async () => {
+      const mappingPayload = {
+        selectedFileId: 'f1',
+        selectedFileName: 'file1',
+        selectedSheetName: 'Gastos',
+        provider: 'google',
+        mappings: [
+          { gasttoField: 'fecha' as const, columnIndex: 0, columnHeader: 'Fecha' },
+          { gasttoField: 'monto' as const, columnIndex: 1, columnHeader: 'Monto' },
+        ],
+      };
+
+      it('delegates to InferColumnMapping when there is no mapping proposal', async () => {
         const deps = buildMockDeps();
         mockGetConversationStateExecute.mockResolvedValue(
           buildConversationState({
@@ -552,9 +581,95 @@ describe('processMessageJob', () => {
           },
         });
         expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockConfirmColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockCorrectColumnMappingExecute).not.toHaveBeenCalled();
       });
 
-      it('falls back to placeholder when InferColumnMapping is not wired', async () => {
+      it('delegates to ConfirmColumnMapping on confirm intent with an existing proposal', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: mappingPayload,
+          }),
+        );
+        mockConfirmColumnMappingExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_CATEGORIES',
+          message: onboardingCopies.mappingConfirmedNextStep(),
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+        expect(mockConfirmColumnMappingExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: mappingPayload,
+        });
+        expect(mockCorrectColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('delegates to CorrectColumnMapping on correction message with an existing proposal', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: mappingPayload,
+          }),
+        );
+        mockCorrectColumnMappingExecute.mockResolvedValue({
+          kind: 'updated',
+          nextState: 'ONBOARDING_MAPPING',
+          message: onboardingCopies.mappingUpdatedConfirmation(mappingPayload.mappings, []),
+        });
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, rawMessage: 'la categoría está en la columna E' }),
+          deps,
+        );
+
+        expect(mockCorrectColumnMappingExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          rawMessage: 'la categoría está en la columna E',
+        });
+        expect(mockConfirmColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('delegates to CorrectColumnMapping with a synthetic invalid correction for list-columns intent', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: mappingPayload,
+          }),
+        );
+        mockCorrectColumnMappingExecute.mockResolvedValue({
+          kind: 'invalid-column',
+          nextState: 'ONBOARDING_MAPPING',
+          message: onboardingCopies.invalidColumnPrompt('ZZZ', []),
+          availableColumns: [],
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'mostrar columnas' }), deps);
+
+        expect(mockCorrectColumnMappingExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          rawMessage: 'la categoría está en la columna ZZZ',
+        });
+        expect(mockConfirmColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('falls back to placeholder when InferColumnMapping is not wired and no proposal exists', async () => {
         const deps = buildMockDeps();
         deps.inferColumnMapping = null;
         mockGetConversationStateExecute.mockResolvedValue(
@@ -568,6 +683,184 @@ describe('processMessageJob', () => {
           onboardingCopies.onboardingPlaceholder(),
         );
         expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockConfirmColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockCorrectColumnMappingExecute).not.toHaveBeenCalled();
+      });
+
+      it('falls back to placeholder when ConfirmColumnMapping is not wired and user confirms', async () => {
+        const deps = buildMockDeps();
+        deps.confirmColumnMapping = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: mappingPayload,
+          }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+        expect(mockConfirmColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockCorrectColumnMappingExecute).not.toHaveBeenCalled();
+      });
+
+      it('sends resume prompt when a saved correction snapshot exists but FSM has no proposal', async () => {
+        const basePayload = {
+          selectedFileId: 'f1',
+          selectedFileName: 'file1',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+        };
+        const snapshot = {
+          originalMapping: [
+            {
+              id: 'mapping-1',
+              spreadsheetId: 'config-1',
+              GasttoField: 'fecha' as const,
+              columnIndex: 0,
+              columnHeader: 'Fecha',
+              inferred: true,
+              confirmedAt: null,
+            },
+          ],
+          corrections: [
+            {
+              field: 'fecha' as const,
+              columnIndex: 2,
+              columnHeader: 'Fecha real',
+            },
+          ],
+          status: 'correcting' as const,
+        };
+        mockLoadCorrectionState.mockResolvedValue(snapshot);
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: basePayload,
+          }),
+        );
+
+        const deps = buildMockDeps();
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockLoadCorrectionState).toHaveBeenCalledWith('user-123');
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.mappingResumePrompt([
+            { gasttoField: 'fecha', columnIndex: 2, columnHeader: 'Fecha real' },
+          ]),
+        );
+        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          targetState: 'ONBOARDING_MAPPING',
+          payload: { ...basePayload, step: 'resume' },
+        });
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+      });
+
+      it('loads snapshot and displays updated mapping when user confirms resume prompt', async () => {
+        const snapshot = {
+          originalMapping: [
+            {
+              id: 'mapping-1',
+              spreadsheetId: 'config-1',
+              GasttoField: 'fecha' as const,
+              columnIndex: 0,
+              columnHeader: 'Fecha',
+              inferred: true,
+              confirmedAt: null,
+            },
+          ],
+          corrections: [
+            {
+              field: 'fecha' as const,
+              columnIndex: 2,
+              columnHeader: 'Fecha real',
+            },
+          ],
+          status: 'correcting' as const,
+        };
+        mockLoadCorrectionState.mockResolvedValue(snapshot);
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: { step: 'resume' },
+          }),
+        );
+
+        const deps = buildMockDeps();
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+        expect(mockLoadCorrectionState).toHaveBeenCalledWith('user-123');
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.mappingUpdatedConfirmation(
+            [{ gasttoField: 'fecha', columnIndex: 2, columnHeader: 'Fecha real' }],
+            [],
+          ),
+        );
+        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          targetState: 'ONBOARDING_MAPPING',
+          payload: {
+            step: 'resume',
+            mappings: [{ gasttoField: 'fecha', columnIndex: 2, columnHeader: 'Fecha real' }],
+            unmappedFields: [],
+          },
+        });
+      });
+
+      it('clears snapshot and falls back to inference when user declines resume prompt', async () => {
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: { step: 'resume' },
+          }),
+        );
+        mockInferColumnMappingExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_MAPPING',
+          message: 'Mapping proposal sent.',
+        });
+
+        const deps = buildMockDeps();
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'no' }), deps);
+
+        expect(mockClearCorrectionState).toHaveBeenCalledWith('user-123');
+        expect(mockInferColumnMappingExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: { step: 'resume' },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('falls back to inference when resume snapshot expired while prompt was shown', async () => {
+        mockLoadCorrectionState.mockResolvedValue(null);
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: { step: 'resume' },
+          }),
+        );
+        mockInferColumnMappingExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_MAPPING',
+          message: 'Mapping proposal sent.',
+        });
+
+        const deps = buildMockDeps();
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+        expect(mockLoadCorrectionState).toHaveBeenCalledWith('user-123');
+        expect(mockInferColumnMappingExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: { step: 'resume' },
+        });
       });
     });
 

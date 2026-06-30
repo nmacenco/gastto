@@ -148,4 +148,40 @@ describe('RuleBasedColumnMappingCorrectionParser', () => {
       expect(result.field).toBe<GasttoField>(expectedField);
     });
   });
+
+  describe('additional phrasing variants (T-4.06-08)', () => {
+    const cases: { message: string; expectedField: GasttoField; expectedColumn: string }[] = [
+      // Spanish variants
+      { message: 'poné la categoría en la E', expectedField: 'categoria', expectedColumn: 'E' },
+      { message: 'la categoría va en columna 5', expectedField: 'categoria', expectedColumn: '5' },
+      { message: 'el monto es la columna B', expectedField: 'monto', expectedColumn: 'B' },
+      { message: 'cambiar monto a columna 2', expectedField: 'monto', expectedColumn: '2' },
+      { message: 'la fecha está en col A', expectedField: 'fecha', expectedColumn: 'A' },
+      { message: 'fecha es columna 1', expectedField: 'fecha', expectedColumn: '1' },
+      { message: 'el concepto va en la columna D', expectedField: 'concepto', expectedColumn: 'D' },
+      { message: 'concepto es la 4', expectedField: 'concepto', expectedColumn: '4' },
+      { message: 'la moneda está en F', expectedField: 'moneda', expectedColumn: 'F' },
+      { message: 'moneda en columna 6', expectedField: 'moneda', expectedColumn: '6' },
+      { message: 'el medio de pago es la G', expectedField: 'medio_pago', expectedColumn: 'G' },
+      { message: 'medio de pago en columna 7', expectedField: 'medio_pago', expectedColumn: '7' },
+      // English variants
+      { message: 'put category in column E', expectedField: 'categoria', expectedColumn: 'E' },
+      { message: 'category should be column 5', expectedField: 'categoria', expectedColumn: '5' },
+      { message: 'amount is in column B', expectedField: 'monto', expectedColumn: 'B' },
+      { message: 'date goes in column A', expectedField: 'fecha', expectedColumn: 'A' },
+      { message: 'description is column D', expectedField: 'concepto', expectedColumn: 'D' },
+      { message: 'currency is column F', expectedField: 'moneda', expectedColumn: 'F' },
+      { message: 'payment method is column G', expectedField: 'medio_pago', expectedColumn: 'G' },
+    ];
+
+    it.each(cases)(
+      'parses "$message" as $expectedField → $expectedColumn',
+      ({ message, expectedField, expectedColumn }) => {
+        const result = parser.parse(message);
+        assertSuccess(result);
+        expect(result.field).toBe<GasttoField>(expectedField);
+        expect(result.columnRef).toBe(expectedColumn);
+      },
+    );
+  });
 });

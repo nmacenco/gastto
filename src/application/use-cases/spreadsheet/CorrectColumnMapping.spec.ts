@@ -24,6 +24,7 @@ import type {
 import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { ColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
+import { RuleBasedColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
 import { ColumnMappingCorrectionState } from '../../../domain/value-objects/ColumnMappingCorrectionState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import type {
@@ -440,6 +441,48 @@ describe('CorrectColumnMapping', () => {
       field: 'concepto',
       columnIndex: 3,
       columnHeader: 'Descripción',
+    });
+  });
+
+  it('integrates with the real parser for a Spanish correction', async () => {
+    const deps = buildMockDeps({
+      correctionParser: new RuleBasedColumnMappingCorrectionParser(),
+    });
+    const useCase = new CorrectColumnMapping(deps);
+
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'la categoría está en la columna E',
+    });
+
+    expect(result.kind).toBe('updated');
+    const savedSnapshot = mockSaveCorrectionState.mock
+      .calls[0]![1] as MappingCorrectionStateSnapshot;
+    expect(savedSnapshot.corrections[0]).toEqual({
+      field: 'categoria',
+      columnIndex: 4,
+      columnHeader: 'Medio de pago',
+    });
+  });
+
+  it('integrates with the real parser for an English correction', async () => {
+    const deps = buildMockDeps({
+      correctionParser: new RuleBasedColumnMappingCorrectionParser(),
+    });
+    const useCase = new CorrectColumnMapping(deps);
+
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'the amount goes in column 2',
+    });
+
+    expect(result.kind).toBe('updated');
+    const savedSnapshot = mockSaveCorrectionState.mock
+      .calls[0]![1] as MappingCorrectionStateSnapshot;
+    expect(savedSnapshot.corrections[0]).toEqual({
+      field: 'monto',
+      columnIndex: 1,
+      columnHeader: 'Monto',
     });
   });
 });

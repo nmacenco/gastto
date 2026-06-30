@@ -159,6 +159,17 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
 
   correctionParseFailurePrompt: () =>
     `No entendí la corrección. Podés escribir algo como: "la categoría está en la columna E" o "el monto va en B".`,
+
+  mappingResumePrompt: (
+    mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
+  ) => {
+    const lines = mappings.map(
+      (m) =>
+        `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
+    );
+    return `Encontré una corrección en progreso:
+${lines.join('\n')}\n\n¿Querés continuar desde donde la dejaste? Respondé *sí* para continuar o *no* para empezar de nuevo.`;
+  },
 };
 
 const GASTTO_FIELD_LABELS: Record<GasttoField, string> = {

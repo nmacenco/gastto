@@ -377,6 +377,8 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
+        const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(redis);
+
         const correctColumnMapping =
           googleOAuthAdapter !== null
             ? new CorrectColumnMapping({
@@ -386,7 +388,7 @@ async function bootstrap(): Promise<void> {
                 tokenEncryption,
                 spreadsheetColumnPort: new GoogleSheetsAdapter(''),
                 correctionParser: new RuleBasedColumnMappingCorrectionParser(),
-                correctionStateRepository: new RedisMappingCorrectionStateRepository(redis),
+                correctionStateRepository: mappingCorrectionStateRepository,
                 messagingPort: telegramAdapter,
                 transitionState,
                 stateTtlSeconds: env.MAPPING_CORRECTION_TTL_SECONDS,
@@ -408,6 +410,7 @@ async function bootstrap(): Promise<void> {
             // TODO: replace with real WhatsApp adapter when implemented
             whatsapp: telegramAdapter,
           },
+          mappingCorrectionStateRepository,
           initiateCloudConnection,
           cancelCloudConnection,
           handleSpreadsheetFileSelection,
