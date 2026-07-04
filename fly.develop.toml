@@ -1,0 +1,27 @@
+# fly.toml app configuration file for gastto-develop
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'gastto-develop'
+primary_region = 'cdg'
+
+[build]
+
+[env]
+  NODE_ENV = 'development'
+  PORT = '3000'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # NOTE: auto_stop_machines must be set to false when BullMQ workers are introduced (per ADR-009).
+  auto_stop_machines = true
+  auto_start_machines = false
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1

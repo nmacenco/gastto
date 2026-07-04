@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+set -e  # exit immediately on any failure
+echo "🔍 Running Quality Gates (pre-commit)..."
+echo "📝 Linting & auto-fixing..."
+pnpm lint:fix
+echo "🎨 Checking formatting..."
+pnpm format  # or format:check if you don't want the hook to write files
+echo "🧪 Running unit tests..."
+pnpm test --run
+echo "🔧 Checking TypeScript..."
+pnpm typecheck
+echo "✅ All pre-commit gates passed!"
