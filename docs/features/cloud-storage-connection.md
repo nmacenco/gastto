@@ -58,6 +58,8 @@ Reconnection paths (e.g., expired token during file or sheet selection) transiti
    - Updates the FSM payload via self-transition `ONBOARDING_DRIVE` → `ONBOARDING_DRIVE`.
    - Resends the auth link to the user.
 
+> **TODO (future work):** HU-4.01 Scenario 4 specifies a **maximum of 3 reminder attempts**, after which the system should suggest reconnecting or aborting onboarding. The current `SendOAuthReminder` implementation reschedules indefinitely with no cap. Implement the attempt counter (e.g. in the FSM payload or Redis) and the cap-exceeded transition in `src/application/use-cases/spreadsheet/SendOAuthReminder.ts`.
+
 ### Cancellation (`CancelCloudConnection`)
 
 10. If the user types "cancelar" while in `ONBOARDING_DRIVE`:

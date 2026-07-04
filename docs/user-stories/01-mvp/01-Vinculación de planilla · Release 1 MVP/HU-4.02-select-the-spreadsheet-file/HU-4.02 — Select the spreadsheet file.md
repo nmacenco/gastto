@@ -3,7 +3,7 @@
 ### Acceptance Criteria (Gherkin)
 
 Scenario 1: The system searches and lists relevant files
-Given the user has Google Drive or OneDrive connected
+Given the user has Google Drive connected
 When the system asks which spreadsheet is theirs
 Then the system searches the account for .xlsx, .ods, and Google Sheets files
 And presents a numbered list with the found files (maximum 5)
@@ -34,6 +34,12 @@ Then it informs the user clearly
 And suggests verifying that the file is in the connected account
 And offers the option to type the name manually
 
+Scenario 6: Manual name search yields no results
+Given the user chose "search by name"
+When the typed text does not match any file
+Then the system informs that no matches were found
+And suggests reviewing the name or pasting the file URL directly
+
 ### Definition of Done
 
 - [ ] Search works for Google Sheets, .xlsx, and .ods
@@ -43,6 +49,6 @@ And offers the option to type the name manually
 - [ ] The selected file is persisted in the user's profile
 - [ ] QA confirmed the flow on an empty account, an account with many files, and access by URL
 
-**Story Points: 3** _Justification: File search is a standard Drive/OneDrive API call. Complexity lies in normalizing the three response formats, but conversational logic is linear. No complex branching._
+**Story Points: 3** _Justification: File search is a standard Google Drive API call. Complexity lies in normalizing the three response formats, but conversational logic is linear. No complex branching._
 
 **Dependencies:** HU-4.01 (account must be connected).

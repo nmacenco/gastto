@@ -23,7 +23,7 @@ And the user chooses with that additional information
 
 Scenario 4: The user writes the sheet name
 Given the user types the sheet name directly
-When the name matches exactly or with minor variation (uppercase/accents)
+When the name matches exactly or with minor variation (uppercase, accents, or whitespace)
 Then the system confirms the selected sheet
 And advances to analysis
 

@@ -7,7 +7,7 @@
 
 ## HU-4.01 — Conectar cuenta de almacenamiento en la nube
 
-**Como** usuario que quiere empezar a usar FinFlow, **quiero** conectar mi cuenta de Google Drive o OneDrive desde la conversación en WhatsApp/Telegram, **para** que el sistema pueda acceder a mi planilla de gastos sin que yo tenga que copiar y pegar datos manualmente.
+**Como** usuario que quiere empezar a usar FinFlow, **quiero** conectar mi cuenta de Google Drive desde la conversación en WhatsApp/Telegram, **para** que el sistema pueda acceder a mi planilla de gastos sin que yo tenga que copiar y pegar datos manualmente.
 
 ### Criterios de Aceptación (Gherkin)
 
@@ -17,7 +17,8 @@ gherkin
 Escenario 1: Onboarding — el usuario elige proveedor
   Dado que el usuario inicia FinFlow por primera vez
   Cuando el sistema le pregunta dónde tiene su planilla
-  Entonces el sistema presenta exactamente dos opciones: "Google Drive" y "OneDrive"
+  Entonces el sistema presenta "Google Drive" como la opción disponible del MVP
+  Y presenta "OneDrive" marcada como "próximamente" (fuera del alcance del MVP)
   Y el usuario puede responder con el número o el nombre de la opción
 
 Escenario 2: Autorización exitosa con Google Drive
@@ -27,24 +28,32 @@ Escenario 2: Autorización exitosa con Google Drive
   Entonces el sistema confirma en el chat "✅ Google Drive conectado correctamente"
   Y el flujo continúa hacia la selección de archivo
 
-Escenario 3: Autorización exitosa con OneDrive
+Escenario 3: OneDrive — fuera del alcance del MVP (trabajo futuro)
   Dado que el usuario eligió "OneDrive"
-  Cuando el sistema le envía el enlace de autorización OAuth
-  Y el usuario completa la autorización en su navegador
-  Entonces el sistema confirma en el chat "✅ OneDrive conectado correctamente"
-  Y el flujo continúa hacia la selección de archivo
+  Cuando el sistema procesa la elección
+  Entonces informa en el chat que OneDrive estará disponible próximamente
+  Y no inicia el flujo de autorización de OneDrive (fuera del MVP)
+  Y el usuario puede elegir Google Drive para continuar el onboarding
 
 Escenario 4: El usuario no completa la autorización
   Dado que el sistema envió el enlace OAuth
   Cuando han pasado 10 minutos sin que el usuario lo complete
   Entonces el sistema envía un recordatorio con el enlace nuevamente
-  Y el usuario puede retomar o escribir "cancelar" para abortar
+  Y reenvía el recordatorio hasta un máximo de 3 intentos
+  Y al superar el máximo, sugiere reconectar la cuenta o abortar el onboarding
+  Y el usuario puede retomar o escribir "cancelar" para abortar en cualquier momento
 
-Escenario 5: Error de autorización
+Escenario 5: El usuario elige un proveedor inválido
+  Dado que el usuario responde con una opción no reconocida
+  Cuando el sistema no puede interpretar la elección de proveedor
+  Entonces vuelve a mostrar las opciones disponibles
+  Y no avanza hasta que el usuario elija una opción válida
+
+Escenario 6: Error de autorización
   Dado que el usuario intentó autorizar
   Cuando la autorización falla por cualquier razón técnica
   Entonces el sistema informa el error en lenguaje simple ("No pudimos conectar tu cuenta")
-  Y ofrece reintentar o elegir el otro proveedor
+  Y ofrece reintentar o elegir Google Drive nuevamente
   Y no avanza al paso siguiente hasta que haya conexión válida
 ```
 
@@ -54,11 +63,12 @@ Escenario 5: Error de autorización
 - [ ]  El token de acceso se almacena de forma segura (nunca visible para el usuario)
 - [ ]  El estado de conexión persiste entre sesiones
 - [ ]  El flujo funciona en WhatsApp y en Telegram
-- [ ]  El recordatorio de 10 minutos está implementado y testeado
+- [ ]  El recordatorio de 10 minutos está implementado, con un máximo de 3 reintentos, y testeado
+- [ ]  Seleccionar OneDrive informa "próximamente" y no inicia el flujo de autorización (fuera del MVP)
 - [ ]  Existe manejo de error para todos los casos de fallo de autorización
-- [ ]  QA confirmó el flujo completo en ambos proveedores
+- [ ]  QA confirmó el flujo completo en Google Drive
 
-**Story Points: 5** _Justificación: La interfaz es puramente conversacional (sin UI propia), pero la integración OAuth con dos proveedores distintos, el manejo de estado y el almacenamiento seguro del token añaden complejidad técnica real. No es un 3 porque son dos integraciones, no una._
+**Story Points: 5** _Justificación: La interfaz es puramente conversacional (sin UI propia), pero la integración OAuth con Google Drive, el manejo de estado, el almacenamiento seguro del token y el control de reintentos del recordatorio añaden complejidad técnica real._
 
 **Dependencias:** Ninguna. Es la primera HU del flujo de onboarding.
 
@@ -74,7 +84,7 @@ gherkin
 
 ```gherkin
 Escenario 1: El sistema busca y lista archivos relevantes
-  Dado que el usuario tiene Google Drive o OneDrive conectado
+  Dado que el usuario tiene Google Drive conectado
   Cuando el sistema le pregunta cuál es su planilla
   Entonces el sistema busca en la cuenta archivos .xlsx, .ods y Google Sheets
   Y presenta una lista numerada con los archivos encontrados (máximo 5)
@@ -104,6 +114,12 @@ Escenario 5: No se encuentran archivos compatibles
   Entonces informa al usuario de forma clara
   Y sugiere verificar que el archivo está en la cuenta conectada
   Y ofrece la opción de escribir el nombre manualmente
+
+Escenario 6: La búsqueda manual por nombre no arroja resultados
+  Dado que el usuario eligió "buscar por nombre"
+  Cuando el texto escrito no coincide con ningún archivo
+  Entonces el sistema informa que no encontró coincidencias
+  Y sugiere revisar el nombre o pegar la URL del archivo directamente
 ```
 
 ### Definición de Done
@@ -115,7 +131,7 @@ Escenario 5: No se encuentran archivos compatibles
 - [ ]  El archivo seleccionado queda persistido en el perfil del usuario
 - [ ]  QA confirmó el flujo en cuenta vacía, cuenta con muchos archivos y acceso por URL
 
-**Story Points: 3** _Justificación: La búsqueda de archivos es una llamada a API estándar de Drive/OneDrive. La complejidad está en normalizar los tres formatos de respuesta, pero la lógica conversacional es lineal. No hay ramificaciones complejas._
+**Story Points: 3** _Justificación: La búsqueda de archivos es una llamada a la API de Google Drive. La complejidad está en normalizar los tres formatos de respuesta, pero la lógica conversacional es lineal. No hay ramificaciones complejas._
 
 **Dependencias:** HU-4.01 (la cuenta debe estar conectada).
 
@@ -151,7 +167,7 @@ Escenario 3: El usuario no sabe cuál es la hoja correcta
 
 Escenario 4: El usuario escribe el nombre de la hoja
   Dado que el usuario escribe el nombre de la hoja directamente
-  Cuando el nombre coincide exactamente o con variación menor (mayúsculas/tildes)
+  Cuando el nombre coincide exactamente o con variación menor (mayúsculas, tildes o espacios en blanco)
   Entonces el sistema confirma la hoja seleccionada
   Y avanza al análisis
 
@@ -205,8 +221,10 @@ Escenario 3: La hoja está vacía
   Dado que el sistema accede a la hoja
   Cuando detecta que no tiene ningún contenido
   Entonces informa al usuario que la hoja parece estar vacía
-  Y pregunta si es la hoja correcta o si quiere elegir otra
-  Y si el usuario confirma que es la correcta, informa que creará la estructura desde cero (fuera de alcance del MVP, escalar a producto)
+  Y aclara que crear la estructura desde cero no está disponible en el MVP
+  Y ofrece al usuario elegir otra hoja o abortar el onboarding
+  Y si el usuario elige otra hoja, vuelve a la selección de hoja (HU-4.03)
+  Y si el usuario aborta, el flujo se detiene sin avanzar al mapeo
 
 Escenario 4: Error de acceso (red, token expirado)
   Dado que el sistema intenta acceder a la hoja
@@ -255,7 +273,7 @@ Escenario 1: Encabezados claros — mapeo de alta confianza
   Y el usuario puede responder "sí" o corregir
 
 Escenario 2: Encabezados ambiguos — mapeo de baja confianza
-  Dado que los encabezados no son inequívocos (ej: "Col1", "Importe", "Tipo")
+  Dado que los encabezados no son inequívocos (ej: "Col1", "Campo2", "Tipo")
   Cuando el sistema infiere con menor certeza
   Entonces presenta el mapeo propuesto indicando su incertidumbre:
     "No estoy seguro de algunos campos, esto es mi mejor intento: [mapeo]"

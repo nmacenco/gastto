@@ -41,6 +41,7 @@ The Select Spreadsheet File feature enables users to choose which spreadsheet fi
 12. If the user chooses "None of these / search by name", the use case prompts for a file name.
 13. When `statePayload.step === 'searching'`, the use case calls `CloudStoragePort.searchSpreadsheets` with the user's message as query.
 14. A refined list is presented and the payload is updated.
+15. If the search returns no files, the use case sends `onboardingCopies.noFilesFoundPrompt()` and stays in `ONBOARDING_FILE` so the user can refine the query or paste a URL.
 
 ### Direct URL Validation
 
