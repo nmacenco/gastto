@@ -299,8 +299,37 @@ async function bootstrap(): Promise<void> {
         const googleSheetsAdapterFactory = new GoogleSheetsAdapterFactory();
         const spreadsheetAccessAdapterFactory = new SpreadsheetAccessAdapterFactory();
 
-        const handleSheetSelection =
+        const ruleBasedColumnInferenceAdapter = new RuleBasedColumnInferenceAdapter();
+
+        const inferColumnMapping =
           googleOAuthAdapter !== null
+            ? new InferColumnMapping({
+                tokenRepository: tokenRepo,
+                tokenEncryption,
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+                columnMappingRepository: columnMappingRepo,
+                columnInferencePort: ruleBasedColumnInferenceAdapter,
+                messagingPort: telegramAdapter,
+                transitionState,
+              })
+            : null;
+
+        const validateSpreadsheetAccess =
+          googleOAuthAdapter !== null && inferColumnMapping !== null
+            ? new ValidateSpreadsheetAccess({
+                validateSpreadsheetAccessPortFactory: spreadsheetAccessAdapterFactory,
+                tokenRepository: tokenRepo,
+                transitionState,
+                messagingPort: telegramAdapter,
+                tokenEncryption,
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+                inferColumnMapping,
+                logger: rootLogger,
+              })
+            : null;
+
+        const handleSheetSelection =
+          googleOAuthAdapter !== null && validateSpreadsheetAccess !== null
             ? new HandleSheetSelection({
                 spreadsheetPortFactory: googleSheetsAdapterFactory,
                 tokenRepository: tokenRepo,
@@ -308,6 +337,7 @@ async function bootstrap(): Promise<void> {
                 messagingPort: telegramAdapter,
                 tokenEncryption,
                 spreadsheetConfigRepository: spreadsheetConfigRepo,
+                validateSpreadsheetAccess,
                 logger: rootLogger,
               })
             : null;
@@ -337,33 +367,6 @@ async function bootstrap(): Promise<void> {
                 messagingPort: telegramAdapter,
                 tokenEncryption,
                 handleSpreadsheetFileSelection: handleSpreadsheetFileSelection!,
-              })
-            : null;
-
-        const validateSpreadsheetAccess =
-          googleOAuthAdapter !== null
-            ? new ValidateSpreadsheetAccess({
-                validateSpreadsheetAccessPortFactory: spreadsheetAccessAdapterFactory,
-                tokenRepository: tokenRepo,
-                transitionState,
-                messagingPort: telegramAdapter,
-                tokenEncryption,
-                spreadsheetConfigRepository: spreadsheetConfigRepo,
-              })
-            : null;
-
-        const ruleBasedColumnInferenceAdapter = new RuleBasedColumnInferenceAdapter();
-
-        const inferColumnMapping =
-          googleOAuthAdapter !== null
-            ? new InferColumnMapping({
-                tokenRepository: tokenRepo,
-                tokenEncryption,
-                spreadsheetConfigRepository: spreadsheetConfigRepo,
-                columnMappingRepository: columnMappingRepo,
-                columnInferencePort: ruleBasedColumnInferenceAdapter,
-                messagingPort: telegramAdapter,
-                transitionState,
               })
             : null;
 

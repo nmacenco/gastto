@@ -22,6 +22,7 @@ import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
 import type { SheetInfo } from '../../../domain/entities/SheetInfo';
+import type { ValidateSpreadsheetAccess } from './ValidateSpreadsheetAccess';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { isConfirmIntent } from '../../utils/intents';
@@ -47,6 +48,7 @@ export interface HandleSheetSelectionDeps {
   messagingPort: MessagingOutputPort;
   tokenEncryption: TokenEncryptionPort;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
+  validateSpreadsheetAccess: ValidateSpreadsheetAccess;
   logger: Logger;
 }
 
@@ -99,7 +101,7 @@ export class HandleSheetSelection {
   constructor(private readonly deps: HandleSheetSelectionDeps) {}
 
   async execute(input: HandleSheetSelectionInput): Promise<HandleSheetSelectionOutput> {
-    const { userId, rawMessage, externalId, statePayload } = input;
+    const { userId, rawMessage, externalId, statePayload, channel } = input;
 
     const provider = this.resolveProvider(statePayload);
     if (provider === 'microsoft') {
@@ -109,7 +111,14 @@ export class HandleSheetSelection {
     }
 
     if (statePayload?.step === 'empty-sheet-confirm') {
-      return this.handleEmptySheetConfirm(userId, externalId, rawMessage, provider, statePayload);
+      return this.handleEmptySheetConfirm(
+        userId,
+        externalId,
+        channel,
+        rawMessage,
+        provider,
+        statePayload,
+      );
     }
 
     // 1. Retrieve and decrypt OAuth token
@@ -152,6 +161,7 @@ export class HandleSheetSelection {
       return this.handleSelection(
         userId,
         externalId,
+        channel,
         fileId,
         fileName,
         provider,
@@ -165,6 +175,7 @@ export class HandleSheetSelection {
     return this.handleInitialListing(
       userId,
       externalId,
+      channel,
       fileId,
       fileName,
       provider,
@@ -181,6 +192,7 @@ export class HandleSheetSelection {
   private async handleEmptySheetConfirm(
     userId: string,
     externalId: string,
+    channel: 'telegram' | 'whatsapp',
     rawMessage: string,
     provider: SpreadsheetProvider,
     statePayload: Record<string, unknown>,
@@ -225,6 +237,7 @@ export class HandleSheetSelection {
     return this.handleSelection(
       userId,
       externalId,
+      channel,
       fileId,
       fileName,
       provider,
@@ -237,6 +250,7 @@ export class HandleSheetSelection {
   private async handleInitialListing(
     userId: string,
     externalId: string,
+    channel: 'telegram' | 'whatsapp',
     fileId: string,
     fileName: string,
     provider: SpreadsheetProvider,
@@ -253,7 +267,15 @@ export class HandleSheetSelection {
 
       if (sheets.length === 1) {
         // Scenario 1: Single-sheet auto-confirmation
-        return this.confirmSheet(userId, externalId, fileId, fileName, provider, sheets[0]!);
+        return this.confirmSheet(
+          userId,
+          externalId,
+          channel,
+          fileId,
+          fileName,
+          provider,
+          sheets[0]!,
+        );
       }
 
       // Scenario 2: Multiple sheets — prompt user to choose
@@ -305,6 +327,7 @@ export class HandleSheetSelection {
   private async handleSelection(
     userId: string,
     externalId: string,
+    channel: 'telegram' | 'whatsapp',
     fileId: string,
     fileName: string,
     provider: SpreadsheetProvider,
@@ -316,7 +339,7 @@ export class HandleSheetSelection {
 
     // Scenario 3: "I don't know" variant
     if (isIdkVariant(trimmed)) {
-      return this.handleIdk(userId, externalId, fileId, sheetList, spreadsheetPort);
+      return this.handleIdk(userId, externalId, channel, fileId, sheetList, spreadsheetPort);
     }
 
     // Scenario 2: Selection by number
@@ -325,6 +348,7 @@ export class HandleSheetSelection {
       return this.confirmSheet(
         userId,
         externalId,
+        channel,
         fileId,
         fileName,
         provider,
@@ -337,7 +361,16 @@ export class HandleSheetSelection {
     const normalizedInput = normalizeForComparison(trimmed);
     const matched = sheetList.find((s) => normalizeForComparison(s.name) === normalizedInput);
     if (matched) {
-      return this.confirmSheet(userId, externalId, fileId, fileName, provider, matched, sheetList);
+      return this.confirmSheet(
+        userId,
+        externalId,
+        channel,
+        fileId,
+        fileName,
+        provider,
+        matched,
+        sheetList,
+      );
     }
 
     // Scenario 5: Invalid name — re-prompt
@@ -349,6 +382,7 @@ export class HandleSheetSelection {
   private async handleIdk(
     userId: string,
     externalId: string,
+    channel: 'telegram' | 'whatsapp',
     fileId: string,
     sheetList: SheetInfo[],
     spreadsheetPort: SpreadsheetPort,
@@ -407,6 +441,7 @@ export class HandleSheetSelection {
   private async confirmSheet(
     userId: string,
     externalId: string,
+    channel: 'telegram' | 'whatsapp',
     fileId: string,
     fileName: string,
     provider: SpreadsheetProvider,
@@ -443,7 +478,35 @@ export class HandleSheetSelection {
       payload,
     });
 
+    // Eager advance (ADR-014): validate read/write access immediately after
+    // sheet selection so the user does not need to send another message.
+    await this.triggerAccessValidation(userId, externalId, channel, payload);
+
     return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message, payload };
+  }
+
+  private async triggerAccessValidation(
+    userId: string,
+    externalId: string,
+    channel: 'telegram' | 'whatsapp',
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.deps.validateSpreadsheetAccess.execute({
+        userId,
+        externalId,
+        channel,
+        statePayload: payload,
+      });
+    } catch (err) {
+      this.deps.logger.error({
+        endpoint: 'HandleSheetSelection',
+        code: 'POST_SHEET_VALIDATING_ACCESS_FAILED',
+        userId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   private async handleReconnect(

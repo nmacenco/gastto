@@ -26,6 +26,11 @@ const mockUpdateAccessVerified = vi.fn();
 const mockCreatePort = vi.fn().mockReturnValue({
   validateSpreadsheetAccess: mockValidateAccess,
 });
+const mockInferColumnMapping = vi.fn().mockResolvedValue({
+  nextState: 'ONBOARDING_MAPPING',
+  message: '',
+});
+const mockLoggerError = vi.fn();
 
 function buildMockDeps(
   overrides: Partial<ValidateSpreadsheetAccessDeps> = {},
@@ -49,6 +54,10 @@ function buildMockDeps(
       findByUserId: mockFindByUserId,
       updateAccessVerified: mockUpdateAccessVerified,
     } as unknown as ValidateSpreadsheetAccessDeps['spreadsheetConfigRepository'],
+    inferColumnMapping: {
+      execute: mockInferColumnMapping,
+    } as unknown as ValidateSpreadsheetAccessDeps['inferColumnMapping'],
+    logger: { error: mockLoggerError } as unknown as ValidateSpreadsheetAccessDeps['logger'],
     ...overrides,
   };
 }
@@ -460,6 +469,106 @@ describe('ValidateSpreadsheetAccess', () => {
       );
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
       expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('eager advance to column mapping inference (ADR-014)', () => {
+    it('invokes InferColumnMapping after successful access validation', async () => {
+      mockValidateAccess.mockResolvedValue({ kind: 'success', preview: mockPreview });
+
+      const deps = buildMockDeps();
+      const useCase = new ValidateSpreadsheetAccess(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      const lastCall = mockInferColumnMapping.mock.lastCall as unknown as Parameters<
+        ValidateSpreadsheetAccessDeps['inferColumnMapping']['execute']
+      >;
+      const call = lastCall[0];
+      expect(call).toMatchObject({
+        userId: 'user-123',
+        externalId: '987654321',
+        channel: 'telegram',
+      });
+      expect(call.statePayload).toMatchObject({
+        selectedFileId: 'file-123',
+        selectedFileName: 'Mi Planilla',
+        selectedSheetName: 'Gastos',
+        provider: 'google',
+      });
+      const preview = (call.statePayload as { preview?: { rows?: unknown[] } }).preview;
+      expect(preview?.rows).toEqual([{ index: 1, values: ['Fecha', 'Concepto', 'Monto'] }]);
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('logs and preserves the success outcome when InferColumnMapping throws', async () => {
+      mockValidateAccess.mockResolvedValue({ kind: 'success', preview: mockPreview });
+      mockInferColumnMapping.mockRejectedValue(new Error('inference down'));
+
+      const deps = buildMockDeps();
+      const useCase = new ValidateSpreadsheetAccess(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'ValidateSpreadsheetAccess',
+          code: 'POST_VALIDATING_ACCESS_MAPPING_FAILED',
+          userId: 'user-123',
+          error: 'inference down',
+        }),
+      );
+      // The success outcome is unchanged by the eager-advance failure.
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(mockUpdateAccessVerified).toHaveBeenCalledWith('config-1');
+    });
+
+    it('does not invoke InferColumnMapping on read-only', async () => {
+      mockValidateAccess.mockResolvedValue({ kind: 'read-only', preview: mockPreview });
+
+      const deps = buildMockDeps();
+      const useCase = new ValidateSpreadsheetAccess(deps);
+      await useCase.execute({ ...baseInput, statePayload: mockStatePayload });
+
+      expect(mockInferColumnMapping).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke InferColumnMapping on empty-sheet', async () => {
+      mockValidateAccess.mockResolvedValue({ kind: 'empty-sheet' });
+
+      const deps = buildMockDeps();
+      const useCase = new ValidateSpreadsheetAccess(deps);
+      await useCase.execute({ ...baseInput, statePayload: mockStatePayload });
+
+      expect(mockInferColumnMapping).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke InferColumnMapping on access-error', async () => {
+      mockValidateAccess.mockResolvedValue({
+        kind: 'access-error',
+        errorType: 'permission-denied',
+        retryable: false,
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new ValidateSpreadsheetAccess(deps);
+      await useCase.execute({ ...baseInput, statePayload: mockStatePayload });
+
+      expect(mockInferColumnMapping).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke InferColumnMapping when token is missing', async () => {
+      mockFindToken.mockResolvedValue(null);
+
+      const deps = buildMockDeps();
+      const useCase = new ValidateSpreadsheetAccess(deps);
+      await useCase.execute({ ...baseInput, statePayload: mockStatePayload });
+
+      expect(mockInferColumnMapping).not.toHaveBeenCalled();
     });
   });
 });

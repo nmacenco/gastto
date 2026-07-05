@@ -9,13 +9,17 @@ import {
   type HandleSheetSelectionDeps,
   type HandleSheetSelectionInput,
 } from './HandleSheetSelection';
+import type { ValidateSpreadsheetAccessInput } from './ValidateSpreadsheetAccess';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type {
   TransitionConversationState,
   TransitionConversationStateInput,
 } from '../conversation/TransitionConversationState';
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
-import { canTransition, type FsmState } from '../../../domain/entities/ConversationState';
+import {
+  canTransition,
+  type FsmState,
+} from '../../../domain/entities/ConversationState';
 import { InvalidStateTransitionError } from '../../../domain/errors/InvalidStateTransitionError';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
@@ -47,6 +51,10 @@ const mockCreatePort = vi.fn().mockReturnValue({
   listSheets: mockListSheets,
   getHeaders: mockGetHeaders,
 });
+const mockValidateAccess = vi.fn().mockResolvedValue({
+  nextState: 'ONBOARDING_MAPPING',
+  message: '',
+});
 
 function buildMockDeps(
   overrides: Partial<HandleSheetSelectionDeps> = {},
@@ -67,6 +75,9 @@ function buildMockDeps(
     spreadsheetConfigRepository: {
       create: mockCreateConfig,
     } as unknown as HandleSheetSelectionDeps['spreadsheetConfigRepository'],
+    validateSpreadsheetAccess: {
+      execute: mockValidateAccess,
+    } as unknown as HandleSheetSelectionDeps['validateSpreadsheetAccess'],
     logger: { error: mockLoggerError } as unknown as HandleSheetSelectionDeps['logger'],
     ...overrides,
   };
@@ -729,6 +740,158 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
       expect(result.message).toBe(onboardingCopies.fileAccessFailed());
+    });
+  });
+
+  describe('eager advance to access validation (ADR-014)', () => {
+    it('invokes ValidateSpreadsheetAccess after single-sheet auto-confirm', async () => {
+      mockListSheets.mockResolvedValue([mockSheets[0]]);
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockFilePayload,
+      });
+
+      expect(mockValidateAccess).toHaveBeenCalledWith({
+        userId: 'user-123',
+        externalId: '987654321',
+        channel: 'telegram',
+        statePayload: {
+          selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+        },
+      });
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+      expect(result.message).toContain('Gastos');
+    });
+
+    it('invokes ValidateSpreadsheetAccess after selection by number', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '2',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      const lastCall = mockValidateAccess.mock.lastCall as unknown as ValidateSpreadsheetAccessInput[];
+      const call = lastCall[0]!;
+      expect(call).toMatchObject({
+        userId: 'user-123',
+        externalId: '987654321',
+        channel: 'telegram',
+      });
+      expect(call.statePayload).toMatchObject({
+        selectedFileId: 'file-123',
+        selectedFileName: 'Mi Planilla',
+        selectedSheetName: 'Resumen',
+        provider: 'google',
+      });
+      expect((call.statePayload as { sheetList?: unknown }).sheetList).toEqual(mockSheets);
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+    });
+
+    it('invokes ValidateSpreadsheetAccess after selection by name', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'Presupuesto',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      const lastCall = mockValidateAccess.mock.lastCall as unknown as ValidateSpreadsheetAccessInput[];
+      const call = lastCall[0]!;
+      expect(call.statePayload).toMatchObject({ selectedSheetName: 'Presupuesto' });
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+    });
+
+    it('logs and preserves the confirmation when ValidateSpreadsheetAccess throws', async () => {
+      mockListSheets.mockResolvedValue([mockSheets[0]]);
+      mockValidateAccess.mockRejectedValue(new Error('validation down'));
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockFilePayload,
+      });
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'HandleSheetSelection',
+          code: 'POST_SHEET_VALIDATING_ACCESS_FAILED',
+          userId: 'user-123',
+          error: 'validation down',
+        }),
+      );
+      // The confirmation outcome is unchanged by the eager-advance failure.
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+      expect(result.message).toContain('Gastos');
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', expect.stringContaining('Gastos'));
+    });
+
+    it('does not invoke ValidateSpreadsheetAccess on reconnect (missing token)', async () => {
+      mockFindToken.mockResolvedValue(null);
+
+      const deps = buildMockDeps({
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
+      });
+      const useCase = new HandleSheetSelection(deps);
+      await useCase.execute({ ...baseInput, statePayload: mockFilePayload });
+
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke ValidateSpreadsheetAccess on "I do not know" variant', async () => {
+      mockGetHeaders.mockResolvedValue(['Fecha', 'Monto']);
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      await useCase.execute({
+        ...baseInput,
+        rawMessage: 'no sé',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke ValidateSpreadsheetAccess on invalid sheet selection', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      await useCase.execute({
+        ...baseInput,
+        rawMessage: 'hoja inexistente',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke ValidateSpreadsheetAccess on empty-sheet-confirm "sí"', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      await useCase.execute({
+        ...baseInput,
+        rawMessage: 'sí',
+        statePayload: {
+          selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+          step: 'empty-sheet-confirm',
+          sheetList: mockSheets as unknown as Record<string, unknown>[],
+        },
+      });
+
+      expect(mockValidateAccess).not.toHaveBeenCalled();
     });
   });
 });

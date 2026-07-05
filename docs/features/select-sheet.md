@@ -13,7 +13,7 @@ The Select Sheet feature enables users to choose which sheet within their select
 
 | State             | Description                                          | Next                                                                |
 | ----------------- | ---------------------------------------------------- | ------------------------------------------------------------------- |
-| `ONBOARDING_SHEET` | User is selecting a sheet within the chosen file    | `ONBOARDING_MAPPING` (sheet confirmed), self-transition (re-prompt) |
+| `ONBOARDING_SHEET` | User is selecting a sheet within the chosen file    | `ONBOARDING_VALIDATING_ACCESS` (sheet confirmed), self-transition (store `sheetList` / `step`) |
 
 ## Flow Sequence
 
@@ -26,7 +26,7 @@ The Select Sheet feature enables users to choose which sheet within their select
 3. `HandleSheetSelection` retrieves the OAuth token via `IOAuthTokenRepository` and decrypts it via `TokenEncryptionPort`.
 4. `SpreadsheetPortFactory` creates a `GoogleSheetsAdapter` with the decrypted token.
 5. `listSheets(fileId)` queries the Google Sheets API v4 metadata endpoint.
-6. If the file has **one sheet**, the use case auto-confirms, persists the config, and transitions to `ONBOARDING_MAPPING`.
+6. If the file has **one sheet**, the use case auto-confirms, persists the config, and transitions to `ONBOARDING_VALIDATING_ACCESS`.
 7. If the file has **multiple sheets**, the use case formats a numbered list and sends it via `MessagingOutputPort`.
 8. The sheet list is stored in the FSM payload via `TransitionConversationState`.
 
@@ -36,7 +36,7 @@ The Select Sheet feature enables users to choose which sheet within their select
 9. The use case validates that `1 <= choice <= sheetList.length`.
 10. On valid choice: `ISpreadsheetConfigRepository.create` persists the config with `sheetName`, `fileId`, `fileName`, and a placeholder `accessVerifiedAt`.
 11. A confirmation message is sent via `MessagingOutputPort`.
-12. FSM transitions to `ONBOARDING_MAPPING`.
+12. FSM transitions to `ONBOARDING_VALIDATING_ACCESS`.
 13. On invalid number (e.g. `0`, `99`): the user is re-prompted with the sheet list.
 
 ### Selection by Name (Fuzzy Matching)
@@ -44,7 +44,7 @@ The Select Sheet feature enables users to choose which sheet within their select
 14. User types the exact or near-exact name of a sheet.
 15. The input is normalized: lowercase, NFD unaccented, whitespace collapsed.
 16. The normalized input is compared against each sheet name using the same normalization.
-17. On match: the sheet is confirmed, config persisted, and FSM transitions to `ONBOARDING_MAPPING`.
+17. On match: the sheet is confirmed, config persisted, and FSM transitions to `ONBOARDING_VALIDATING_ACCESS`.
 18. On mismatch: the user is re-prompted with the sheet list.
 
 ### "I Don't Know" Header Description
@@ -58,6 +58,12 @@ The Select Sheet feature enables users to choose which sheet within their select
 ### Invalid Name
 
 24. If the user sends a message that does not match any sheet name, number, or IDK variant, the use case re-prompts with the full sheet list.
+
+### Eager advance to access validation (ADR-014)
+
+25. After a sheet is confirmed (single-sheet auto-confirm, number, or name match), `HandleSheetSelection.confirmSheet` persists the config, transitions the FSM to `ONBOARDING_VALIDATING_ACCESS`, and then **eagerly invokes `ValidateSpreadsheetAccess`** with the resulting `statePayload` so the user does not need to send another message to start access validation.
+26. The eager-advance call is wrapped in an isolated `try/catch`: a failure is logged with code `POST_SHEET_VALIDATING_ACCESS_FAILED` but does not change the successful sheet-confirmation outcome.
+27. Eager advance does **not** run on self-transitions (`sheetList`/`idk` storage), invalid selections, reconnect paths, or the `empty-sheet-confirm` confirmation.
 
 ## Adapters
 
@@ -171,7 +177,7 @@ interface ISpreadsheetConfigRepository {
   - `listSheets` returns array with 1 item.
   - `ISpreadsheetConfigRepository.create` called with `sheetName`, placeholder `accessVerifiedAt`.
   - Confirmation message sent.
-  - FSM transitions to `ONBOARDING_MAPPING`.
+  - FSM transitions to `ONBOARDING_VALIDATING_ACCESS` and eagerly invokes `ValidateSpreadsheetAccess`.
 
 - [x] **Happy path — multi-sheet list:**
   - File has 3 sheets.
@@ -185,18 +191,19 @@ interface ISpreadsheetConfigRepository {
   - User sends "2".
   - Choice validated against `sheetList.length`.
   - Config persisted with correct `sheetName`.
-  - FSM transitions to `ONBOARDING_MAPPING`.
+  - FSM transitions to `ONBOARDING_VALIDATING_ACCESS` and eagerly invokes `ValidateSpreadsheetAccess`.
 
 - [x] **Happy path — selection by name (exact):**
   - User sends "Resumen".
   - Fuzzy match succeeds with exact name.
   - Config persisted.
-  - FSM transitions to `ONBOARDING_MAPPING`.
+  - FSM transitions to `ONBOARDING_VALIDATING_ACCESS` and eagerly invokes `ValidateSpreadsheetAccess`.
 
 - [x] **Happy path — selection by name (accent normalization):**
   - User sends "resumen" (lowercase, no accent).
   - Matches "Resumen" after normalization.
   - Config persisted.
+  - FSM transitions to `ONBOARDING_VALIDATING_ACCESS` and eagerly invokes `ValidateSpreadsheetAccess`.
 
 - [x] **Happy path — "I don't know" header description:**
   - User sends "no sé".

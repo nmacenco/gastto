@@ -20,7 +20,10 @@ import { DrizzleOAuthTokenRepository } from '../../../src/infrastructure/db/repo
 import { DrizzleSpreadsheetConfigRepository } from '../../../src/infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
 import { DrizzleConversationStateRepository } from '../../../src/infrastructure/db/repositories/DrizzleConversationStateRepository';
 import { TransitionConversationState } from '../../../src/application/use-cases/conversation/TransitionConversationState';
-import { ValidateSpreadsheetAccess } from '../../../src/application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
+import {
+  ValidateSpreadsheetAccess,
+  type ValidateSpreadsheetAccessDeps,
+} from '../../../src/application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import type { ValidateSpreadsheetAccessPortFactory, ValidateSpreadsheetAccessPort } from '../../../src/domain/ports/spreadsheetAccess';
 import type { SpreadsheetAccessResult } from '../../../src/domain/value-objects/SpreadsheetAccessResult';
 import type { MessagingOutputPort } from '../../../src/application/ports/output/messaging.port';
@@ -45,6 +48,11 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
     encrypt: vi.fn(),
     decrypt: mockDecrypt,
   };
+
+  const mockInferColumnMapping = {
+    execute: vi.fn().mockResolvedValue({ nextState: 'ONBOARDING_MAPPING', message: '' }),
+  } as unknown as ValidateSpreadsheetAccessDeps['inferColumnMapping'];
+  const mockLogger = { error: vi.fn() } as unknown as ValidateSpreadsheetAccessDeps['logger'];
 
   beforeAll(async () => {
     container = await startDbContainer();
@@ -103,6 +111,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
         messagingPort,
         tokenEncryption,
         spreadsheetConfigRepository: configRepo,
+        inferColumnMapping: mockInferColumnMapping,
+        logger: mockLogger,
       });
 
       const result = await useCase.execute({
@@ -158,6 +168,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
         messagingPort,
         tokenEncryption,
         spreadsheetConfigRepository: configRepo,
+        inferColumnMapping: mockInferColumnMapping,
+        logger: mockLogger,
       });
 
       const result = await useCase.execute({
@@ -208,6 +220,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
         messagingPort,
         tokenEncryption,
         spreadsheetConfigRepository: configRepo,
+        inferColumnMapping: mockInferColumnMapping,
+        logger: mockLogger,
       });
 
       const result = await useCase.execute({
@@ -260,6 +274,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
         messagingPort,
         tokenEncryption,
         spreadsheetConfigRepository: configRepo,
+        inferColumnMapping: mockInferColumnMapping,
+        logger: mockLogger,
       });
 
       const result = await useCase.execute({
@@ -329,6 +345,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
         messagingPort,
         tokenEncryption,
         spreadsheetConfigRepository: configRepo,
+        inferColumnMapping: mockInferColumnMapping,
+        logger: mockLogger,
       });
 
       const result = await useCase.execute({
@@ -386,6 +404,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
         messagingPort,
         tokenEncryption,
         spreadsheetConfigRepository: configRepo,
+        inferColumnMapping: mockInferColumnMapping,
+        logger: mockLogger,
       });
 
       const result = await useCase.execute({
