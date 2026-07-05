@@ -194,11 +194,15 @@ async function bootstrap(): Promise<void> {
       const transitionState = new TransitionConversationState(conversationRepo);
       const recoverCorruptedState = new RecoverCorruptedState(conversationRepo, operationLogRepo);
 
+      // process-message jobs run side-effectful FSM handlers that send
+      // user-facing messages. Retrying them re-runs those side effects and
+      // can duplicate outbound messages (see ADR-015). The worker wraps the
+      // handler in a try/catch and surfaces a single fallback message, so a
+      // single attempt is sufficient.
       const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
         connection: redis,
         defaultJobOptions: {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 1000 },
+          attempts: 1,
           removeOnComplete: 100,
           removeOnFail: 500,
         },

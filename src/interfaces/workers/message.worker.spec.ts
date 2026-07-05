@@ -20,6 +20,7 @@ import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
+const mockLoggerError = vi.fn();
 const mockTransitionStateExecute = vi.fn();
 const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
@@ -39,7 +40,7 @@ const mockClearCorrectionState = vi.fn();
 function buildMockDeps(): MessageWorkerDeps {
   return {
     redis: {} as unknown as MessageWorkerDeps['redis'],
-    logger: {} as unknown as MessageWorkerDeps['logger'],
+    logger: { error: mockLoggerError } as unknown as MessageWorkerDeps['logger'],
     registerExpense: {
       interpret: mockRegisterExpenseInterpret,
     } as unknown as MessageWorkerDeps['registerExpense'],
@@ -938,6 +939,69 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationAmount(),
+      );
+    });
+  });
+
+  describe('unexpected handler errors (no BullMQ retry)', () => {
+    it('catches a thrown use-case error without rethrowing, sends a single fallback, and logs structured error', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_SHEET',
+          statePayload: { selectedFileId: 'f1', selectedFileName: 'file1', provider: 'google' },
+        }),
+      );
+      mockHandleSheetSelectionExecute.mockRejectedValueOnce(
+        new Error('duplicate key value violates unique constraint "uq_user_spreadsheet"'),
+      );
+
+      await expect(processMessageJob(buildJob(baseJobData), deps)).resolves.toBeUndefined();
+
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledTimes(1);
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'UNEXPECTED_HANDLER_ERROR',
+          endpoint: 'processMessageJob',
+          userId: 'user-123',
+          error: 'duplicate key value violates unique constraint "uq_user_spreadsheet"',
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.fallbackError());
+    });
+
+    it('does not re-send the message on subsequent retries (single attempt outcome)', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_SHEET',
+          statePayload: { selectedFileId: 'f1', selectedFileName: 'file1', provider: 'google' },
+        }),
+      );
+      mockHandleSheetSelectionExecute.mockRejectedValue(new Error('boom'));
+
+      await processMessageJob(buildJob(baseJobData), deps);
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledTimes(2);
+      expect(mockSendMessage).toHaveBeenCalledTimes(2);
+      expect(mockSendMessage).toHaveBeenNthCalledWith(1, '123456789', expenseCopies.fallbackError());
+      expect(mockSendMessage).toHaveBeenNthCalledWith(2, '123456789', expenseCopies.fallbackError());
+    });
+
+    it('still completes when fallback send also throws (logs send failure, no rethrow)', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_SHEET' }),
+      );
+      mockHandleSheetSelectionExecute.mockRejectedValue(new Error('handler down'));
+      mockSendMessage.mockRejectedValueOnce(new Error('telegram 429'));
+
+      await expect(processMessageJob(buildJob(baseJobData), deps)).resolves.toBeUndefined();
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'FALLBACK_SEND_FAILED' }),
       );
     });
   });

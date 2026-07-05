@@ -34,17 +34,16 @@ The Select Sheet feature enables users to choose which sheet within their select
 
 8. User replies with a number matching the sheet list.
 9. The use case validates that `1 <= choice <= sheetList.length`.
-10. On valid choice: `ISpreadsheetConfigRepository.create` persists the config with `sheetName`, `fileId`, `fileName`, and a placeholder `accessVerifiedAt`.
-11. A confirmation message is sent via `MessagingOutputPort`.
-12. FSM transitions to `ONBOARDING_VALIDATING_ACCESS`.
-13. On invalid number (e.g. `0`, `99`): the user is re-prompted with the sheet list.
+10. On valid choice: `ISpreadsheetConfigRepository.upsertByUserId` persists the config with `sheetName`, `fileId`, `fileName`, and a placeholder `accessVerifiedAt`. The upsert target is the per-user unique constraint `uq_user_spreadsheet`, so re-onboarding (a user whose token expired re-runs the flow) transparently replaces the existing row instead of raising a duplicate-key error.
+11. The FSM transitions to `ONBOARDING_VALIDATING_ACCESS` and only afterwards is the confirmation message sent via `MessagingOutputPort`. This ordering guarantees that a persistence failure cannot leak a success message to the user nor leave the FSM stuck, so a BullMQ retry will not re-send the confirmation.
+12. On invalid number (e.g. `0`, `99`): the user is re-prompted with the sheet list.
 
 ### Selection by Name (Fuzzy Matching)
 
 14. User types the exact or near-exact name of a sheet.
 15. The input is normalized: lowercase, NFD unaccented, whitespace collapsed.
 16. The normalized input is compared against each sheet name using the same normalization.
-17. On match: the sheet is confirmed, config persisted, and FSM transitions to `ONBOARDING_VALIDATING_ACCESS`.
+17. On match: the sheet is confirmed, config persisted via `upsertByUserId` (idempotent on re-onboarding), the FSM transitions to `ONBOARDING_VALIDATING_ACCESS`, and the confirmation message is sent.
 18. On mismatch: the user is re-prompted with the sheet list.
 
 ### "I Don't Know" Header Description
@@ -147,9 +146,12 @@ class SheetInfo {
 interface ISpreadsheetConfigRepository {
   findByUserId(userId: string): Promise<SpreadsheetConfig | null>;
   create(config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<SpreadsheetConfig>;
+  upsertByUserId(config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<SpreadsheetConfig>;
   updateAccessVerified(id: string): Promise<void>;
 }
 ```
+
+`upsertByUserId` is used by `confirmSheet` for idempotent persistence on re-onboarding. On conflict with the per-user unique constraint `uq_user_spreadsheet`, it replaces `provider`, `fileId`, `fileName`, `sheetName`, `accessVerifiedAt`, and `updatedAt`.
 
 ## Error Handling
 
@@ -166,6 +168,7 @@ interface ISpreadsheetConfigRepository {
 | Empty sheet list (0 sheets)        | Error message sent; no state transition.                     |
 | Invalid selection number (0, 99)   | Re-prompt with sheet list; stays in `ONBOARDING_SHEET`.      |
 | Invalid name (no fuzzy match)      | Re-prompt with sheet list; stays in `ONBOARDING_SHEET`.      |
+| User re-onboards (config already exists) | `upsertByUserId` replaces the existing row; no error surfaced to the user. |
 
 ## QA Checklist
 
@@ -204,6 +207,12 @@ interface ISpreadsheetConfigRepository {
   - Matches "Resumen" after normalization.
   - Config persisted.
   - FSM transitions to `ONBOARDING_VALIDATING_ACCESS` and eagerly invokes `ValidateSpreadsheetAccess`.
+
+- [x] **Happy path — re-onboarding (config already exists):**
+  - User re-onboards after token expiry and selects a sheet.
+  - `upsertByUserId` replaces the existing row; no duplicate-key error.
+  - Confirmation message sent only after FSM transition.
+  - FSM transitions to `ONBOARDING_VALIDATING_ACCESS`.
 
 - [x] **Happy path — "I don't know" header description:**
   - User sends "no sé".

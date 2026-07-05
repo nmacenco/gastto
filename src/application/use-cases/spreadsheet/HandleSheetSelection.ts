@@ -6,9 +6,10 @@
 // according to the Gherkin scenarios: single-sheet auto-confirmation,
 // numbered list selection, fuzzy name matching, header-based description for
 // "I don't know", and re-prompt for invalid names. After confirmation, it
-// calls ISpreadsheetConfigRepository.create to persist the
-// spreadsheet_configs record with sheetName and a placeholder
-// accessVerifiedAt, then transitions the FSM to ONBOARDING_VALIDATING_ACCESS.
+// persists the spreadsheet_configs record via
+// ISpreadsheetConfigRepository.upsertByUserId (idempotent on re-onboarding),
+// transitions the FSM to ONBOARDING_VALIDATING_ACCESS, sends the user the
+// confirmation copy, and eagerly invokes ValidateSpreadsheetAccess.
 
 import type { Logger } from 'pino';
 import type { SpreadsheetPort, SpreadsheetPortFactory } from '../../../domain/ports/services';
@@ -448,11 +449,9 @@ export class HandleSheetSelection {
     sheet: SheetInfo,
     sheetList?: SheetInfo[],
   ): Promise<HandleSheetSelectionOutput> {
-    const message = onboardingCopies.sheetSelectedConfirmation(sheet.name);
-    await this.deps.messagingPort.sendMessage(externalId, message);
-
-    // Persist spreadsheet config
-    await this.deps.spreadsheetConfigRepository.create({
+    // Persist spreadsheet config (idempotent on re-onboarding via upsert on
+    // the per-user unique constraint uq_user_spreadsheet).
+    await this.deps.spreadsheetConfigRepository.upsertByUserId({
       userId,
       provider,
       fileId,
@@ -477,6 +476,9 @@ export class HandleSheetSelection {
       targetState: 'ONBOARDING_VALIDATING_ACCESS',
       payload,
     });
+
+    const message = onboardingCopies.sheetSelectedConfirmation(sheet.name);
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     // Eager advance (ADR-014): validate read/write access immediately after
     // sheet selection so the user does not need to send another message.

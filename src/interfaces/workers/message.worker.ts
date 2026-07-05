@@ -10,6 +10,8 @@ import type { RegisterExpenseUseCase } from '../../application/use-cases/expense
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
 import type { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
+import type { ConversationState } from '../../domain/entities/ConversationState';
+import type { User } from '../../domain/entities/User';
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
@@ -60,7 +62,7 @@ export async function processMessageJob(
   job: Job<ProcessMessageJobData>,
   opts: MessageWorkerDeps,
 ): Promise<void> {
-  const { userId, rawMessage, channel, externalId } = job.data;
+  const { userId, channel, externalId } = job.data;
   const messaging = opts.messagingAdapters[channel];
 
   // 1. Lee estado actual de la FSM
@@ -70,7 +72,44 @@ export async function processMessageJob(
   // 2. Recupera contexto del usuario para el LLM
   const user = await opts.userRepo.findById(userId);
 
-  // 3. Route according to FSM state
+  // 3. Route according to FSM state. Known business errors are already turned
+  // into user-facing messages by each use case; this try/catch only catches
+  // unexpected throws so BullMQ does not retry side-effectful handlers and
+  // re-send the same messages on every attempt (ADR-005).
+  try {
+    await routeByState(currentState, job.data, conversationState, user, opts, messaging);
+  } catch (err) {
+    opts.logger.error({
+      msg: 'process-message handler threw unexpectedly',
+      endpoint: 'processMessageJob',
+      code: 'UNEXPECTED_HANDLER_ERROR',
+      userId,
+      errorType: err instanceof Error ? err.constructor.name : 'unknown',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    try {
+      await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    } catch (sendErr) {
+      opts.logger.error({
+        msg: 'Failed to send fallback error after handler failure',
+        endpoint: 'processMessageJob',
+        code: 'FALLBACK_SEND_FAILED',
+        userId,
+        error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+      });
+    }
+  }
+}
+
+async function routeByState(
+  currentState: string,
+  jobData: ProcessMessageJobData,
+  conversationState: ConversationState | null,
+  user: User | null,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  const { userId, rawMessage, channel, externalId } = jobData;
   switch (currentState) {
     case 'IDLE':
     case 'EXPENSE_RECEIVING': {
@@ -98,13 +137,13 @@ export async function processMessageJob(
 
     case 'EXPENSE_REVIEW': {
       // User is confirming, correcting or canceling
-      await handleExpenseReview(job.data, conversationState?.statePayload ?? null, opts, messaging);
+      await handleExpenseReview(jobData, conversationState?.statePayload ?? null, opts, messaging);
       break;
     }
 
     case 'EXPENSE_CLARIFYING': {
       // User is responding to a clarification question
-      await handleClarification(job.data, conversationState?.statePayload ?? null, opts, messaging);
+      await handleClarification(jobData, conversationState?.statePayload ?? null, opts, messaging);
       break;
     }
 
@@ -195,7 +234,7 @@ export async function processMessageJob(
 
     case 'ONBOARDING_MAPPING': {
       await handleOnboardingMapping(
-        job.data,
+        jobData,
         conversationState?.statePayload ?? null,
         opts,
         messaging,
