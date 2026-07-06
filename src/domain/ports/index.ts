@@ -3,6 +3,7 @@
 
 export * from './cloudStorage';
 export * from './columnInference';
+export * from './headerDetection';
 export * from './messaging';
 export * from './oauth';
 export * from './repositories';

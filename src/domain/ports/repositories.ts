@@ -105,6 +105,9 @@ export interface ISpreadsheetConfigRepository {
   create(
     config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<SpreadsheetConfig>;
+  upsertByUserId(
+    config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<SpreadsheetConfig>;
   updateAccessVerified(id: string): Promise<void>;
 }
 

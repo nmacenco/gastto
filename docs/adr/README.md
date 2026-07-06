@@ -20,6 +20,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-012](./ADR-012-user-facing-text-copies.md) | Centralize User-Facing Text in Application Copy Modules          | Accepted |
 | [ADR-013](./2026-06-10-structured-logging.md)   | Adopt Pino as the Single Structured Logger                       | Accepted |
 | [ADR-014](./ADR-014-fsm-eager-advance.md)       | Auto-trigger next use case on deterministic FSM transitions      | Proposed |
+| [ADR-015](./ADR-015-upsert-spreadsheet-config-on-reonboarding.md) | Spreadsheet config idempotencia en re-onboarding               | Accepted |
 
 ## Template
 

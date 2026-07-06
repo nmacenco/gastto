@@ -42,6 +42,10 @@ const mockParse = vi.fn();
 const mockLoadCorrectionState = vi.fn();
 const mockSaveCorrectionState = vi.fn();
 const mockClearCorrectionState = vi.fn();
+const mockDetectHeaderRow = vi.fn();
+const mockLLMDetectHeaderRow = vi.fn();
+const mockLLMInfer = vi.fn();
+const mockUpsertMany = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockTransitionExecute = vi.fn();
 
@@ -51,6 +55,7 @@ function buildMockDeps(
   return {
     columnMappingRepository: {
       findBySpreadsheetId: mockFindBySpreadsheetId,
+      upsertMany: mockUpsertMany,
     } as unknown as IColumnMappingRepository,
     spreadsheetConfigRepository: {
       findByUserId: mockFindByUserId,
@@ -75,6 +80,15 @@ function buildMockDeps(
       save: mockSaveCorrectionState,
       clear: mockClearCorrectionState,
     } as unknown as IMappingCorrectionStateRepository,
+    headerDetectionPort: {
+      detectHeaderRow: mockDetectHeaderRow,
+    },
+    llmHeaderDetectionPort: {
+      detectHeaderRow: mockLLMDetectHeaderRow,
+    },
+    llmColumnInferencePort: {
+      infer: mockLLMInfer,
+    },
     messagingPort: { sendMessage: mockSendMessage },
     transitionState: {
       execute: mockTransitionExecute,
@@ -84,11 +98,31 @@ function buildMockDeps(
   };
 }
 
+const mockPreview = {
+  provider: 'google',
+  fileId: 'file-123',
+  sheetName: 'Gastos',
+  rows: [
+    { index: 1, values: ['Fecha', 'Monto', 'Categoria'] },
+    { index: 2, values: ['01/01/2026', '100.50', 'Comida'] },
+  ],
+};
+
 const baseInput: CorrectColumnMappingInput = {
   userId: 'user-123',
   externalId: '987654321',
   channel: 'telegram',
   rawMessage: 'la categoría está en la columna E',
+  statePayload: {
+    provider: 'google',
+    preview: mockPreview,
+    mappings: [
+      { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+      { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+      { gasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoria', confidence: 'alta' },
+    ],
+    unmappedFields: [],
+  },
 };
 
 const mockConfig: SpreadsheetConfig = {
@@ -154,6 +188,10 @@ beforeEach(() => {
   mockParse.mockReturnValue({ kind: 'success', field: 'categoria', columnRef: 'E' });
   mockLoadCorrectionState.mockResolvedValue(null);
   mockSaveCorrectionState.mockResolvedValue(undefined);
+  mockUpsertMany.mockResolvedValue(undefined);
+  mockDetectHeaderRow.mockResolvedValue(1);
+  mockLLMDetectHeaderRow.mockResolvedValue(null);
+  mockLLMInfer.mockResolvedValue({ mappings: [], noHeaderFound: false, unmappedFields: [] });
   mockTransitionExecute.mockResolvedValue({
     userId: 'user-123',
     currentState: 'ONBOARDING_MAPPING',
@@ -304,6 +342,89 @@ describe('CorrectColumnMapping', () => {
       onboardingCopies.correctionParseFailurePrompt(),
     );
     expect(mockTransitionExecute).not.toHaveBeenCalled();
+  });
+
+  it('re-runs LLM inference when the user rejects the proposal without a specific correction', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+
+    mockLLMInfer.mockResolvedValue({
+      mappings: [
+        { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+        {
+          gasttoField: 'categoria',
+          columnIndex: 2,
+          columnHeader: 'Categoria',
+          confidence: 'alta',
+        },
+      ],
+      noHeaderFound: false,
+      unmappedFields: ['concepto', 'medio_pago', 'moneda'],
+    });
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'no, eso está mal',
+    });
+
+    expect(mockLLMInfer).toHaveBeenCalledWith(
+      ['Fecha', 'Monto', 'Categoria'],
+      [['01/01/2026', '100.50', 'Comida']],
+    );
+    expect(mockUpsertMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ GasttoField: 'fecha', columnIndex: 0 }),
+        expect.objectContaining({ GasttoField: 'monto', columnIndex: 1 }),
+        expect.objectContaining({ GasttoField: 'categoria', columnIndex: 2 }),
+      ]),
+    );
+    expect(result.kind).toBe('re-inferred');
+    expect(result.nextState).toBe('ONBOARDING_MAPPING');
+  });
+
+  it('falls back to LLM header detection during rejection re-inference when rule-based is uncertain', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+    mockDetectHeaderRow.mockResolvedValue(null);
+    mockLLMDetectHeaderRow.mockResolvedValue(1);
+    mockLLMInfer.mockResolvedValue({
+      mappings: [
+        { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+      ],
+      noHeaderFound: false,
+      unmappedFields: ['categoria', 'concepto', 'medio_pago', 'moneda'],
+    });
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'incorrecto',
+    });
+
+    expect(mockDetectHeaderRow).toHaveBeenCalled();
+    expect(mockLLMDetectHeaderRow).toHaveBeenCalled();
+    expect(mockLLMInfer).toHaveBeenCalled();
+    expect(result.kind).toBe('re-inferred');
+  });
+
+  it('sends no-header prompt when rejection re-inference cannot locate headers', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+    mockDetectHeaderRow.mockResolvedValue(null);
+    mockLLMDetectHeaderRow.mockResolvedValue(null);
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'no es correcto',
+    });
+
+    expect(mockLLMInfer).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
+    expect(result.kind).toBe('parse-failure');
   });
 
   it('triggers reconnect flow when spreadsheet config is missing', async () => {

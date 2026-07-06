@@ -392,7 +392,7 @@ describe('GoogleSheetsAdapter', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
       const [sheetsUrl] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(sheetsUrl).toContain('/values/Gastos!1:10');
+      expect(sheetsUrl).toContain('/values/Gastos!1:20');
       const [driveUrl] = fetchMock.mock.calls[1] as [string, RequestInit];
       expect(driveUrl).toContain('/files/spreadsheet-123?fields=capabilities(canEdit)');
     });

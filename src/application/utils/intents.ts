@@ -21,6 +21,21 @@ const CONFIRM_WORDS = [
 
 const CANCEL_WORDS = ['no', 'cancelar', 'cancela', 'no registres', 'para', 'stop', 'salir'];
 
+const REJECT_MAPPING_PHRASES = [
+  'no',
+  'incorrecto',
+  'mal',
+  'malo',
+  'wrong',
+  'no es correcto',
+  'no esta bien',
+  'no está bien',
+  'no es eso',
+  'cambiar todo',
+  'rehacer',
+  'otra vez',
+];
+
 const LIST_COLUMNS_PHRASES = [
   'mostrar columnas',
   'ver columnas',
@@ -53,4 +68,19 @@ export function isListColumnsIntent(rawMessage: string): boolean {
   return LIST_COLUMNS_PHRASES.some(
     (phrase) => normalized === phrase || normalized.includes(phrase),
   );
+}
+
+export function isRejectMappingIntent(rawMessage: string): boolean {
+  const normalized = rawMessage
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return REJECT_MAPPING_PHRASES.some((phrase) => {
+    if (normalized === phrase) return true;
+    const boundaryPattern = new RegExp(`(?:^|\\s)${phrase}(?:\\s|$)`);
+    return boundaryPattern.test(normalized);
+  });
 }

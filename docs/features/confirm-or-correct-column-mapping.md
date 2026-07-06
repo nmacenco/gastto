@@ -11,11 +11,12 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 - **In scope:**
   - Single confirmation ("yes", "ok", "correct") that finalizes the mapping and advances to `ONBOARDING_CATEGORIES`.
   - Natural-language correction parsing for per-field mapping changes.
+  - LLM re-inference when the user rejects the whole proposal without giving a specific correction (e.g., "no", "incorrecto", "wrong").
   - Column validation against the actual spreadsheet headers.
   - Accumulation of multiple corrections and re-display of the updated mapping after each one.
   - Redis-backed transient correction state with configurable TTL (default 30 minutes).
   - Resume behavior after abandonment via the persisted correction state.
-  - Error handling for missing config, missing mappings, missing or expired tokens, invalid columns, and unparseable messages.
+  - Error handling for missing config, missing mappings, missing or expired tokens, invalid columns, unparseable messages, and missing preview during re-inference.
 
 - **Out of scope:**
   - Initial mapping inference (HU-4.05).
@@ -70,13 +71,26 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 2. After 30 minutes of inactivity the Redis key expires automatically.
 3. On resume, `IMappingCorrectionStateRepository.load()` returns `null`; the use case rebuilds the state from the proposed mappings and the flow continues from the original proposal.
 
+### Scenario 6: User rejects the proposal without a specific correction
+
+1. The conversation is in `ONBOARDING_MAPPING` with the proposed `mappings` and the original `preview` in the state payload.
+2. The user sends a rejection message such as "no", "incorrecto", or "wrong".
+3. The message worker delegates to `CorrectColumnMapping.execute()`.
+4. `ColumnMappingCorrectionParser` cannot parse a specific field/column correction.
+5. `CorrectColumnMapping` detects the rejection intent and invokes `LLMColumnInferenceAdapter` (with header-row detection fallback) on the preview.
+6. The new LLM-proposed mappings replace the previous ones in `column_mappings`.
+7. A new proposal message is sent and the FSM self-transitions to `ONBOARDING_MAPPING` with the updated `mappings` and `unmappedFields`.
+8. If the LLM cannot locate headers or infer any mapping, `onboardingCopies.noHeaderPrompt()` is sent instead.
+
 ## Adapters
 
 - **RuleBasedColumnMappingCorrectionParser** - Implements `ColumnMappingCorrectionParser` using deterministic regex/rules to extract `{ field, columnRef }` from Spanish/English messages.
-- **CorrectColumnMapping** - Application use case that orchestrates parsing, column validation, state accumulation, and messaging.
+- **CorrectColumnMapping** - Application use case that orchestrates parsing, column validation, state accumulation, messaging, and LLM re-inference on rejection.
 - **ConfirmColumnMapping** - Application use case that finalizes the mapping when the user confirms it.
 - **RedisMappingCorrectionStateRepository** - Implements `IMappingCorrectionStateRepository` using Redis `SETEX`/`GET`/`DEL` with the key `conversation:{userId}:mapping-correction`.
 - **GoogleSheetsAdapter** - Implements `ISpreadsheetColumnPort.listAvailableColumns()` for Google Sheets.
+- **LLMHeaderDetectionAdapter** / **RuleBasedHeaderDetectionAdapter** - Provide header-row detection for rejection re-inference.
+- **LLMColumnInferenceAdapter** - Provides LLM-powered column mapping during rejection re-inference.
 
 ## API Contracts
 
@@ -90,6 +104,7 @@ interface CorrectColumnMappingInput {
   externalId: string;
   channel: 'telegram' | 'whatsapp';
   rawMessage: string;
+  statePayload: Record<string, unknown> | null;
 }
 ```
 
@@ -100,7 +115,8 @@ type CorrectColumnMappingOutput =
   | { kind: 'updated'; nextState: FsmState; message: string }
   | { kind: 'invalid-column'; nextState: FsmState; message: string; availableColumns: AvailableColumn[] }
   | { kind: 'parse-failure'; nextState: FsmState; message: string }
-  | { kind: 'no-proposed-mapping'; nextState: FsmState; message: string };
+  | { kind: 'no-proposed-mapping'; nextState: FsmState; message: string }
+  | { kind: 're-inferred'; nextState: FsmState; message: string; payload?: Record<string, unknown> };
 ```
 
 #### `CorrectColumnMappingDeps`
@@ -114,6 +130,9 @@ interface CorrectColumnMappingDeps {
   spreadsheetColumnPort: ISpreadsheetColumnPort;
   correctionParser: ColumnMappingCorrectionParser;
   correctionStateRepository: IMappingCorrectionStateRepository;
+  headerDetectionPort: HeaderDetectionPort;
+  llmHeaderDetectionPort: HeaderDetectionPort;
+  llmColumnInferencePort: ColumnInferencePort;
   messagingPort: MessagingOutputPort;
   transitionState: TransitionConversationState;
   stateTtlSeconds: number;
@@ -236,6 +255,8 @@ interface MappingCorrectionStateSnapshot {
 - [x] New correction for the same field replaces the previous correction.
 - [x] Invalid column reference returns available columns without persisting state.
 - [x] Parse failure leaves state unchanged and returns a helpful copy.
+- [x] Rejection without specific correction triggers LLM re-inference and replaces the previous proposal.
+- [x] Re-inference falls back to LLM header detection when rule-based detection is uncertain.
 - [x] Missing spreadsheet config triggers reconnect flow.
 - [x] Missing proposed mappings returns appropriate message without transition.
 - [x] Missing or expired token triggers reconnect flow.

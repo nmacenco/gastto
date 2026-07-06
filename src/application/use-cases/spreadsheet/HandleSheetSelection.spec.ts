@@ -9,6 +9,7 @@ import {
   type HandleSheetSelectionDeps,
   type HandleSheetSelectionInput,
 } from './HandleSheetSelection';
+import type { ValidateSpreadsheetAccessInput } from './ValidateSpreadsheetAccess';
 import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type {
   TransitionConversationState,
@@ -42,10 +43,15 @@ const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockEncrypt = vi.fn();
 const mockDecrypt = vi.fn();
 const mockCreateConfig = vi.fn();
+const mockUpsertConfig = vi.fn();
 const mockLoggerError = vi.fn();
 const mockCreatePort = vi.fn().mockReturnValue({
   listSheets: mockListSheets,
   getHeaders: mockGetHeaders,
+});
+const mockValidateAccess = vi.fn().mockResolvedValue({
+  nextState: 'ONBOARDING_MAPPING',
+  message: '',
 });
 
 function buildMockDeps(
@@ -66,7 +72,11 @@ function buildMockDeps(
     },
     spreadsheetConfigRepository: {
       create: mockCreateConfig,
+      upsertByUserId: mockUpsertConfig,
     } as unknown as HandleSheetSelectionDeps['spreadsheetConfigRepository'],
+    validateSpreadsheetAccess: {
+      execute: mockValidateAccess,
+    } as unknown as HandleSheetSelectionDeps['validateSpreadsheetAccess'],
     logger: { error: mockLoggerError } as unknown as HandleSheetSelectionDeps['logger'],
     ...overrides,
   };
@@ -110,7 +120,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDecrypt.mockReturnValue('decrypted-access-token');
   mockFindToken.mockResolvedValue(mockToken);
-  mockCreateConfig.mockResolvedValue({
+  mockUpsertConfig.mockResolvedValue({
     id: 'config-1',
     userId: 'user-123',
     provider: 'google',
@@ -136,7 +146,7 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(mockListSheets).toHaveBeenCalledWith('file-123');
-      expect(mockCreateConfig).toHaveBeenCalledWith({
+      expect(mockUpsertConfig).toHaveBeenCalledWith({
         userId: 'user-123',
         provider: 'google',
         fileId: 'file-123',
@@ -211,7 +221,7 @@ describe('HandleSheetSelection', () => {
         statePayload: { ...mockFilePayload, sheetList: mockSheets },
       });
 
-      expect(mockCreateConfig).toHaveBeenCalledWith(
+      expect(mockUpsertConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
       expect(mockTransitionExecute).toHaveBeenCalledWith(
@@ -231,7 +241,7 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
       expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
-      expect(mockCreateConfig).not.toHaveBeenCalled();
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
     });
 
     it('returns invalid re-prompt for selection "0"', async () => {
@@ -245,7 +255,7 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
       expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
-      expect(mockCreateConfig).not.toHaveBeenCalled();
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
     });
 
     it('accepts selection by number with surrounding whitespace', async () => {
@@ -257,7 +267,7 @@ describe('HandleSheetSelection', () => {
         statePayload: { ...mockFilePayload, sheetList: mockSheets },
       });
 
-      expect(mockCreateConfig).toHaveBeenCalledWith(
+      expect(mockUpsertConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
@@ -274,7 +284,7 @@ describe('HandleSheetSelection', () => {
         statePayload: { ...mockFilePayload, sheetList: mockSheets },
       });
 
-      expect(mockCreateConfig).toHaveBeenCalledWith(
+      expect(mockUpsertConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
@@ -289,7 +299,7 @@ describe('HandleSheetSelection', () => {
         statePayload: { ...mockFilePayload, sheetList: mockSheets },
       });
 
-      expect(mockCreateConfig).toHaveBeenCalledWith(
+      expect(mockUpsertConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
@@ -308,7 +318,7 @@ describe('HandleSheetSelection', () => {
         statePayload: { ...mockFilePayload, sheetList: sheets },
       });
 
-      expect(mockCreateConfig).toHaveBeenCalledWith(
+      expect(mockUpsertConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Gastos del Mes' }),
       );
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
@@ -323,7 +333,7 @@ describe('HandleSheetSelection', () => {
         statePayload: { ...mockFilePayload, sheetList: mockSheets },
       });
 
-      expect(mockCreateConfig).toHaveBeenCalledWith(
+      expect(mockUpsertConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
@@ -392,7 +402,7 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
       expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
-      expect(mockCreateConfig).not.toHaveBeenCalled();
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
     });
 
     it('re-prompts for empty rawMessage when sheetList is present', async () => {
@@ -406,7 +416,7 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
       expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
-      expect(mockCreateConfig).not.toHaveBeenCalled();
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
     });
   });
 
@@ -610,7 +620,7 @@ describe('HandleSheetSelection', () => {
         onboardingCopies.emptySheetConfirmedOutOfMvp(),
       );
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(mockCreateConfig).not.toHaveBeenCalled();
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
       expect(mockListSheets).not.toHaveBeenCalled();
     });
 
@@ -655,7 +665,7 @@ describe('HandleSheetSelection', () => {
         statePayload: emptySheetPayload,
       });
 
-      expect(mockCreateConfig).toHaveBeenCalledWith(
+      expect(mockUpsertConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Resumen' }),
       );
       expect(mockTransitionExecute).toHaveBeenCalledWith(
@@ -673,7 +683,7 @@ describe('HandleSheetSelection', () => {
         statePayload: emptySheetPayload,
       });
 
-      expect(mockCreateConfig).toHaveBeenCalledWith(
+      expect(mockUpsertConfig).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Presupuesto' }),
       );
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
@@ -690,7 +700,7 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
       expect(result.message).toBe(onboardingCopies.sheetNotFoundRePrompt(mockSheets));
-      expect(mockCreateConfig).not.toHaveBeenCalled();
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
     });
 
     it('returns reconnect message when token is missing', async () => {
@@ -710,7 +720,7 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(result.message).toBe(onboardingCopies.reconnectAccount());
-      expect(mockCreateConfig).not.toHaveBeenCalled();
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
     });
 
     it('returns file access failed when sheetList is missing', async () => {
@@ -729,6 +739,285 @@ describe('HandleSheetSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
       expect(result.message).toBe(onboardingCopies.fileAccessFailed());
+    });
+  });
+
+  describe('eager advance to access validation (ADR-014)', () => {
+    it('invokes ValidateSpreadsheetAccess after single-sheet auto-confirm', async () => {
+      mockListSheets.mockResolvedValue([mockSheets[0]]);
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockFilePayload,
+      });
+
+      expect(mockValidateAccess).toHaveBeenCalledWith({
+        userId: 'user-123',
+        externalId: '987654321',
+        channel: 'telegram',
+        statePayload: {
+          selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+        },
+      });
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+      expect(result.message).toContain('Gastos');
+    });
+
+    it('invokes ValidateSpreadsheetAccess after selection by number', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '2',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      const lastCall = mockValidateAccess.mock
+        .lastCall as unknown as ValidateSpreadsheetAccessInput[];
+      const call = lastCall[0]!;
+      expect(call).toMatchObject({
+        userId: 'user-123',
+        externalId: '987654321',
+        channel: 'telegram',
+      });
+      expect(call.statePayload).toMatchObject({
+        selectedFileId: 'file-123',
+        selectedFileName: 'Mi Planilla',
+        selectedSheetName: 'Resumen',
+        provider: 'google',
+      });
+      expect((call.statePayload as { sheetList?: unknown }).sheetList).toEqual(mockSheets);
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+    });
+
+    it('invokes ValidateSpreadsheetAccess after selection by name', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'Presupuesto',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      const lastCall = mockValidateAccess.mock
+        .lastCall as unknown as ValidateSpreadsheetAccessInput[];
+      const call = lastCall[0]!;
+      expect(call.statePayload).toMatchObject({ selectedSheetName: 'Presupuesto' });
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+    });
+
+    it('logs and preserves the confirmation when ValidateSpreadsheetAccess throws', async () => {
+      mockListSheets.mockResolvedValue([mockSheets[0]]);
+      mockValidateAccess.mockRejectedValue(new Error('validation down'));
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockFilePayload,
+      });
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'HandleSheetSelection',
+          code: 'POST_SHEET_VALIDATING_ACCESS_FAILED',
+          userId: 'user-123',
+          error: 'validation down',
+        }),
+      );
+      // The confirmation outcome is unchanged by the eager-advance failure.
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+      expect(result.message).toContain('Gastos');
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', expect.stringContaining('Gastos'));
+    });
+
+    it('does not invoke ValidateSpreadsheetAccess on reconnect (missing token)', async () => {
+      mockFindToken.mockResolvedValue(null);
+
+      const deps = buildMockDeps({
+        transitionState: {
+          execute: mockReconnectTransitionExecute,
+        } as unknown as TransitionConversationState,
+      });
+      const useCase = new HandleSheetSelection(deps);
+      await useCase.execute({ ...baseInput, statePayload: mockFilePayload });
+
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke ValidateSpreadsheetAccess on "I do not know" variant', async () => {
+      mockGetHeaders.mockResolvedValue(['Fecha', 'Monto']);
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      await useCase.execute({
+        ...baseInput,
+        rawMessage: 'no sé',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke ValidateSpreadsheetAccess on invalid sheet selection', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      await useCase.execute({
+        ...baseInput,
+        rawMessage: 'hoja inexistente',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke ValidateSpreadsheetAccess on empty-sheet-confirm "sí"', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+      await useCase.execute({
+        ...baseInput,
+        rawMessage: 'sí',
+        statePayload: {
+          selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+          step: 'empty-sheet-confirm',
+          sheetList: mockSheets as unknown as Record<string, unknown>[],
+        },
+      });
+
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('confirmSheet ordering and re-onboarding (upsert)', () => {
+    it('persists via upsertByUserId, transitions, then sends confirmation message', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+
+      await useCase.execute({
+        ...baseInput,
+        rawMessage: '2',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      const persistenceOrder = vi.fn();
+      const transitionOrder = vi.fn();
+      const sendOrder = vi.fn();
+      mockUpsertConfig.mockImplementationOnce(() => {
+        persistenceOrder();
+        return Promise.resolve({
+          id: 'config-1',
+          userId: 'user-123',
+          provider: 'google',
+          fileId: 'file-123',
+          fileName: 'Mi Planilla',
+          sheetName: 'Resumen',
+          accessVerifiedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      });
+      mockTransitionExecute.mockImplementationOnce(() => {
+        transitionOrder();
+        return Promise.resolve({
+          userId: 'user-123',
+          currentState: 'ONBOARDING_VALIDATING_ACCESS',
+          statePayload: null,
+          enteredAt: new Date(),
+          expiresAt: null,
+          updatedAt: new Date(),
+        });
+      });
+      mockSendMessage.mockImplementationOnce(() => {
+        sendOrder();
+        return Promise.resolve({ status: 'success' });
+      });
+
+      await useCase.execute({
+        ...baseInput,
+        rawMessage: '2',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      const persistCall = persistenceOrder.mock.invocationCallOrder[0] as number;
+      const transitionCall = transitionOrder.mock.invocationCallOrder[0] as number;
+      const sendCall = sendOrder.mock.invocationCallOrder[0] as number;
+      expect(persistCall).toBeLessThan(transitionCall);
+      expect(transitionCall).toBeLessThan(sendCall);
+    });
+
+    it('does not send the confirmation message when persistence throws (no leak on retry)', async () => {
+      mockUpsertConfig.mockRejectedValueOnce(new Error('db down'));
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+
+      await expect(
+        useCase.execute({
+          ...baseInput,
+          rawMessage: '2',
+          statePayload: { ...mockFilePayload, sheetList: mockSheets },
+        }),
+      ).rejects.toThrow('db down');
+
+      expect(mockSendMessage).not.toHaveBeenCalled();
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+    });
+
+    it('invokes upsertByUserId (not create) on re-onboarding when a config already exists', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '2',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(mockUpsertConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          provider: 'google',
+          fileId: 'file-123',
+          fileName: 'Mi Planilla',
+          sheetName: 'Resumen',
+          accessVerifiedAt: expect.any(Date) as Date,
+        }),
+      );
+      expect(mockCreateConfig).not.toHaveBeenCalled();
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+    });
+
+    it('upserts again when re-selecting a sheet after a previous onboarding completed', async () => {
+      mockUpsertConfig.mockResolvedValueOnce({
+        id: 'config-existing',
+        userId: 'user-123',
+        provider: 'google',
+        fileId: 'file-old',
+        fileName: 'Old Planilla',
+        sheetName: 'Gastos',
+        accessVerifiedAt: new Date('2026-01-01T00:00:00Z'),
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-06-01T00:00:00Z'),
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: '2',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+      });
+
+      expect(mockUpsertConfig).toHaveBeenCalledTimes(1);
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
     });
   });
 });

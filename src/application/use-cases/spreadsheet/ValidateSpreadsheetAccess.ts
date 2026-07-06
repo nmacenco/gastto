@@ -16,7 +16,9 @@ import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
 import type { SpreadsheetAccessResult } from '../../../domain/value-objects/SpreadsheetAccessResult';
+import type { InferColumnMapping } from './InferColumnMapping';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import type { Logger } from 'pino';
 
 export interface ValidateSpreadsheetAccessInput {
   userId: string;
@@ -38,6 +40,8 @@ export interface ValidateSpreadsheetAccessDeps {
   messagingPort: MessagingOutputPort;
   tokenEncryption: TokenEncryptionPort;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
+  inferColumnMapping: InferColumnMapping;
+  logger: Logger;
 }
 
 function isExpiredToken(expiresAt: Date): boolean {
@@ -97,7 +101,7 @@ export class ValidateSpreadsheetAccess {
     fileId: string,
     sheetName: string,
   ): Promise<ValidateSpreadsheetAccessOutput> {
-    const { userId, externalId, statePayload } = input;
+    const { userId, externalId, channel, statePayload } = input;
 
     switch (result.kind) {
       case 'success': {
@@ -125,6 +129,11 @@ export class ValidateSpreadsheetAccess {
           targetState: 'ONBOARDING_MAPPING',
           payload,
         });
+
+        // Eager advance (ADR-014): infer the column mapping immediately after
+        // successful access validation so the user does not need to send
+        // another message to receive the mapping proposal.
+        await this.triggerColumnInference(userId, externalId, channel, payload);
 
         return { nextState: 'ONBOARDING_MAPPING', message: '', payload };
       }
@@ -165,6 +174,30 @@ export class ValidateSpreadsheetAccess {
       case 'access-error': {
         return this.handleReconnect(externalId, userId);
       }
+    }
+  }
+
+  private async triggerColumnInference(
+    userId: string,
+    externalId: string,
+    channel: 'telegram' | 'whatsapp',
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.deps.inferColumnMapping.execute({
+        userId,
+        externalId,
+        channel,
+        statePayload: payload,
+      });
+    } catch (err) {
+      this.deps.logger.error({
+        endpoint: 'ValidateSpreadsheetAccess',
+        code: 'POST_VALIDATING_ACCESS_MAPPING_FAILED',
+        userId,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

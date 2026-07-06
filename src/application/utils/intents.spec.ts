@@ -2,7 +2,12 @@
 // Unit tests for conversational intent detection utilities.
 
 import { describe, it, expect } from 'vitest';
-import { isConfirmIntent, isCancelIntent, isListColumnsIntent } from './intents';
+import {
+  isConfirmIntent,
+  isCancelIntent,
+  isListColumnsIntent,
+  isRejectMappingIntent,
+} from './intents';
 
 describe('isConfirmIntent', () => {
   it('returns true for "sí"', () => {
@@ -140,5 +145,42 @@ describe('isListColumnsIntent', () => {
     expect(isListColumnsIntent('sí')).toBe(false);
     expect(isListColumnsIntent('la categoría está en E')).toBe(false);
     expect(isListColumnsIntent('ok')).toBe(false);
+  });
+});
+
+describe('isRejectMappingIntent', () => {
+  it('returns true for "no"', () => {
+    expect(isRejectMappingIntent('no')).toBe(true);
+  });
+
+  it('returns true for "incorrecto"', () => {
+    expect(isRejectMappingIntent('incorrecto')).toBe(true);
+  });
+
+  it('returns true for "no es correcto"', () => {
+    expect(isRejectMappingIntent('no es correcto')).toBe(true);
+  });
+
+  it('returns true for "wrong"', () => {
+    expect(isRejectMappingIntent('wrong')).toBe(true);
+  });
+
+  it('returns true with surrounding whitespace', () => {
+    expect(isRejectMappingIntent('  no  ')).toBe(true);
+  });
+
+  it('returns true for uppercase and accents', () => {
+    expect(isRejectMappingIntent('NO')).toBe(true);
+    expect(isRejectMappingIntent('está mal')).toBe(true);
+  });
+
+  it('returns false for correction messages', () => {
+    expect(isRejectMappingIntent('la categoría está en E')).toBe(false);
+    expect(isRejectMappingIntent('el monto es columna 2')).toBe(false);
+  });
+
+  it('returns false for confirm messages', () => {
+    expect(isRejectMappingIntent('sí')).toBe(false);
+    expect(isRejectMappingIntent('ok')).toBe(false);
   });
 });
