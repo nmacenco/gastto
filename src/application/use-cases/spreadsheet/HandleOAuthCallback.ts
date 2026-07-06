@@ -108,6 +108,7 @@ export class HandleOAuthCallback {
         accessTokenEnc: accessEnc.ciphertext,
         refreshTokenEnc: refreshEnc.ciphertext,
         iv: accessEnc.iv,
+        refreshIv: refreshEnc.iv,
         accessTokenExpiresAt: tokenResponse.expiresAt,
         scope: tokenResponse.scope,
         grantedAt: new Date(),

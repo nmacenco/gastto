@@ -76,6 +76,7 @@ const mockToken = {
   accessTokenEnc: Buffer.from('enc'),
   refreshTokenEnc: Buffer.from('ref'),
   iv: Buffer.from('iv'),
+  refreshIv: Buffer.from('refresh-iv'),
   accessTokenExpiresAt: new Date(Date.now() + 3600_000),
   scope: [
     'https://www.googleapis.com/auth/drive.readonly',

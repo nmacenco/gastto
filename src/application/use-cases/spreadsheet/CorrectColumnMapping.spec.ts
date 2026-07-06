@@ -163,6 +163,7 @@ const mockToken: OAuthToken = {
   accessTokenEnc: Buffer.from('encrypted'),
   refreshTokenEnc: Buffer.from('encrypted-refresh'),
   iv: Buffer.from('iv'),
+  refreshIv: Buffer.from('refresh-iv'),
   accessTokenExpiresAt: new Date(Date.now() + 3600_000),
   scope: ['drive', 'spreadsheets'],
   grantedAt: new Date(),

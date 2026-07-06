@@ -41,7 +41,7 @@ Reconnection paths (e.g., expired token during file or sheet selection) transiti
 7. `HandleOAuthCallback`:
    - Validates the `state` against Redis (`oauth:state:{state}`).
    - Exchanges the `code` for tokens via `GoogleDriveOAuthAdapter.exchangeCode()`.
-   - Encrypts tokens (AES-256-GCM) and persists them via `IOAuthTokenRepository.upsert()`.
+   - Encrypts the access token and refresh token separately (AES-256-GCM), each with its own IV, and persists both ciphertexts plus both IVs via `IOAuthTokenRepository.upsert()`.
    - Cancels the pending BullMQ reminder job using the stored `reminderJobId`.
    - Removes the Redis CSRF key.
    - Sends a success confirmation to the user.
@@ -247,7 +247,7 @@ interface SendOAuthReminderOutput {
   - Browser redirects to `/auth/google/callback?code=...&state=...`.
   - `HandleOAuthCallback` validates `state` against Redis.
   - Tokens exchanged via `GoogleDriveOAuthAdapter.exchangeCode()`.
-  - Tokens encrypted (AES-256-GCM) and persisted via `IOAuthTokenRepository.upsert()`.
+  - Access token and refresh token encrypted separately (AES-256-GCM) with distinct IVs; both ciphertexts and both IVs persisted via `IOAuthTokenRepository.upsert()`.
   - Reminder job cancelled via `Queue.remove(reminderJobId)`.
   - Redis CSRF key deleted.
   - Success message sent to user.

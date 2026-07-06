@@ -47,6 +47,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
         accessTokenEnc: Buffer.from('enc-access-1'),
         refreshTokenEnc: Buffer.from('enc-refresh-1'),
         iv: Buffer.from('iv-16-bytes-long'),
+        refreshIv: Buffer.from('refresh-iv-16-bytes'),
         accessTokenExpiresAt: new Date('2026-12-31T23:59:59Z'),
         scope: ['https://www.googleapis.com/auth/drive.file'],
         grantedAt: new Date('2026-01-01T00:00:00Z'),
@@ -79,6 +80,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
         accessTokenEnc: Buffer.from('old-access'),
         refreshTokenEnc: Buffer.from('old-refresh'),
         iv: Buffer.from('old-iv'),
+        refreshIv: Buffer.from('old-refresh-iv'),
         accessTokenExpiresAt: new Date('2026-06-01T00:00:00Z'),
         scope: ['old.scope'],
         grantedAt: new Date('2026-01-01T00:00:00Z'),
@@ -92,6 +94,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
         accessTokenEnc: Buffer.from('new-access'),
         refreshTokenEnc: Buffer.from('new-refresh'),
         iv: Buffer.from('new-iv'),
+        refreshIv: Buffer.from('new-refresh-iv'),
         accessTokenExpiresAt: new Date('2026-12-31T23:59:59Z'),
         scope: ['https://www.googleapis.com/auth/drive.file'],
         grantedAt: new Date('2026-06-01T00:00:00Z'),
@@ -128,6 +131,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
         accessTokenEnc: Buffer.from('enc-access'),
         refreshTokenEnc: Buffer.from('enc-refresh'),
         iv: Buffer.from('iv'),
+        refreshIv: Buffer.from('refresh-iv'),
         accessTokenExpiresAt: new Date('2026-06-01T00:00:00Z'),
         scope: ['scope'],
         grantedAt: new Date('2026-01-01T00:00:00Z'),
@@ -164,6 +168,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
         accessTokenEnc: Buffer.from('enc-access'),
         refreshTokenEnc: Buffer.from('enc-refresh'),
         iv: Buffer.from('iv'),
+        refreshIv: Buffer.from('refresh-iv'),
         accessTokenExpiresAt: new Date('2026-06-01T00:00:00Z'),
         scope: ['scope'],
         grantedAt: new Date('2026-01-01T00:00:00Z'),
@@ -192,6 +197,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
         accessTokenEnc: Buffer.from('encrypted-access-token-buffer'),
         refreshTokenEnc: Buffer.from('encrypted-refresh-token-buffer'),
         iv: Buffer.from('initialization-vector'),
+        refreshIv: Buffer.from('refresh-initialization-vector'),
         accessTokenExpiresAt: new Date('2026-12-31T23:59:59Z'),
         scope: ['https://www.googleapis.com/auth/drive.file'],
         grantedAt: new Date('2026-01-01T00:00:00Z'),
@@ -201,7 +207,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
 
       // Query the raw DB directly (bypass the repository mapper)
       const [rawRow] = await pgClient`
-        SELECT access_token_enc, refresh_token_enc, iv
+        SELECT access_token_enc, refresh_token_enc, iv, refresh_iv
         FROM oauth_tokens
         WHERE user_id = ${user.userId} AND provider = 'google'
       `;
@@ -210,6 +216,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
       expect(rawRow.access_token_enc).toBeInstanceOf(Buffer);
       expect(rawRow.refresh_token_enc).toBeInstanceOf(Buffer);
       expect(rawRow.iv).toBeInstanceOf(Buffer);
+      expect(rawRow.refresh_iv).toBeInstanceOf(Buffer);
 
       // Ensure the raw buffers contain the encrypted bytes, NOT plaintext tokens
       const accessTokenRaw = Buffer.from(rawRow.access_token_enc).toString();
@@ -217,6 +224,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
       expect(accessTokenRaw).toBe('encrypted-access-token-buffer');
       expect(refreshTokenRaw).toBe('encrypted-refresh-token-buffer');
       expect(Buffer.from(rawRow.iv).toString()).toBe('initialization-vector');
+      expect(Buffer.from(rawRow.refresh_iv).toString()).toBe('refresh-initialization-vector');
 
       // Plaintext tokens must NEVER appear
       expect(accessTokenRaw).not.toContain('plain');
