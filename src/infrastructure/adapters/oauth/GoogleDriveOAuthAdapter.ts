@@ -12,6 +12,8 @@ import { InvalidProviderError } from '../../../domain/errors/InvalidProviderErro
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+const GOOGLE_OAUTH_SCOPES = [DRIVE_READONLY_SCOPE, GOOGLE_SHEETS_SCOPE].join(' ');
 
 export interface GoogleDriveOAuthAdapterConfig {
   clientId: string;
@@ -31,7 +33,7 @@ export class GoogleDriveOAuthAdapter implements OAuthServicePort {
       client_id: this.config.clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: DRIVE_READONLY_SCOPE,
+      scope: GOOGLE_OAUTH_SCOPES,
       access_type: 'offline',
       prompt: 'consent',
       state,

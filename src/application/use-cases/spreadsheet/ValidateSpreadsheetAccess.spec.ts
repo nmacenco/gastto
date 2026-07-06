@@ -77,7 +77,10 @@ const mockToken = {
   refreshTokenEnc: Buffer.from('ref'),
   iv: Buffer.from('iv'),
   accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-  scope: ['drive.file'],
+  scope: [
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/spreadsheets',
+  ],
   grantedAt: new Date(),
   lastRefreshedAt: null,
   revokedAt: null,
@@ -336,6 +339,33 @@ describe('ValidateSpreadsheetAccess', () => {
       });
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+
+    it('sends reconnect message when the google token lacks the spreadsheets write scope', async () => {
+      mockFindToken.mockResolvedValue({
+        ...mockToken,
+        scope: ['https://www.googleapis.com/auth/drive.readonly'],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new ValidateSpreadsheetAccess(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.reconnectAccount(),
+      );
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+      expect(mockDecrypt).not.toHaveBeenCalled();
     });
 
     it('sends reconnect message and transitions to ONBOARDING_START when token is expired', async () => {

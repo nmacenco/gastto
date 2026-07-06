@@ -109,6 +109,15 @@ The following environment variables are required once the adapter is wired:
 
 All three are optional in `env.schema.ts` so the app can bootstrap without them during skeleton phases.
 
+## Requested scopes
+
+For Google Drive, the authorization URL requests the following space-separated OAuth scopes:
+
+- `https://www.googleapis.com/auth/drive.readonly` — list and search spreadsheet files, read file metadata, and check `capabilities.canEdit`.
+- `https://www.googleapis.com/auth/spreadsheets` — read from and write to the selected Google Sheet.
+
+If the scope set changes, existing tokens must be re-authorized because Google does not grant incremental permissions without a new consent flow.
+
 ## API Contracts
 
 ### Fastify Routes

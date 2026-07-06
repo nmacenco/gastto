@@ -20,6 +20,8 @@ import type { InferColumnMapping } from './InferColumnMapping';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import type { Logger } from 'pino';
 
+const GOOGLE_SHEETS_WRITE_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+
 export interface ValidateSpreadsheetAccessInput {
   userId: string;
   externalId: string;
@@ -67,6 +69,10 @@ export class ValidateSpreadsheetAccess {
     }
 
     if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
+      return this.handleReconnect(externalId, userId);
+    }
+
+    if (provider === 'google' && !token.scope.includes(GOOGLE_SHEETS_WRITE_SCOPE)) {
       return this.handleReconnect(externalId, userId);
     }
 
