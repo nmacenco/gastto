@@ -18,16 +18,25 @@ import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption'
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
-import type { ColumnMapping, GasttoField } from '../../../domain/entities/SpreadsheetConfig';
+import type {
+  ColumnMapping,
+  GasttoField,
+  SpreadsheetConfig,
+} from '../../../domain/entities/SpreadsheetConfig';
 import { ColumnMappingCorrectionState } from '../../../domain/value-objects/ColumnMappingCorrectionState';
 import type { ColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { isRejectMappingIntent } from '../../utils/intents';
+import type { HeaderDetectionPort } from '../../../domain/ports/headerDetection';
+import type { ColumnInferencePort } from '../../../domain/ports/columnInference';
+import type { Row } from '../../../domain/ports/services';
 
 export interface CorrectColumnMappingInput {
   userId: string;
   externalId: string;
   channel: 'telegram' | 'whatsapp';
   rawMessage: string;
+  statePayload: Record<string, unknown> | null;
 }
 
 export interface CorrectColumnMappingUpdatedOutput {
@@ -55,11 +64,19 @@ export interface CorrectColumnMappingNoMappingOutput {
   message: string;
 }
 
+export interface CorrectColumnMappingReInferredOutput {
+  kind: 're-inferred';
+  nextState: FsmState;
+  message: string;
+  payload?: Record<string, unknown>;
+}
+
 export type CorrectColumnMappingOutput =
   | CorrectColumnMappingUpdatedOutput
   | CorrectColumnMappingInvalidColumnOutput
   | CorrectColumnMappingParseFailureOutput
-  | CorrectColumnMappingNoMappingOutput;
+  | CorrectColumnMappingNoMappingOutput
+  | CorrectColumnMappingReInferredOutput;
 
 export interface CorrectColumnMappingDeps {
   columnMappingRepository: IColumnMappingRepository;
@@ -69,6 +86,9 @@ export interface CorrectColumnMappingDeps {
   spreadsheetColumnPort: ISpreadsheetColumnPort;
   correctionParser: ColumnMappingCorrectionParser;
   correctionStateRepository: IMappingCorrectionStateRepository;
+  headerDetectionPort: HeaderDetectionPort;
+  llmHeaderDetectionPort: HeaderDetectionPort;
+  llmColumnInferencePort: ColumnInferencePort;
   messagingPort: MessagingOutputPort;
   transitionState: TransitionConversationState;
   stateTtlSeconds: number;
@@ -87,6 +107,33 @@ function columnLetterToIndex(letters: string): number | null {
     index = index * 26 + (char.charCodeAt(0) - 64);
   }
   return index - 1;
+}
+
+function cellToString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+function extractPreviewRows(statePayload: Record<string, unknown> | null): Row[] | null {
+  const preview = statePayload?.preview as
+    | {
+        provider: string;
+        fileId: string;
+        sheetName: string;
+        rows: Array<{ index: number; values: unknown[] }>;
+      }
+    | undefined;
+
+  if (!preview || !Array.isArray(preview.rows) || preview.rows.length === 0) {
+    return null;
+  }
+
+  return preview.rows.map((r) => ({
+    index: r.index,
+    values: r.values as (string | number | boolean | null)[],
+  }));
 }
 
 function normalizeHeader(header: string): string {
@@ -168,6 +215,10 @@ export class CorrectColumnMapping {
 
     const parseResult = this.deps.correctionParser.parse(rawMessage);
     if (parseResult.kind === 'failure') {
+      if (isRejectMappingIntent(rawMessage)) {
+        return this.handleRejection(input, config);
+      }
+
       const message = onboardingCopies.correctionParseFailurePrompt();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
@@ -244,6 +295,116 @@ export class CorrectColumnMapping {
     });
 
     return { kind: 'updated', nextState: 'ONBOARDING_MAPPING', message };
+  }
+
+  private async handleRejection(
+    input: CorrectColumnMappingInput,
+    config: SpreadsheetConfig,
+  ): Promise<CorrectColumnMappingOutput> {
+    const { userId, externalId, statePayload } = input;
+
+    const previewRows = extractPreviewRows(statePayload);
+    if (!previewRows) {
+      const message = onboardingCopies.correctionParseFailurePrompt();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
+    }
+
+    let headerRowIndex = await this.deps.headerDetectionPort.detectHeaderRow(previewRows);
+    if (headerRowIndex === null) {
+      headerRowIndex = await this.deps.llmHeaderDetectionPort.detectHeaderRow(previewRows);
+    }
+
+    if (headerRowIndex === null) {
+      const message = onboardingCopies.noHeaderPrompt();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+
+      const payload: Record<string, unknown> = {
+        ...statePayload,
+        step: 'no-header',
+      };
+
+      await this.deps.transitionState.execute({
+        userId,
+        targetState: 'ONBOARDING_MAPPING',
+        payload,
+        expiresAt: this.computeExpiresAt(),
+      });
+
+      return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
+    }
+
+    const headerRow = previewRows.find((r) => r.index === headerRowIndex);
+    if (!headerRow) {
+      const message = onboardingCopies.correctionParseFailurePrompt();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
+    }
+
+    const headers = headerRow.values.map((v) => cellToString(v));
+    const sampleRows = previewRows
+      .filter((row) => row.index > headerRowIndex)
+      .slice(0, 9)
+      .map((row) => row.values.map((v) => cellToString(v)));
+
+    const result = await this.deps.llmColumnInferencePort.infer(headers, sampleRows);
+
+    if (result.noHeaderFound || result.mappings.length === 0) {
+      const message = onboardingCopies.noHeaderPrompt();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+
+      const payload: Record<string, unknown> = {
+        ...statePayload,
+        step: 'no-header',
+      };
+
+      await this.deps.transitionState.execute({
+        userId,
+        targetState: 'ONBOARDING_MAPPING',
+        payload,
+        expiresAt: this.computeExpiresAt(),
+      });
+
+      return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
+    }
+
+    await this.deps.columnMappingRepository.upsertMany(
+      result.mappings.map((m) => ({
+        spreadsheetId: config.id,
+        GasttoField: m.gasttoField,
+        columnIndex: m.columnIndex,
+        columnHeader: m.columnHeader,
+        inferred: true,
+        confirmedAt: null,
+      })),
+    );
+
+    const hasLowConfidence = result.mappings.some((m) => m.confidence === 'baja');
+    const message =
+      result.unmappedFields.length > 0
+        ? hasLowConfidence
+          ? onboardingCopies.mappingProposalLowConfidence(result.mappings, result.unmappedFields)
+          : onboardingCopies.mappingProposalHighConfidence(result.mappings, result.unmappedFields)
+        : hasLowConfidence
+          ? onboardingCopies.mappingProposalLowConfidence(result.mappings, result.unmappedFields)
+          : onboardingCopies.mappingProposalHighConfidence(result.mappings, result.unmappedFields);
+
+    await this.deps.messagingPort.sendMessage(externalId, message);
+
+    const payload: Record<string, unknown> = {
+      ...statePayload,
+      mappings: result.mappings,
+      unmappedFields: result.unmappedFields,
+    };
+
+    await this.deps.transitionState.execute({
+      userId,
+      targetState: 'ONBOARDING_MAPPING',
+      payload,
+      expiresAt: this.computeExpiresAt(),
+    });
+
+    return { kind: 're-inferred', nextState: 'ONBOARDING_MAPPING', message, payload };
   }
 
   private async handleReconnect(

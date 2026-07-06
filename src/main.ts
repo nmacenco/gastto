@@ -39,6 +39,11 @@ import { GoogleSheetsAdapterFactory } from './infrastructure/adapters/sheets/Goo
 import { SpreadsheetAccessAdapterFactory } from './infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import { GoogleSheetsAdapter } from './infrastructure/adapters/sheets/GoogleSheetsAdapter';
 import { RuleBasedColumnInferenceAdapter } from './infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
+import { RuleBasedHeaderDetectionAdapter } from './infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
+import { LLMHeaderDetectionAdapter } from './infrastructure/adapters/sheets/LLMHeaderDetectionAdapter';
+import { LLMColumnInferenceAdapter } from './infrastructure/adapters/sheets/LLMColumnInferenceAdapter';
+import { OpenAIAdapter } from './infrastructure/adapters/llm/OpenAIAdapter';
+import { ClaudeAdapter } from './infrastructure/adapters/llm/ClaudeAdapter';
 import { RuleBasedColumnMappingCorrectionParser } from './application/services/ColumnMappingCorrectionParser';
 import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
 
@@ -304,6 +309,14 @@ async function bootstrap(): Promise<void> {
         const spreadsheetAccessAdapterFactory = new SpreadsheetAccessAdapterFactory();
 
         const ruleBasedColumnInferenceAdapter = new RuleBasedColumnInferenceAdapter();
+        const ruleBasedHeaderDetectionAdapter = new RuleBasedHeaderDetectionAdapter();
+
+        const llmPort =
+          env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0
+            ? new ClaudeAdapter(env.ANTHROPIC_API_KEY)
+            : new OpenAIAdapter(env.OPENAI_API_KEY);
+        const llmHeaderDetectionAdapter = new LLMHeaderDetectionAdapter(llmPort, rootLogger);
+        const llmColumnInferenceAdapter = new LLMColumnInferenceAdapter(llmPort, rootLogger);
 
         const inferColumnMapping =
           googleOAuthAdapter !== null
@@ -313,6 +326,9 @@ async function bootstrap(): Promise<void> {
                 spreadsheetConfigRepository: spreadsheetConfigRepo,
                 columnMappingRepository: columnMappingRepo,
                 columnInferencePort: ruleBasedColumnInferenceAdapter,
+                llmColumnInferencePort: llmColumnInferenceAdapter,
+                headerDetectionPort: ruleBasedHeaderDetectionAdapter,
+                llmHeaderDetectionPort: llmHeaderDetectionAdapter,
                 messagingPort: telegramAdapter,
                 transitionState,
               })
@@ -396,6 +412,9 @@ async function bootstrap(): Promise<void> {
                 spreadsheetColumnPort: new GoogleSheetsAdapter(''),
                 correctionParser: new RuleBasedColumnMappingCorrectionParser(),
                 correctionStateRepository: mappingCorrectionStateRepository,
+                headerDetectionPort: ruleBasedHeaderDetectionAdapter,
+                llmHeaderDetectionPort: llmHeaderDetectionAdapter,
+                llmColumnInferencePort: llmColumnInferenceAdapter,
                 messagingPort: telegramAdapter,
                 transitionState,
                 stateTtlSeconds: env.MAPPING_CORRECTION_TTL_SECONDS,

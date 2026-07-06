@@ -473,6 +473,7 @@ async function handleMappingConfirmation(
         externalId,
         channel,
         rawMessage: 'la categoría está en la columna ZZZ',
+        statePayload,
       });
     } else {
       await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
@@ -483,6 +484,7 @@ async function handleMappingConfirmation(
       externalId,
       channel,
       rawMessage,
+      statePayload,
     });
   } else {
     await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());

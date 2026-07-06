@@ -179,7 +179,7 @@ export class GoogleSheetsAdapter
       }
   > {
     const encodedSheetName = encodeURIComponent(sheetName);
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!1:10`;
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!1:20`;
 
     let response: Response;
     try {

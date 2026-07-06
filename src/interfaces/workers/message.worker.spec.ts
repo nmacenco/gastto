@@ -636,6 +636,7 @@ describe('processMessageJob', () => {
           externalId: '123456789',
           channel: 'telegram',
           rawMessage: 'la categoría está en la columna E',
+          statePayload: mappingPayload,
         });
         expect(mockConfirmColumnMappingExecute).not.toHaveBeenCalled();
         expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
@@ -664,6 +665,7 @@ describe('processMessageJob', () => {
           externalId: '123456789',
           channel: 'telegram',
           rawMessage: 'la categoría está en la columna ZZZ',
+          statePayload: mappingPayload,
         });
         expect(mockConfirmColumnMappingExecute).not.toHaveBeenCalled();
         expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
@@ -986,8 +988,16 @@ describe('processMessageJob', () => {
 
       expect(mockHandleSheetSelectionExecute).toHaveBeenCalledTimes(2);
       expect(mockSendMessage).toHaveBeenCalledTimes(2);
-      expect(mockSendMessage).toHaveBeenNthCalledWith(1, '123456789', expenseCopies.fallbackError());
-      expect(mockSendMessage).toHaveBeenNthCalledWith(2, '123456789', expenseCopies.fallbackError());
+      expect(mockSendMessage).toHaveBeenNthCalledWith(
+        1,
+        '123456789',
+        expenseCopies.fallbackError(),
+      );
+      expect(mockSendMessage).toHaveBeenNthCalledWith(
+        2,
+        '123456789',
+        expenseCopies.fallbackError(),
+      );
     });
 
     it('still completes when fallback send also throws (logs send failure, no rethrow)', async () => {
