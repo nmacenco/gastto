@@ -67,6 +67,7 @@ import { TransitionConversationState } from './application/use-cases/conversatio
 import { RecoverCorruptedState } from './application/use-cases/conversation/RecoverCorruptedState';
 import { GetConversationState } from './application/use-cases/conversation/GetConversationState';
 import { HandleExpiredSessions } from './application/use-cases/conversation/HandleExpiredSessions';
+import { RedisUserProcessingLock } from './infrastructure/redis/RedisUserProcessingLock';
 import type { ProcessMessageJobData } from './application/ports/ProcessMessageJob';
 import type { IncomingMessageJobData } from './application/ports/IncomingMessageJob';
 
@@ -202,12 +203,16 @@ async function bootstrap(): Promise<void> {
       // process-message jobs run side-effectful FSM handlers that send
       // user-facing messages. Retrying them re-runs those side effects and
       // can duplicate outbound messages (see ADR-015). The worker wraps the
-      // handler in a try/catch and surfaces a single fallback message, so a
-      // single attempt is sufficient.
+      // handler in a try/catch and surfaces a single fallback message, so
+      // non-lock errors must NOT be retried.
+      // A custom backoff strategy (registered on the Worker) returns -1 for
+      // every error except UserAlreadyProcessingError, ensuring only lock
+      // contention triggers a retry with exponential backoff.
       const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
         connection: redis,
         defaultJobOptions: {
-          attempts: 1,
+          attempts: 5,
+          backoff: { type: 'custom' },
           removeOnComplete: 100,
           removeOnFail: 500,
         },
@@ -401,6 +406,7 @@ async function bootstrap(): Promise<void> {
             : null;
 
         const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(redis);
+        const userProcessingLock = new RedisUserProcessingLock(redis);
 
         const correctColumnMapping =
           googleOAuthAdapter !== null
@@ -425,6 +431,7 @@ async function bootstrap(): Promise<void> {
         const messageWorker = createMessageWorker({
           redis,
           logger: rootLogger,
+          userProcessingLock,
           // @ts-expect-error TODO: implement RegisterExpenseUseCase wiring
           registerExpense: null,
           getConversationState,

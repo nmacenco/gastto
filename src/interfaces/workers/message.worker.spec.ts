@@ -15,6 +15,7 @@ import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spre
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
 import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
+import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 
@@ -35,12 +36,18 @@ const mockConfirmColumnMappingExecute = vi.fn();
 const mockCorrectColumnMappingExecute = vi.fn();
 const mockLoadCorrectionState = vi.fn();
 const mockSaveCorrectionState = vi.fn();
+const mockAcquireLock = vi.fn();
+const mockReleaseLock = vi.fn();
 const mockClearCorrectionState = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
     redis: {} as unknown as MessageWorkerDeps['redis'],
     logger: { error: mockLoggerError } as unknown as MessageWorkerDeps['logger'],
+    userProcessingLock: {
+      acquire: mockAcquireLock,
+      release: mockReleaseLock,
+    },
     registerExpense: {
       interpret: mockRegisterExpenseInterpret,
     } as unknown as MessageWorkerDeps['registerExpense'],
@@ -119,6 +126,7 @@ const baseJobData: ProcessMessageJobData = {
 describe('processMessageJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAcquireLock.mockResolvedValue(true);
   });
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
@@ -923,6 +931,61 @@ describe('processMessageJob', () => {
         targetState: 'IDLE',
       });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.fallbackError());
+    });
+  });
+
+  describe('per-user lock', () => {
+    it('releases the lock after successful processing', async () => {
+      mockAcquireLock.mockResolvedValue(true);
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
+      );
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockAcquireLock).toHaveBeenCalledWith('user-123', expect.any(Number));
+      expect(mockReleaseLock).toHaveBeenCalledWith('user-123');
+    });
+
+    it('releases the lock even when the handler throws unexpectedly', async () => {
+      mockAcquireLock.mockResolvedValue(true);
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_SHEET' }),
+      );
+      mockHandleSheetSelectionExecute.mockRejectedValue(new Error('boom'));
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockReleaseLock).toHaveBeenCalledWith('user-123');
+    });
+
+    it('throws UserAlreadyProcessingError when lock is not acquired', async () => {
+      mockAcquireLock.mockResolvedValue(false);
+      const deps = buildMockDeps();
+
+      await expect(processMessageJob(buildJob(baseJobData), deps)).rejects.toThrow(
+        UserAlreadyProcessingError,
+      );
+
+      expect(mockGetConversationStateExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
+      expect(mockReleaseLock).not.toHaveBeenCalled();
+    });
+
+    it('different users can both acquire the lock', async () => {
+      mockAcquireLock.mockResolvedValueOnce(true);
+      mockAcquireLock.mockResolvedValueOnce(true);
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
+      );
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockAcquireLock).toHaveBeenCalledWith('user-123', expect.any(Number));
+      expect(mockReleaseLock).toHaveBeenCalledWith('user-123');
     });
   });
 
