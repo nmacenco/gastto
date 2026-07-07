@@ -76,8 +76,8 @@ export async function processMessageJob(
   // messages from the same user (ADR-011 gap). Must happen before
   // any side effect (FSM read, LLM call, send) so BullMQ retry
   // does not duplicate user-facing messages.
-  const lockAcquired = await opts.userProcessingLock.acquire(userId, USER_LOCK_TTL_MS);
-  if (!lockAcquired) {
+  const lockToken = await opts.userProcessingLock.acquire(userId, USER_LOCK_TTL_MS);
+  if (!lockToken) {
     throw new UserAlreadyProcessingError(userId);
   }
 
@@ -117,7 +117,17 @@ export async function processMessageJob(
       }
     }
   } finally {
-    await opts.userProcessingLock.release(userId);
+    try {
+      await opts.userProcessingLock.release(userId, lockToken);
+    } catch (releaseErr) {
+      opts.logger.error({
+        msg: 'Failed to release per-user processing lock',
+        endpoint: 'processMessageJob',
+        code: 'LOCK_RELEASE_FAILED',
+        userId,
+        error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+      });
+    }
   }
 }
 

@@ -38,6 +38,8 @@ const mockLoadCorrectionState = vi.fn();
 const mockSaveCorrectionState = vi.fn();
 const mockAcquireLock = vi.fn();
 const mockReleaseLock = vi.fn();
+const LOCK_TOKEN_A = 'lock-token-a';
+const LOCK_TOKEN_B = 'lock-token-b';
 const mockClearCorrectionState = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
@@ -126,7 +128,7 @@ const baseJobData: ProcessMessageJobData = {
 describe('processMessageJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockAcquireLock.mockResolvedValue(true);
+    mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
   });
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
@@ -936,7 +938,7 @@ describe('processMessageJob', () => {
 
   describe('per-user lock', () => {
     it('releases the lock after successful processing', async () => {
-      mockAcquireLock.mockResolvedValue(true);
+      mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
@@ -945,11 +947,11 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob(baseJobData), deps);
 
       expect(mockAcquireLock).toHaveBeenCalledWith('user-123', expect.any(Number));
-      expect(mockReleaseLock).toHaveBeenCalledWith('user-123');
+      expect(mockReleaseLock).toHaveBeenCalledWith('user-123', LOCK_TOKEN_A);
     });
 
     it('releases the lock even when the handler throws unexpectedly', async () => {
-      mockAcquireLock.mockResolvedValue(true);
+      mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({ currentState: 'ONBOARDING_SHEET' }),
@@ -958,11 +960,31 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob(baseJobData), deps);
 
-      expect(mockReleaseLock).toHaveBeenCalledWith('user-123');
+      expect(mockReleaseLock).toHaveBeenCalledWith('user-123', LOCK_TOKEN_A);
+    });
+
+    it('logs but does not fail when releasing the lock throws', async () => {
+      mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
+      mockReleaseLock.mockRejectedValue(new Error('redis down'));
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
+      );
+
+      await expect(processMessageJob(buildJob(baseJobData), deps)).resolves.toBeUndefined();
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'LOCK_RELEASE_FAILED',
+          endpoint: 'processMessageJob',
+          userId: 'user-123',
+          error: 'redis down',
+        }),
+      );
     });
 
     it('throws UserAlreadyProcessingError when lock is not acquired', async () => {
-      mockAcquireLock.mockResolvedValue(false);
+      mockAcquireLock.mockResolvedValue(null);
       const deps = buildMockDeps();
 
       await expect(processMessageJob(buildJob(baseJobData), deps)).rejects.toThrow(
@@ -975,17 +997,20 @@ describe('processMessageJob', () => {
     });
 
     it('different users can both acquire the lock', async () => {
-      mockAcquireLock.mockResolvedValueOnce(true);
-      mockAcquireLock.mockResolvedValueOnce(true);
+      mockAcquireLock.mockResolvedValueOnce(LOCK_TOKEN_A);
+      mockAcquireLock.mockResolvedValueOnce(LOCK_TOKEN_B);
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
       );
 
       await processMessageJob(buildJob(baseJobData), deps);
+      await processMessageJob(buildJob({ ...baseJobData, userId: 'user-456' }), deps);
 
-      expect(mockAcquireLock).toHaveBeenCalledWith('user-123', expect.any(Number));
-      expect(mockReleaseLock).toHaveBeenCalledWith('user-123');
+      expect(mockAcquireLock).toHaveBeenNthCalledWith(1, 'user-123', expect.any(Number));
+      expect(mockAcquireLock).toHaveBeenNthCalledWith(2, 'user-456', expect.any(Number));
+      expect(mockReleaseLock).toHaveBeenNthCalledWith(1, 'user-123', LOCK_TOKEN_A);
+      expect(mockReleaseLock).toHaveBeenNthCalledWith(2, 'user-456', LOCK_TOKEN_B);
     });
   });
 

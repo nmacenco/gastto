@@ -7,12 +7,12 @@ import type { Redis } from 'ioredis';
 import { RedisUserProcessingLock } from './RedisUserProcessingLock';
 
 const mockSet = vi.fn();
-const mockDel = vi.fn();
+const mockEval = vi.fn();
 
 function buildMockRedis(): Redis {
   return {
     set: mockSet,
-    del: mockDel,
+    eval: mockEval,
   } as unknown as Redis;
 }
 
@@ -21,52 +21,52 @@ beforeEach(() => {
 });
 
 describe('RedisUserProcessingLock', () => {
-  it('acquire returns true and sets the key with NX PX', async () => {
+  it('acquire returns a token and sets the key with NX PX', async () => {
     mockSet.mockResolvedValue('OK');
     const lock = new RedisUserProcessingLock(buildMockRedis());
 
     const result = await lock.acquire('user-123', 5000);
 
-    expect(result).toBe(true);
-    expect(mockSet).toHaveBeenCalledWith(
-      'process-message:lock:user-123',
-      '1',
-      'PX',
-      5000,
-      'NX',
-    );
+    expect(result).toEqual(expect.any(String));
+    expect(mockSet).toHaveBeenCalledWith('process-message:lock:user-123', result, 'PX', 5000, 'NX');
   });
 
-  it('acquire returns false when the key already exists', async () => {
+  it('acquire returns null when the key already exists', async () => {
     mockSet.mockResolvedValue(null);
     const lock = new RedisUserProcessingLock(buildMockRedis());
 
     const result = await lock.acquire('user-123', 5000);
 
-    expect(result).toBe(false);
+    expect(result).toBeNull();
   });
 
-  it('release deletes the key', async () => {
-    mockDel.mockResolvedValue(1);
+  it('release runs the atomic delete-only-if-token-matches script', async () => {
+    mockEval.mockResolvedValue(1);
     const lock = new RedisUserProcessingLock(buildMockRedis());
 
-    await lock.release('user-123');
+    await lock.release('user-123', 'token-abc');
 
-    expect(mockDel).toHaveBeenCalledWith('process-message:lock:user-123');
+    expect(mockEval).toHaveBeenCalledWith(
+      expect.stringContaining('redis.call("get", KEYS[1]) == ARGV[1]'),
+      1,
+      'process-message:lock:user-123',
+      'token-abc',
+    );
   });
 
-  it('acquire after release returns true again', async () => {
+  it('acquire after release returns a new token', async () => {
     mockSet.mockResolvedValueOnce('OK');
-    mockDel.mockResolvedValueOnce(1);
+    mockEval.mockResolvedValueOnce(1);
     mockSet.mockResolvedValueOnce('OK');
     const lock = new RedisUserProcessingLock(buildMockRedis());
 
     const first = await lock.acquire('user-123', 5000);
-    await lock.release('user-123');
+    await lock.release('user-123', first!);
     const second = await lock.acquire('user-123', 5000);
 
-    expect(first).toBe(true);
-    expect(second).toBe(true);
+    expect(first).toEqual(expect.any(String));
+    expect(second).toEqual(expect.any(String));
+    expect(second).not.toBe(first);
   });
 
   it('different users have independent locks', async () => {
@@ -77,23 +77,9 @@ describe('RedisUserProcessingLock', () => {
     const a = await lock.acquire('user-a', 5000);
     const b = await lock.acquire('user-b', 5000);
 
-    expect(a).toBe(true);
-    expect(b).toBe(true);
-    expect(mockSet).toHaveBeenNthCalledWith(
-      1,
-      'process-message:lock:user-a',
-      '1',
-      'PX',
-      5000,
-      'NX',
-    );
-    expect(mockSet).toHaveBeenNthCalledWith(
-      2,
-      'process-message:lock:user-b',
-      '1',
-      'PX',
-      5000,
-      'NX',
-    );
+    expect(a).toEqual(expect.any(String));
+    expect(b).toEqual(expect.any(String));
+    expect(mockSet).toHaveBeenNthCalledWith(1, 'process-message:lock:user-a', a, 'PX', 5000, 'NX');
+    expect(mockSet).toHaveBeenNthCalledWith(2, 'process-message:lock:user-b', b, 'PX', 5000, 'NX');
   });
 });
