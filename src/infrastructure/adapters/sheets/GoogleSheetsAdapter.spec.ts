@@ -332,6 +332,58 @@ describe('GoogleSheetsAdapter', () => {
     });
   });
 
+  describe('getUniqueValues', () => {
+    it('returns deduplicated non-empty values starting from row 2', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            values: [
+              ['Comida'],
+              ['Transporte'],
+              ['Comida'],
+              [''],
+              ['Servicios'],
+            ],
+          }),
+      });
+
+      const result = await adapter.getUniqueValues('spreadsheet-123', 2, 'Gastos');
+
+      expect(result).toEqual(['Comida', 'Transporte', 'Servicios']);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!C2:C',
+      );
+    });
+
+    it('returns empty array when response has no values', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
+
+      const result = await adapter.getUniqueValues('spreadsheet-123', 0, 'Gastos');
+
+      expect(result).toEqual([]);
+    });
+
+    it('throws SpreadsheetError on API error', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({ error: {} }),
+      });
+
+      await expect(adapter.getUniqueValues('spreadsheet-123', 0, 'Gastos')).rejects.toBeInstanceOf(
+        SpreadsheetError,
+      );
+    });
+  });
+
   describe('unimplemented methods', () => {
     it('readRows throws SpreadsheetError', async () => {
       await expect(adapter.readRows('id', 'range')).rejects.toBeInstanceOf(SpreadsheetError);
@@ -343,12 +395,6 @@ describe('GoogleSheetsAdapter', () => {
 
     it('deleteRow throws SpreadsheetError', async () => {
       await expect(adapter.deleteRow('id', 'sheet', 1)).rejects.toBeInstanceOf(SpreadsheetError);
-    });
-
-    it('getUniqueValues throws SpreadsheetError', async () => {
-      await expect(adapter.getUniqueValues('id', 0, 'sheet')).rejects.toBeInstanceOf(
-        SpreadsheetError,
-      );
     });
 
     it('validateAccess throws SpreadsheetError', async () => {

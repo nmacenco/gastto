@@ -31,6 +31,7 @@ import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spre
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
 import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
+import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
@@ -49,7 +50,7 @@ export interface MessageWorkerDeps {
   redis: Redis;
   logger: Logger;
   userProcessingLock: IUserProcessingLock;
-  registerExpense: RegisterExpenseUseCase;
+  registerExpense: RegisterExpenseUseCase | null;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
   recoverCorruptedState: RecoverCorruptedState;
@@ -64,6 +65,7 @@ export interface MessageWorkerDeps {
   inferColumnMapping?: InferColumnMapping | null;
   confirmColumnMapping?: ConfirmColumnMapping | null;
   correctColumnMapping?: CorrectColumnMapping | null;
+  detectCategories?: DetectCategories | null;
 }
 
 export async function processMessageJob(
@@ -143,6 +145,11 @@ async function routeByState(
   switch (currentState) {
     case 'IDLE':
     case 'EXPENSE_RECEIVING': {
+      if (!opts.registerExpense) {
+        await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+        break;
+      }
+
       // Start expense interpretation
       const result = await opts.registerExpense.interpret({
         userId,
@@ -273,7 +280,16 @@ async function routeByState(
     }
 
     case 'ONBOARDING_CATEGORIES': {
-      await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      if (opts.detectCategories) {
+        await opts.detectCategories.execute({
+          userId,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      }
       break;
     }
 
@@ -578,6 +594,11 @@ async function handleClarification(
 ): Promise<void> {
   const { userId, rawMessage, externalId, channel } = jobData;
   const user = await opts.userRepo.findById(userId);
+
+  if (!opts.registerExpense) {
+    await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+    return;
+  }
 
   // Retries interpretation with the user's clarification incorporated into the original message
   const partial = statePayload as { rawMessage?: string } | null;

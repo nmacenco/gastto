@@ -46,6 +46,9 @@ import { OpenAIAdapter } from './infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from './infrastructure/adapters/llm/ClaudeAdapter';
 import { RuleBasedColumnMappingCorrectionParser } from './application/services/ColumnMappingCorrectionParser';
 import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
+import { DrizzleUserCategoryRepository } from './infrastructure/db/repositories/DrizzleUserCategoryRepository';
+import { DrizzleExpenseRecordRepository } from './infrastructure/db/repositories/DrizzleExpenseRecordRepository';
+import { RegisterExpenseUseCase } from './application/use-cases/expense/RegisterExpense';
 
 // Application
 import { ResolveUserIdentityUseCase } from './application/use-cases/user/ResolveUserIdentity';
@@ -59,6 +62,7 @@ import { ValidateSpreadsheetAccess } from './application/use-cases/spreadsheet/V
 import { InferColumnMapping } from './application/use-cases/spreadsheet/InferColumnMapping';
 import { ConfirmColumnMapping } from './application/use-cases/spreadsheet/ConfirmColumnMapping';
 import { CorrectColumnMapping } from './application/use-cases/spreadsheet/CorrectColumnMapping';
+import { DetectCategories } from './application/use-cases/spreadsheet/DetectCategories';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { RedisMappingCorrectionStateRepository } from './infrastructure/redis/RedisMappingCorrectionStateRepository';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
@@ -192,6 +196,10 @@ async function bootstrap(): Promise<void> {
       const spreadsheetConfigRepo = new DrizzleSpreadsheetConfigRepository(db);
       // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
       const columnMappingRepo = new DrizzleColumnMappingRepository(db);
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const userCategoryRepo = new DrizzleUserCategoryRepository(db);
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const expenseRecordRepo = new DrizzleExpenseRecordRepository(db);
 
       const tokenEncryption = new TokenEncryptionAdapter(env.ENCRYPTION_KEY);
 
@@ -427,13 +435,37 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
+        const detectCategories =
+          googleOAuthAdapter !== null
+            ? new DetectCategories({
+                spreadsheetPortFactory: googleSheetsAdapterFactory,
+                tokenRepository: tokenRepo,
+                tokenEncryption,
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+                columnMappingRepository: columnMappingRepo,
+                messagingPort: telegramAdapter,
+                transitionState,
+              })
+            : null;
+
+        const registerExpense = new RegisterExpenseUseCase(
+          llmPort,
+          // TODO: replace with a token-aware SpreadsheetPort once save() is wired
+          new GoogleSheetsAdapter(''),
+          expenseRecordRepo,
+          spreadsheetConfigRepo,
+          columnMappingRepo,
+          userCategoryRepo,
+          conversationRepo,
+          operationLogRepo,
+        );
+
         // Thick worker (ADR-005): FSM → NLP → user response
         const messageWorker = createMessageWorker({
           redis,
           logger: rootLogger,
           userProcessingLock,
-          // @ts-expect-error TODO: implement RegisterExpenseUseCase wiring
-          registerExpense: null,
+          registerExpense,
           getConversationState,
           transitionState,
           recoverCorruptedState,
@@ -452,6 +484,7 @@ async function bootstrap(): Promise<void> {
           inferColumnMapping,
           confirmColumnMapping,
           correctColumnMapping,
+          detectCategories,
         });
         app.log.info(
           `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,

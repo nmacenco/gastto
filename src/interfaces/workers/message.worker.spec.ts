@@ -15,6 +15,7 @@ import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spre
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
 import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
+import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
@@ -34,6 +35,7 @@ const mockValidateSpreadsheetAccessExecute = vi.fn();
 const mockInferColumnMappingExecute = vi.fn();
 const mockConfirmColumnMappingExecute = vi.fn();
 const mockCorrectColumnMappingExecute = vi.fn();
+const mockDetectCategoriesExecute = vi.fn();
 const mockLoadCorrectionState = vi.fn();
 const mockSaveCorrectionState = vi.fn();
 const mockAcquireLock = vi.fn();
@@ -98,6 +100,9 @@ function buildMockDeps(): MessageWorkerDeps {
     correctColumnMapping: {
       execute: mockCorrectColumnMappingExecute,
     } as unknown as CorrectColumnMapping,
+    detectCategories: {
+      execute: mockDetectCategoriesExecute,
+    } as unknown as DetectCategories,
   };
 }
 
@@ -178,6 +183,22 @@ describe('processMessageJob', () => {
       const sentText = mockSendMessage.mock.calls[0]![1] as string;
       expect(sentText).toContain('850 ARS');
       expect(sentText).toContain('Comida');
+    });
+
+    it('sends unavailable copy when registerExpense is null', async () => {
+      const deps = buildMockDeps();
+      deps.registerExpense = null;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'IDLE' }),
+      );
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.expenseRegistrationUnavailable(),
+      );
     });
   });
 
@@ -280,6 +301,25 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationCurrency(),
+      );
+    });
+
+    it('sends unavailable copy when registerExpense is null', async () => {
+      const deps = buildMockDeps();
+      deps.registerExpense = null;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CLARIFYING',
+          statePayload: { rawMessage: 'Cafe' },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '850' }), deps);
+
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.expenseRegistrationUnavailable(),
       );
     });
   });
@@ -877,8 +917,26 @@ describe('processMessageJob', () => {
       });
     });
 
-    it('sends onboarding placeholder for ONBOARDING_CATEGORIES', async () => {
+    it('delegates ONBOARDING_CATEGORIES to DetectCategories when wired', async () => {
       const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
+      );
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockDetectCategoriesExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        externalId: '123456789',
+        channel: 'telegram',
+        statePayload: null,
+      });
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('falls back to placeholder when DetectCategories is not wired', async () => {
+      const deps = buildMockDeps();
+      deps.detectCategories = null;
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
       );
