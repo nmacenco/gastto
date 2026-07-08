@@ -131,8 +131,48 @@ export class GoogleSheetsAdapter
     return Promise.reject(new SpreadsheetError('deleteRow not yet implemented'));
   }
 
-  getUniqueValues(_fileId: string, _columnIndex: number, _sheetName: string): Promise<string[]> {
-    return Promise.reject(new SpreadsheetError('getUniqueValues not yet implemented'));
+  async getUniqueValues(fileId: string, columnIndex: number, sheetName: string): Promise<string[]> {
+    const columnLetter = columnIndexToLetter(columnIndex);
+    const encodedSheetName = encodeURIComponent(sheetName);
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!${columnLetter}2:${columnLetter}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+    } catch (err) {
+      throw new SpreadsheetError(`Network error during unique values retrieval: ${String(err)}`);
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new SpreadsheetError(
+        `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
+      );
+    }
+
+    if (!response.ok) {
+      let errorBody: unknown;
+      try {
+        errorBody = await response.json();
+      } catch {
+        errorBody = 'Could not parse error body';
+      }
+      console.error({
+        endpoint: 'GoogleSheetsAdapter.getUniqueValues',
+        code: 'SHEETS_API_ERROR',
+        status: response.status,
+        errorBody,
+      });
+      throw new SpreadsheetError(
+        `Google Sheets API error during unique values retrieval: HTTP ${response.status}`,
+      );
+    }
+
+    return parseUniqueValuesResponse(data);
   }
 
   validateAccess(_fileId: string, _sheetName: string): Promise<boolean> {
@@ -362,6 +402,47 @@ function parsePreviewRows(data: unknown): Row[] {
       values: row.map((cell) => (typeof cell === 'string' ? cell : String(cell))),
     };
   });
+}
+
+function columnIndexToLetter(index: number): string {
+  if (index < 0) throw new SpreadsheetError('Column index must be non-negative');
+  let result = '';
+  let n = index;
+  do {
+    result = String.fromCharCode((n % 26) + 65) + result;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return result;
+}
+
+function parseUniqueValuesResponse(data: unknown): string[] {
+  if (typeof data !== 'object' || data === null) {
+    return [];
+  }
+
+  if (!('values' in data)) {
+    return [];
+  }
+
+  const values = (data as Record<string, unknown>).values;
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const row of values) {
+    if (!Array.isArray(row) || row.length === 0) continue;
+    const cell: unknown = row[0];
+    const text = typeof cell === 'string' ? cell.trim() : String(cell).trim();
+    if (text.length === 0) continue;
+    if (seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+  }
+
+  return result;
 }
 
 function parseCanEdit(data: unknown): boolean {

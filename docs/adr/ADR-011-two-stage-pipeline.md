@@ -122,7 +122,7 @@ RouteIncomingMessage.execute()
 
 ### Positive
 
-- Strict FIFO per user guaranteed by thin worker.
+- Strict FIFO per user guaranteed by thin worker **and** per-user Redis lock in the thick worker (see below).
 - Thick worker can scale independently (`concurrency: 2` or higher).
 - Clear layer separation: webhook (Interfaces) → router (Application) → FSM/NLP (Application + Infrastructure).
 - Malformed payload logging moved to route layer where request context (`req.log`) is available.
@@ -132,6 +132,14 @@ RouteIncomingMessage.execute()
 - Two queues and two workers add operational complexity.
 - Acknowledgment message ("Recibido, procesando tu gasto…") is now sent asynchronously from the worker rather than synchronously from the webhook. This adds a small delay (< 100ms in practice) but stays well under the 1s SLA.
 - `concurrency: 1` on the thin worker is a bottleneck if inbound message volume exceeds a few dozen messages per second. Mitigation: monitor queue depth and switch to BullMQ Pro Groups or a partition strategy by `chat_id` hash when needed.
+
+### Amendment (2026-07-07): Per-user Redis lock in thick worker
+
+The thin `incoming-message` worker guarantees FIFO at enqueue time, but the thick `process-message` worker with `concurrency: 2` could still process two messages from the same user concurrently, reading the same stale FSM state.
+
+**Fix:** a Redis mutex per `userId` acquired at the start of every `processMessageJob` and released in a `finally` block. If the lock is already held, the job throws `UserAlreadyProcessingError`, which triggers a custom BullMQ backoff strategy that retries only this error (short exponential backoff) and returns `-1` for all other errors, preserving the existing non-retry semantics for side-effectful handlers.
+
+The lock TTL (180 s) is a safety net; normal jobs complete in seconds. Cross-user concurrency is preserved because each user has their own lock key (`process-message:lock:{userId}`).
 
 ## References
 

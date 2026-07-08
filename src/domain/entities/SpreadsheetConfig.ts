@@ -48,7 +48,8 @@ export interface OAuthToken {
   provider: SpreadsheetProvider;
   accessTokenEnc: Buffer; // BYTEA — cifrado en reposo
   refreshTokenEnc: Buffer; // BYTEA — cifrado en reposo
-  iv: Buffer; // BYTEA — initialization vector AES-256-GCM
+  iv: Buffer; // BYTEA — initialization vector AES-256-GCM for access token
+  refreshIv: Buffer; // BYTEA — initialization vector AES-256-GCM for refresh token
   accessTokenExpiresAt: Date;
   scope: string[];
   grantedAt: Date;

@@ -84,7 +84,8 @@ Encrypted OAuth 2.0 tokens for Google Drive and OneDrive access.
 | `provider`                | `TEXT`        | NOT NULL, CHECK                 | `'google'` or `'microsoft'`.                           |
 | `access_token_enc`        | `BYTEA`       | NOT NULL                        | AES-256-GCM encrypted access token.                    |
 | `refresh_token_enc`       | `BYTEA`       | NOT NULL                        | AES-256-GCM encrypted refresh token.                   |
-| `iv`                      | `BYTEA`       | NOT NULL                        | Initialization vector for decryption.                  |
+| `iv`                      | `BYTEA`       | NOT NULL                        | Initialization vector for the access token ciphertext. |
+| `refresh_iv`              | `BYTEA`       | NOT NULL                        | Initialization vector for the refresh token ciphertext.|
 | `access_token_expires_at` | `TIMESTAMPTZ` | NOT NULL                        | Plaintext expiry used for proactive refresh decisions. |
 | `scope`                   | `TEXT[]`      | NOT NULL, default `'{}'`        | Granted OAuth scopes.                                  |
 | `granted_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Consent timestamp.                                     |

@@ -97,6 +97,7 @@ const mockToken = {
   accessTokenEnc: Buffer.from('enc'),
   refreshTokenEnc: Buffer.from('ref'),
   iv: Buffer.from('iv'),
+  refreshIv: Buffer.from('refresh-iv'),
   accessTokenExpiresAt: new Date(Date.now() + 3600_000),
   scope: ['drive.file'],
   grantedAt: new Date(),

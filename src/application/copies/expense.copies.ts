@@ -5,6 +5,8 @@ export const expenseCopies = {
   cancelled: () => 'Registro cancelado. No se guardó nada.',
   ambiguousResponse: () => '¿Querías confirmar, corregir o cancelar el registro?',
   fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
+  expenseRegistrationUnavailable: () =>
+    'El registro de gastos no está disponible en este momento. Volvé a intentarlo más tarde.',
 
   expenseSummary: (payload: {
     rawMessage: string;

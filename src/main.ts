@@ -46,6 +46,9 @@ import { OpenAIAdapter } from './infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from './infrastructure/adapters/llm/ClaudeAdapter';
 import { RuleBasedColumnMappingCorrectionParser } from './application/services/ColumnMappingCorrectionParser';
 import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
+import { DrizzleUserCategoryRepository } from './infrastructure/db/repositories/DrizzleUserCategoryRepository';
+import { DrizzleExpenseRecordRepository } from './infrastructure/db/repositories/DrizzleExpenseRecordRepository';
+import { RegisterExpenseUseCase } from './application/use-cases/expense/RegisterExpense';
 
 // Application
 import { ResolveUserIdentityUseCase } from './application/use-cases/user/ResolveUserIdentity';
@@ -59,6 +62,7 @@ import { ValidateSpreadsheetAccess } from './application/use-cases/spreadsheet/V
 import { InferColumnMapping } from './application/use-cases/spreadsheet/InferColumnMapping';
 import { ConfirmColumnMapping } from './application/use-cases/spreadsheet/ConfirmColumnMapping';
 import { CorrectColumnMapping } from './application/use-cases/spreadsheet/CorrectColumnMapping';
+import { DetectCategories } from './application/use-cases/spreadsheet/DetectCategories';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { RedisMappingCorrectionStateRepository } from './infrastructure/redis/RedisMappingCorrectionStateRepository';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
@@ -67,6 +71,7 @@ import { TransitionConversationState } from './application/use-cases/conversatio
 import { RecoverCorruptedState } from './application/use-cases/conversation/RecoverCorruptedState';
 import { GetConversationState } from './application/use-cases/conversation/GetConversationState';
 import { HandleExpiredSessions } from './application/use-cases/conversation/HandleExpiredSessions';
+import { RedisUserProcessingLock } from './infrastructure/redis/RedisUserProcessingLock';
 import type { ProcessMessageJobData } from './application/ports/ProcessMessageJob';
 import type { IncomingMessageJobData } from './application/ports/IncomingMessageJob';
 
@@ -191,6 +196,10 @@ async function bootstrap(): Promise<void> {
       const spreadsheetConfigRepo = new DrizzleSpreadsheetConfigRepository(db);
       // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
       const columnMappingRepo = new DrizzleColumnMappingRepository(db);
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const userCategoryRepo = new DrizzleUserCategoryRepository(db);
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const expenseRecordRepo = new DrizzleExpenseRecordRepository(db);
 
       const tokenEncryption = new TokenEncryptionAdapter(env.ENCRYPTION_KEY);
 
@@ -202,12 +211,16 @@ async function bootstrap(): Promise<void> {
       // process-message jobs run side-effectful FSM handlers that send
       // user-facing messages. Retrying them re-runs those side effects and
       // can duplicate outbound messages (see ADR-015). The worker wraps the
-      // handler in a try/catch and surfaces a single fallback message, so a
-      // single attempt is sufficient.
+      // handler in a try/catch and surfaces a single fallback message, so
+      // non-lock errors must NOT be retried.
+      // A custom backoff strategy (registered on the Worker) returns -1 for
+      // every error except UserAlreadyProcessingError, ensuring only lock
+      // contention triggers a retry with exponential backoff.
       const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
         connection: redis,
         defaultJobOptions: {
-          attempts: 1,
+          attempts: 5,
+          backoff: { type: 'custom' },
           removeOnComplete: 100,
           removeOnFail: 500,
         },
@@ -401,6 +414,7 @@ async function bootstrap(): Promise<void> {
             : null;
 
         const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(redis);
+        const userProcessingLock = new RedisUserProcessingLock(redis);
 
         const correctColumnMapping =
           googleOAuthAdapter !== null
@@ -421,12 +435,37 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
+        const detectCategories =
+          googleOAuthAdapter !== null
+            ? new DetectCategories({
+                spreadsheetPortFactory: googleSheetsAdapterFactory,
+                tokenRepository: tokenRepo,
+                tokenEncryption,
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+                columnMappingRepository: columnMappingRepo,
+                messagingPort: telegramAdapter,
+                transitionState,
+              })
+            : null;
+
+        const registerExpense = new RegisterExpenseUseCase(
+          llmPort,
+          // TODO: replace with a token-aware SpreadsheetPort once save() is wired
+          new GoogleSheetsAdapter(''),
+          expenseRecordRepo,
+          spreadsheetConfigRepo,
+          columnMappingRepo,
+          userCategoryRepo,
+          conversationRepo,
+          operationLogRepo,
+        );
+
         // Thick worker (ADR-005): FSM → NLP → user response
         const messageWorker = createMessageWorker({
           redis,
           logger: rootLogger,
-          // @ts-expect-error TODO: implement RegisterExpenseUseCase wiring
-          registerExpense: null,
+          userProcessingLock,
+          registerExpense,
           getConversationState,
           transitionState,
           recoverCorruptedState,
@@ -445,6 +484,7 @@ async function bootstrap(): Promise<void> {
           inferColumnMapping,
           confirmColumnMapping,
           correctColumnMapping,
+          detectCategories,
         });
         app.log.info(
           `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,

@@ -10,6 +10,7 @@ import type { RegisterExpenseUseCase } from '../../application/use-cases/expense
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
 import type { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
+import type { IUserProcessingLock } from '../../application/ports/UserProcessingLock';
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { User } from '../../domain/entities/User';
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
@@ -30,6 +31,8 @@ import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spre
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
 import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
+import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
+import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import {
@@ -38,10 +41,16 @@ import {
   isListColumnsIntent,
 } from '../../application/utils/intents';
 
+// Lock TTL must exceed the longest possible job duration (LLM + side effects).
+// The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
+// without renewal complexity.
+const USER_LOCK_TTL_MS = 180_000;
+
 export interface MessageWorkerDeps {
   redis: Redis;
   logger: Logger;
-  registerExpense: RegisterExpenseUseCase;
+  userProcessingLock: IUserProcessingLock;
+  registerExpense: RegisterExpenseUseCase | null;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
   recoverCorruptedState: RecoverCorruptedState;
@@ -56,6 +65,7 @@ export interface MessageWorkerDeps {
   inferColumnMapping?: InferColumnMapping | null;
   confirmColumnMapping?: ConfirmColumnMapping | null;
   correctColumnMapping?: CorrectColumnMapping | null;
+  detectCategories?: DetectCategories | null;
 }
 
 export async function processMessageJob(
@@ -63,39 +73,61 @@ export async function processMessageJob(
   opts: MessageWorkerDeps,
 ): Promise<void> {
   const { userId, channel, externalId } = job.data;
-  const messaging = opts.messagingAdapters[channel];
 
-  // 1. Lee estado actual de la FSM
-  const conversationState = await opts.getConversationState.execute({ userId });
-  const currentState = conversationState?.currentState ?? 'IDLE';
+  // Acquire per-user lock to serialize processing of concurrent
+  // messages from the same user (ADR-011 gap). Must happen before
+  // any side effect (FSM read, LLM call, send) so BullMQ retry
+  // does not duplicate user-facing messages.
+  const lockToken = await opts.userProcessingLock.acquire(userId, USER_LOCK_TTL_MS);
+  if (!lockToken) {
+    throw new UserAlreadyProcessingError(userId);
+  }
 
-  // 2. Recupera contexto del usuario para el LLM
-  const user = await opts.userRepo.findById(userId);
-
-  // 3. Route according to FSM state. Known business errors are already turned
-  // into user-facing messages by each use case; this try/catch only catches
-  // unexpected throws so BullMQ does not retry side-effectful handlers and
-  // re-send the same messages on every attempt (ADR-005).
   try {
-    await routeByState(currentState, job.data, conversationState, user, opts, messaging);
-  } catch (err) {
-    opts.logger.error({
-      msg: 'process-message handler threw unexpectedly',
-      endpoint: 'processMessageJob',
-      code: 'UNEXPECTED_HANDLER_ERROR',
-      userId,
-      errorType: err instanceof Error ? err.constructor.name : 'unknown',
-      error: err instanceof Error ? err.message : String(err),
-    });
+    const messaging = opts.messagingAdapters[channel];
+
+    const conversationState = await opts.getConversationState.execute({ userId });
+    const currentState = conversationState?.currentState ?? 'IDLE';
+
+    const user = await opts.userRepo.findById(userId);
+
+    // Route according to FSM state. Known business errors are already turned
+    // into user-facing messages by each use case; this try/catch only catches
+    // unexpected throws so BullMQ does not retry side-effectful handlers and
+    // re-send the same messages on every attempt (ADR-005).
     try {
-      await messaging.sendMessage(externalId, expenseCopies.fallbackError());
-    } catch (sendErr) {
+      await routeByState(currentState, job.data, conversationState, user, opts, messaging);
+    } catch (err) {
       opts.logger.error({
-        msg: 'Failed to send fallback error after handler failure',
+        msg: 'process-message handler threw unexpectedly',
         endpoint: 'processMessageJob',
-        code: 'FALLBACK_SEND_FAILED',
+        code: 'UNEXPECTED_HANDLER_ERROR',
         userId,
-        error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+        error: err instanceof Error ? err.message : String(err),
+      });
+      try {
+        await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+      } catch (sendErr) {
+        opts.logger.error({
+          msg: 'Failed to send fallback error after handler failure',
+          endpoint: 'processMessageJob',
+          code: 'FALLBACK_SEND_FAILED',
+          userId,
+          error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+        });
+      }
+    }
+  } finally {
+    try {
+      await opts.userProcessingLock.release(userId, lockToken);
+    } catch (releaseErr) {
+      opts.logger.error({
+        msg: 'Failed to release per-user processing lock',
+        endpoint: 'processMessageJob',
+        code: 'LOCK_RELEASE_FAILED',
+        userId,
+        error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
       });
     }
   }
@@ -113,6 +145,11 @@ async function routeByState(
   switch (currentState) {
     case 'IDLE':
     case 'EXPENSE_RECEIVING': {
+      if (!opts.registerExpense) {
+        await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+        break;
+      }
+
       // Start expense interpretation
       const result = await opts.registerExpense.interpret({
         userId,
@@ -243,7 +280,16 @@ async function routeByState(
     }
 
     case 'ONBOARDING_CATEGORIES': {
-      await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      if (opts.detectCategories) {
+        await opts.detectCategories.execute({
+          userId,
+          externalId,
+          channel,
+          statePayload: conversationState?.statePayload ?? null,
+        });
+      } else {
+        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+      }
       break;
     }
 
@@ -274,7 +320,17 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
       stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
       lockDuration: 120_000, // 2 min (default 30s) — LLM jobs can run >30s
       lockRenewTime: 60_000, // 1 min (default 15s) — fewer lock renewals
-      // Retry policy is set on Queue, not Worker
+      settings: {
+        // Custom backoff: retry only lock contention; return -1 for all other
+        // errors so side-effectful handlers are not retried (see ADR-015).
+        backoffStrategy: (attemptsMade: number, _type: string | undefined, err?: Error) => {
+          if (err?.name === 'UserAlreadyProcessingError') {
+            // Exponential: 500ms, 1s, 2s, 4s, capped at 5s
+            return Math.min(500 * Math.pow(2, attemptsMade - 1), 5000);
+          }
+          return -1; // do not retry
+        },
+      },
     },
   );
 
@@ -538,6 +594,11 @@ async function handleClarification(
 ): Promise<void> {
   const { userId, rawMessage, externalId, channel } = jobData;
   const user = await opts.userRepo.findById(userId);
+
+  if (!opts.registerExpense) {
+    await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+    return;
+  }
 
   // Retries interpretation with the user's clarification incorporated into the original message
   const partial = statePayload as { rawMessage?: string } | null;

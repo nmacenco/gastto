@@ -125,6 +125,11 @@ export const onboardingCopies = {
   mappingConfirmedNextStep: () =>
     `¡Listo! El mapeo de columnas quedó confirmado. Ahora vamos a revisar las categorías de tu planilla.`,
 
+  categoryConfirmationPrompt: (categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `Encontré estas categorías en tu planilla:\n${list}\n\n¿Las usamos tal cual? Respondé *sí* o decime si querés agregar/quitar alguna.`;
+  },
+
   noMappingToConfirm: () =>
     `Todavía no tengo una propuesta de mapeo para confirmar. Esperá un momento o escribí *empezar* para reconectar.`,
 

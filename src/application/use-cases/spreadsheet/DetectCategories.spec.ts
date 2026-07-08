@@ -1,0 +1,157 @@
+// LAYER: Application / Tests
+// Unit tests for DetectCategories use case.
+
+import { describe, it, expect, vi } from 'vitest';
+import { DetectCategories } from './DetectCategories';
+import type { DetectCategoriesDeps } from './DetectCategories';
+import type { MessagingOutputPort } from '../../ports/output/messaging.port';
+
+describe('DetectCategories', () => {
+  function buildDeps(overrides: Partial<DetectCategoriesDeps> = {}): {
+    deps: DetectCategoriesDeps;
+    sendMessage: ReturnType<typeof vi.fn<MessagingOutputPort['sendMessage']>>;
+    transitionExecute: ReturnType<typeof vi.fn>;
+  } {
+    const sendMessage = vi.fn<MessagingOutputPort['sendMessage']>().mockResolvedValue({ status: 'success' });
+    const transitionExecute = vi.fn().mockResolvedValue(undefined);
+
+    const deps = {
+      spreadsheetPortFactory: {
+        create: vi.fn().mockReturnValue({
+          getUniqueValues: vi.fn().mockResolvedValue(['Comida', 'Transporte', 'Comida', '']),
+        }),
+      },
+      tokenRepository: {
+        findByUserAndProvider: vi.fn().mockResolvedValue({
+          accessTokenEnc: Buffer.from('enc'),
+          iv: Buffer.from('iv'),
+          accessTokenExpiresAt: new Date(Date.now() + 3600_000),
+          revokedAt: null,
+        }),
+      },
+      tokenEncryption: {
+        decrypt: vi.fn().mockReturnValue('access-token'),
+      },
+      spreadsheetConfigRepository: {
+        findByUserId: vi.fn().mockResolvedValue({
+          id: 'config-123',
+          provider: 'google',
+          fileId: 'file-123',
+          sheetName: 'Gastos',
+        }),
+        create: vi.fn(),
+        upsertByUserId: vi.fn(),
+        updateAccessVerified: vi.fn(),
+      },
+      columnMappingRepository: {
+        findBySpreadsheetId: vi.fn().mockResolvedValue([
+          { GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoria' },
+        ]),
+      },
+      messagingPort: {
+        sendMessage,
+      },
+      transitionState: {
+        execute: transitionExecute,
+      },
+      ...overrides,
+    } as unknown as DetectCategoriesDeps;
+
+    return { deps, sendMessage, transitionExecute };
+  }
+
+  it('detects categories from the spreadsheet and sends a confirmation prompt', async () => {
+    const { deps, sendMessage, transitionExecute } = buildDeps();
+    const useCase = new DetectCategories(deps);
+
+    await useCase.execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: null,
+    });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      '123456789',
+      expect.stringContaining('comida'),
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      '123456789',
+      expect.stringContaining('transporte'),
+    );
+    expect(transitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_CATEGORIES',
+      }),
+    );
+    const transitionCall = transitionExecute.mock.calls[0];
+    if (!transitionCall) throw new Error('Expected transitionState.execute to be called');
+    const payload = (transitionCall[0] as { payload?: Record<string, unknown> }).payload;
+    expect(payload?.categories).toEqual(['comida', 'transporte']);
+  });
+
+  it('falls back to default categories when the column is empty', async () => {
+    const { deps, sendMessage, transitionExecute } = buildDeps({
+      spreadsheetPortFactory: {
+        create: vi.fn().mockReturnValue({
+          getUniqueValues: vi.fn().mockResolvedValue([]),
+        }),
+      },
+    });
+    const useCase = new DetectCategories(deps);
+
+    await useCase.execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: null,
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      '123456789',
+      expect.stringContaining('alimentacion'),
+    );
+    expect(transitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetState: 'ONBOARDING_CATEGORIES',
+      }),
+    );
+    const transitionCall = transitionExecute.mock.calls[0];
+    if (!transitionCall) throw new Error('Expected transitionState.execute to be called');
+    const payload = (transitionCall[0] as { payload?: Record<string, unknown> }).payload;
+    expect(payload?.categories).toEqual([
+      'alimentacion',
+      'transporte',
+      'servicios',
+      'ocio',
+      'salud',
+      'otros',
+    ]);
+  });
+
+  it('falls back to defaults when there is no spreadsheet config', async () => {
+    const { deps, sendMessage } = buildDeps({
+      spreadsheetConfigRepository: {
+        findByUserId: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+        upsertByUserId: vi.fn(),
+        updateAccessVerified: vi.fn(),
+      },
+    });
+    const useCase = new DetectCategories(deps);
+
+    await useCase.execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: null,
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      '123456789',
+      expect.stringContaining('configurando'),
+    );
+  });
+});

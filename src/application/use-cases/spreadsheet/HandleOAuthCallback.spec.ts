@@ -69,7 +69,9 @@ const baseRedisPayload = JSON.stringify({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockEncrypt.mockReturnValue({ ciphertext: Buffer.from('enc'), iv: Buffer.from('iv') });
+  mockEncrypt
+    .mockReturnValueOnce({ ciphertext: Buffer.from('access-enc'), iv: Buffer.from('access-iv') })
+    .mockReturnValueOnce({ ciphertext: Buffer.from('refresh-enc'), iv: Buffer.from('refresh-iv') });
 });
 
 describe('HandleOAuthCallback', () => {
@@ -95,9 +97,10 @@ describe('HandleOAuthCallback', () => {
       expect(mockTokenUpsert).toHaveBeenCalledWith({
         userId: 'user-123',
         provider: 'google',
-        accessTokenEnc: Buffer.from('enc'),
-        refreshTokenEnc: Buffer.from('enc'),
-        iv: Buffer.from('iv'),
+        accessTokenEnc: Buffer.from('access-enc'),
+        refreshTokenEnc: Buffer.from('refresh-enc'),
+        iv: Buffer.from('access-iv'),
+        refreshIv: Buffer.from('refresh-iv'),
         accessTokenExpiresAt: new Date('2026-12-31T23:59:59Z'),
         scope: ['https://www.googleapis.com/auth/drive.file'],
         grantedAt: expect.any(Date) as Date,

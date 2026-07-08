@@ -127,7 +127,8 @@ export const oauthTokens = pgTable(
     provider: text('provider').notNull(),
     accessTokenEnc: bytea('access_token_enc').notNull(), // AES-256-GCM (ADR-007)
     refreshTokenEnc: bytea('refresh_token_enc').notNull(), // AES-256-GCM
-    iv: bytea('iv').notNull(), // initialization vector
+    iv: bytea('iv').notNull(), // initialization vector for access token
+    refreshIv: bytea('refresh_iv').notNull(), // initialization vector for refresh token
     accessTokenExpiresAt: timestamp('access_token_expires_at').notNull(),
     scope: text('scope')
       .array()

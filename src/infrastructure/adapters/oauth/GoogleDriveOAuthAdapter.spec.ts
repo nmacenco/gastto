@@ -45,7 +45,7 @@ describe('GoogleDriveOAuthAdapter', () => {
       );
       expect(parsed.searchParams.get('response_type')).toBe('code');
       expect(parsed.searchParams.get('scope')).toBe(
-        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets',
       );
       expect(parsed.searchParams.get('access_type')).toBe('offline');
       expect(parsed.searchParams.get('prompt')).toBe('consent');
@@ -70,7 +70,8 @@ describe('GoogleDriveOAuthAdapter', () => {
             access_token: 'access-123',
             refresh_token: 'refresh-456',
             expires_in: 3600,
-            scope: 'https://www.googleapis.com/auth/drive.readonly',
+            scope:
+              'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets',
           }),
       });
 
@@ -79,7 +80,10 @@ describe('GoogleDriveOAuthAdapter', () => {
 
       expect(result.accessToken).toBe('access-123');
       expect(result.refreshToken).toBe('refresh-456');
-      expect(result.scope).toEqual(['https://www.googleapis.com/auth/drive.readonly']);
+      expect(result.scope).toEqual([
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/spreadsheets',
+      ]);
       expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
 
       expect(fetchMock).toHaveBeenCalledOnce();
@@ -187,7 +191,8 @@ describe('GoogleDriveOAuthAdapter', () => {
           Promise.resolve({
             access_token: 'new-access-789',
             expires_in: 3600,
-            scope: 'https://www.googleapis.com/auth/drive.readonly',
+            scope:
+              'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets',
           }),
       });
 
@@ -196,7 +201,10 @@ describe('GoogleDriveOAuthAdapter', () => {
 
       expect(result.accessToken).toBe('new-access-789');
       expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
-      expect(result.scope).toEqual(['https://www.googleapis.com/auth/drive.readonly']);
+      expect(result.scope).toEqual([
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/spreadsheets',
+      ]);
 
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe('https://oauth2.googleapis.com/token');
