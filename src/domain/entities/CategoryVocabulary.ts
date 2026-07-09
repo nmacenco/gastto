@@ -50,9 +50,7 @@ export class CategoryVocabulary {
       throw new DomainValidationError('Category name cannot be empty');
     }
 
-    const duplicate = this.categories.find(
-      (c) => c.id !== id && c.normalizedName === normalized,
-    );
+    const duplicate = this.categories.find((c) => c.id !== id && c.normalizedName === normalized);
     if (duplicate) {
       throw new DomainValidationError(`Category "${trimmed}" already exists`);
     }

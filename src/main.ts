@@ -436,7 +436,9 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
-        const categoryReaderPortFactory = new SpreadsheetCategoryReaderFactory(googleSheetsAdapterFactory);
+        const categoryReaderPortFactory = new SpreadsheetCategoryReaderFactory(
+          googleSheetsAdapterFactory,
+        );
 
         const detectCategories =
           googleOAuthAdapter !== null

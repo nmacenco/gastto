@@ -13,7 +13,9 @@ describe('DetectCategories', () => {
     sendMessage: ReturnType<typeof vi.fn<MessagingOutputPort['sendMessage']>>;
     transitionExecute: ReturnType<typeof vi.fn>;
   } {
-    const sendMessage = vi.fn<MessagingOutputPort['sendMessage']>().mockResolvedValue({ status: 'success' });
+    const sendMessage = vi
+      .fn<MessagingOutputPort['sendMessage']>()
+      .mockResolvedValue({ status: 'success' });
     const transitionExecute = vi.fn().mockResolvedValue(undefined);
 
     const mockCategoryReader: ICategoryReaderPort = {
@@ -47,9 +49,11 @@ describe('DetectCategories', () => {
         updateAccessVerified: vi.fn(),
       },
       columnMappingRepository: {
-        findBySpreadsheetId: vi.fn().mockResolvedValue([
-          { GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoria' },
-        ]),
+        findBySpreadsheetId: vi
+          .fn()
+          .mockResolvedValue([
+            { GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoria' },
+          ]),
       },
       messagingPort: {
         sendMessage,
@@ -75,14 +79,8 @@ describe('DetectCategories', () => {
     });
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenCalledWith(
-      '123456789',
-      expect.stringContaining('comida'),
-    );
-    expect(sendMessage).toHaveBeenCalledWith(
-      '123456789',
-      expect.stringContaining('transporte'),
-    );
+    expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('comida'));
+    expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('transporte'));
     expect(transitionExecute).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user-123',
@@ -113,10 +111,7 @@ describe('DetectCategories', () => {
       statePayload: null,
     });
 
-    expect(sendMessage).toHaveBeenCalledWith(
-      '123456789',
-      expect.stringContaining('alimentacion'),
-    );
+    expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('alimentacion'));
     expect(transitionExecute).toHaveBeenCalledWith(
       expect.objectContaining({
         targetState: 'ONBOARDING_CATEGORIES',
@@ -153,9 +148,6 @@ describe('DetectCategories', () => {
       statePayload: null,
     });
 
-    expect(sendMessage).toHaveBeenCalledWith(
-      '123456789',
-      expect.stringContaining('configurando'),
-    );
+    expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('configurando'));
   });
 });

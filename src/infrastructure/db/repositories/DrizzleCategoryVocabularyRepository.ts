@@ -17,10 +17,7 @@ export class DrizzleCategoryVocabularyRepository implements ICategoryVocabularyR
       .select()
       .from(userCategories)
       .where(
-        and(
-          eq(userCategories.spreadsheetId, spreadsheetId),
-          eq(userCategories.isActive, true),
-        ),
+        and(eq(userCategories.spreadsheetId, spreadsheetId), eq(userCategories.isActive, true)),
       );
 
     if (rows.length === 0) {

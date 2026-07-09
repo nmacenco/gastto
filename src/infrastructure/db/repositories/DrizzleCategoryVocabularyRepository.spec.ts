@@ -8,9 +8,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type * as schema from '../schema';
 import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
 
-function buildUserCategoryRow(
-  overrides: Partial<typeof schema.userCategories.$inferSelect> = {},
-) {
+function buildUserCategoryRow(overrides: Partial<typeof schema.userCategories.$inferSelect> = {}) {
   return {
     id: 'cat-123',
     spreadsheetId: 'sheet-123',
@@ -82,11 +80,9 @@ describe('DrizzleCategoryVocabularyRepository', () => {
           }),
         }),
         insert: insertMock,
-        transaction: vi.fn().mockImplementation(
-          async (fn: (tx: typeof db) => Promise<unknown>) => {
-            await fn(db);
-          },
-        ),
+        transaction: vi.fn().mockImplementation(async (fn: (tx: typeof db) => Promise<unknown>) => {
+          await fn(db);
+        }),
       } as unknown as PostgresJsDatabase<typeof schema>;
 
       const vocabulary = new CategoryVocabulary('sheet-123');
@@ -123,11 +119,9 @@ describe('DrizzleCategoryVocabularyRepository', () => {
         }),
         update: updateMock,
         insert: insertMock,
-        transaction: vi.fn().mockImplementation(
-          async (fn: (tx: typeof db) => Promise<unknown>) => {
-            await fn(db);
-          },
-        ),
+        transaction: vi.fn().mockImplementation(async (fn: (tx: typeof db) => Promise<unknown>) => {
+          await fn(db);
+        }),
       } as unknown as PostgresJsDatabase<typeof schema>;
 
       const vocabulary = new CategoryVocabulary('sheet-123');
@@ -157,11 +151,9 @@ describe('DrizzleCategoryVocabularyRepository', () => {
           }),
         }),
         insert: insertMock,
-        transaction: vi.fn().mockImplementation(
-          async (fn: (tx: typeof db) => Promise<unknown>) => {
-            await fn(db);
-          },
-        ),
+        transaction: vi.fn().mockImplementation(async (fn: (tx: typeof db) => Promise<unknown>) => {
+          await fn(db);
+        }),
       } as unknown as PostgresJsDatabase<typeof schema>;
 
       const vocabulary = new CategoryVocabulary('sheet-123');
