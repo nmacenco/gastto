@@ -154,6 +154,7 @@ describe('HandleSheetSelection', () => {
         fileName: 'Mi Planilla',
         sheetName: 'Gastos',
         accessVerifiedAt: expect.any(Date) as Date,
+        categoriesConfirmedAt: null,
       });
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
@@ -989,6 +990,7 @@ describe('HandleSheetSelection', () => {
           fileName: 'Mi Planilla',
           sheetName: 'Resumen',
           accessVerifiedAt: expect.any(Date) as Date,
+          categoriesConfirmedAt: null,
         }),
       );
       expect(mockCreateConfig).not.toHaveBeenCalled();

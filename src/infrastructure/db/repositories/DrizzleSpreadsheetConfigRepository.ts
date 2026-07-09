@@ -88,6 +88,19 @@ export class DrizzleSpreadsheetConfigRepository implements ISpreadsheetConfigRep
     if (!row) throw new Error('Failed to update access verified timestamp');
   }
 
+  async updateCategoriesConfirmed(id: string): Promise<void> {
+    const [row] = await this.db
+      .update(schema.spreadsheetConfigs)
+      .set({
+        categoriesConfirmedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.spreadsheetConfigs.id, id))
+      .returning();
+
+    if (!row) throw new Error('Failed to update categories confirmed timestamp');
+  }
+
   // ── Mappers ────────────────────────────────────────────────────────────────
 
   private mapSpreadsheetConfig(
@@ -101,6 +114,7 @@ export class DrizzleSpreadsheetConfigRepository implements ISpreadsheetConfigRep
       fileName: row.fileName,
       sheetName: row.sheetName,
       accessVerifiedAt: row.accessVerifiedAt,
+      categoriesConfirmedAt: row.categoriesConfirmedAt ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

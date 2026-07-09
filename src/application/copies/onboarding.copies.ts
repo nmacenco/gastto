@@ -165,6 +165,9 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
   correctionParseFailurePrompt: () =>
     `No entendí la corrección. Podés escribir algo como: "la categoría está en la columna E" o "el monto va en B".`,
 
+  onboardingComplete: () =>
+    '¡Todo listo! Ya podés empezar a registrar gastos. Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
+
   mappingResumePrompt: (
     mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
   ) => {

@@ -458,6 +458,7 @@ export class HandleSheetSelection {
       fileName,
       sheetName: sheet.name,
       accessVerifiedAt: new Date(),
+      categoriesConfirmedAt: null,
     });
 
     const payload: Record<string, unknown> = {

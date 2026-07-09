@@ -105,7 +105,8 @@ Linked spreadsheet configuration per user.
 | `file_id`            | `TEXT`        | NOT NULL                               | External file identifier.                   |
 | `file_name`          | `TEXT`        | NOT NULL                               | Human-readable file name for display.       |
 | `sheet_name`         | `TEXT`        | NOT NULL                               | Target sheet within the file.               |
-| `access_verified_at` | `TIMESTAMPTZ` | NOT NULL                               | Last read/write permission check.           |
+| `access_verified_at`  | `TIMESTAMPTZ` | NOT NULL                               | Last read/write permission check.           |
+| `categories_confirmed_at` | `TIMESTAMPTZ` | NULL                               | Timestamp when the user confirmed their category vocabulary. NULL until confirmation. |
 | `created_at`         | `TIMESTAMPTZ` | NOT NULL, default `now()`              | Creation timestamp.                         |
 | `updated_at`         | `TIMESTAMPTZ` | NOT NULL, default `now()`              | Last update timestamp.                      |
 

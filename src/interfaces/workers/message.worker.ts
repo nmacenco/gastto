@@ -32,6 +32,7 @@ import type { InferColumnMapping } from '../../application/use-cases/spreadsheet
 import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
 import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
+import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/ConfirmCategories';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
@@ -66,6 +67,7 @@ export interface MessageWorkerDeps {
   confirmColumnMapping?: ConfirmColumnMapping | null;
   correctColumnMapping?: CorrectColumnMapping | null;
   detectCategories?: DetectCategories | null;
+  confirmCategories?: ConfirmCategories | null;
 }
 
 export async function processMessageJob(
@@ -280,15 +282,38 @@ async function routeByState(
     }
 
     case 'ONBOARDING_CATEGORIES': {
-      if (opts.detectCategories) {
-        await opts.detectCategories.execute({
-          userId,
-          externalId,
-          channel,
-          statePayload: conversationState?.statePayload ?? null,
-        });
+      const categoryPayload = conversationState?.statePayload ?? null;
+      const hasCategories =
+        Array.isArray(categoryPayload?.categories) && (categoryPayload.categories as string[]).length > 0;
+
+      if (!hasCategories) {
+        if (opts.detectCategories) {
+          await opts.detectCategories.execute({
+            userId,
+            externalId,
+            channel,
+            statePayload: categoryPayload,
+          });
+        } else {
+          await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+        }
+      } else if (isConfirmIntent(rawMessage)) {
+        if (opts.confirmCategories) {
+          await opts.confirmCategories.execute({
+            userId,
+            externalId,
+            channel,
+            statePayload: categoryPayload,
+          });
+        } else {
+          await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+        }
       } else {
-        await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+        // Re-send the confirmation prompt for any non-confirm reply.
+        await messaging.sendMessage(
+          externalId,
+          onboardingCopies.categoryConfirmationPrompt(categoryPayload.categories as string[]),
+        );
       }
       break;
     }

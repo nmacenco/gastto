@@ -1,0 +1,1 @@
+ALTER TABLE "spreadsheet_configs" ADD COLUMN "categories_confirmed_at" timestamp;

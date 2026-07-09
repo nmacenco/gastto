@@ -16,6 +16,7 @@ import type { InferColumnMapping } from '../../application/use-cases/spreadsheet
 import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
 import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
+import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/ConfirmCategories';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
@@ -36,6 +37,7 @@ const mockInferColumnMappingExecute = vi.fn();
 const mockConfirmColumnMappingExecute = vi.fn();
 const mockCorrectColumnMappingExecute = vi.fn();
 const mockDetectCategoriesExecute = vi.fn();
+const mockConfirmCategoriesExecute = vi.fn();
 const mockLoadCorrectionState = vi.fn();
 const mockSaveCorrectionState = vi.fn();
 const mockAcquireLock = vi.fn();
@@ -103,6 +105,9 @@ function buildMockDeps(): MessageWorkerDeps {
     detectCategories: {
       execute: mockDetectCategoriesExecute,
     } as unknown as DetectCategories,
+    confirmCategories: {
+      execute: mockConfirmCategoriesExecute,
+    } as unknown as ConfirmCategories,
   };
 }
 
@@ -917,36 +922,104 @@ describe('processMessageJob', () => {
       });
     });
 
-    it('delegates ONBOARDING_CATEGORIES to DetectCategories when wired', async () => {
-      const deps = buildMockDeps();
-      mockGetConversationStateExecute.mockResolvedValue(
-        buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
-      );
+    describe('ONBOARDING_CATEGORIES', () => {
+      it('delegates to DetectCategories on first entry when categories are not yet in payload', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
+        );
 
-      await processMessageJob(buildJob(baseJobData), deps);
+        await processMessageJob(buildJob(baseJobData), deps);
 
-      expect(mockDetectCategoriesExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        externalId: '123456789',
-        channel: 'telegram',
-        statePayload: null,
+        expect(mockDetectCategoriesExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: null,
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
       });
-      expect(mockSendMessage).not.toHaveBeenCalled();
-    });
 
-    it('falls back to placeholder when DetectCategories is not wired', async () => {
-      const deps = buildMockDeps();
-      deps.detectCategories = null;
-      mockGetConversationStateExecute.mockResolvedValue(
-        buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
-      );
+      it('falls back to placeholder on first entry when DetectCategories is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.detectCategories = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
+        );
 
-      await processMessageJob(buildJob(baseJobData), deps);
+        await processMessageJob(buildJob(baseJobData), deps);
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        onboardingCopies.onboardingPlaceholder(),
-      );
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+      });
+
+      it('delegates to ConfirmCategories on confirm reply when categories are already in payload', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_CATEGORIES',
+            statePayload: { categories: ['comida', 'transporte'] },
+          }),
+        );
+        mockConfirmCategoriesExecute.mockResolvedValue({
+          nextState: 'IDLE',
+          message: onboardingCopies.onboardingComplete(),
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+        expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockConfirmCategoriesExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: { categories: ['comida', 'transporte'] },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('falls back to placeholder on confirm reply when ConfirmCategories is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.confirmCategories = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_CATEGORIES',
+            statePayload: { categories: ['comida', 'transporte'] },
+          }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+      });
+
+      it('re-sends confirmation prompt on non-confirm reply when categories are already in payload', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_CATEGORIES',
+            statePayload: { categories: ['comida', 'transporte'] },
+          }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'falta Salud' }), deps);
+
+        expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockConfirmCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expect.stringContaining('comida'),
+        );
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expect.stringContaining('transporte'),
+        );
+      });
     });
   });
 

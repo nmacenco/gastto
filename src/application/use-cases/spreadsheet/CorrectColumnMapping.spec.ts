@@ -133,6 +133,7 @@ const mockConfig: SpreadsheetConfig = {
   fileName: 'Mi Planilla',
   sheetName: 'Gastos',
   accessVerifiedAt: new Date(),
+  categoriesConfirmedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

@@ -110,6 +110,7 @@ export interface ISpreadsheetConfigRepository {
     config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<SpreadsheetConfig>;
   updateAccessVerified(id: string): Promise<void>;
+  updateCategoriesConfirmed(id: string): Promise<void>;
 }
 
 export interface IColumnMappingRepository {

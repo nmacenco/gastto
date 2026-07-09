@@ -13,13 +13,13 @@ After the user confirms the column mapping, Gastto reads the values already pres
 - Values are normalized (trimmed and lowercased), deduplicated, and empty cells are filtered out.
 - If no categories are found, a default set is used: `Alimentacion`, `Transporte`, `Servicios`, `Ocio`, `Salud`, `Otros`.
 - A confirmation prompt is sent to the user and the FSM payload stores the detected/default categories.
+- When the user replies with a confirmation intent ("sí", "yes", etc.), `ConfirmCategories` marks the vocabulary as confirmed in `spreadsheet_configs.categories_confirmed_at`, transitions the user status to `active`, moves the FSM to `IDLE`, and sends the final welcome message.
+- Re-confirmation is idempotent: if `categories_confirmed_at` is already set, the use case returns success without error.
 
 ## Behavior (TODO)
 
-- User confirmation of the detected/default category list and transition to `IDLE`.
 - Natural-language commands to add a missing category (e.g. "falta Salud").
 - Natural-language commands to rename a category (e.g. "Ocio se llama Entretenimiento").
-- Persist the final vocabulary to `user_categories` so `RegisterExpenseUseCase` can use it.
 - Handle re-onboarding by merging previously persisted categories with newly detected ones.
 
 See [`docs/user-stories/01-mvp/01-Vinculacion de planilla · Release 1 MVP/HU-4.07 — Confirmar las categorias de la planilla.md`](../user-stories/01-mvp/01-Vinculacion%20de%20planilla%20%C2%B7%20Release%201%20MVP/HU-4.07%20%E2%80%94%20Confirmar%20las%20categorias%20de%20la%20planilla.md).
