@@ -38,6 +38,7 @@ import { GoogleDriveFileDiscoveryAdapter } from './infrastructure/adapters/drive
 import { GoogleSheetsAdapterFactory } from './infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
 import { SpreadsheetAccessAdapterFactory } from './infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import { GoogleSheetsAdapter } from './infrastructure/adapters/sheets/GoogleSheetsAdapter';
+import { SpreadsheetCategoryReaderFactory } from './infrastructure/adapters/sheets/SpreadsheetCategoryReaderFactory';
 import { RuleBasedColumnInferenceAdapter } from './infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
 import { RuleBasedHeaderDetectionAdapter } from './infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
 import { LLMHeaderDetectionAdapter } from './infrastructure/adapters/sheets/LLMHeaderDetectionAdapter';
@@ -435,10 +436,12 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
+        const categoryReaderPortFactory = new SpreadsheetCategoryReaderFactory(googleSheetsAdapterFactory);
+
         const detectCategories =
           googleOAuthAdapter !== null
             ? new DetectCategories({
-                spreadsheetPortFactory: googleSheetsAdapterFactory,
+                categoryReaderPortFactory,
                 tokenRepository: tokenRepo,
                 tokenEncryption,
                 spreadsheetConfigRepository: spreadsheetConfigRepo,

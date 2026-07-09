@@ -220,6 +220,20 @@ Immutable audit trail of critical operations.
 | `expense_records`      | `spreadsheet_id` | `spreadsheet_configs` | `NO ACTION` | Intentionally preserves expense history if a spreadsheet is unlinked. |
 | `operation_logs`       | `user_id`        | `users`               | `CASCADE`   | Remove audit trail when a user is deleted.                            |
 
+## Domain Aggregates
+
+### CategoryVocabulary
+
+Aggregate root that encapsulates the full set of categories for a single spreadsheet. Enforces the invariant that no two categories can share the same normalized name (case-insensitive).
+
+| Method            | Arguments                          | Behavior                                                                |
+| ----------------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| `addCategory`     | `name: string`                     | Creates a new `Category` after trimming and lowercasing. Rejects duplicates and empty names. |
+| `removeCategory`  | `id: string`                       | Removes the category with the given id from the vocabulary.             |
+| `renameCategory`  | `id: string`, `newName: string`    | Updates the name and normalized name. Replicates addCategory validation. |
+
+The aggregate is persisted via `ICategoryVocabularyRepository`, which translates between the aggregate and the `user_categories` table rows. The repository diffs the aggregate against the database on `save`: categories not in the aggregate are soft-deleted (`is_active = false`), new categories are inserted, and existing ones are updated via upsert on the unique `(spreadsheet_id, normalized_value)` constraint.
+
 ## Design Decisions
 
 - **TEXT with CHECK over ENUM.** PostgreSQL `ENUM` types require `ALTER TYPE` to add values. A `CHECK` constraint can be updated with a simple `ALTER TABLE`, simplifying migrations when Release 2 introduces new states or operations.
@@ -229,6 +243,7 @@ Immutable audit trail of critical operations.
 - **AES-256-GCM token storage.** OAuth tokens are encrypted at rest with a per-row IV. The encryption key is a runtime secret; the database contains no plaintext credentials. See ADR-007.
 - **Placeholder `access_verified_at` on first creation (Option A).** When `spreadsheet_configs` is first created during HU-4.03 sheet selection, `access_verified_at` is initialized to the current timestamp as a placeholder. The real read/write permission verification is performed later during HU-4.04 and the timestamp is updated to the actual verification time via `updateAccessVerified`. This allows the record to be persisted immediately while keeping the verification step separate.
 - **Config replaced on re-onboarding via upsert.** When a user re-onboards (e.g., after an expired OAuth token), `ISpreadsheetConfigRepository.upsertByUserId` transparently replaces the existing row via `ON CONFLICT (user_id) DO UPDATE`, avoiding `uq_user_spreadsheet` violations. The `create` method remains for first-time users only.
+- **Aggregate-oriented category repository.** `ICategoryVocabularyRepository` provides aggregate-level operations (`findBySpreadsheetId`, `save`) while `IUserCategoryRepository` continues to expose row-level operations (`findActiveBySpreadsheetId`, `upsertMany`, `incrementUsage`). Both interfaces are implemented by separate Drizzle repository classes operating on the same `user_categories` table, keeping the Domain and Application layers clean of ORM details.
 
 ## Related ADRs
 

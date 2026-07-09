@@ -18,6 +18,7 @@ import type {
   MappingCorrectionStatus,
 } from '../value-objects/ColumnMappingCorrectionState';
 import type { OperationLog, OperationType, ErrorType } from '../entities/OperationLog';
+import type { CategoryVocabulary } from '../entities/CategoryVocabulary';
 
 // ── Usuario ─────────────────────────────────────────────────────────────────
 
@@ -141,6 +142,11 @@ export interface IUserCategoryRepository {
   findActiveBySpreadsheetId(spreadsheetId: string): Promise<UserCategory[]>;
   upsertMany(categories: Omit<UserCategory, 'id' | 'createdAt'>[]): Promise<void>;
   incrementUsage(id: string): Promise<void>;
+}
+
+export interface ICategoryVocabularyRepository {
+  findBySpreadsheetId(spreadsheetId: string): Promise<CategoryVocabulary | null>;
+  save(vocabulary: CategoryVocabulary): Promise<void>;
 }
 
 // ── Registros de gasto ────────────────────────────────────────────────────────

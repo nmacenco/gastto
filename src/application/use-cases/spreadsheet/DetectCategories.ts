@@ -8,10 +8,9 @@ import type {
   IColumnMappingRepository,
 } from '../../../domain/ports/repositories';
 import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
-import type { SpreadsheetPortFactory } from '../../../domain/ports/services';
+import type { ICategoryReaderPortFactory } from '../../../domain/ports/categoryReader';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
-import { SpreadsheetCategoryReader } from '../../../infrastructure/adapters/sheets/SpreadsheetCategoryReader';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 
 export interface DetectCategoriesInput {
@@ -22,7 +21,7 @@ export interface DetectCategoriesInput {
 }
 
 export interface DetectCategoriesDeps {
-  spreadsheetPortFactory: SpreadsheetPortFactory;
+  categoryReaderPortFactory: ICategoryReaderPortFactory;
   tokenRepository: IOAuthTokenRepository;
   tokenEncryption: TokenEncryptionPort;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
@@ -70,12 +69,11 @@ export class DetectCategories {
       return;
     }
 
-    const spreadsheetPort = this.deps.spreadsheetPortFactory.create(accessToken);
-    const reader = new SpreadsheetCategoryReader(spreadsheetPort);
+    const categoryReader = this.deps.categoryReaderPortFactory.create(accessToken);
 
     let categories: string[];
     try {
-      categories = await reader.readCategories(
+      categories = await categoryReader.readCategories(
         config.fileId,
         categoryMapping.columnIndex,
         config.sheetName,

@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { DetectCategories } from './DetectCategories';
 import type { DetectCategoriesDeps } from './DetectCategories';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
+import type { ICategoryReaderPort } from '../../../domain/ports/categoryReader';
 
 describe('DetectCategories', () => {
   function buildDeps(overrides: Partial<DetectCategoriesDeps> = {}): {
@@ -15,11 +16,13 @@ describe('DetectCategories', () => {
     const sendMessage = vi.fn<MessagingOutputPort['sendMessage']>().mockResolvedValue({ status: 'success' });
     const transitionExecute = vi.fn().mockResolvedValue(undefined);
 
+    const mockCategoryReader: ICategoryReaderPort = {
+      readCategories: vi.fn().mockResolvedValue(['comida', 'transporte']),
+    };
+
     const deps = {
-      spreadsheetPortFactory: {
-        create: vi.fn().mockReturnValue({
-          getUniqueValues: vi.fn().mockResolvedValue(['Comida', 'Transporte', 'Comida', '']),
-        }),
+      categoryReaderPortFactory: {
+        create: vi.fn().mockReturnValue(mockCategoryReader),
       },
       tokenRepository: {
         findByUserAndProvider: vi.fn().mockResolvedValue({
@@ -93,11 +96,12 @@ describe('DetectCategories', () => {
   });
 
   it('falls back to default categories when the column is empty', async () => {
+    const emptyReader: ICategoryReaderPort = {
+      readCategories: vi.fn().mockResolvedValue([]),
+    };
     const { deps, sendMessage, transitionExecute } = buildDeps({
-      spreadsheetPortFactory: {
-        create: vi.fn().mockReturnValue({
-          getUniqueValues: vi.fn().mockResolvedValue([]),
-        }),
+      categoryReaderPortFactory: {
+        create: vi.fn().mockReturnValue(emptyReader),
       },
     });
     const useCase = new DetectCategories(deps);
