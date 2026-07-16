@@ -15,6 +15,7 @@ export interface SpreadsheetConfig {
   fileName: string;
   sheetName: string;
   accessVerifiedAt: Date; // last permission verification (ADR-004)
+  categoriesConfirmedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -12,7 +12,9 @@ import type { ExpenseRecord } from '../../../domain/entities/ExpenseRecord';
 export class DrizzleExpenseRecordRepository implements IExpenseRecordRepository {
   constructor(private readonly db: PostgresJsDatabase<typeof schema>) {}
 
-  async create(record: Omit<ExpenseRecord, 'id' | 'createdAt' | 'savedAt'>): Promise<ExpenseRecord> {
+  async create(
+    record: Omit<ExpenseRecord, 'id' | 'createdAt' | 'savedAt'>,
+  ): Promise<ExpenseRecord> {
     const [row] = await this.db
       .insert(expenseRecords)
       .values({

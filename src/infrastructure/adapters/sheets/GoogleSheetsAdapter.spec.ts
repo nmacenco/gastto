@@ -339,13 +339,7 @@ describe('GoogleSheetsAdapter', () => {
         status: 200,
         json: () =>
           Promise.resolve({
-            values: [
-              ['Comida'],
-              ['Transporte'],
-              ['Comida'],
-              [''],
-              ['Servicios'],
-            ],
+            values: [['Comida'], ['Transporte'], ['Comida'], [''], ['Servicios']],
           }),
       });
 

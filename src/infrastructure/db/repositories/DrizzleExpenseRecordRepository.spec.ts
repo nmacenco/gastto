@@ -7,9 +7,7 @@ import { DrizzleExpenseRecordRepository } from './DrizzleExpenseRecordRepository
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type * as schema from '../schema';
 
-function buildExpenseRecordRow(
-  overrides: Partial<typeof schema.expenseRecords.$inferSelect> = {},
-) {
+function buildExpenseRecordRow(overrides: Partial<typeof schema.expenseRecords.$inferSelect> = {}) {
   return {
     id: 'expense-123',
     userId: 'user-123',

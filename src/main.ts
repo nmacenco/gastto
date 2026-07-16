@@ -31,6 +31,7 @@ import { DrizzleOperationLogRepository } from './infrastructure/db/repositories/
 import { DrizzleOAuthTokenRepository } from './infrastructure/db/repositories/DrizzleOAuthTokenRepository';
 import { DrizzleSpreadsheetConfigRepository } from './infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
 import { DrizzleColumnMappingRepository } from './infrastructure/db/repositories/DrizzleColumnMappingRepository';
+import { DrizzleCategoryVocabularyRepository } from './infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
 import { TelegramMessengerAdapter } from './infrastructure/adapters/telegram/TelegramMessengerAdapter';
 import { TelegramWebhookConfigurator } from './infrastructure/adapters/telegram/TelegramWebhookConfigurator';
 import { GoogleDriveOAuthAdapter } from './infrastructure/adapters/oauth';
@@ -38,6 +39,7 @@ import { GoogleDriveFileDiscoveryAdapter } from './infrastructure/adapters/drive
 import { GoogleSheetsAdapterFactory } from './infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
 import { SpreadsheetAccessAdapterFactory } from './infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import { GoogleSheetsAdapter } from './infrastructure/adapters/sheets/GoogleSheetsAdapter';
+import { SpreadsheetCategoryReaderFactory } from './infrastructure/adapters/sheets/SpreadsheetCategoryReaderFactory';
 import { RuleBasedColumnInferenceAdapter } from './infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
 import { RuleBasedHeaderDetectionAdapter } from './infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
 import { LLMHeaderDetectionAdapter } from './infrastructure/adapters/sheets/LLMHeaderDetectionAdapter';
@@ -63,6 +65,7 @@ import { InferColumnMapping } from './application/use-cases/spreadsheet/InferCol
 import { ConfirmColumnMapping } from './application/use-cases/spreadsheet/ConfirmColumnMapping';
 import { CorrectColumnMapping } from './application/use-cases/spreadsheet/CorrectColumnMapping';
 import { DetectCategories } from './application/use-cases/spreadsheet/DetectCategories';
+import { ConfirmCategories } from './application/use-cases/spreadsheet/ConfirmCategories';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { RedisMappingCorrectionStateRepository } from './infrastructure/redis/RedisMappingCorrectionStateRepository';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
@@ -196,6 +199,8 @@ async function bootstrap(): Promise<void> {
       const spreadsheetConfigRepo = new DrizzleSpreadsheetConfigRepository(db);
       // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
       const columnMappingRepo = new DrizzleColumnMappingRepository(db);
+      // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+      const categoryVocabularyRepo = new DrizzleCategoryVocabularyRepository(db);
       // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
       const userCategoryRepo = new DrizzleUserCategoryRepository(db);
       // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
@@ -435,14 +440,29 @@ async function bootstrap(): Promise<void> {
               })
             : null;
 
+        const categoryReaderPortFactory = new SpreadsheetCategoryReaderFactory(
+          googleSheetsAdapterFactory,
+        );
+
         const detectCategories =
           googleOAuthAdapter !== null
             ? new DetectCategories({
-                spreadsheetPortFactory: googleSheetsAdapterFactory,
+                categoryReaderPortFactory,
                 tokenRepository: tokenRepo,
                 tokenEncryption,
                 spreadsheetConfigRepository: spreadsheetConfigRepo,
                 columnMappingRepository: columnMappingRepo,
+                messagingPort: telegramAdapter,
+                transitionState,
+                categoryVocabularyRepository: categoryVocabularyRepo,
+              })
+            : null;
+
+        const confirmCategories =
+          googleOAuthAdapter !== null
+            ? new ConfirmCategories({
+                spreadsheetConfigRepository: spreadsheetConfigRepo,
+                userRepository: userRepo,
                 messagingPort: telegramAdapter,
                 transitionState,
               })
@@ -485,6 +505,7 @@ async function bootstrap(): Promise<void> {
           confirmColumnMapping,
           correctColumnMapping,
           detectCategories,
+          confirmCategories,
         });
         app.log.info(
           `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,

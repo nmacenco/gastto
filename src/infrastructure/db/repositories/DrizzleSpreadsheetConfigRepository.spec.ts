@@ -18,6 +18,7 @@ function buildSpreadsheetConfigRow(
     fileName: 'Budget 2026',
     sheetName: 'Gastos',
     accessVerifiedAt: new Date('2026-01-01T00:00:00Z'),
+    categoriesConfirmedAt: null as Date | null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
@@ -49,6 +50,7 @@ describe('DrizzleSpreadsheetConfigRepository', () => {
         fileName: 'Budget 2026',
         sheetName: 'Gastos',
         accessVerifiedAt: row.accessVerifiedAt,
+        categoriesConfirmedAt: null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       });
@@ -91,6 +93,7 @@ describe('DrizzleSpreadsheetConfigRepository', () => {
         fileName: 'Budget 2026',
         sheetName: 'Gastos',
         accessVerifiedAt: new Date('2026-01-01T00:00:00Z'),
+        categoriesConfirmedAt: null,
       });
 
       expect(result.id).toBe('config-123');
@@ -120,6 +123,7 @@ describe('DrizzleSpreadsheetConfigRepository', () => {
           fileName: 'Budget 2026',
           sheetName: 'Gastos',
           accessVerifiedAt: new Date(),
+          categoriesConfirmedAt: null,
         }),
       ).rejects.toThrow('Failed to create spreadsheet config');
     });
@@ -160,6 +164,41 @@ describe('DrizzleSpreadsheetConfigRepository', () => {
     });
   });
 
+  describe('updateCategoriesConfirmed', () => {
+    it('updates categoriesConfirmedAt and updatedAt', async () => {
+      const row = buildSpreadsheetConfigRow();
+      const db = {
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              returning: vi.fn().mockResolvedValue([row]),
+            }),
+          }),
+        }),
+      } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const repo = new DrizzleSpreadsheetConfigRepository(db);
+      await expect(repo.updateCategoriesConfirmed('config-123')).resolves.toBeUndefined();
+    });
+
+    it('throws when update returns no row', async () => {
+      const db = {
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              returning: vi.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
+      } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const repo = new DrizzleSpreadsheetConfigRepository(db);
+      await expect(repo.updateCategoriesConfirmed('config-999')).rejects.toThrow(
+        'Failed to update categories confirmed timestamp',
+      );
+    });
+  });
+
   describe('upsertByUserId', () => {
     const newConfig = {
       userId: 'user-123',
@@ -168,6 +207,7 @@ describe('DrizzleSpreadsheetConfigRepository', () => {
       fileName: 'Budget 2027',
       sheetName: 'T 6',
       accessVerifiedAt: new Date('2026-07-05T00:00:00Z'),
+      categoriesConfirmedAt: null,
     };
 
     it('inserts a new config when none exists and returns the mapped entity', async () => {

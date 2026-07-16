@@ -160,6 +160,7 @@ export const spreadsheetConfigs = pgTable(
     fileName: text('file_name').notNull(),
     sheetName: text('sheet_name').notNull(),
     accessVerifiedAt: timestamp('access_verified_at').notNull(),
+    categoriesConfirmedAt: timestamp('categories_confirmed_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },

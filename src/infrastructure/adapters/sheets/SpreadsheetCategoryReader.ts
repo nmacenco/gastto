@@ -3,9 +3,10 @@
 // Delegates the raw sheet access to SpreadsheetPort so it works with any
 // provider (Google Sheets, Excel Online) and remains testable.
 
+import type { ICategoryReaderPort } from '../../../domain/ports/categoryReader';
 import type { SpreadsheetPort } from '../../../domain/ports/services';
 
-export class SpreadsheetCategoryReader {
+export class SpreadsheetCategoryReader implements ICategoryReaderPort {
   constructor(private readonly spreadsheetPort: SpreadsheetPort) {}
 
   async readCategories(fileId: string, columnIndex: number, sheetName: string): Promise<string[]> {
