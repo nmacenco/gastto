@@ -33,6 +33,7 @@ import type { ConfirmColumnMapping } from '../../application/use-cases/spreadshe
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
 import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
 import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/ConfirmCategories';
+import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
@@ -68,6 +69,7 @@ export interface MessageWorkerDeps {
   correctColumnMapping?: CorrectColumnMapping | null;
   detectCategories?: DetectCategories | null;
   confirmCategories?: ConfirmCategories | null;
+  modifyCategoryVocabulary?: ModifyCategoryVocabulary | null;
 }
 
 export async function processMessageJob(
@@ -284,7 +286,8 @@ async function routeByState(
     case 'ONBOARDING_CATEGORIES': {
       const categoryPayload = conversationState?.statePayload ?? null;
       const hasCategories =
-        Array.isArray(categoryPayload?.categories) && (categoryPayload.categories as string[]).length > 0;
+        Array.isArray(categoryPayload?.categories) &&
+        (categoryPayload.categories as string[]).length > 0;
 
       if (!hasCategories) {
         if (opts.detectCategories) {
@@ -309,11 +312,21 @@ async function routeByState(
           await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
         }
       } else {
-        // Re-send the confirmation prompt for any non-confirm reply.
-        await messaging.sendMessage(
-          externalId,
-          onboardingCopies.categoryConfirmationPrompt(categoryPayload.categories as string[]),
-        );
+        if (opts.modifyCategoryVocabulary) {
+          await opts.modifyCategoryVocabulary.execute({
+            userId,
+            externalId,
+            channel,
+            rawMessage,
+            statePayload: categoryPayload,
+          });
+        } else {
+          // Re-send the confirmation prompt for any non-confirm reply.
+          await messaging.sendMessage(
+            externalId,
+            onboardingCopies.categoryConfirmationPrompt(categoryPayload.categories as string[]),
+          );
+        }
       }
       break;
     }

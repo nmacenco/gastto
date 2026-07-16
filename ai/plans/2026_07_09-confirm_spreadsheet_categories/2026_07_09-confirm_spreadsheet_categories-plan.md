@@ -67,28 +67,16 @@ Complete the category confirmation onboarding flow so that after column mapping 
 
 **Description:** Build the use case that interprets natural-language instructions to add missing categories or rename existing ones in the user's vocabulary. The use case uses a lightweight rule-based parser (Spanish + English) to extract intents, updates the `CategoryVocabulary` aggregate, persists changes, and returns the updated list for re-confirmation.
 
-- [ ] Define a new domain port `CategoryModificationParserPort` under `src/domain/ports/`:
-  - `parse(input: string): Promise<CategoryModificationIntent>`
-  - `CategoryModificationIntent` can be `AddCategory(name: string)` or `RenameCategory(from: string, to: string)` or `Unknown`.
-- [ ] Create `RegexCategoryModificationParser` implementation under `src/infrastructure/adapters/` (lightweight, no LLM dependency for MVP):
-  - "falta Salud", "add Education" -> `AddCategory`
-  - "Ocio se llama Entretenimiento", "Leisure is actually Entertainment" -> `RenameCategory`
-  - Handle Spanish and English variants.
-- [ ] Create `RegexCategoryModificationParser.spec.ts` with at least 6 distinct natural-language variations in Spanish and English.
-- [ ] Create `ModifyCategoryVocabulary` use case under `src/application/use-cases/spreadsheet/ModifyCategoryVocabulary.ts`:
-  - Accepts `userId`, `externalId`, `channel`, `rawMessage`, `statePayload`.
-  - Delegates intent parsing to `CategoryModificationParserPort`.
-  - Loads `CategoryVocabulary` via `ICategoryVocabularyRepository`.
-  - If `AddCategory`, calls `vocabulary.addCategory(name)`.
-  - If `RenameCategory`, finds the category by normalized name and calls `vocabulary.renameCategory(id, newName)`.
-  - Persists updated vocabulary.
-  - Returns DTO `{ categories: string[]; message: string }` with the updated list for re-confirmation.
-- [ ] Create `ModifyCategoryVocabulary.spec.ts` with unit tests covering add, rename, unknown intent, and duplicate name rejection.
-- [ ] Add updated re-confirmation copy to `onboardingCopies.categoryUpdatedPrompt(categories: string[])`.
-- [ ] Wire `ModifyCategoryVocabulary` into `message.worker.ts` under the `ONBOARDING_CATEGORIES` reply branch for non-confirm messages.
-- [ ] Update `message.worker.spec.ts` to cover the add/correct reply branch.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Define a new domain port `CategoryModificationParserPort` under `src/domain/ports/categoryModificationParser.ts`.
+- [x] Create `RegexCategoryModificationParser` implementation under `src/infrastructure/adapters/` (lightweight, no LLM dependency for MVP).
+- [x] Create `RegexCategoryModificationParser.spec.ts` with at least 6 distinct natural-language variations in Spanish and English.
+- [x] Create `ModifyCategoryVocabulary` use case under `src/application/use-cases/spreadsheet/ModifyCategoryVocabulary.ts`.
+- [x] Create `ModifyCategoryVocabulary.spec.ts` with unit tests covering add, rename, unknown intent, duplicate name rejection, missing config, and missing rename target.
+- [x] Add updated re-confirmation copy to `onboardingCopies.categoryUpdatedPrompt(categories: string[])`.
+- [x] Wire `ModifyCategoryVocabulary` into `message.worker.ts` under the `ONBOARDING_CATEGORIES` reply branch for non-confirm messages.
+- [x] Update `message.worker.spec.ts` to cover the add/correct reply branch.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Run `pnpm test` to verify all tests pass. 810 passed, 0 failed.
 
 ## Next step
 

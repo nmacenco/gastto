@@ -168,6 +168,21 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
   onboardingComplete: () =>
     '¡Todo listo! Ya podés empezar a registrar gastos. Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
 
+  categoryUpdatedPrompt: (categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `Estas son las categorías actualizadas:\n${list}\n\n¿Están bien ahora? Respondé *sí* o decime si querés cambiar algo más.`;
+  },
+
+  categoryNotFoundForRename: (from: string, categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `No encontré la categoría "${from}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés cambiar.`;
+  },
+
+  categoryUpdateError: (_errorMessage: string, categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `No pude actualizar la categoría. Las categorías actuales son:\n${list}\n\n¿Están bien? Respondé *sí* o intentá de nuevo.`;
+  },
+
   mappingResumePrompt: (
     mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
   ) => {

@@ -19,7 +19,9 @@ describe('DetectCategories', () => {
       .fn<MessagingOutputPort['sendMessage']>()
       .mockResolvedValue({ status: 'success' });
     const transitionExecute = vi.fn().mockResolvedValue(undefined);
-    const saveVocabulary = vi.fn<ICategoryVocabularyRepository['save']>().mockResolvedValue(undefined);
+    const saveVocabulary = vi
+      .fn<ICategoryVocabularyRepository['save']>()
+      .mockResolvedValue(undefined);
 
     const mockCategoryReader: ICategoryReaderPort = {
       readCategories: vi.fn().mockResolvedValue(['comida', 'transporte']),

@@ -17,6 +17,7 @@ import type { ConfirmColumnMapping } from '../../application/use-cases/spreadshe
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
 import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
 import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/ConfirmCategories';
+import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
@@ -38,6 +39,7 @@ const mockConfirmColumnMappingExecute = vi.fn();
 const mockCorrectColumnMappingExecute = vi.fn();
 const mockDetectCategoriesExecute = vi.fn();
 const mockConfirmCategoriesExecute = vi.fn();
+const mockModifyCategoryVocabularyExecute = vi.fn();
 const mockLoadCorrectionState = vi.fn();
 const mockSaveCorrectionState = vi.fn();
 const mockAcquireLock = vi.fn();
@@ -108,6 +110,9 @@ function buildMockDeps(): MessageWorkerDeps {
     confirmCategories: {
       execute: mockConfirmCategoriesExecute,
     } as unknown as ConfirmCategories,
+    modifyCategoryVocabulary: {
+      execute: mockModifyCategoryVocabularyExecute,
+    } as unknown as ModifyCategoryVocabulary,
   };
 }
 
@@ -998,8 +1003,36 @@ describe('processMessageJob', () => {
         );
       });
 
-      it('re-sends confirmation prompt on non-confirm reply when categories are already in payload', async () => {
+      it('delegates to ModifyCategoryVocabulary on non-confirm reply when categories are already in payload', async () => {
         const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_CATEGORIES',
+            statePayload: { categories: ['comida', 'transporte'] },
+          }),
+        );
+        mockModifyCategoryVocabularyExecute.mockResolvedValue({
+          categories: ['comida', 'transporte', 'salud'],
+          message: onboardingCopies.categoryUpdatedPrompt(['comida', 'transporte', 'salud']),
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'falta Salud' }), deps);
+
+        expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockConfirmCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockModifyCategoryVocabularyExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          rawMessage: 'falta Salud',
+          statePayload: { categories: ['comida', 'transporte'] },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('re-sends confirmation prompt on non-confirm reply when ModifyCategoryVocabulary is not wired', async () => {
+        const deps = buildMockDeps();
+        deps.modifyCategoryVocabulary = null;
         mockGetConversationStateExecute.mockResolvedValue(
           buildConversationState({
             currentState: 'ONBOARDING_CATEGORIES',
@@ -1011,6 +1044,7 @@ describe('processMessageJob', () => {
 
         expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
         expect(mockConfirmCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockModifyCategoryVocabularyExecute).not.toHaveBeenCalled();
         expect(mockSendMessage).toHaveBeenCalledWith(
           '123456789',
           expect.stringContaining('comida'),
