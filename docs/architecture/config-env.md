@@ -18,8 +18,9 @@ This document describes the configuration and environment setup for this project
 | `LOG_LEVEL`               | Server | No       | Pino log level. Defaults to `info`.                                                                                       |
 | `DATABASE_URL`            | Server | No       | PostgreSQL connection string. Required once persistence is wired.                                                         |
 | `REDIS_URL`               | Server | No       | Redis connection string. Required once BullMQ workers are wired.                                                          |
-| `OPENAI_API_KEY`          | Server | No       | OpenAI API key. Required once NLP extraction is wired.                                                                    |
+| `OPENAI_API_KEY`          | Server | No       | OpenAI API key. Optional; at least one LLM provider key is required.                                                      |
 | `ANTHROPIC_API_KEY`       | Server | No       | Anthropic API key. Optional.                                                                                              |
+| `NVIDIA_API_KEY`          | Server | No       | NVIDIA API key for the `integrate.api.nvidia.com` OpenAI-compatible endpoint. Optional.                                   |
 | `TELEGRAM_WEBHOOK_SECRET` | Server | No       | Secret token for Telegram webhook origin validation. Required once webhook is wired.                                      |
 | `TELEGRAM_BOT_TOKEN`      | Server | No       | Telegram Bot API token. Required once the bot sends messages.                                                             |
 | `SENTRY_DSN`              | Server | No       | Sentry error tracking DSN. Optional.                                                                                      |

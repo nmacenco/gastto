@@ -925,6 +925,183 @@ describe('processMessageJob', () => {
           statePayload: { step: 'resume' },
         });
       });
+
+      it('parses valid data-start row and delegates to InferColumnMapping with headerRowIndex', async () => {
+        const noHeaderPayload = {
+          selectedFileId: 'f1',
+          selectedFileName: 'file1',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+          preview: {
+            provider: 'google',
+            fileId: 'f1',
+            sheetName: 'Gastos',
+            rows: [
+              { index: 1, values: ['', '', ''] },
+              { index: 2, values: ['', '', ''] },
+              { index: 3, values: ['', '', ''] },
+              { index: 4, values: ['Fecha', 'Monto', 'Categoria'] },
+              { index: 5, values: ['01/01/2026', '100.50', 'Comida'] },
+            ],
+          },
+          step: 'no-header',
+        };
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: noHeaderPayload,
+          }),
+        );
+        mockInferColumnMappingExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_MAPPING',
+          message: 'Mapping proposal sent.',
+        });
+
+        const deps = buildMockDeps();
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: '5' }), deps);
+
+        expect(mockInferColumnMappingExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: { ...noHeaderPayload, headerRowIndex: 4 },
+        });
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      });
+
+      it('re-prompts when no-header reply is not a valid row number', async () => {
+        const noHeaderPayload = {
+          selectedFileId: 'f1',
+          selectedFileName: 'file1',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+          preview: {
+            provider: 'google',
+            fileId: 'f1',
+            sheetName: 'Gastos',
+            rows: [{ index: 1, values: ['Fecha', 'Monto', 'Categoria'] }],
+          },
+          step: 'no-header',
+        };
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: noHeaderPayload,
+          }),
+        );
+
+        const deps = buildMockDeps();
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cinco' }), deps);
+
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.invalidDataStartRowPrompt(),
+        );
+        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          targetState: 'ONBOARDING_MAPPING',
+          payload: { ...noHeaderPayload, step: 'no-header' },
+        });
+      });
+
+      it('re-prompts when data-start row is less than 2', async () => {
+        const noHeaderPayload = {
+          selectedFileId: 'f1',
+          preview: {
+            provider: 'google',
+            fileId: 'f1',
+            sheetName: 'Gastos',
+            rows: [{ index: 1, values: ['Fecha', 'Monto', 'Categoria'] }],
+          },
+          step: 'no-header',
+        };
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: noHeaderPayload,
+          }),
+        );
+
+        const deps = buildMockDeps();
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), deps);
+
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.invalidDataStartRowPrompt(),
+        );
+        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          targetState: 'ONBOARDING_MAPPING',
+          payload: { ...noHeaderPayload, step: 'no-header' },
+        });
+      });
+
+      it('re-prompts when computed header row is not in the preview', async () => {
+        const noHeaderPayload = {
+          selectedFileId: 'f1',
+          preview: {
+            provider: 'google',
+            fileId: 'f1',
+            sheetName: 'Gastos',
+            rows: [{ index: 1, values: ['Fecha', 'Monto', 'Categoria'] }],
+          },
+          step: 'no-header',
+        };
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: noHeaderPayload,
+          }),
+        );
+
+        const deps = buildMockDeps();
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: '10' }), deps);
+
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.invalidDataStartRowPrompt(),
+        );
+        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          targetState: 'ONBOARDING_MAPPING',
+          payload: { ...noHeaderPayload, step: 'no-header' },
+        });
+      });
+
+      it('falls back to placeholder when no-header reply is valid but InferColumnMapping is not wired', async () => {
+        const noHeaderPayload = {
+          selectedFileId: 'f1',
+          preview: {
+            provider: 'google',
+            fileId: 'f1',
+            sheetName: 'Gastos',
+            rows: [
+              { index: 1, values: ['Fecha', 'Monto', 'Categoria'] },
+              { index: 2, values: ['01/01/2026', '100.50', 'Comida'] },
+            ],
+          },
+          step: 'no-header',
+        };
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: noHeaderPayload,
+          }),
+        );
+
+        const deps = buildMockDeps();
+        deps.inferColumnMapping = null;
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: '2' }), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.onboardingPlaceholder(),
+        );
+      });
     });
 
     describe('ONBOARDING_CATEGORIES', () => {

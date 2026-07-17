@@ -695,6 +695,74 @@ describe('InferColumnMapping', () => {
       });
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
     });
+
+    it('uses headerRowIndex from state payload and skips detection', async () => {
+      mockDetectHeaderRow.mockResolvedValue(1);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const preview = {
+        ...mockPreview,
+        rows: [
+          { index: 1, values: ['', '', ''] },
+          { index: 2, values: ['', '', ''] },
+          { index: 3, values: ['', '', ''] },
+          { index: 4, values: ['Fecha', 'Monto', 'Categoria'] },
+          { index: 5, values: ['01/01/2026', '100.50', 'Comida'] },
+          { index: 6, values: ['02/01/2026', '200.75', 'Transporte'] },
+        ],
+      };
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, preview, headerRowIndex: 4 },
+      });
+
+      expect(mockDetectHeaderRow).not.toHaveBeenCalled();
+      expect(mockLLMDetectHeaderRow).not.toHaveBeenCalled();
+      expect(mockInfer).toHaveBeenCalledWith(
+        ['Fecha', 'Monto', 'Categoria'],
+        [
+          ['01/01/2026', '100.50', 'Comida'],
+          ['02/01/2026', '200.75', 'Transporte'],
+        ],
+      );
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('falls back to detection when headerRowIndex in payload is not a number', async () => {
+      mockDetectHeaderRow.mockResolvedValue(1);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, headerRowIndex: '4' },
+      });
+
+      expect(mockDetectHeaderRow).toHaveBeenCalled();
+    });
   });
 
   describe('Token errors', () => {

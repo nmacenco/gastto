@@ -79,6 +79,10 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 4. If the LLM also cannot identify headers or returns no mappings, no mappings are persisted.
 5. `InferColumnMapping` sends `onboardingCopies.noHeaderPrompt()`, asking the user which row the data starts at.
 6. The FSM self-transitions to `ONBOARDING_MAPPING` with `step: 'no-header'` in the payload.
+7. When the user replies with a row number, the message worker subtracts 1 to obtain the header row index and validates that the computed header row exists in the preview.
+8. If the reply is invalid or the computed header row is not present, the worker sends `onboardingCopies.invalidDataStartRowPrompt()` and keeps the FSM in `ONBOARDING_MAPPING` with `step: 'no-header'`.
+9. If valid, the worker delegates to `InferColumnMapping` with `headerRowIndex` in the state payload, which skips automatic detection and uses that row as the header row.
+10. `InferColumnMapping` proceeds with header/sample extraction and inference as in Scenario 1.
 
 ### Scenario 5: Unmapped fields
 
@@ -260,6 +264,8 @@ interface IColumnMappingRepository {
 - [x] Header-row detection works for headers beyond row 1.
 - [x] LLM header detection fallback runs when rule-based detection is uncertain.
 - [x] No-header detection: self-transition to `ONBOARDING_MAPPING` with `step: 'no-header'`, message asks which row data starts at.
+- [x] No-header reply: valid row number is converted to `headerRowIndex` and inference re-runs; invalid reply re-prompts with `invalidDataStartRowPrompt`.
+- [x] Header row index override: `headerRowIndex` in state payload skips detection and uses the specified row.
 - [x] Unmapped fields: message lists omitted fields.
 - [x] Multi-language headers: ES/EN/PT headers recognized and mapped correctly.
 - [x] Missing token: sends reconnect message and transitions to `ONBOARDING_START`.

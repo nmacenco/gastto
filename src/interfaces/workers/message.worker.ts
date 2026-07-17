@@ -409,6 +409,7 @@ async function handleOnboardingMapping(
 ): Promise<void> {
   const { userId, rawMessage, channel, externalId } = jobData;
   const isResuming = statePayload?.step === 'resume';
+  const isNoHeader = statePayload?.step === 'no-header';
   const hasProposal = Array.isArray(statePayload?.mappings);
 
   if (isResuming) {
@@ -421,6 +422,11 @@ async function handleOnboardingMapping(
       opts,
       messaging,
     );
+    return;
+  }
+
+  if (isNoHeader) {
+    await handleNoHeaderResponse(userId, rawMessage, externalId, channel, statePayload, opts);
     return;
   }
 
@@ -463,6 +469,63 @@ async function handleOnboardingMapping(
     });
   } else {
     await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
+  }
+}
+
+async function handleNoHeaderResponse(
+  userId: string,
+  rawMessage: string,
+  externalId: string,
+  channel: 'telegram' | 'whatsapp',
+  statePayload: Record<string, unknown> | null,
+  opts: MessageWorkerDeps,
+): Promise<void> {
+  const trimmed = rawMessage.trim();
+  const dataStartRow = Number(trimmed);
+
+  if (trimmed === '' || !Number.isInteger(dataStartRow) || dataStartRow < 2) {
+    await opts.messagingAdapters[channel].sendMessage(
+      externalId,
+      onboardingCopies.invalidDataStartRowPrompt(),
+    );
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'ONBOARDING_MAPPING',
+      payload: { ...statePayload, step: 'no-header' },
+    });
+    return;
+  }
+
+  const headerRowIndex = dataStartRow - 1;
+  const preview = statePayload?.preview as { rows?: Array<{ index: number }> } | undefined;
+  const rows = preview?.rows;
+  const headerRowExists = Array.isArray(rows) && rows.some((row) => row.index === headerRowIndex);
+
+  if (!headerRowExists) {
+    await opts.messagingAdapters[channel].sendMessage(
+      externalId,
+      onboardingCopies.invalidDataStartRowPrompt(),
+    );
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'ONBOARDING_MAPPING',
+      payload: { ...statePayload, step: 'no-header' },
+    });
+    return;
+  }
+
+  if (opts.inferColumnMapping) {
+    await opts.inferColumnMapping.execute({
+      userId,
+      externalId,
+      channel,
+      statePayload: { ...statePayload, headerRowIndex },
+    });
+  } else {
+    await opts.messagingAdapters[channel].sendMessage(
+      externalId,
+      onboardingCopies.onboardingPlaceholder(),
+    );
   }
 }
 

@@ -248,4 +248,14 @@ describe('onboardingCopies', () => {
       expect(result).toContain('analizar la estructura');
     });
   });
+
+  describe('invalidDataStartRowPrompt', () => {
+    it('returns a re-prompt asking for a valid data-start row greater than 1', () => {
+      const result = onboardingCopies.invalidDataStartRowPrompt();
+
+      expect(result).toContain('No entendí la fila');
+      expect(result).toContain('número de fila');
+      expect(result).toContain('mayor a 1');
+    });
+  });
 });

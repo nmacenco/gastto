@@ -122,6 +122,9 @@ export const onboardingCopies = {
   noHeaderPrompt: () =>
     `Parece que tu planilla no tiene una fila de encabezados.\n\n¿En qué fila comienzan los datos? Escribí el número de fila.`,
 
+  invalidDataStartRowPrompt: () =>
+    `No entendí la fila. Escribí el número de fila donde comienzan los datos (tiene que ser mayor a 1 para que exista una fila de encabezados arriba).`,
+
   mappingConfirmedNextStep: () =>
     `¡Listo! El mapeo de columnas quedó confirmado. Ahora vamos a revisar las categorías de tu planilla.`,
 

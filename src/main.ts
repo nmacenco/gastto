@@ -46,6 +46,7 @@ import { LLMHeaderDetectionAdapter } from './infrastructure/adapters/sheets/LLMH
 import { LLMColumnInferenceAdapter } from './infrastructure/adapters/sheets/LLMColumnInferenceAdapter';
 import { OpenAIAdapter } from './infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from './infrastructure/adapters/llm/ClaudeAdapter';
+import { NvidiaAdapter } from './infrastructure/adapters/llm/NvidiaAdapter';
 import { RuleBasedColumnMappingCorrectionParser } from './application/services/ColumnMappingCorrectionParser';
 import { TokenEncryptionAdapter } from './infrastructure/security/TokenEncryptionAdapter';
 import { DrizzleUserCategoryRepository } from './infrastructure/db/repositories/DrizzleUserCategoryRepository';
@@ -329,10 +330,20 @@ async function bootstrap(): Promise<void> {
         const ruleBasedColumnInferenceAdapter = new RuleBasedColumnInferenceAdapter();
         const ruleBasedHeaderDetectionAdapter = new RuleBasedHeaderDetectionAdapter();
 
-        const llmPort =
-          env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0
-            ? new ClaudeAdapter(env.ANTHROPIC_API_KEY)
-            : new OpenAIAdapter(env.OPENAI_API_KEY);
+        const llmPort = (() => {
+          if (env.NVIDIA_API_KEY !== undefined && env.NVIDIA_API_KEY.length > 0) {
+            return new NvidiaAdapter(env.NVIDIA_API_KEY);
+          }
+          if (env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0) {
+            return new ClaudeAdapter(env.ANTHROPIC_API_KEY);
+          }
+          if (env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
+            return new OpenAIAdapter(env.OPENAI_API_KEY);
+          }
+          throw new Error(
+            'At least one LLM provider API key must be configured: NVIDIA_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY.',
+          );
+        })();
         const llmHeaderDetectionAdapter = new LLMHeaderDetectionAdapter(llmPort, rootLogger);
         const llmColumnInferenceAdapter = new LLMColumnInferenceAdapter(llmPort, rootLogger);
 

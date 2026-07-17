@@ -118,7 +118,12 @@ export class InferColumnMapping {
       values: r.values as (string | number | boolean | null)[],
     }));
 
-    let headerRowIndex = await this.deps.headerDetectionPort.detectHeaderRow(previewRows);
+    let headerRowIndex: number | null =
+      typeof statePayload?.headerRowIndex === 'number' ? statePayload.headerRowIndex : null;
+
+    if (headerRowIndex === null) {
+      headerRowIndex = await this.deps.headerDetectionPort.detectHeaderRow(previewRows);
+    }
 
     if (headerRowIndex === null) {
       headerRowIndex = await this.deps.llmHeaderDetectionPort.detectHeaderRow(previewRows);

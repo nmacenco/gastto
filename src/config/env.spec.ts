@@ -36,13 +36,19 @@ describe('envSchema', () => {
       ...validEnv,
     };
     // @ts-expect-error dynamically deleting for test
+    delete withoutOptional.OPENAI_API_KEY;
+    // @ts-expect-error dynamically deleting for test
     delete withoutOptional.ANTHROPIC_API_KEY;
+    // @ts-expect-error dynamically deleting for test
+    delete withoutOptional.NVIDIA_API_KEY;
     // @ts-expect-error dynamically deleting for test
     delete withoutOptional.SENTRY_DSN;
     const result = envSchema.safeParse(withoutOptional);
     expect(result.success).toBe(true);
     if (result.success) {
+      expect(result.data.OPENAI_API_KEY).toBeUndefined();
       expect(result.data.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(result.data.NVIDIA_API_KEY).toBeUndefined();
       expect(result.data.SENTRY_DSN).toBeUndefined();
     }
   });
@@ -60,7 +66,6 @@ describe('envSchema', () => {
       const fieldErrors = result.error.flatten().fieldErrors;
       expect(fieldErrors).toHaveProperty('DATABASE_URL');
       expect(fieldErrors).toHaveProperty('REDIS_URL');
-      expect(fieldErrors).toHaveProperty('OPENAI_API_KEY');
       expect(fieldErrors).toHaveProperty('TELEGRAM_WEBHOOK_SECRET');
       expect(fieldErrors).toHaveProperty('TELEGRAM_BOT_TOKEN');
       expect(fieldErrors).toHaveProperty('WEBHOOK_BASE_URL');
@@ -107,11 +112,13 @@ describe('envSchema', () => {
     const result = envSchema.safeParse({
       ...validEnv,
       ANTHROPIC_API_KEY: 'sk-test-anthropic',
+      NVIDIA_API_KEY: 'nvidia-test-key',
       SENTRY_DSN: 'https://sentry.example.com',
     });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.ANTHROPIC_API_KEY).toBe('sk-test-anthropic');
+      expect(result.data.NVIDIA_API_KEY).toBe('nvidia-test-key');
       expect(result.data.SENTRY_DSN).toBe('https://sentry.example.com');
       expect(result.data.TELEGRAM_BOT_TOKEN).toBe('test-bot-token');
     }
