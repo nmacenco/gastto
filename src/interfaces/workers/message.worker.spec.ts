@@ -672,6 +672,38 @@ describe('processMessageJob', () => {
         expect(mockSendMessage).not.toHaveBeenCalled();
       });
 
+      it('confirms mapping proposal even when payload still carries step no-header', async () => {
+        const deps = buildMockDeps();
+        const staleNoHeaderPayload = {
+          ...mappingPayload,
+          step: 'no-header',
+        };
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: staleNoHeaderPayload,
+          }),
+        );
+        mockConfirmColumnMappingExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_CATEGORIES',
+          message: onboardingCopies.mappingConfirmedNextStep(),
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+        expect(mockConfirmColumnMappingExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: staleNoHeaderPayload,
+        });
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).not.toHaveBeenCalledWith(
+          '123456789',
+          onboardingCopies.invalidDataStartRowPrompt(),
+        );
+      });
+
       it('delegates to CorrectColumnMapping on correction message with an existing proposal', async () => {
         const deps = buildMockDeps();
         mockGetConversationStateExecute.mockResolvedValue(

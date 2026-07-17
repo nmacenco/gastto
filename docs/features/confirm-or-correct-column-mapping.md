@@ -79,7 +79,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 4. `ColumnMappingCorrectionParser` cannot parse a specific field/column correction.
 5. `CorrectColumnMapping` detects the rejection intent and invokes `LLMColumnInferenceAdapter` (with header-row detection fallback) on the preview.
 6. The new LLM-proposed mappings replace the previous ones in `column_mappings`.
-7. A new proposal message is sent and the FSM self-transitions to `ONBOARDING_MAPPING` with the updated `mappings` and `unmappedFields`.
+7. A new proposal message is sent and the FSM self-transitions to `ONBOARDING_MAPPING` with the updated `mappings` and `unmappedFields`. If the previous payload carried `step: 'no-header'`, that step is removed from the new payload.
 8. If the LLM cannot locate headers or infer any mapping, `onboardingCopies.noHeaderPrompt()` is sent instead.
 
 ## Adapters

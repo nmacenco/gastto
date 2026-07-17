@@ -83,6 +83,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 8. If the reply is invalid or the computed header row is not present, the worker sends `onboardingCopies.invalidDataStartRowPrompt()` and keeps the FSM in `ONBOARDING_MAPPING` with `step: 'no-header'`.
 9. If valid, the worker delegates to `InferColumnMapping` with `headerRowIndex` in the state payload, which skips automatic detection and uses that row as the header row.
 10. `InferColumnMapping` proceeds with header/sample extraction and inference as in Scenario 1.
+11. If the inference produces mappings, the resulting FSM payload no longer contains `step: 'no-header'`; only `mappings`, `unmappedFields`, `provider`, `fileId`, `sheetName`, and `preview` are retained.
 
 ### Scenario 5: Unmapped fields
 

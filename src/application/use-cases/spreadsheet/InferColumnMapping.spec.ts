@@ -765,6 +765,40 @@ describe('InferColumnMapping', () => {
     });
   });
 
+  describe('No-header step cleanup', () => {
+    it('clears step no-header from payload when proposing mappings', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, step: 'no-header' },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.payload).not.toHaveProperty('step');
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_MAPPING',
+        payload: expect.not.objectContaining({ step: 'no-header' }) as Record<string, unknown>,
+      });
+    });
+  });
+
   describe('Token errors', () => {
     it('sends reconnect message and transitions to ONBOARDING_START when token is missing', async () => {
       mockFindToken.mockResolvedValue(null);

@@ -218,8 +218,9 @@ export class InferColumnMapping {
 
     await this.deps.messagingPort.sendMessage(externalId, message);
 
+    const { step: _step, ...restState } = statePayload ?? {};
     const payload: Record<string, unknown> = {
-      ...statePayload,
+      ...restState,
       mappings: result.mappings,
       unmappedFields: result.unmappedFields,
     };

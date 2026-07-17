@@ -425,11 +425,6 @@ async function handleOnboardingMapping(
     return;
   }
 
-  if (isNoHeader) {
-    await handleNoHeaderResponse(userId, rawMessage, externalId, channel, statePayload, opts);
-    return;
-  }
-
   if (hasProposal) {
     await handleMappingConfirmation(
       userId,
@@ -440,6 +435,11 @@ async function handleOnboardingMapping(
       opts,
       messaging,
     );
+    return;
+  }
+
+  if (isNoHeader) {
+    await handleNoHeaderResponse(userId, rawMessage, externalId, channel, statePayload, opts);
     return;
   }
 

@@ -412,6 +412,41 @@ describe('CorrectColumnMapping', () => {
     expect(result.kind).toBe('re-inferred');
   });
 
+  it('clears step no-header from payload when re-inferred mappings are proposed', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+    mockLLMInfer.mockResolvedValue({
+      mappings: [
+        { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+        {
+          gasttoField: 'categoria',
+          columnIndex: 2,
+          columnHeader: 'Categoria',
+          confidence: 'alta',
+        },
+      ],
+      noHeaderFound: false,
+      unmappedFields: ['concepto', 'medio_pago', 'moneda'],
+    });
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'no, eso está mal',
+      statePayload: { ...baseInput.statePayload, step: 'no-header' },
+    });
+
+    expect(result.kind).toBe('re-inferred');
+    expect((result as { payload?: Record<string, unknown> }).payload).not.toHaveProperty('step');
+    expect(mockTransitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_MAPPING',
+      payload: expect.not.objectContaining({ step: 'no-header' }) as Record<string, unknown>,
+      expiresAt: expect.any(Date) as Date,
+    });
+  });
+
   it('sends no-header prompt when rejection re-inference cannot locate headers', async () => {
     mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
     mockDetectHeaderRow.mockResolvedValue(null);
