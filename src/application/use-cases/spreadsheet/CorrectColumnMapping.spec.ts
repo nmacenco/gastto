@@ -116,6 +116,7 @@ const baseInput: CorrectColumnMappingInput = {
   statePayload: {
     provider: 'google',
     preview: mockPreview,
+    headerRowIndex: 1,
     mappings: [
       { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
       { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
@@ -214,6 +215,10 @@ describe('CorrectColumnMapping', () => {
     expect(result.kind).toBe('updated');
     expect(result.nextState).toBe('ONBOARDING_MAPPING');
 
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ headerRowIndex: 1 }),
+    );
+
     expect(mockSaveCorrectionState).toHaveBeenCalledTimes(1);
     const savedSnapshot = mockSaveCorrectionState.mock
       .calls[0]![1] as MappingCorrectionStateSnapshot;
@@ -252,6 +257,7 @@ describe('CorrectColumnMapping', () => {
           columnHeader: m.columnHeader,
         })),
         unmappedFields: [],
+        headerRowIndex: 1,
       },
       expiresAt: expect.any(Date) as Date,
     });
@@ -346,23 +352,8 @@ describe('CorrectColumnMapping', () => {
     expect(mockTransitionExecute).not.toHaveBeenCalled();
   });
 
-  it('re-runs LLM inference when the user rejects the proposal without a specific correction', async () => {
+  it('guides the user to manual correction when they reject the proposal', async () => {
     mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
-
-    mockLLMInfer.mockResolvedValue({
-      mappings: [
-        { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
-        { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
-        {
-          gasttoField: 'categoria',
-          columnIndex: 2,
-          columnHeader: 'Categoria',
-          confidence: 'alta',
-        },
-      ],
-      noHeaderFound: false,
-      unmappedFields: ['concepto', 'medio_pago', 'moneda'],
-    });
 
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
@@ -371,32 +362,67 @@ describe('CorrectColumnMapping', () => {
       rawMessage: 'no, eso está mal',
     });
 
-    expect(mockLLMInfer).toHaveBeenCalledWith(
-      ['Fecha', 'Monto', 'Categoria'],
-      [['01/01/2026', '100.50', 'Comida']],
-    );
-    expect(mockUpsertMany).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ GasttoField: 'fecha', columnIndex: 0 }),
-        expect.objectContaining({ GasttoField: 'monto', columnIndex: 1 }),
-        expect.objectContaining({ GasttoField: 'categoria', columnIndex: 2 }),
-      ]),
-    );
-    expect(result.kind).toBe('re-inferred');
+    expect(result.kind).toBe('rejected');
     expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    expect(mockListAvailableColumns).toHaveBeenCalledWith({
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Gastos',
+      accessToken: 'access-token',
+      headerRowIndex: 1,
+    });
+    expect(mockClearCorrectionState).toHaveBeenCalledWith('user-123');
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      onboardingCopies.mappingRejectionPrompt(availableColumns),
+    );
+    expect(mockTransitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_MAPPING',
+      payload: baseInput.statePayload,
+      expiresAt: expect.any(Date) as Date,
+    });
   });
 
-  it('falls back to LLM header detection during rejection re-inference when rule-based is uncertain', async () => {
+  it('uses headerRowIndex from state payload when listing available columns', async () => {
     mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
-    mockDetectHeaderRow.mockResolvedValue(null);
-    mockLLMDetectHeaderRow.mockResolvedValue(1);
-    mockLLMInfer.mockResolvedValue({
-      mappings: [
-        { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
-        { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
-      ],
-      noHeaderFound: false,
-      unmappedFields: ['categoria', 'concepto', 'medio_pago', 'moneda'],
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    await useCase.execute({
+      ...baseInput,
+      statePayload: { ...baseInput.statePayload, headerRowIndex: 2 },
+      rawMessage: 'no',
+    });
+
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ headerRowIndex: 2 }),
+    );
+  });
+
+  it('triggers reconnect flow when the OAuth token is missing on rejection', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+    mockFindByUserAndProvider.mockResolvedValue(null);
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'no',
+    });
+
+    expect(result.kind).toBe('no-proposed-mapping');
+    expect(result.nextState).toBe('ONBOARDING_START');
+    expect(mockListAvailableColumns).not.toHaveBeenCalled();
+    expect(mockClearCorrectionState).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
+  });
+
+  it('triggers reconnect flow when the OAuth token is expired on rejection', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+    mockFindByUserAndProvider.mockResolvedValue({
+      ...mockToken,
+      accessTokenExpiresAt: new Date(Date.now() - 1000),
     });
 
     const deps = buildMockDeps();
@@ -406,16 +432,18 @@ describe('CorrectColumnMapping', () => {
       rawMessage: 'incorrecto',
     });
 
-    expect(mockDetectHeaderRow).toHaveBeenCalled();
-    expect(mockLLMDetectHeaderRow).toHaveBeenCalled();
-    expect(mockLLMInfer).toHaveBeenCalled();
-    expect(result.kind).toBe('re-inferred');
+    expect(result.kind).toBe('no-proposed-mapping');
+    expect(result.nextState).toBe('ONBOARDING_START');
+    expect(mockDecrypt).not.toHaveBeenCalled();
+    expect(mockListAvailableColumns).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
   });
 
-  it('sends no-header prompt when rejection re-inference cannot locate headers', async () => {
+  it('triggers reconnect flow when token decryption fails on rejection', async () => {
     mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
-    mockDetectHeaderRow.mockResolvedValue(null);
-    mockLLMDetectHeaderRow.mockResolvedValue(null);
+    mockDecrypt.mockImplementation(() => {
+      throw new Error('decrypt failed');
+    });
 
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
@@ -424,9 +452,10 @@ describe('CorrectColumnMapping', () => {
       rawMessage: 'no es correcto',
     });
 
-    expect(mockLLMInfer).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
-    expect(result.kind).toBe('parse-failure');
+    expect(result.kind).toBe('no-proposed-mapping');
+    expect(result.nextState).toBe('ONBOARDING_START');
+    expect(mockListAvailableColumns).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
   });
 
   it('triggers reconnect flow when spreadsheet config is missing', async () => {

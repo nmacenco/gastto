@@ -122,6 +122,9 @@ export const onboardingCopies = {
   noHeaderPrompt: () =>
     `Parece que tu planilla no tiene una fila de encabezados.\n\n¿En qué fila comienzan los datos? Escribí el número de fila.`,
 
+  invalidDataStartRowPrompt: () =>
+    `No entendí la fila. Escribí el número de fila donde comienzan los datos (tiene que ser mayor a 1 para que exista una fila de encabezados arriba).`,
+
   mappingConfirmedNextStep: () =>
     `¡Listo! El mapeo de columnas quedó confirmado. Ahora vamos a revisar las categorías de tu planilla.`,
 
@@ -160,6 +163,16 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
       (c) => `${columnIndexToLetter(c.index)} - ${c.columnHeader}`,
     );
     return `No encontré la columna *${columnRef}* en tu planilla. Las columnas disponibles son:\n${lines.join('\n')}\n\nEscribí la letra, número o nombre correcto.`;
+  },
+
+  mappingRejectionPrompt: (availableColumns: { index: number; columnHeader: string }[]) => {
+    const lines = availableColumns.map((c) => {
+      const label =
+        c.columnHeader.trim().length > 0 ? formatColumnHeader(c.columnHeader) : '(vacía)';
+      return `${columnIndexToLetter(c.index)} - ${label}`;
+    });
+    const fieldLines = ALL_GASTTO_FIELDS.map((f) => `• ${GASTTO_FIELD_LABELS[f]}`);
+    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}\n\nIndicame dónde está cada campo. Por ejemplo: "la categoría está en la columna E".`;
   },
 
   correctionParseFailurePrompt: () =>
@@ -213,8 +226,24 @@ const GASTTO_FIELD_EMOJI: Record<GasttoField, string> = {
   moneda: '💱',
 };
 
+const ALL_GASTTO_FIELDS: GasttoField[] = [
+  'fecha',
+  'monto',
+  'moneda',
+  'categoria',
+  'concepto',
+  'medio_pago',
+];
+
 function columnIndexToLetter(index: number): string {
   return String.fromCharCode(65 + index);
+}
+
+function formatColumnHeader(header: string): string {
+  const MAX_HEADER_LENGTH = 40;
+  const trimmed = header.trim();
+  if (trimmed.length <= MAX_HEADER_LENGTH) return trimmed;
+  return `${trimmed.slice(0, MAX_HEADER_LENGTH)}…`;
 }
 
 function formatUnmappedFields(fields: GasttoField[]): string {

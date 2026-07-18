@@ -22,8 +22,10 @@ export const envSchema = z.object({
   MAPPING_CORRECTION_TTL_SECONDS: z.coerce.number().default(1800),
 
   // ── LLM ───────────────────────────────────────────────────────────────────────
-  OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY is required'),
+  // At least one provider key must be configured at runtime (checked in main.ts).
+  OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  NVIDIA_API_KEY: z.string().optional(),
 
   // ── Messaging ─────────────────────────────────────────────────────────────────
   TELEGRAM_WEBHOOK_SECRET: z.string().min(1, 'TELEGRAM_WEBHOOK_SECRET is required'),

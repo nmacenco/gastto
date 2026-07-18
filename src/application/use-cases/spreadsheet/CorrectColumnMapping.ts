@@ -29,7 +29,6 @@ import { onboardingCopies } from '../../copies/onboarding.copies';
 import { isRejectMappingIntent } from '../../utils/intents';
 import type { HeaderDetectionPort } from '../../../domain/ports/headerDetection';
 import type { ColumnInferencePort } from '../../../domain/ports/columnInference';
-import type { Row } from '../../../domain/ports/services';
 
 export interface CorrectColumnMappingInput {
   userId: string;
@@ -71,12 +70,19 @@ export interface CorrectColumnMappingReInferredOutput {
   payload?: Record<string, unknown>;
 }
 
+export interface CorrectColumnMappingRejectedOutput {
+  kind: 'rejected';
+  nextState: FsmState;
+  message: string;
+}
+
 export type CorrectColumnMappingOutput =
   | CorrectColumnMappingUpdatedOutput
   | CorrectColumnMappingInvalidColumnOutput
   | CorrectColumnMappingParseFailureOutput
   | CorrectColumnMappingNoMappingOutput
-  | CorrectColumnMappingReInferredOutput;
+  | CorrectColumnMappingReInferredOutput
+  | CorrectColumnMappingRejectedOutput;
 
 export interface CorrectColumnMappingDeps {
   columnMappingRepository: IColumnMappingRepository;
@@ -107,33 +113,6 @@ function columnLetterToIndex(letters: string): number | null {
     index = index * 26 + (char.charCodeAt(0) - 64);
   }
   return index - 1;
-}
-
-function cellToString(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return '';
-}
-
-function extractPreviewRows(statePayload: Record<string, unknown> | null): Row[] | null {
-  const preview = statePayload?.preview as
-    | {
-        provider: string;
-        fileId: string;
-        sheetName: string;
-        rows: Array<{ index: number; values: unknown[] }>;
-      }
-    | undefined;
-
-  if (!preview || !Array.isArray(preview.rows) || preview.rows.length === 0) {
-    return null;
-  }
-
-  return preview.rows.map((r) => ({
-    index: r.index,
-    values: r.values as (string | number | boolean | null)[],
-  }));
 }
 
 function normalizeHeader(header: string): string {
@@ -236,11 +215,14 @@ export class CorrectColumnMapping {
       return this.handleReconnect(externalId, userId);
     }
 
+    const headerRowIndex = this.resolveHeaderRowIndex(input.statePayload);
+
     const availableColumns = await this.deps.spreadsheetColumnPort.listAvailableColumns({
       provider: config.provider,
       fileId: config.fileId,
       sheetName: config.sheetName,
       accessToken,
+      headerRowIndex,
     });
 
     const matchedColumn = resolveColumnRef(parseResult.columnRef, availableColumns);
@@ -290,6 +272,7 @@ export class CorrectColumnMapping {
         sheetName: config.sheetName,
         mappings: currentMappings.map(toDisplayMapping),
         unmappedFields,
+        headerRowIndex,
       },
       expiresAt: this.computeExpiresAt(),
     });
@@ -301,110 +284,48 @@ export class CorrectColumnMapping {
     input: CorrectColumnMappingInput,
     config: SpreadsheetConfig,
   ): Promise<CorrectColumnMappingOutput> {
-    const { userId, externalId, statePayload } = input;
+    const { userId, externalId } = input;
 
-    const previewRows = extractPreviewRows(statePayload);
-    if (!previewRows) {
-      const message = onboardingCopies.correctionParseFailurePrompt();
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
+    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, config.provider);
+    if (!token || token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
+      return this.handleReconnect(externalId, userId);
     }
 
-    let headerRowIndex = await this.deps.headerDetectionPort.detectHeaderRow(previewRows);
-    if (headerRowIndex === null) {
-      headerRowIndex = await this.deps.llmHeaderDetectionPort.detectHeaderRow(previewRows);
+    let accessToken: string;
+    try {
+      accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
+    } catch {
+      return this.handleReconnect(externalId, userId);
     }
 
-    if (headerRowIndex === null) {
-      const message = onboardingCopies.noHeaderPrompt();
-      await this.deps.messagingPort.sendMessage(externalId, message);
+    const headerRowIndex = this.resolveHeaderRowIndex(input.statePayload);
 
-      const payload: Record<string, unknown> = {
-        ...statePayload,
-        step: 'no-header',
-      };
+    const availableColumns = await this.deps.spreadsheetColumnPort.listAvailableColumns({
+      provider: config.provider,
+      fileId: config.fileId,
+      sheetName: config.sheetName,
+      accessToken,
+      headerRowIndex,
+    });
 
-      await this.deps.transitionState.execute({
-        userId,
-        targetState: 'ONBOARDING_MAPPING',
-        payload,
-        expiresAt: this.computeExpiresAt(),
-      });
+    await this.deps.correctionStateRepository.clear(userId);
 
-      return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
-    }
-
-    const headerRow = previewRows.find((r) => r.index === headerRowIndex);
-    if (!headerRow) {
-      const message = onboardingCopies.correctionParseFailurePrompt();
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
-    }
-
-    const headers = headerRow.values.map((v) => cellToString(v));
-    const sampleRows = previewRows
-      .filter((row) => row.index > headerRowIndex)
-      .slice(0, 9)
-      .map((row) => row.values.map((v) => cellToString(v)));
-
-    const result = await this.deps.llmColumnInferencePort.infer(headers, sampleRows);
-
-    if (result.noHeaderFound || result.mappings.length === 0) {
-      const message = onboardingCopies.noHeaderPrompt();
-      await this.deps.messagingPort.sendMessage(externalId, message);
-
-      const payload: Record<string, unknown> = {
-        ...statePayload,
-        step: 'no-header',
-      };
-
-      await this.deps.transitionState.execute({
-        userId,
-        targetState: 'ONBOARDING_MAPPING',
-        payload,
-        expiresAt: this.computeExpiresAt(),
-      });
-
-      return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
-    }
-
-    await this.deps.columnMappingRepository.upsertMany(
-      result.mappings.map((m) => ({
-        spreadsheetId: config.id,
-        GasttoField: m.gasttoField,
-        columnIndex: m.columnIndex,
-        columnHeader: m.columnHeader,
-        inferred: true,
-        confirmedAt: null,
-      })),
-    );
-
-    const hasLowConfidence = result.mappings.some((m) => m.confidence === 'baja');
-    const message =
-      result.unmappedFields.length > 0
-        ? hasLowConfidence
-          ? onboardingCopies.mappingProposalLowConfidence(result.mappings, result.unmappedFields)
-          : onboardingCopies.mappingProposalHighConfidence(result.mappings, result.unmappedFields)
-        : hasLowConfidence
-          ? onboardingCopies.mappingProposalLowConfidence(result.mappings, result.unmappedFields)
-          : onboardingCopies.mappingProposalHighConfidence(result.mappings, result.unmappedFields);
-
+    const message = onboardingCopies.mappingRejectionPrompt(availableColumns);
     await this.deps.messagingPort.sendMessage(externalId, message);
-
-    const payload: Record<string, unknown> = {
-      ...statePayload,
-      mappings: result.mappings,
-      unmappedFields: result.unmappedFields,
-    };
 
     await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_MAPPING',
-      payload,
+      payload: input.statePayload ?? {},
       expiresAt: this.computeExpiresAt(),
     });
 
-    return { kind: 're-inferred', nextState: 'ONBOARDING_MAPPING', message, payload };
+    return { kind: 'rejected', nextState: 'ONBOARDING_MAPPING', message };
+  }
+
+  private resolveHeaderRowIndex(statePayload: Record<string, unknown> | null): number | undefined {
+    const value = statePayload?.headerRowIndex;
+    return typeof value === 'number' && value >= 1 ? value : undefined;
   }
 
   private async handleReconnect(

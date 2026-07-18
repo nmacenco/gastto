@@ -129,9 +129,7 @@ export class ModifyCategoryVocabulary {
     return { categories, message };
   }
 
-  private extractCategoriesFromPayload(
-    statePayload: Record<string, unknown> | null,
-  ): string[] {
+  private extractCategoriesFromPayload(statePayload: Record<string, unknown> | null): string[] {
     const cats = statePayload?.categories;
     if (Array.isArray(cats)) {
       const result: string[] = [];

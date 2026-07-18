@@ -63,9 +63,13 @@ export class GoogleSheetsAdapter
     return parseListSheetsResponse(data);
   }
 
-  async getHeaders(fileId: string, sheetName: string): Promise<string[]> {
+  async getHeaders(
+    fileId: string,
+    sheetName: string,
+    headerRowIndex: number = 1,
+  ): Promise<string[]> {
     const encodedSheetName = encodeURIComponent(sheetName);
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!1:1`;
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!${headerRowIndex}:${headerRowIndex}`;
 
     let response: Response;
     try {
@@ -111,11 +115,16 @@ export class GoogleSheetsAdapter
     fileId: string;
     sheetName: string;
     accessToken: string;
+    headerRowIndex?: number;
   }): Promise<AvailableColumn[]> {
     // Use the access token supplied in the input so a single port instance can
     // serve requests for different users/sessions.
     const client = new GoogleSheetsAdapter(input.accessToken);
-    const headers = await client.getHeaders(input.fileId, input.sheetName);
+    const headers = await client.getHeaders(
+      input.fileId,
+      input.sheetName,
+      input.headerRowIndex ?? 1,
+    );
     return headers.map((columnHeader, index) => ({ index, columnHeader }));
   }
 

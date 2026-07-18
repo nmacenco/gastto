@@ -116,11 +116,14 @@ REDIS_URL=redis://localhost:6379
 At least one LLM provider is required for NLP expense extraction.
 
 ```bash
-# OpenAI (required for MVP)
+# OpenAI (optional)
 OPENAI_API_KEY=sk-...
 
 # Anthropic (optional)
 ANTHROPIC_API_KEY=sk-ant-...
+
+# NVIDIA (optional)
+NVIDIA_API_KEY=nvapi-...
 ```
 
 ### 3.5 Telegram Bot

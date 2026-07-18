@@ -38,7 +38,8 @@ export class RuleBasedHeaderDetectionAdapter implements HeaderDetectionPort {
     for (const row of rows) {
       const values = row.values.map((v) => cellToString(v)).filter((v) => v !== '');
 
-      if (values.length === 0) {
+      if (values.length < 2) {
+        // A single non-empty value is usually a sheet title, not a header row.
         continue;
       }
 

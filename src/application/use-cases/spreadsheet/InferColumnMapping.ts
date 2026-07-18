@@ -118,7 +118,12 @@ export class InferColumnMapping {
       values: r.values as (string | number | boolean | null)[],
     }));
 
-    let headerRowIndex = await this.deps.headerDetectionPort.detectHeaderRow(previewRows);
+    let headerRowIndex: number | null =
+      typeof statePayload?.headerRowIndex === 'number' ? statePayload.headerRowIndex : null;
+
+    if (headerRowIndex === null) {
+      headerRowIndex = await this.deps.headerDetectionPort.detectHeaderRow(previewRows);
+    }
 
     if (headerRowIndex === null) {
       headerRowIndex = await this.deps.llmHeaderDetectionPort.detectHeaderRow(previewRows);
@@ -183,7 +188,10 @@ export class InferColumnMapping {
       })),
     );
 
-    if (result.mappings.length === 0) {
+    const looksLikePartialTitleRow =
+      headerRowIndex === 1 && result.mappings.length <= 1 && preview.rows.length > 1;
+
+    if (result.mappings.length === 0 || looksLikePartialTitleRow) {
       const message = onboardingCopies.noHeaderPrompt();
       await this.deps.messagingPort.sendMessage(externalId, message);
 
@@ -213,10 +221,12 @@ export class InferColumnMapping {
 
     await this.deps.messagingPort.sendMessage(externalId, message);
 
+    const { step: _step, ...restState } = statePayload ?? {};
     const payload: Record<string, unknown> = {
-      ...statePayload,
+      ...restState,
       mappings: result.mappings,
       unmappedFields: result.unmappedFields,
+      headerRowIndex,
     };
 
     await this.deps.transitionState.execute({

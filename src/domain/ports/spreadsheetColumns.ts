@@ -15,6 +15,10 @@ export interface ListAvailableColumnsInput {
   fileId: string;
   sheetName: string;
   accessToken: string;
+  /**
+   * 1-based row index of the header row. When omitted or set to `undefined`, row 1 is used.
+   */
+  headerRowIndex?: number | undefined;
 }
 
 export interface ISpreadsheetColumnPort {

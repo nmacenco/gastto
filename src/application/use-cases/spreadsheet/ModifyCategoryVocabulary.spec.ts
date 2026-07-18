@@ -19,7 +19,9 @@ const mockSaveVocabulary = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockTransitionExecute = vi.fn();
 
-function buildMockDeps(overrides: Partial<ModifyCategoryVocabularyDeps> = {}): ModifyCategoryVocabularyDeps {
+function buildMockDeps(
+  overrides: Partial<ModifyCategoryVocabularyDeps> = {},
+): ModifyCategoryVocabularyDeps {
   return {
     categoryModificationParser: {
       parse: mockParse,
@@ -87,10 +89,7 @@ describe('ModifyCategoryVocabulary', () => {
     expect(result.categories).toContain('comida');
     expect(result.categories).toContain('transporte');
     expect(result.categories).toContain('salud');
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      expect.stringContaining('salud'),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', expect.stringContaining('salud'));
     expect(mockTransitionExecute).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user-123',
@@ -141,10 +140,7 @@ describe('ModifyCategoryVocabulary', () => {
 
     expect(mockSaveVocabulary).not.toHaveBeenCalled();
     expect(result.categories).toEqual(['comida', 'transporte']);
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      expect.stringContaining('comida'),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', expect.stringContaining('comida'));
     expect(mockTransitionExecute).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user-123',
@@ -167,10 +163,7 @@ describe('ModifyCategoryVocabulary', () => {
 
     expect(mockSaveVocabulary).not.toHaveBeenCalled();
     expect(result.categories).toEqual(['comida', 'transporte']);
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      expect.stringContaining('comida'),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', expect.stringContaining('comida'));
   });
 
   it('rejects duplicate name on rename and returns error message', async () => {
@@ -201,10 +194,7 @@ describe('ModifyCategoryVocabulary', () => {
     const result = await useCase.execute(baseInput);
 
     expect(mockSaveVocabulary).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      onboardingCopies.reconnectAccount(),
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
     expect(mockTransitionExecute).toHaveBeenCalledWith({
       userId: 'user-123',
       targetState: 'ONBOARDING_START',

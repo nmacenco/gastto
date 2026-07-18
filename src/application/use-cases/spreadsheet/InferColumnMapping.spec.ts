@@ -219,6 +219,7 @@ describe('InferColumnMapping', () => {
             },
           ],
           unmappedFields: [],
+          headerRowIndex: 1,
         },
       });
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
@@ -694,6 +695,141 @@ describe('InferColumnMapping', () => {
         },
       });
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('asks for the header row when row 1 produces a partial mapping', async () => {
+      mockDetectHeaderRow.mockResolvedValue(1);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['monto', 'categoria', 'concepto', 'medio_pago', 'moneda'],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_MAPPING',
+        payload: {
+          selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+          preview: mockPreview,
+          step: 'no-header',
+        },
+      });
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('uses headerRowIndex from state payload and skips detection', async () => {
+      mockDetectHeaderRow.mockResolvedValue(1);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const preview = {
+        ...mockPreview,
+        rows: [
+          { index: 1, values: ['', '', ''] },
+          { index: 2, values: ['', '', ''] },
+          { index: 3, values: ['', '', ''] },
+          { index: 4, values: ['Fecha', 'Monto', 'Categoria'] },
+          { index: 5, values: ['01/01/2026', '100.50', 'Comida'] },
+          { index: 6, values: ['02/01/2026', '200.75', 'Transporte'] },
+        ],
+      };
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, preview, headerRowIndex: 4 },
+      });
+
+      expect(mockDetectHeaderRow).not.toHaveBeenCalled();
+      expect(mockLLMDetectHeaderRow).not.toHaveBeenCalled();
+      expect(mockInfer).toHaveBeenCalledWith(
+        ['Fecha', 'Monto', 'Categoria'],
+        [
+          ['01/01/2026', '100.50', 'Comida'],
+          ['02/01/2026', '200.75', 'Transporte'],
+        ],
+      );
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('falls back to detection when headerRowIndex in payload is not a number', async () => {
+      mockDetectHeaderRow.mockResolvedValue(1);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, headerRowIndex: '4' },
+      });
+
+      expect(mockDetectHeaderRow).toHaveBeenCalled();
+    });
+  });
+
+  describe('No-header step cleanup', () => {
+    it('clears step no-header from payload when proposing mappings', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, step: 'no-header' },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.payload).not.toHaveProperty('step');
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_MAPPING',
+        payload: expect.not.objectContaining({ step: 'no-header' }) as Record<string, unknown>,
+      });
     });
   });
 
