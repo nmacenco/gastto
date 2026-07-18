@@ -188,7 +188,10 @@ export class InferColumnMapping {
       })),
     );
 
-    if (result.mappings.length === 0) {
+    const looksLikePartialTitleRow =
+      headerRowIndex === 1 && result.mappings.length <= 1 && preview.rows.length > 1;
+
+    if (result.mappings.length === 0 || looksLikePartialTitleRow) {
       const message = onboardingCopies.noHeaderPrompt();
       await this.deps.messagingPort.sendMessage(externalId, message);
 
@@ -223,6 +226,7 @@ export class InferColumnMapping {
       ...restState,
       mappings: result.mappings,
       unmappedFields: result.unmappedFields,
+      headerRowIndex,
     };
 
     await this.deps.transitionState.execute({

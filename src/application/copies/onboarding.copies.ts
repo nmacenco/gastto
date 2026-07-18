@@ -166,15 +166,17 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
   },
 
   mappingRejectionPrompt: (availableColumns: { index: number; columnHeader: string }[]) => {
-    const lines = availableColumns.map(
-      (c) => `${columnIndexToLetter(c.index)} - ${c.columnHeader}`,
-    );
-    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nIndicame dónde está cada campo. Por ejemplo: "la categoría está en la columna E".`;
+    const lines = availableColumns.map((c) => {
+      const label =
+        c.columnHeader.trim().length > 0 ? formatColumnHeader(c.columnHeader) : '(vacía)';
+      return `${columnIndexToLetter(c.index)} - ${label}`;
+    });
+    const fieldLines = ALL_GASTTO_FIELDS.map((f) => `• ${GASTTO_FIELD_LABELS[f]}`);
+    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}\n\nIndicame dónde está cada campo. Por ejemplo: "la categoría está en la columna E".`;
   },
 
   correctionParseFailurePrompt: () =>
     `No entendí la corrección. Podés escribir algo como: "la categoría está en la columna E" o "el monto va en B".`,
-
 
   onboardingComplete: () =>
     '¡Todo listo! Ya podés empezar a registrar gastos. Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
@@ -224,8 +226,24 @@ const GASTTO_FIELD_EMOJI: Record<GasttoField, string> = {
   moneda: '💱',
 };
 
+const ALL_GASTTO_FIELDS: GasttoField[] = [
+  'fecha',
+  'monto',
+  'moneda',
+  'categoria',
+  'concepto',
+  'medio_pago',
+];
+
 function columnIndexToLetter(index: number): string {
   return String.fromCharCode(65 + index);
+}
+
+function formatColumnHeader(header: string): string {
+  const MAX_HEADER_LENGTH = 40;
+  const trimmed = header.trim();
+  if (trimmed.length <= MAX_HEADER_LENGTH) return trimmed;
+  return `${trimmed.slice(0, MAX_HEADER_LENGTH)}…`;
 }
 
 function formatUnmappedFields(fields: GasttoField[]): string {

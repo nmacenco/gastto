@@ -215,6 +215,26 @@ describe('GoogleSheetsAdapter', () => {
       expect(init.headers).toEqual({ Authorization: 'Bearer access-token-123' });
     });
 
+    it('reads the requested header row index', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            values: [['Fecha', 'Monto', 'Categoria']],
+          }),
+      });
+
+      const result = await adapter.getHeaders('spreadsheet-123', 'Gastos', 2);
+
+      expect(result).toEqual(['Fecha', 'Monto', 'Categoria']);
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!2:2',
+      );
+    });
+
     it('returns empty array when sheet has no values', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
@@ -687,6 +707,61 @@ describe('GoogleSheetsAdapter', () => {
 
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toContain(encodeURIComponent('My Sheet!'));
+    });
+  });
+
+  describe('listAvailableColumns', () => {
+    it('returns columns with their index and header from the requested row', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            values: [['Fecha', 'Monto', 'Categoria']],
+          }),
+      });
+
+      const result = await adapter.listAvailableColumns({
+        provider: 'google',
+        fileId: 'spreadsheet-123',
+        sheetName: 'Gastos',
+        accessToken: 'access-token-123',
+        headerRowIndex: 3,
+      });
+
+      expect(result).toEqual([
+        { index: 0, columnHeader: 'Fecha' },
+        { index: 1, columnHeader: 'Monto' },
+        { index: 2, columnHeader: 'Categoria' },
+      ]);
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!3:3',
+      );
+    });
+
+    it('defaults to row 1 when headerRowIndex is omitted', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            values: [['Fecha', 'Monto']],
+          }),
+      });
+
+      await adapter.listAvailableColumns({
+        provider: 'google',
+        fileId: 'spreadsheet-123',
+        sheetName: 'Gastos',
+        accessToken: 'access-token-123',
+      });
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!1:1',
+      );
     });
   });
 });

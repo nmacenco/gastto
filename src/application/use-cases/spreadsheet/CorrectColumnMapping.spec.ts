@@ -116,6 +116,7 @@ const baseInput: CorrectColumnMappingInput = {
   statePayload: {
     provider: 'google',
     preview: mockPreview,
+    headerRowIndex: 1,
     mappings: [
       { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
       { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
@@ -214,6 +215,10 @@ describe('CorrectColumnMapping', () => {
     expect(result.kind).toBe('updated');
     expect(result.nextState).toBe('ONBOARDING_MAPPING');
 
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ headerRowIndex: 1 }),
+    );
+
     expect(mockSaveCorrectionState).toHaveBeenCalledTimes(1);
     const savedSnapshot = mockSaveCorrectionState.mock
       .calls[0]![1] as MappingCorrectionStateSnapshot;
@@ -252,6 +257,7 @@ describe('CorrectColumnMapping', () => {
           columnHeader: m.columnHeader,
         })),
         unmappedFields: [],
+        headerRowIndex: 1,
       },
       expiresAt: expect.any(Date) as Date,
     });
@@ -363,6 +369,7 @@ describe('CorrectColumnMapping', () => {
       fileId: 'file-123',
       sheetName: 'Gastos',
       accessToken: 'access-token',
+      headerRowIndex: 1,
     });
     expect(mockClearCorrectionState).toHaveBeenCalledWith('user-123');
     expect(mockSendMessage).toHaveBeenCalledWith(
@@ -375,6 +382,22 @@ describe('CorrectColumnMapping', () => {
       payload: baseInput.statePayload,
       expiresAt: expect.any(Date) as Date,
     });
+  });
+
+  it('uses headerRowIndex from state payload when listing available columns', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    await useCase.execute({
+      ...baseInput,
+      statePayload: { ...baseInput.statePayload, headerRowIndex: 2 },
+      rawMessage: 'no',
+    });
+
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ headerRowIndex: 2 }),
+    );
   });
 
   it('triggers reconnect flow when the OAuth token is missing on rejection', async () => {

@@ -215,11 +215,14 @@ export class CorrectColumnMapping {
       return this.handleReconnect(externalId, userId);
     }
 
+    const headerRowIndex = this.resolveHeaderRowIndex(input.statePayload);
+
     const availableColumns = await this.deps.spreadsheetColumnPort.listAvailableColumns({
       provider: config.provider,
       fileId: config.fileId,
       sheetName: config.sheetName,
       accessToken,
+      headerRowIndex,
     });
 
     const matchedColumn = resolveColumnRef(parseResult.columnRef, availableColumns);
@@ -269,6 +272,7 @@ export class CorrectColumnMapping {
         sheetName: config.sheetName,
         mappings: currentMappings.map(toDisplayMapping),
         unmappedFields,
+        headerRowIndex,
       },
       expiresAt: this.computeExpiresAt(),
     });
@@ -294,11 +298,14 @@ export class CorrectColumnMapping {
       return this.handleReconnect(externalId, userId);
     }
 
+    const headerRowIndex = this.resolveHeaderRowIndex(input.statePayload);
+
     const availableColumns = await this.deps.spreadsheetColumnPort.listAvailableColumns({
       provider: config.provider,
       fileId: config.fileId,
       sheetName: config.sheetName,
       accessToken,
+      headerRowIndex,
     });
 
     await this.deps.correctionStateRepository.clear(userId);
@@ -314,6 +321,11 @@ export class CorrectColumnMapping {
     });
 
     return { kind: 'rejected', nextState: 'ONBOARDING_MAPPING', message };
+  }
+
+  private resolveHeaderRowIndex(statePayload: Record<string, unknown> | null): number | undefined {
+    const value = statePayload?.headerRowIndex;
+    return typeof value === 'number' && value >= 1 ? value : undefined;
   }
 
   private async handleReconnect(

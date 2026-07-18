@@ -68,6 +68,29 @@ describe('RuleBasedHeaderDetectionAdapter', () => {
     expect(result).toBeNull();
   });
 
+  it('skips a sheet-title row with a single value and finds headers in a later row', async () => {
+    const rows = [
+      { index: 1, values: ['', 'Para añadir o cambiar categorías, modifica las tablas'] },
+      { index: 2, values: ['Fecha', 'Monto', 'Categoria'] },
+      { index: 3, values: ['01/01/2026', '100.50', 'Comida'] },
+    ];
+
+    const result = await adapter.detectHeaderRow(rows);
+
+    expect(result).toBe(2);
+  });
+
+  it('returns null when the only candidate row has a single non-empty value and no later headers exist', async () => {
+    const rows = [
+      { index: 1, values: ['', 'Para añadir o cambiar categorías, modifica las tablas'] },
+      { index: 2, values: ['01/01/2026', '100.50', 'USD'] },
+    ];
+
+    const result = await adapter.detectHeaderRow(rows);
+
+    expect(result).toBeNull();
+  });
+
   it('returns null for an empty row list', async () => {
     const result = await adapter.detectHeaderRow([]);
 

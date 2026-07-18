@@ -102,9 +102,16 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 4. Because all mapped fields are high-confidence and there are no unmapped fields, the LLM fallback is skipped.
 5. Mappings are persisted and a high-confidence proposal message is sent, identical to Scenario 1.
 
+### Scenario 7: Row 1 looks like a title and produces a partial mapping
+
+1. `ValidateSpreadsheetAccess` reads the preview rows and the rule-based header detector skips row 1 because it has only one non-empty cell (e.g., a sheet title).
+2. `LLMHeaderDetectionAdapter` also fails to locate a clear header row, so `headerRowIndex` remains `null`.
+3. `InferColumnMapping` sends `onboardingCopies.noHeaderPrompt()` and transitions to `ONBOARDING_MAPPING` with `step: 'no-header'`.
+4. Alternatively, if the rule-based or LLM detector incorrectly picks row 1 and the inference maps only one Gastto field (or none), `InferColumnMapping` treats it as a missing header row and sends the same prompt instead of proposing a partial mapping.
+
 ## Adapters
 
-- **RuleBasedHeaderDetectionAdapter** - Implements `HeaderDetectionPort` by scanning preview rows and returning the first row whose values look like labels rather than data.
+- **RuleBasedHeaderDetectionAdapter** - Implements `HeaderDetectionPort` by scanning preview rows and returning the first row that has at least two non-empty cells and whose values look like labels rather than data. This prevents a single-cell sheet title from being mistaken for the header row.
 - **LLMHeaderDetectionAdapter** - Implements `HeaderDetectionPort` by asking an LLM to locate the header row when rule-based detection is uncertain.
 - **RuleBasedColumnInferenceAdapter** - Implements `ColumnInferencePort` using header normalization, multi-language synonym dictionaries, Levenshtein fuzzy matching, and content-type heuristics.
 - **LLMColumnInferenceAdapter** - Implements `ColumnInferencePort` by asking an LLM to map headers to Gastto fields when rule-based inference is incomplete or low-confidence.
@@ -264,7 +271,9 @@ interface IColumnMappingRepository {
 - [x] LLM fallback merges results while preserving high-confidence rule-based mappings.
 - [x] Header-row detection works for headers beyond row 1.
 - [x] LLM header detection fallback runs when rule-based detection is uncertain.
+- [x] Rule-based detection skips rows with a single non-empty value (sheet titles).
 - [x] No-header detection: self-transition to `ONBOARDING_MAPPING` with `step: 'no-header'`, message asks which row data starts at.
+- [x] A partial mapping on row 1 (≤1 field) falls back to the no-header prompt instead of proposing a misleading mapping.
 - [x] No-header reply: valid row number is converted to `headerRowIndex` and inference re-runs; invalid reply re-prompts with `invalidDataStartRowPrompt`.
 - [x] Header row index override: `headerRowIndex` in state payload skips detection and uses the specified row.
 - [x] Unmapped fields: message lists omitted fields.

@@ -63,18 +63,18 @@ When the user is in `ONBOARDING_MAPPING` and replies with a rejection intent (e.
 
 ### Phase 2: Copy tests and documentation update
 
-- [ ] Add a test in `onboarding.copies.spec.ts` for `mappingRejectionPrompt`:
+- [x] Add a test in `onboarding.copies.spec.ts` for `mappingRejectionPrompt`:
   - Assert that the copy includes the column list and a correction instruction example.
-- [ ] Update `docs/features/confirm-or-correct-column-mapping.md`:
+- [x] Update `docs/features/confirm-or-correct-column-mapping.md`:
   - Rewrite **Scenario 6: User rejects the proposal without a specific correction** to describe the new behavior (guided manual correction instead of LLM re-inference).
   - Update the **QA Checklist** under `CorrectColumnMapping use case`:
     - Remove "Rejection without specific correction triggers LLM re-inference and replaces the previous proposal."
     - Remove "Re-inference falls back to LLM header detection when rule-based detection is uncertain."
     - Add "Rejection intent clears correction state and lists available columns for manual correction."
   - Update the **Error Handling** table if needed (re-inference errors are no longer applicable).
-- [ ] Update `docs/features/README.md` if the feature doc index needs syncing.
-- [ ] Run `pnpm lint`, `pnpm typecheck`, and `pnpm test`. Fix any issues.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Update `docs/features/README.md` if the feature doc index needs syncing.
+- [x] Run `pnpm lint`, `pnpm typecheck`, and `pnpm test`. Fix any issues.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Public contracts by phase
 
@@ -92,4 +92,4 @@ When the user is in `ONBOARDING_MAPPING` and replies with a rejection intent (e.
 
 ## Next step
 
-Complete Phase 2 (copy tests and documentation update) next.
+All phases are complete. Review the changes and commit if desired.

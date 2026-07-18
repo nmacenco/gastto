@@ -219,6 +219,7 @@ describe('InferColumnMapping', () => {
             },
           ],
           unmappedFields: [],
+          headerRowIndex: 1,
         },
       });
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
@@ -680,6 +681,39 @@ describe('InferColumnMapping', () => {
       });
 
       expect(mockInfer).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_MAPPING',
+        payload: {
+          selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+          preview: mockPreview,
+          step: 'no-header',
+        },
+      });
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('asks for the header row when row 1 produces a partial mapping', async () => {
+      mockDetectHeaderRow.mockResolvedValue(1);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['monto', 'categoria', 'concepto', 'medio_pago', 'moneda'],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
       expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',

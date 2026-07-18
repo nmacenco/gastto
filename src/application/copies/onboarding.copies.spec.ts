@@ -258,4 +258,43 @@ describe('onboardingCopies', () => {
       expect(result).toContain('mayor a 1');
     });
   });
+
+  describe('mappingRejectionPrompt', () => {
+    it('lists available columns and invites manual correction with an example', () => {
+      const columns = [
+        { index: 0, columnHeader: 'Fecha' },
+        { index: 1, columnHeader: 'Monto' },
+        { index: 2, columnHeader: 'Categoría' },
+      ];
+
+      const result = onboardingCopies.mappingRejectionPrompt(columns);
+
+      expect(result).toContain('Entendido');
+      expect(result).toContain('A - Fecha');
+      expect(result).toContain('B - Monto');
+      expect(result).toContain('C - Categoría');
+      expect(result).toContain('Los campos que podés indicar son');
+      expect(result).toContain('Fecha');
+      expect(result).toContain('Monto');
+      expect(result).toContain('Categoría');
+      expect(result).toContain('Indicame dónde está cada campo');
+      expect(result).toContain('la categoría está en la columna E');
+    });
+
+    it('marks empty headers as (vacía) and truncates very long headers', () => {
+      const columns = [
+        { index: 0, columnHeader: '' },
+        {
+          index: 1,
+          columnHeader: 'Para añadir o cambiar categorías, modifica las tablas de la hoja Resumen',
+        },
+      ];
+
+      const result = onboardingCopies.mappingRejectionPrompt(columns);
+
+      expect(result).toContain('A - (vacía)');
+      expect(result).toContain('B - Para añadir o cambiar categorías, modifi…');
+      expect(result).not.toContain('tablas de la hoja Resumen');
+    });
+  });
 });
