@@ -165,8 +165,16 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     return `No encontré la columna *${columnRef}* en tu planilla. Las columnas disponibles son:\n${lines.join('\n')}\n\nEscribí la letra, número o nombre correcto.`;
   },
 
+  mappingRejectionPrompt: (availableColumns: { index: number; columnHeader: string }[]) => {
+    const lines = availableColumns.map(
+      (c) => `${columnIndexToLetter(c.index)} - ${c.columnHeader}`,
+    );
+    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nIndicame dónde está cada campo. Por ejemplo: "la categoría está en la columna E".`;
+  },
+
   correctionParseFailurePrompt: () =>
     `No entendí la corrección. Podés escribir algo como: "la categoría está en la columna E" o "el monto va en B".`,
+
 
   onboardingComplete: () =>
     '¡Todo listo! Ya podés empezar a registrar gastos. Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
