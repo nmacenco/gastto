@@ -14,7 +14,7 @@ import { RouteIncomingMessage } from '../../../application/use-cases/conversatio
 import { ClassifyFreeTextExpenseIntent } from '../../../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
 import { SendExpenseGuidance } from '../../../application/use-cases/conversation/SendExpenseGuidance';
 import { HandleUnsupportedMessage } from '../../../application/use-cases/conversation/HandleUnsupportedMessage';
-import { GetConversationState } from '../../../application/use-cases/conversation/GetConversationState';
+import type { GetConversationState } from '../../../application/use-cases/conversation/GetConversationState';
 import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
@@ -42,7 +42,9 @@ function buildRouteIncomingMessage(): RouteIncomingMessage {
     handleUnsupportedMessage: new HandleUnsupportedMessage(buildMessagingPort()),
     classifyFreeTextExpenseIntent: new ClassifyFreeTextExpenseIntent(),
     sendGuidance: new SendExpenseGuidance(buildMessagingPort()),
-    getConversationState: { execute: mockGetConversationStateExecute } as unknown as GetConversationState,
+    getConversationState: {
+      execute: mockGetConversationStateExecute,
+    } as unknown as GetConversationState,
     logger: { error: mockLoggerError } as unknown as Logger,
   });
 }
