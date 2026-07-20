@@ -14,17 +14,13 @@ export type TooLongIntent = {
   readonly kind: 'too-long';
 };
 
-export type FreeTextIntent =
-  | ExpenseLikeIntent
-  | NonFinancialIntent
-  | TooLongIntent;
+export type FreeTextIntent = ExpenseLikeIntent | NonFinancialIntent | TooLongIntent;
 
 const TOO_LONG_THRESHOLD = 500;
 
 const CURRENCY_SYMBOLS = /[\$€£]/;
 
-const CURRENCY_WORDS =
-  /\b(euros?|dólares?|pesos?|dollars?|euro?|yen?|yuan?|rublo?s?)\b/i;
+const CURRENCY_WORDS = /\b(euros?|dólares?|pesos?|dollars?|euro?|yen?|yuan?|rublo?s?)\b/i;
 
 const EXPENSE_VERBS =
   /pagado|pagué|gasté|gasto|compré|compra|compró|paid|spent|spend|bought|buy|ate|eat|drank|drink/i;
@@ -64,20 +60,14 @@ export const FreeTextIntent = {
   },
 };
 
-export function isExpenseLikeIntent(
-  intent: FreeTextIntent,
-): intent is ExpenseLikeIntent {
+export function isExpenseLikeIntent(intent: FreeTextIntent): intent is ExpenseLikeIntent {
   return intent.kind === 'expense-like';
 }
 
-export function isNonFinancialIntent(
-  intent: FreeTextIntent,
-): intent is NonFinancialIntent {
+export function isNonFinancialIntent(intent: FreeTextIntent): intent is NonFinancialIntent {
   return intent.kind === 'non-financial';
 }
 
-export function isTooLongIntent(
-  intent: FreeTextIntent,
-): intent is TooLongIntent {
+export function isTooLongIntent(intent: FreeTextIntent): intent is TooLongIntent {
   return intent.kind === 'too-long';
 }

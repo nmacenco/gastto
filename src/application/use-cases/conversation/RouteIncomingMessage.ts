@@ -11,12 +11,16 @@ import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../ports/ProcessMessageJob';
 import { sharedCopies } from '../../copies/shared.copies';
 import type { HandleUnsupportedMessage } from './HandleUnsupportedMessage';
+import type { ClassifyFreeTextExpenseIntent } from './ClassifyFreeTextExpenseIntent';
+import type { SendExpenseGuidance } from './SendExpenseGuidance';
 
 export interface RouteIncomingMessageDeps {
   messageQueue: Queue<ProcessMessageJobData>;
   resolveIdentity: ResolveUserIdentityUseCase;
   messagingPort: MessagingOutputPort;
   handleUnsupportedMessage: HandleUnsupportedMessage;
+  classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent;
+  sendGuidance: SendExpenseGuidance;
   logger: Logger;
 }
 
@@ -45,6 +49,13 @@ export class RouteIncomingMessage {
       // Defensive: TEXT payloads should always have text, but if not,
       // treat as unsupported rather than throwing.
       await this.deps.handleUnsupportedMessage.execute(payload.chatId);
+      return;
+    }
+
+    const intent = this.deps.classifyFreeTextExpenseIntent.execute(text);
+
+    if (intent.kind === 'non-financial') {
+      await this.deps.sendGuidance.execute(payload.chatId);
       return;
     }
 

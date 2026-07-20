@@ -70,6 +70,8 @@ import { ConfirmCategories } from './application/use-cases/spreadsheet/ConfirmCa
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { RedisMappingCorrectionStateRepository } from './infrastructure/redis/RedisMappingCorrectionStateRepository';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
+import { ClassifyFreeTextExpenseIntent } from './application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
+import { SendExpenseGuidance } from './application/use-cases/conversation/SendExpenseGuidance';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
 import { TransitionConversationState } from './application/use-cases/conversation/TransitionConversationState';
 import { RecoverCorruptedState } from './application/use-cases/conversation/RecoverCorruptedState';
@@ -247,11 +249,15 @@ async function bootstrap(): Promise<void> {
         const handleStartCommand = new HandleStartCommand(telegramAdapter, conversationRepo);
 
         const handleUnsupportedMessage = new HandleUnsupportedMessage(telegramAdapter);
+        const classifyFreeTextExpenseIntent = new ClassifyFreeTextExpenseIntent();
+        const sendExpenseGuidance = new SendExpenseGuidance(telegramAdapter);
         const routeIncomingMessage = new RouteIncomingMessage({
           messageQueue,
           resolveIdentity,
           messagingPort: telegramAdapter,
           handleUnsupportedMessage,
+          classifyFreeTextExpenseIntent,
+          sendGuidance: sendExpenseGuidance,
           logger: rootLogger,
         });
 
