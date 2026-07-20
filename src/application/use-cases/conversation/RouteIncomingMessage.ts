@@ -13,6 +13,7 @@ import { sharedCopies } from '../../copies/shared.copies';
 import type { HandleUnsupportedMessage } from './HandleUnsupportedMessage';
 import type { ClassifyFreeTextExpenseIntent } from './ClassifyFreeTextExpenseIntent';
 import type { SendExpenseGuidance } from './SendExpenseGuidance';
+import type { GetConversationState } from './GetConversationState';
 
 export interface RouteIncomingMessageDeps {
   messageQueue: Queue<ProcessMessageJobData>;
@@ -21,6 +22,7 @@ export interface RouteIncomingMessageDeps {
   handleUnsupportedMessage: HandleUnsupportedMessage;
   classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent;
   sendGuidance: SendExpenseGuidance;
+  getConversationState: GetConversationState;
   logger: Logger;
 }
 
@@ -52,17 +54,26 @@ export class RouteIncomingMessage {
       return;
     }
 
-    const intent = this.deps.classifyFreeTextExpenseIntent.execute(text);
-
-    if (intent.kind === 'non-financial') {
-      await this.deps.sendGuidance.execute(payload.chatId);
-      return;
-    }
-
     const { userId } = await this.deps.resolveIdentity.execute({
       channel: payload.channel,
       externalId: payload.chatId,
     });
+
+    const conversationState = await this.deps.getConversationState.execute({ userId });
+    const currentState = conversationState?.currentState ?? 'IDLE';
+
+    // When the user is in the middle of an active flow (onboarding, review,
+    // clarification, etc.), every text message must reach the thick worker so
+    // the FSM can interpret it in context. Only in truly idle/receiving states
+    // do we classify intent and send guidance for non-financial text.
+    if (currentState === 'IDLE' || currentState === 'EXPENSE_RECEIVING') {
+      const intent = this.deps.classifyFreeTextExpenseIntent.execute(text);
+
+      if (intent.kind === 'non-financial') {
+        await this.deps.sendGuidance.execute(payload.chatId);
+        return;
+      }
+    }
 
     await this.deps.messageQueue.add('process-message', {
       userId,

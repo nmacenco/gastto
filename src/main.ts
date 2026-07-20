@@ -258,6 +258,7 @@ async function bootstrap(): Promise<void> {
           handleUnsupportedMessage,
           classifyFreeTextExpenseIntent,
           sendGuidance: sendExpenseGuidance,
+          getConversationState,
           logger: rootLogger,
         });
 

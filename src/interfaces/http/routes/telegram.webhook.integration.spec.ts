@@ -14,6 +14,7 @@ import { RouteIncomingMessage } from '../../../application/use-cases/conversatio
 import { ClassifyFreeTextExpenseIntent } from '../../../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
 import { SendExpenseGuidance } from '../../../application/use-cases/conversation/SendExpenseGuidance';
 import { HandleUnsupportedMessage } from '../../../application/use-cases/conversation/HandleUnsupportedMessage';
+import { GetConversationState } from '../../../application/use-cases/conversation/GetConversationState';
 import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
@@ -26,6 +27,7 @@ const mockSendMessage = vi.fn();
 const mockResolveIdentity = vi.fn();
 const mockHandleStartExecute = vi.fn();
 const mockProcessQueueAdd = vi.fn();
+const mockGetConversationStateExecute = vi.fn();
 const mockLoggerError = vi.fn();
 
 function buildMessagingPort(): MessagingOutputPort {
@@ -40,6 +42,7 @@ function buildRouteIncomingMessage(): RouteIncomingMessage {
     handleUnsupportedMessage: new HandleUnsupportedMessage(buildMessagingPort()),
     classifyFreeTextExpenseIntent: new ClassifyFreeTextExpenseIntent(),
     sendGuidance: new SendExpenseGuidance(buildMessagingPort()),
+    getConversationState: { execute: mockGetConversationStateExecute } as unknown as GetConversationState,
     logger: { error: mockLoggerError } as unknown as Logger,
   });
 }
@@ -86,7 +89,10 @@ async function processCapturedJob(
 ): Promise<void> {
   expect(capturedJobs).toHaveLength(1);
   const jobData = capturedJobs[0];
-  await processIncomingMessageJob({ data: jobData } as Job<IncomingMessageJobData>, routeIncomingMessage);
+  await processIncomingMessageJob(
+    { data: jobData } as Job<IncomingMessageJobData>,
+    routeIncomingMessage,
+  );
 }
 
 describe('POST /webhook/telegram — free-text expense routing (integration)', () => {
@@ -96,6 +102,14 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     mockResolveIdentity.mockResolvedValue({ userId: 'user-123' });
     mockHandleStartExecute.mockResolvedValue({ replyText: 'Welcome!' });
     mockProcessQueueAdd.mockResolvedValue(undefined);
+    mockGetConversationStateExecute.mockResolvedValue({
+      userId: 'user-123',
+      currentState: 'IDLE',
+      statePayload: null,
+      enteredAt: new Date('2026-05-20T12:00:00Z'),
+      expiresAt: null,
+      updatedAt: new Date('2026-05-20T12:00:00Z'),
+    });
   });
 
   it('expense-like text: returns 200, enqueues process-message job, and sends ack', async () => {
@@ -192,13 +206,55 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     expect(response.statusCode).toBe(200);
     await processCapturedJob(capturedJobs, routeIncomingMessage);
 
-    expect(mockResolveIdentity).not.toHaveBeenCalled();
+    expect(mockResolveIdentity).toHaveBeenCalledTimes(1);
+    expect(mockGetConversationStateExecute).toHaveBeenCalledWith({ userId: 'user-123' });
     expect(mockProcessQueueAdd).not.toHaveBeenCalled();
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
     expect(mockSendMessage).toHaveBeenCalledWith(
       '123456789',
       "¡Hola! Para registrar un gasto escribime el monto y el concepto, por ejemplo: 'Almuerzo 12 euros'.",
     );
+  });
+
+  it('non-financial reply during ONBOARDING_MAPPING: returns 200, enqueues process-message job, and sends ack', async () => {
+    mockGetConversationStateExecute.mockResolvedValue({
+      userId: 'user-123',
+      currentState: 'ONBOARDING_MAPPING',
+      statePayload: { mappings: [] },
+      enteredAt: new Date('2026-05-20T12:00:00Z'),
+      expiresAt: null,
+      updatedAt: new Date('2026-05-20T12:00:00Z'),
+    });
+
+    const capturedJobs: IncomingMessageJobData[] = [];
+    const deps = buildMockDeps();
+    (deps.incomingMessageQueue as unknown as { add: typeof mockProcessQueueAdd }).add = vi
+      .fn()
+      .mockImplementation((_name: string, data: IncomingMessageJobData) => {
+        capturedJobs.push(data);
+        return Promise.resolve(undefined);
+      });
+
+    const { app } = buildApp(deps);
+    const routeIncomingMessage = buildRouteIncomingMessage();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: makeValidPayload('sí'),
+    });
+
+    expect(response.statusCode).toBe(200);
+    await processCapturedJob(capturedJobs, routeIncomingMessage);
+
+    expect(mockResolveIdentity).toHaveBeenCalledTimes(1);
+    expect(mockGetConversationStateExecute).toHaveBeenCalledWith({ userId: 'user-123' });
+    expect(mockProcessQueueAdd).toHaveBeenCalledTimes(1);
+    const [, jobData] = mockProcessQueueAdd.mock.calls[0] as [string, ProcessMessageJobData];
+    expect(jobData.rawMessage).toBe('sí');
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
   });
 
   it('very long text: returns 200 and enqueues process-message job', async () => {

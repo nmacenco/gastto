@@ -16,6 +16,7 @@ const mockResolveExecute = vi.fn();
 const mockUnsupportedExecute = vi.fn();
 const mockClassifyExecute = vi.fn();
 const mockSendGuidanceExecute = vi.fn();
+const mockGetConversationStateExecute = vi.fn();
 const mockLoggerError = vi.fn();
 
 function buildMockDeps() {
@@ -32,6 +33,7 @@ function buildMockDeps() {
     sendGuidance: {
       execute: mockSendGuidanceExecute,
     },
+    getConversationState: { execute: mockGetConversationStateExecute },
     logger: { error: mockLoggerError } as unknown as Logger,
   };
 }
@@ -56,6 +58,14 @@ describe('RouteIncomingMessage', () => {
     mockResolveExecute.mockResolvedValue({ userId: 'user-123' });
     mockUnsupportedExecute.mockResolvedValue(undefined);
     mockSendGuidanceExecute.mockResolvedValue(undefined);
+    mockGetConversationStateExecute.mockResolvedValue({
+      userId: 'user-123',
+      currentState: 'IDLE',
+      statePayload: null,
+      enteredAt: new Date('2026-05-20T12:00:00Z'),
+      expiresAt: null,
+      updatedAt: new Date('2026-05-20T12:00:00Z'),
+    });
   });
 
   describe('TEXT messages', () => {
@@ -103,8 +113,87 @@ describe('RouteIncomingMessage', () => {
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
     });
 
-    it('sends guidance for non-financial text and does not enqueue or resolve identity', async () => {
+    it('sends guidance for non-financial text when user is IDLE and does not enqueue', async () => {
       mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
+      const deps = buildMockDeps();
+      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
+      const payload = buildTextPayload({ text: 'Hola' });
+
+      await router.execute(payload);
+
+      expect(mockResolveExecute).toHaveBeenCalledWith({
+        channel: 'telegram',
+        externalId: '123456789',
+      });
+      expect(mockGetConversationStateExecute).toHaveBeenCalledWith({ userId: 'user-123' });
+      expect(mockClassifyExecute).toHaveBeenCalledWith('Hola');
+      expect(mockSendGuidanceExecute).toHaveBeenCalledTimes(1);
+      expect(mockSendGuidanceExecute).toHaveBeenCalledWith('123456789');
+      expect(mockAdd).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('enqueues non-financial text and sends ack when user is in ONBOARDING_MAPPING', async () => {
+      mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
+      mockGetConversationStateExecute.mockResolvedValue({
+        userId: 'user-123',
+        currentState: 'ONBOARDING_MAPPING',
+        statePayload: { mappings: [] },
+        enteredAt: new Date('2026-05-20T12:00:00Z'),
+        expiresAt: null,
+        updatedAt: new Date('2026-05-20T12:00:00Z'),
+      });
+      const deps = buildMockDeps();
+      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
+      const payload = buildTextPayload({ text: 'sí' });
+
+      await router.execute(payload);
+
+      expect(mockResolveExecute).toHaveBeenCalledWith({
+        channel: 'telegram',
+        externalId: '123456789',
+      });
+      expect(mockGetConversationStateExecute).toHaveBeenCalledWith({ userId: 'user-123' });
+      expect(mockClassifyExecute).not.toHaveBeenCalled();
+      expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
+      expect(mockAdd).toHaveBeenCalledTimes(1);
+      const [, jobData] = mockAdd.mock.calls[0] as [string, ProcessMessageJobData];
+      expect(jobData).toMatchObject({
+        userId: 'user-123',
+        rawMessage: 'sí',
+        channel: 'telegram',
+        externalId: '123456789',
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
+    });
+
+    it('enqueues non-financial text and sends ack when user is in EXPENSE_REVIEW', async () => {
+      mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
+      mockGetConversationStateExecute.mockResolvedValue({
+        userId: 'user-123',
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: { extracted: { monto: 100 } },
+        enteredAt: new Date('2026-05-20T12:00:00Z'),
+        expiresAt: null,
+        updatedAt: new Date('2026-05-20T12:00:00Z'),
+      });
+      const deps = buildMockDeps();
+      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
+      const payload = buildTextPayload({ text: 'corregir categoría' });
+
+      await router.execute(payload);
+
+      expect(mockClassifyExecute).not.toHaveBeenCalled();
+      expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
+      expect(mockAdd).toHaveBeenCalledTimes(1);
+      const [, jobData] = mockAdd.mock.calls[0] as [string, ProcessMessageJobData];
+      expect(jobData.rawMessage).toBe('corregir categoría');
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
+    });
+
+    it('treats a missing conversation state as IDLE and sends guidance for non-financial text', async () => {
+      mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
+      mockGetConversationStateExecute.mockResolvedValue(null);
       const deps = buildMockDeps();
       const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
       const payload = buildTextPayload({ text: 'Hola' });
@@ -113,10 +202,7 @@ describe('RouteIncomingMessage', () => {
 
       expect(mockClassifyExecute).toHaveBeenCalledWith('Hola');
       expect(mockSendGuidanceExecute).toHaveBeenCalledTimes(1);
-      expect(mockSendGuidanceExecute).toHaveBeenCalledWith('123456789');
-      expect(mockResolveExecute).not.toHaveBeenCalled();
       expect(mockAdd).not.toHaveBeenCalled();
-      expect(mockSendMessage).not.toHaveBeenCalled();
     });
 
     it('does not send ack if enqueue fails', async () => {

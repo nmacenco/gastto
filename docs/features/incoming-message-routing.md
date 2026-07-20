@@ -18,7 +18,9 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
 - For all other payloads, the route enqueues an `IncomingMessageJobData` to the `incoming-message` BullMQ queue and returns HTTP 200.
 - A thin FIFO worker (`incomingMessage.worker.ts`, `concurrency: 1`) consumes `incoming-message` jobs, deserializes `timestamp` back to `Date`, rebuilds `NormalizedPayload`, and delegates to `RouteIncomingMessage.execute()`.
 - `RouteIncomingMessage` routes `TEXT` and `UNSUPPORTED`:
-  - `TEXT` → resolves user identity, enqueues a `process-message` job, and sends an acknowledgment.
+  - `TEXT` → resolves user identity, loads the current conversation state, and decides based on the FSM state:
+    - `IDLE` / `EXPENSE_RECEIVING` → classifies the text with `ClassifyFreeTextExpenseIntent`. Expense-like or very-long messages are enqueued to `process-message` and acknowledged; non-financial messages receive guidance and are not enqueued.
+    - Any other active state (e.g. `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `EXPENSE_REVIEW`, `EXPENSE_CLARIFYING`) → the message is enqueued to `process-message` and acknowledged, bypassing the intent classifier. This ensures onboarding replies and expense corrections are handled by the FSM in context.
   - `UNSUPPORTED` → delegates to `HandleUnsupportedMessage` which replies with a friendly message.
 - A thick worker (`message.worker.ts`, `concurrency: 2`) consumes `process-message` jobs and performs FSM/LLM/expense processing (ADR-005).
 - The system always responds HTTP 200 to Telegram to prevent infinite retry loops.
@@ -41,10 +43,14 @@ incoming-message Queue (BullMQ) ──► Thin Worker (concurrency: 1, FIFO)
       ▼
 RouteIncomingMessage.execute()
       │
-      ├── TEXT ──► resolve identity ──► process-message Queue ──► Thick Worker
-      │                                           │
-      │                                           ▼
-      │                                    FSM → NLP → response
+      ├── TEXT ──► resolve identity ──► load FSM state
+      │                        │
+      │    IDLE/EXPENSE_RECEIVING? ──► classify intent
+      │                        │
+      │        non-financial ──► guidance
+      │        financial/too-long ──► process-message Queue ──► Thick Worker
+      │
+      │    active state ──► process-message Queue ──► Thick Worker
       │
       └── UNSUPPORTED ──► HandleUnsupportedMessage
 ```
@@ -76,6 +82,7 @@ No database schema changes. The feature operates on transient domain value objec
 - [x] `RouteIncomingMessage.spec.ts` — TEXT routing (identity, enqueue, ack, ack-failure logging), UNSUPPORTED delegation.
 - [x] `HandleUnsupportedMessage.spec.ts` — exact copy sent, no-throw on send failure.
 - [x] `telegram.webhook.spec.ts` — 200 for valid text + enqueue, 200 for unparseable + MALFORMED log, 200 for unsupported + enqueue, `/start` short-circuit, 3 rapid messages FIFO enqueue.
+- [x] `telegram.webhook.integration.spec.ts` — end-to-end scenarios including non-financial replies during active onboarding states that must be enqueued to `process-message` instead of receiving guidance.
 - [x] `incomingMessage.worker.spec.ts` — job deserialization, FIFO processing, worker construction (`concurrency: 1`), failed-event structured logging.
 
 ## Related User Stories
