@@ -104,6 +104,7 @@ describe('POST /webhook/telegram', () => {
     expect(jobData.chatId).toBe('123456789');
     expect(jobData.text).toBe('Cafe con leche 850');
     expect(jobData.channel).toBe('telegram');
+    expect(jobData.externalMessageId).toBe('42');
     expect(typeof jobData.timestamp).toBe('string');
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
@@ -181,6 +182,7 @@ describe('POST /webhook/telegram', () => {
     const [, jobData] = mockQueueAdd.mock.calls[0] as [string, IncomingMessageJobData];
     expect(jobData.messageType).toBe('UNSUPPORTED');
     expect(jobData.chatId).toBe('123456789');
+    expect(jobData.externalMessageId).toBe('42');
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
   });
 

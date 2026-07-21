@@ -18,6 +18,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
  */
 function looksLikeTelegramUpdate(payload: unknown): payload is {
   message: {
+    message_id: number | string;
     chat: { id: number | string };
     from?: { id: number | string } | undefined;
     text?: string | undefined;
@@ -30,6 +31,11 @@ function looksLikeTelegramUpdate(payload: unknown): payload is {
 
   const message = payload.message;
   if (!isObject(message)) {
+    return false;
+  }
+
+  const messageId = message.message_id;
+  if (typeof messageId !== 'number' && typeof messageId !== 'string') {
     return false;
   }
 
@@ -86,6 +92,7 @@ export function parseTelegramPayload(payload: unknown): NormalizedPayload {
 
   const { message } = payload;
   const chatId = String(message.chat.id);
+  const externalMessageId = String(message.message_id);
   const userId = extractUserId(message.from);
   const timestamp = new Date(message.date * 1000);
 
@@ -101,6 +108,7 @@ export function parseTelegramPayload(payload: unknown): NormalizedPayload {
       userId,
       timestamp,
       channel: 'telegram',
+      externalMessageId,
     };
   }
 
@@ -111,5 +119,6 @@ export function parseTelegramPayload(payload: unknown): NormalizedPayload {
     text,
     timestamp,
     channel: 'telegram',
+    externalMessageId,
   };
 }

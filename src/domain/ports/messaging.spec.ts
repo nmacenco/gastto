@@ -14,6 +14,7 @@ describe('NormalizedPayload', () => {
       text: 'Cafe con leche 850',
       timestamp: new Date('2026-05-20T12:00:00Z'),
       channel: 'telegram',
+      externalMessageId: 'msg-42',
     };
 
     expect(payload.messageType).toBe('TEXT');
@@ -21,6 +22,7 @@ describe('NormalizedPayload', () => {
     expect(payload.userId).toBe('user-123');
     expect(payload.text).toBe('Cafe con leche 850');
     expect(payload.channel).toBe('telegram');
+    expect(payload.externalMessageId).toBe('msg-42');
   });
 
   it('accepts an UNSUPPORTED payload without userId or text', () => {
@@ -84,11 +86,13 @@ describe('NormalizedPayload', () => {
       text: undefined,
       timestamp: new Date(),
       channel: 'telegram',
+      externalMessageId: undefined,
       rawPayload: undefined,
     };
 
     expect(payload.userId).toBeUndefined();
     expect(payload.text).toBeUndefined();
+    expect(payload.externalMessageId).toBeUndefined();
     expect(payload.rawPayload).toBeUndefined();
   });
 });

@@ -8,5 +8,6 @@ export type ProcessMessageJobData = {
   rawMessage: string;
   channel: 'telegram' | 'whatsapp';
   externalId: string;
+  externalMessageId: string;
   receivedAt: string;
 };

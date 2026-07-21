@@ -46,6 +46,7 @@ function buildTextPayload(overrides: Partial<NormalizedPayload> = {}): Normalize
     text: 'Cafe con leche 850',
     timestamp: new Date('2026-05-20T12:00:00Z'),
     channel: 'telegram',
+    externalMessageId: 'msg-42',
     ...overrides,
   };
 }
@@ -90,6 +91,7 @@ describe('RouteIncomingMessage', () => {
         rawMessage: 'Cafe con leche 850',
         channel: 'telegram',
         externalId: '123456789',
+        externalMessageId: 'msg-42',
       });
       expect(new Date(jobData.receivedAt).getTime()).toBeGreaterThan(0);
 
@@ -163,6 +165,7 @@ describe('RouteIncomingMessage', () => {
         rawMessage: 'sí',
         channel: 'telegram',
         externalId: '123456789',
+        externalMessageId: 'msg-42',
       });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
     });
@@ -188,6 +191,7 @@ describe('RouteIncomingMessage', () => {
       expect(mockAdd).toHaveBeenCalledTimes(1);
       const [, jobData] = mockAdd.mock.calls[0] as [string, ProcessMessageJobData];
       expect(jobData.rawMessage).toBe('corregir categoría');
+      expect(jobData.externalMessageId).toBe('msg-42');
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
     });
 

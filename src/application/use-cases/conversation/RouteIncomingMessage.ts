@@ -75,11 +75,14 @@ export class RouteIncomingMessage {
       }
     }
 
+    // TEXT payloads are only produced by the parser for valid Telegram updates,
+    // so externalMessageId is always defined.
     await this.deps.messageQueue.add('process-message', {
       userId,
       rawMessage: text,
       channel: payload.channel,
       externalId: payload.chatId,
+      externalMessageId: payload.externalMessageId!,
       receivedAt: new Date().toISOString(),
     });
 

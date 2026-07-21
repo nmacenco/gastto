@@ -60,7 +60,8 @@ export async function handleTelegramWebhook(
     return reply.status(200).send({ ok: true });
   }
 
-  // Enqueue everything else to the thin FIFO worker (ADR-011)
+  // Enqueue everything else to the thin FIFO worker (ADR-011).
+  // MALFORMED payloads are already short-circuited, so externalMessageId is always defined here.
   await deps.incomingMessageQueue.add('incoming-message', {
     messageType: payload.messageType,
     chatId: payload.chatId,
@@ -68,6 +69,7 @@ export async function handleTelegramWebhook(
     text: payload.text,
     timestamp: payload.timestamp.toISOString(),
     channel: payload.channel,
+    externalMessageId: payload.externalMessageId!,
     rawPayload: payload.rawPayload,
   });
 

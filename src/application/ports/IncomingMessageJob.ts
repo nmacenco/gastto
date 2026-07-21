@@ -12,5 +12,6 @@ export type IncomingMessageJobData = {
   text?: string | undefined;
   timestamp: string;
   channel: 'telegram' | 'whatsapp';
+  externalMessageId: string;
   rawPayload?: unknown;
 };

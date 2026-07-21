@@ -151,6 +151,7 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
       rawMessage: 'Pagué el almuerzo, 12 euros',
       channel: 'telegram',
       externalId: '123456789',
+      externalMessageId: '42',
     });
     expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
   });

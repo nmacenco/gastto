@@ -8,6 +8,7 @@ export * from './columnInference';
 export * from './headerDetection';
 export * from './messaging';
 export * from './oauth';
+export * from './ProcessedMessageRepository';
 export * from './repositories';
 export * from './services';
 export * from './spreadsheetAccess';

@@ -12,5 +12,6 @@ export interface NormalizedPayload {
   readonly text?: string | undefined;
   readonly timestamp: Date;
   readonly channel: 'telegram' | 'whatsapp';
+  readonly externalMessageId?: string | undefined;
   readonly rawPayload?: unknown;
 }
