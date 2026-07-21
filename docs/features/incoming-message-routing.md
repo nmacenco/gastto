@@ -12,6 +12,7 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
   - `TEXT`: a message containing non-empty text.
   - `UNSUPPORTED`: a valid payload without text (photo, audio, sticker, etc.).
   - `MALFORMED`: anything that does not match the expected Telegram schema.
+- Every valid payload carries a stable `externalMessageId` extracted from `message.message_id` (Telegram) and propagated as a string through all job data types to avoid precision loss.
 - The Fastify route handler (`telegram.webhook.ts`) short-circuits `MALFORMED` payloads at the route layer:
   - Logs a structured error via `req.log.error({ endpoint: '/webhook/telegram', code: 'MALFORMED_PAYLOAD', rawPayload: req.body })`.
   - Returns HTTP 200 immediately to prevent Telegram retry loops.
@@ -23,8 +24,11 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
     - Any other active state (e.g. `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `EXPENSE_REVIEW`, `EXPENSE_CLARIFYING`) → the message is enqueued to `process-message` and acknowledged, bypassing the intent classifier. This ensures onboarding replies and expense corrections are handled by the FSM in context.
   - `UNSUPPORTED` → delegates to `HandleUnsupportedMessage` which replies with a friendly message.
 - A thick worker (`message.worker.ts`, `concurrency: 2`) consumes `process-message` jobs and performs FSM/LLM/expense processing (ADR-005).
+- The immediate acknowledgment is sent by the dedicated `SendImmediateAcknowledgement` application use case, which depends only on `MessagingOutputPort` and returns a typed `SendResult`.
+- Duplicate message protection is modeled by the `ProcessedMessageKey` value object (`channel` + `externalMessageId`) and the `IProcessedMessageRepository` driven port. Downstream consumers will use `exists()` / `markAsProcessed()` to skip or record already-handled messages.
 - The system always responds HTTP 200 to Telegram to prevent infinite retry loops.
 - Unsupported message copy (public contract): `"For now I only process text messages. Tell me about your expense by typing it."`
+- Immediate acknowledgment copy (public contract): `"Recibido, procesando tu mensaje…"`
 
 ## Pipeline (ADR-011)
 
@@ -67,20 +71,28 @@ RouteIncomingMessage.execute()
 
 ## Data Model
 
-No database schema changes. The feature operates on transient domain value objects:
+No database schema changes yet. The feature operates on transient domain value objects and driven ports:
 
-- `NormalizedPayload` — defined in `src/domain/ports/messaging.ts`.
-- `IncomingMessageJobData` — serializable BullMQ job data, defined in `src/application/ports/IncomingMessageJob.ts`.
+- `NormalizedPayload` — defined in `src/domain/ports/messaging.ts`. Includes `externalMessageId?: string | undefined` for valid payloads.
+- `IncomingMessageJobData` — serializable BullMQ job data, defined in `src/application/ports/IncomingMessageJob.ts`. Carries `externalMessageId: string`.
+- `ProcessMessageJobData` — serializable BullMQ job data, defined in `src/application/ports/ProcessMessageJob.ts`. Carries `externalMessageId: string`.
 - `IncomingMessage` — defined in `src/domain/value-objects/IncomingMessage.ts` (used for validated TEXT messages).
+- `ProcessedMessageKey` — immutable domain value object in `src/domain/value-objects/ProcessedMessageKey.ts` combining `channel` and `externalMessageId` for idempotency.
+- `IProcessedMessageRepository` — driven port in `src/domain/ports/ProcessedMessageRepository.ts` with `exists(key)` and `markAsProcessed(key)`.
 - `MessageType` — union type `'TEXT' | 'UNSUPPORTED' | 'MALFORMED'`.
 - `MessagingOutputPort` — application-layer output port, defined in `src/application/ports/output/messaging.port.ts`.
 - `SendResult` — discriminated union (`SendResultSuccess | SendResultFailure`) returned by `MessagingOutputPort.sendMessage`.
+- `SendImmediateAcknowledgement` — application use case in `src/application/use-cases/conversation/SendImmediateAcknowledgement.ts` that sends the processing acknowledgment copy.
 
 ## Tests
 
-- [x] `TelegramPayloadParser.spec.ts` — happy path, unsupported types (photo, audio, sticker), empty text, malformed payloads, null payloads.
+- [x] `TelegramPayloadParser.spec.ts` — happy path, unsupported types (photo, audio, sticker), empty text, malformed payloads, null payloads, `externalMessageId` extraction.
+- [x] `messaging.spec.ts` — `NormalizedPayload` contract, including optional `externalMessageId`.
 - [x] `RouteIncomingMessage.spec.ts` — TEXT routing (identity, enqueue, ack, ack-failure logging), UNSUPPORTED delegation.
 - [x] `HandleUnsupportedMessage.spec.ts` — exact copy sent, no-throw on send failure.
+- [x] `SendImmediateAcknowledgement.spec.ts` — success path, port-level failure, exception handling, optional `userId` and `whatsapp` channel acceptance.
+- [x] `ProcessedMessageKey.spec.ts` — construction, channel validation, empty ID validation, equality.
+- [x] `ProcessedMessageRepository.spec.ts` — contract test for `exists` and `markAsProcessed`.
 - [x] `telegram.webhook.spec.ts` — 200 for valid text + enqueue, 200 for unparseable + MALFORMED log, 200 for unsupported + enqueue, `/start` short-circuit, 3 rapid messages FIFO enqueue.
 - [x] `telegram.webhook.integration.spec.ts` — end-to-end scenarios including non-financial replies during active onboarding states that must be enqueued to `process-message` instead of receiving guidance.
 - [x] `incomingMessage.worker.spec.ts` — job deserialization, FIFO processing, worker construction (`concurrency: 1`), failed-event structured logging.

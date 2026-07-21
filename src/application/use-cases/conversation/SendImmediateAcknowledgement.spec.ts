@@ -27,10 +27,7 @@ describe('SendImmediateAcknowledgement', () => {
     const result = await useCase.execute(baseInput);
 
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '123456789',
-      'Recibido, procesando tu mensaje…',
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
     expect(result).toEqual({ status: 'success' });
   });
 
@@ -62,10 +59,7 @@ describe('SendImmediateAcknowledgement', () => {
 
     await useCase.execute({ ...baseInput, userId: 'user-123' });
 
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '123456789',
-      'Recibido, procesando tu mensaje…',
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
   });
 
   it('accepts whatsapp as channel', async () => {
@@ -74,9 +68,6 @@ describe('SendImmediateAcknowledgement', () => {
 
     await useCase.execute({ ...baseInput, channel: 'whatsapp' });
 
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '123456789',
-      'Recibido, procesando tu mensaje…',
-    );
+    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
   });
 });
