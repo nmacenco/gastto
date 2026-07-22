@@ -137,6 +137,7 @@ const baseJobData: ProcessMessageJobData = {
   rawMessage: 'Cafe 850',
   channel: 'telegram',
   externalId: '123456789',
+  externalMessageId: 'msg-42',
   receivedAt: new Date().toISOString(),
 };
 

@@ -27,6 +27,7 @@ describe('parseTelegramPayload', () => {
       expect(result.text).toBe('Cafe con leche 850');
       expect(result.timestamp).toEqual(new Date(1716206400 * 1000));
       expect(result.channel).toBe('telegram');
+      expect(result.externalMessageId).toBe('42');
     });
 
     it('trims whitespace from text', () => {
@@ -80,6 +81,24 @@ describe('parseTelegramPayload', () => {
 
       expect(result.chatId).toBe('channel-123');
       expect(result.userId).toBe('user-999');
+      expect(result.externalMessageId).toBe('42');
+    });
+
+    it('handles string message id', () => {
+      const payload = {
+        update_id: 1,
+        message: {
+          message_id: 'msg-abc',
+          from: { id: 'user-999' },
+          chat: { id: 'channel-123' },
+          text: 'Hello',
+          date: 1716206400,
+        },
+      };
+
+      const result = parseTelegramPayload(payload);
+
+      expect(result.externalMessageId).toBe('msg-abc');
     });
   });
 
@@ -104,6 +123,7 @@ describe('parseTelegramPayload', () => {
       expect(result.text).toBeUndefined();
       expect(result.timestamp).toEqual(new Date(1716206400 * 1000));
       expect(result.channel).toBe('telegram');
+      expect(result.externalMessageId).toBe('42');
     });
 
     it('returns UNSUPPORTED for audio payload', () => {
@@ -204,6 +224,7 @@ describe('parseTelegramPayload', () => {
       expect(result.chatId).toBe('unknown');
       expect(result.channel).toBe('telegram');
       expect(result.timestamp.getTime()).toBeGreaterThan(0);
+      expect(result.externalMessageId).toBeUndefined();
       expect(result.rawPayload).toBe(payload);
     });
 
@@ -218,6 +239,38 @@ describe('parseTelegramPayload', () => {
 
     it('returns MALFORMED when message is not an object', () => {
       const payload = { update_id: 1, message: 'not-an-object' };
+
+      const result = parseTelegramPayload(payload);
+
+      expect(result.messageType).toBe('MALFORMED');
+    });
+
+    it('returns MALFORMED when message_id is missing', () => {
+      const payload = {
+        update_id: 1,
+        message: {
+          chat: { id: 123456789 },
+          text: 'Hello',
+          date: 1716206400,
+        },
+      };
+
+      const result = parseTelegramPayload(payload);
+
+      expect(result.messageType).toBe('MALFORMED');
+      expect(result.externalMessageId).toBeUndefined();
+    });
+
+    it('returns MALFORMED when message_id is not a number or string', () => {
+      const payload = {
+        update_id: 1,
+        message: {
+          message_id: null,
+          chat: { id: 123456789 },
+          text: 'Hello',
+          date: 1716206400,
+        },
+      };
 
       const result = parseTelegramPayload(payload);
 

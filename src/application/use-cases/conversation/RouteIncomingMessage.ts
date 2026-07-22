@@ -4,12 +4,11 @@
 // only deserialises the raw body and delegates to this use case.
 
 import type { Queue } from 'bullmq';
-import type { Logger } from 'pino';
 import type { NormalizedPayload } from '../../../domain/ports/messaging';
+import type { IProcessedMessageRepository } from '../../../domain/ports/ProcessedMessageRepository';
+import { ProcessedMessageKey } from '../../../domain/value-objects/ProcessedMessageKey';
 import type { ResolveUserIdentityUseCase } from '../user/ResolveUserIdentity';
-import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../ports/ProcessMessageJob';
-import { sharedCopies } from '../../copies/shared.copies';
 import type { HandleUnsupportedMessage } from './HandleUnsupportedMessage';
 import type { ClassifyFreeTextExpenseIntent } from './ClassifyFreeTextExpenseIntent';
 import type { SendExpenseGuidance } from './SendExpenseGuidance';
@@ -18,12 +17,11 @@ import type { GetConversationState } from './GetConversationState';
 export interface RouteIncomingMessageDeps {
   messageQueue: Queue<ProcessMessageJobData>;
   resolveIdentity: ResolveUserIdentityUseCase;
-  messagingPort: MessagingOutputPort;
+  processedMessageRepository: IProcessedMessageRepository;
   handleUnsupportedMessage: HandleUnsupportedMessage;
   classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent;
   sendGuidance: SendExpenseGuidance;
   getConversationState: GetConversationState;
-  logger: Logger;
 }
 
 export class RouteIncomingMessage {
@@ -54,6 +52,16 @@ export class RouteIncomingMessage {
       return;
     }
 
+    // Idempotency guard: Telegram may retry the same webhook if the first
+    // attempt timed out. The webhook already sent the ack, so skip reprocessing.
+    const processedKey = new ProcessedMessageKey({
+      channel: payload.channel,
+      externalMessageId: payload.externalMessageId!,
+    });
+    if (await this.deps.processedMessageRepository.exists(processedKey)) {
+      return;
+    }
+
     const { userId } = await this.deps.resolveIdentity.execute({
       channel: payload.channel,
       externalId: payload.chatId,
@@ -75,24 +83,17 @@ export class RouteIncomingMessage {
       }
     }
 
+    // TEXT payloads are only produced by the parser for valid Telegram updates,
+    // so externalMessageId is always defined.
     await this.deps.messageQueue.add('process-message', {
       userId,
       rawMessage: text,
       channel: payload.channel,
       externalId: payload.chatId,
+      externalMessageId: payload.externalMessageId!,
       receivedAt: new Date().toISOString(),
     });
 
-    // Acknowledgment is fire-and-forget so the HTTP response is not blocked.
-    this.deps.messagingPort
-      .sendMessage(payload.chatId, sharedCopies.processingAcknowledgment())
-      .catch((err: Error) =>
-        this.deps.logger.error({
-          endpoint: '/webhook/telegram',
-          code: 'ACK_SEND_FAILED',
-          chatId: payload.chatId,
-          error: err.message,
-        }),
-      );
+    await this.deps.processedMessageRepository.markAsProcessed(processedKey);
   }
 }

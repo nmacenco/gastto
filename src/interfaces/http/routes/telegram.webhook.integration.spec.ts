@@ -7,10 +7,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { Queue, Job } from 'bullmq';
-import type { Logger } from 'pino';
 import { registerTelegramWebhook, type TelegramWebhookDeps } from './telegram.webhook';
 import { processIncomingMessageJob } from '../../workers/incomingMessage.worker';
 import { RouteIncomingMessage } from '../../../application/use-cases/conversation/RouteIncomingMessage';
+import { SendImmediateAcknowledgement } from '../../../application/use-cases/conversation/SendImmediateAcknowledgement';
 import { ClassifyFreeTextExpenseIntent } from '../../../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
 import { SendExpenseGuidance } from '../../../application/use-cases/conversation/SendExpenseGuidance';
 import { HandleUnsupportedMessage } from '../../../application/use-cases/conversation/HandleUnsupportedMessage';
@@ -28,24 +28,35 @@ const mockResolveIdentity = vi.fn();
 const mockHandleStartExecute = vi.fn();
 const mockProcessQueueAdd = vi.fn();
 const mockGetConversationStateExecute = vi.fn();
-const mockLoggerError = vi.fn();
+const mockProcessedExists = vi.fn();
+const mockProcessedMarkAsProcessed = vi.fn();
 
 function buildMessagingPort(): MessagingOutputPort {
   return { sendMessage: mockSendMessage };
+}
+
+function buildSendImmediateAcknowledgement(): SendImmediateAcknowledgement {
+  return new SendImmediateAcknowledgement(buildMessagingPort());
+}
+
+function buildProcessedMessageRepository() {
+  return {
+    exists: mockProcessedExists,
+    markAsProcessed: mockProcessedMarkAsProcessed,
+  };
 }
 
 function buildRouteIncomingMessage(): RouteIncomingMessage {
   return new RouteIncomingMessage({
     messageQueue: { add: mockProcessQueueAdd } as unknown as Queue<ProcessMessageJobData>,
     resolveIdentity: { execute: mockResolveIdentity } as unknown as ResolveUserIdentityUseCase,
-    messagingPort: buildMessagingPort(),
     handleUnsupportedMessage: new HandleUnsupportedMessage(buildMessagingPort()),
     classifyFreeTextExpenseIntent: new ClassifyFreeTextExpenseIntent(),
     sendGuidance: new SendExpenseGuidance(buildMessagingPort()),
     getConversationState: {
       execute: mockGetConversationStateExecute,
     } as unknown as GetConversationState,
-    logger: { error: mockLoggerError } as unknown as Logger,
+    processedMessageRepository: buildProcessedMessageRepository(),
   });
 }
 
@@ -58,6 +69,7 @@ function buildMockDeps(): TelegramWebhookDeps {
     handleStartCommand: {
       execute: mockHandleStartExecute,
     } as unknown as HandleStartCommand,
+    sendImmediateAcknowledgement: buildSendImmediateAcknowledgement(),
     resolveIdentity: {
       execute: mockResolveIdentity,
     } as unknown as ResolveUserIdentityUseCase,
@@ -112,6 +124,8 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
       expiresAt: null,
       updatedAt: new Date('2026-05-20T12:00:00Z'),
     });
+    mockProcessedExists.mockResolvedValue(false);
+    mockProcessedMarkAsProcessed.mockResolvedValue(undefined);
   });
 
   it('expense-like text: returns 200, enqueues process-message job, and sends ack', async () => {
@@ -138,6 +152,10 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
 
+    await vi.waitFor(() =>
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…'),
+    );
+
     await processCapturedJob(capturedJobs, routeIncomingMessage);
 
     expect(mockResolveIdentity).toHaveBeenCalledWith({
@@ -151,8 +169,8 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
       rawMessage: 'Pagué el almuerzo, 12 euros',
       channel: 'telegram',
       externalId: '123456789',
+      externalMessageId: '42',
     });
-    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
   });
 
   it('partial info text: returns 200 and enqueues process-message job', async () => {
@@ -176,13 +194,17 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     });
 
     expect(response.statusCode).toBe(200);
+
+    await vi.waitFor(() =>
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…'),
+    );
+
     await processCapturedJob(capturedJobs, routeIncomingMessage);
 
     expect(mockResolveIdentity).toHaveBeenCalledTimes(1);
     expect(mockProcessQueueAdd).toHaveBeenCalledTimes(1);
     const [, jobData] = mockProcessQueueAdd.mock.calls[0] as [string, ProcessMessageJobData];
     expect(jobData.rawMessage).toBe('Almuerzo 12');
-    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
   });
 
   it('non-financial text: returns 200, sends guidance, and does not enqueue', async () => {
@@ -206,12 +228,17 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     });
 
     expect(response.statusCode).toBe(200);
+
+    await vi.waitFor(() =>
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…'),
+    );
+
     await processCapturedJob(capturedJobs, routeIncomingMessage);
 
     expect(mockResolveIdentity).toHaveBeenCalledTimes(1);
     expect(mockGetConversationStateExecute).toHaveBeenCalledWith({ userId: 'user-123' });
     expect(mockProcessQueueAdd).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage).toHaveBeenCalledTimes(2);
     expect(mockSendMessage).toHaveBeenCalledWith(
       '123456789',
       "¡Hola! Para registrar un gasto escribime el monto y el concepto, por ejemplo: 'Almuerzo 12 euros'.",
@@ -248,6 +275,11 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     });
 
     expect(response.statusCode).toBe(200);
+
+    await vi.waitFor(() =>
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…'),
+    );
+
     await processCapturedJob(capturedJobs, routeIncomingMessage);
 
     expect(mockResolveIdentity).toHaveBeenCalledTimes(1);
@@ -255,8 +287,6 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     expect(mockProcessQueueAdd).toHaveBeenCalledTimes(1);
     const [, jobData] = mockProcessQueueAdd.mock.calls[0] as [string, ProcessMessageJobData];
     expect(jobData.rawMessage).toBe('sí');
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
   });
 
   it('very long text: returns 200 and enqueues process-message job', async () => {
@@ -281,12 +311,52 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     });
 
     expect(response.statusCode).toBe(200);
+
+    await vi.waitFor(() =>
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…'),
+    );
+
     await processCapturedJob(capturedJobs, routeIncomingMessage);
 
     expect(mockResolveIdentity).toHaveBeenCalledTimes(1);
     expect(mockProcessQueueAdd).toHaveBeenCalledTimes(1);
     const [, jobData] = mockProcessQueueAdd.mock.calls[0] as [string, ProcessMessageJobData];
     expect(jobData.rawMessage).toBe(longText);
-    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
+  });
+
+  it('duplicate payload: returns 200 and does not re-enqueue process-message job', async () => {
+    mockProcessedExists.mockResolvedValue(true);
+    const capturedJobs: IncomingMessageJobData[] = [];
+    const deps = buildMockDeps();
+    (deps.incomingMessageQueue as unknown as { add: typeof mockProcessQueueAdd }).add = vi
+      .fn()
+      .mockImplementation((_name: string, data: IncomingMessageJobData) => {
+        capturedJobs.push(data);
+        return Promise.resolve(undefined);
+      });
+
+    const { app } = buildApp(deps);
+    const routeIncomingMessage = buildRouteIncomingMessage();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: makeValidPayload('Pagué el almuerzo, 12 euros'),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toEqual({ ok: true });
+
+    await vi.waitFor(() =>
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…'),
+    );
+
+    await processCapturedJob(capturedJobs, routeIncomingMessage);
+
+    expect(mockProcessedExists).toHaveBeenCalledTimes(1);
+    expect(mockResolveIdentity).not.toHaveBeenCalled();
+    expect(mockProcessQueueAdd).not.toHaveBeenCalled();
+    expect(mockProcessedMarkAsProcessed).not.toHaveBeenCalled();
   });
 });

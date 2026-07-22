@@ -4,4 +4,5 @@
 export * from './FreeTextIntent';
 export * from './IncomingMessage';
 export * from './MessageType';
+export * from './ProcessedMessageKey';
 export * from './SpreadsheetAccessResult';

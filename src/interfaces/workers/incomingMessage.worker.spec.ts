@@ -58,6 +58,7 @@ describe('processIncomingMessageJob', () => {
       text: 'Cafe con leche 850',
       timestamp: '2026-05-20T12:00:00.000Z',
       channel: 'telegram',
+      externalMessageId: '42',
     };
 
     const mockJob = { data: jobData } as Job<IncomingMessageJobData>;
@@ -72,6 +73,7 @@ describe('processIncomingMessageJob', () => {
       userId: '999',
       text: 'Cafe con leche 850',
       channel: 'telegram',
+      externalMessageId: '42',
     });
     expect(normalizedPayload.timestamp).toBeInstanceOf(Date);
     expect(normalizedPayload.timestamp.toISOString()).toBe('2026-05-20T12:00:00.000Z');
@@ -84,6 +86,7 @@ describe('processIncomingMessageJob', () => {
       chatId: '123456789',
       timestamp: '2026-05-20T12:00:00.000Z',
       channel: 'telegram',
+      externalMessageId: '42',
       rawPayload,
     };
 
@@ -129,6 +132,7 @@ describe('processIncomingMessageJob', () => {
       chatId: '123456789',
       timestamp: '2026-05-20T12:00:00.000Z',
       channel: 'telegram',
+      externalMessageId: '42',
     };
 
     const mockJob = { data: jobData, id: 'job-42' } as Job<IncomingMessageJobData>;
@@ -181,6 +185,7 @@ describe('createIncomingMessageWorker', () => {
       chatId: '123',
       timestamp: '2026-05-20T12:00:00.000Z',
       channel: 'telegram',
+      externalMessageId: '42',
     };
     const mockJob = { data: jobData } as Job<IncomingMessageJobData>;
 

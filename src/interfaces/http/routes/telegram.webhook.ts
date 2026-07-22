@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Queue } from 'bullmq';
 import { z } from 'zod';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
+import type { SendImmediateAcknowledgement } from '../../../application/use-cases/conversation/SendImmediateAcknowledgement';
 import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
 import { parseTelegramPayload } from '../../../infrastructure/adapters/telegram/TelegramPayloadParser';
@@ -20,6 +21,7 @@ import { validateTelegramOrigin } from '../middleware/telegramAuth';
 export interface TelegramWebhookHandlerDeps {
   incomingMessageQueue: Queue<IncomingMessageJobData>;
   handleStartCommand: HandleStartCommand;
+  sendImmediateAcknowledgement: SendImmediateAcknowledgement;
   resolveIdentity: ResolveUserIdentityUseCase;
 }
 
@@ -60,7 +62,37 @@ export async function handleTelegramWebhook(
     return reply.status(200).send({ ok: true });
   }
 
-  // Enqueue everything else to the thin FIFO worker (ADR-011)
+  // Send immediate acknowledgment for text payloads (fire-and-forget) so the
+  // user sees a response within <= 1 second even if downstream workers are busy.
+  if (payload.messageType === 'TEXT') {
+    deps.sendImmediateAcknowledgement
+      .execute({
+        chatId: payload.chatId,
+        channel: payload.channel,
+        userId: payload.userId,
+      })
+      .then((result) => {
+        if (result.status === 'failure') {
+          req.log.error({
+            endpoint: '/webhook/telegram',
+            code: 'ACK_SEND_FAILED',
+            chatId: payload.chatId,
+            errorCode: result.errorCode,
+          });
+        }
+      })
+      .catch((err: Error) =>
+        req.log.error({
+          endpoint: '/webhook/telegram',
+          code: 'ACK_SEND_FAILED',
+          chatId: payload.chatId,
+          error: err.message,
+        }),
+      );
+  }
+
+  // Enqueue everything else to the thin FIFO worker (ADR-011).
+  // MALFORMED payloads are already short-circuited, so externalMessageId is always defined here.
   await deps.incomingMessageQueue.add('incoming-message', {
     messageType: payload.messageType,
     chatId: payload.chatId,
@@ -68,6 +100,7 @@ export async function handleTelegramWebhook(
     text: payload.text,
     timestamp: payload.timestamp.toISOString(),
     channel: payload.channel,
+    externalMessageId: payload.externalMessageId!,
     rawPayload: payload.rawPayload,
   });
 

@@ -25,6 +25,7 @@ export async function processIncomingMessageJob(
     text: data.text,
     timestamp: new Date(data.timestamp),
     channel: data.channel,
+    externalMessageId: data.externalMessageId,
     rawPayload: data.rawPayload,
   };
 
