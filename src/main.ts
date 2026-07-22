@@ -69,9 +69,11 @@ import { DetectCategories } from './application/use-cases/spreadsheet/DetectCate
 import { ConfirmCategories } from './application/use-cases/spreadsheet/ConfirmCategories';
 import { HandleStartCommand } from './application/use-cases/conversation/HandleStartCommand';
 import { RedisMappingCorrectionStateRepository } from './infrastructure/redis/RedisMappingCorrectionStateRepository';
+import { RedisProcessedMessageRepository } from './infrastructure/redis/RedisProcessedMessageRepository';
 import { HandleUnsupportedMessage } from './application/use-cases/conversation/HandleUnsupportedMessage';
 import { ClassifyFreeTextExpenseIntent } from './application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
 import { SendExpenseGuidance } from './application/use-cases/conversation/SendExpenseGuidance';
+import { SendImmediateAcknowledgement } from './application/use-cases/conversation/SendImmediateAcknowledgement';
 import { RouteIncomingMessage } from './application/use-cases/conversation/RouteIncomingMessage';
 import { TransitionConversationState } from './application/use-cases/conversation/TransitionConversationState';
 import { RecoverCorruptedState } from './application/use-cases/conversation/RecoverCorruptedState';
@@ -247,19 +249,20 @@ async function bootstrap(): Promise<void> {
       if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET) {
         const telegramAdapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN, rootLogger);
         const handleStartCommand = new HandleStartCommand(telegramAdapter, conversationRepo);
+        const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(telegramAdapter);
 
         const handleUnsupportedMessage = new HandleUnsupportedMessage(telegramAdapter);
         const classifyFreeTextExpenseIntent = new ClassifyFreeTextExpenseIntent();
         const sendExpenseGuidance = new SendExpenseGuidance(telegramAdapter);
+        const processedMessageRepository = new RedisProcessedMessageRepository(redis);
         const routeIncomingMessage = new RouteIncomingMessage({
           messageQueue,
           resolveIdentity,
-          messagingPort: telegramAdapter,
           handleUnsupportedMessage,
           classifyFreeTextExpenseIntent,
           sendGuidance: sendExpenseGuidance,
           getConversationState,
-          logger: rootLogger,
+          processedMessageRepository,
         });
 
         // Thin FIFO worker (ADR-011): guarantees per-user message ordering
@@ -533,6 +536,7 @@ async function bootstrap(): Promise<void> {
           webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
           incomingMessageQueue,
           handleStartCommand,
+          sendImmediateAcknowledgement,
           resolveIdentity,
         });
 
