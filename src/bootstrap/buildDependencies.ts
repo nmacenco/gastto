@@ -1,0 +1,482 @@
+// LAYER: Bootstrap
+// Wires repositories, use cases, queues and optional feature bundles.
+
+import { Queue } from 'bullmq';
+
+import type { Env } from '../config/env.schema';
+import type {
+  Dependencies,
+  DrizzleDatabase,
+  GoogleOAuthFeature,
+  TelegramFeature,
+} from './types';
+
+// Infrastructure
+import { DrizzleUserRepository } from '../infrastructure/db/repositories/DrizzleUserRepository';
+import { DrizzleConversationStateRepository } from '../infrastructure/db/repositories/DrizzleConversationStateRepository';
+import { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
+import { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import { DrizzleSpreadsheetConfigRepository } from '../infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
+import { DrizzleColumnMappingRepository } from '../infrastructure/db/repositories/DrizzleColumnMappingRepository';
+import { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
+import { DrizzleUserCategoryRepository } from '../infrastructure/db/repositories/DrizzleUserCategoryRepository';
+import { DrizzleExpenseRecordRepository } from '../infrastructure/db/repositories/DrizzleExpenseRecordRepository';
+import { TelegramMessengerAdapter } from '../infrastructure/adapters/telegram/TelegramMessengerAdapter';
+import { GoogleDriveOAuthAdapter } from '../infrastructure/adapters/oauth';
+import { GoogleDriveFileDiscoveryAdapter } from '../infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
+import { GoogleSheetsAdapterFactory } from '../infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
+import { SpreadsheetAccessAdapterFactory } from '../infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
+import { GoogleSheetsAdapter } from '../infrastructure/adapters/sheets/GoogleSheetsAdapter';
+import { SpreadsheetCategoryReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryReaderFactory';
+import { RuleBasedColumnInferenceAdapter } from '../infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
+import { RuleBasedHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
+import { LLMHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/LLMHeaderDetectionAdapter';
+import { LLMColumnInferenceAdapter } from '../infrastructure/adapters/sheets/LLMColumnInferenceAdapter';
+import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
+import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
+import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
+import { RuleBasedColumnMappingCorrectionParser } from '../application/services/ColumnMappingCorrectionParser';
+import { TokenEncryptionAdapter } from '../infrastructure/security/TokenEncryptionAdapter';
+import { RedisMappingCorrectionStateRepository } from '../infrastructure/redis/RedisMappingCorrectionStateRepository';
+import { RedisProcessedMessageRepository } from '../infrastructure/redis/RedisProcessedMessageRepository';
+import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProcessingLock';
+
+// Application
+import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
+import { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
+import { HandleOAuthCallback } from '../application/use-cases/spreadsheet/HandleOAuthCallback';
+import { SendOAuthReminder } from '../application/use-cases/spreadsheet/SendOAuthReminder';
+import { CancelCloudConnection } from '../application/use-cases/spreadsheet/CancelCloudConnection';
+import { HandleSpreadsheetFileSelection } from '../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
+import { HandleSheetSelection } from '../application/use-cases/spreadsheet/HandleSheetSelection';
+import { ValidateSpreadsheetAccess } from '../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
+import { InferColumnMapping } from '../application/use-cases/spreadsheet/InferColumnMapping';
+import { ConfirmColumnMapping } from '../application/use-cases/spreadsheet/ConfirmColumnMapping';
+import { CorrectColumnMapping } from '../application/use-cases/spreadsheet/CorrectColumnMapping';
+import { DetectCategories } from '../application/use-cases/spreadsheet/DetectCategories';
+import { ConfirmCategories } from '../application/use-cases/spreadsheet/ConfirmCategories';
+import { HandleStartCommand } from '../application/use-cases/conversation/HandleStartCommand';
+import { HandleUnsupportedMessage } from '../application/use-cases/conversation/HandleUnsupportedMessage';
+import { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
+import { SendExpenseGuidance } from '../application/use-cases/conversation/SendExpenseGuidance';
+import { SendImmediateAcknowledgement } from '../application/use-cases/conversation/SendImmediateAcknowledgement';
+import { RouteIncomingMessage } from '../application/use-cases/conversation/RouteIncomingMessage';
+import { TransitionConversationState } from '../application/use-cases/conversation/TransitionConversationState';
+import { RecoverCorruptedState } from '../application/use-cases/conversation/RecoverCorruptedState';
+import { GetConversationState } from '../application/use-cases/conversation/GetConversationState';
+
+import type { Redis } from 'ioredis';
+import type { Logger } from 'pino';
+import type { ProcessMessageJobData } from '../application/ports/ProcessMessageJob';
+import type { IncomingMessageJobData } from '../application/ports/IncomingMessageJob';
+import type { LLMPort } from '../domain/ports/services';
+
+/** Core infrastructure required to build the dependency graph. */
+export interface BuildDependenciesInfra {
+  db: DrizzleDatabase;
+  redis: Redis;
+  rootLogger: Logger;
+}
+
+function createLLMPort(env: Env): LLMPort {
+  if (env.NVIDIA_API_KEY !== undefined && env.NVIDIA_API_KEY.length > 0) {
+    return new NvidiaAdapter(env.NVIDIA_API_KEY);
+  }
+  if (env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0) {
+    return new ClaudeAdapter(env.ANTHROPIC_API_KEY);
+  }
+  if (env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
+    return new OpenAIAdapter(env.OPENAI_API_KEY);
+  }
+  throw new Error(
+    'At least one LLM provider API key must be configured: NVIDIA_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY.',
+  );
+}
+
+function buildTelegramFeature(
+  env: Env,
+  infra: BuildDependenciesInfra,
+  core: {
+    messageQueue: Queue<ProcessMessageJobData>;
+    resolveIdentity: ResolveUserIdentityUseCase;
+    getConversationState: GetConversationState;
+    conversationRepo: DrizzleConversationStateRepository;
+  },
+): TelegramFeature | null {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
+    return null;
+  }
+
+  const adapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN, infra.rootLogger);
+  const handleStartCommand = new HandleStartCommand(adapter, core.conversationRepo);
+  const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(adapter);
+  const handleUnsupportedMessage = new HandleUnsupportedMessage(adapter);
+  const classifyFreeTextExpenseIntent = new ClassifyFreeTextExpenseIntent();
+  const sendExpenseGuidance = new SendExpenseGuidance(adapter);
+  const processedMessageRepository = new RedisProcessedMessageRepository(infra.redis);
+
+  const routeIncomingMessage = new RouteIncomingMessage({
+    messageQueue: core.messageQueue,
+    resolveIdentity: core.resolveIdentity,
+    handleUnsupportedMessage,
+    classifyFreeTextExpenseIntent,
+    sendGuidance: sendExpenseGuidance,
+    getConversationState: core.getConversationState,
+    processedMessageRepository,
+  });
+
+  return {
+    adapter,
+    handleStartCommand,
+    sendImmediateAcknowledgement,
+    handleUnsupportedMessage,
+    classifyFreeTextExpenseIntent,
+    sendExpenseGuidance,
+    processedMessageRepository,
+    routeIncomingMessage,
+  };
+}
+
+function buildGoogleOAuthFeature(
+  env: Env,
+  infra: BuildDependenciesInfra,
+  core: {
+    tokenRepo: DrizzleOAuthTokenRepository;
+    conversationRepo: DrizzleConversationStateRepository;
+    userRepo: DrizzleUserRepository;
+    spreadsheetConfigRepo: DrizzleSpreadsheetConfigRepository;
+    columnMappingRepo: DrizzleColumnMappingRepository;
+    categoryVocabularyRepo: DrizzleCategoryVocabularyRepository;
+    tokenEncryption: TokenEncryptionAdapter;
+    transitionState: TransitionConversationState;
+    reminderQueue: Queue;
+    ruleBasedColumnInferenceAdapter: RuleBasedColumnInferenceAdapter;
+    ruleBasedHeaderDetectionAdapter: RuleBasedHeaderDetectionAdapter;
+    llmColumnInferenceAdapter: LLMColumnInferenceAdapter;
+    llmHeaderDetectionAdapter: LLMHeaderDetectionAdapter;
+    telegramAdapter: TelegramMessengerAdapter | null;
+  },
+): GoogleOAuthFeature | null {
+  if (
+    !env.GOOGLE_CLIENT_ID ||
+    !env.GOOGLE_CLIENT_SECRET ||
+    !env.GOOGLE_REDIRECT_URI ||
+    !core.telegramAdapter
+  ) {
+    return null;
+  }
+
+  const adapter = new GoogleDriveOAuthAdapter({
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    redirectUri: env.GOOGLE_REDIRECT_URI,
+  });
+
+  const messagingPort = core.telegramAdapter;
+
+  const initiateCloudConnection = new InitiateCloudConnection({
+    oauthService: adapter,
+    redis: infra.redis,
+    reminderQueue: core.reminderQueue,
+    transitionState: core.transitionState,
+    messagingPort,
+    redirectUri: env.GOOGLE_REDIRECT_URI,
+  });
+
+  const sendOAuthReminder = new SendOAuthReminder({
+    redis: infra.redis,
+    oauthService: adapter,
+    tokenRepository: core.tokenRepo,
+    conversationRepo: core.conversationRepo,
+    reminderQueue: core.reminderQueue,
+    transitionState: core.transitionState,
+    messagingPort,
+  });
+
+  const cancelCloudConnection = new CancelCloudConnection({
+    redis: infra.redis,
+    reminderQueue: core.reminderQueue,
+    transitionState: core.transitionState,
+    messagingPort,
+    logger: infra.rootLogger,
+  });
+
+  const driveFileDiscovery = new GoogleDriveFileDiscoveryAdapter(infra.rootLogger);
+  const sheetsAdapterFactory = new GoogleSheetsAdapterFactory();
+  const categoryReaderFactory = new SpreadsheetCategoryReaderFactory(sheetsAdapterFactory);
+
+  const inferColumnMapping = new InferColumnMapping({
+    tokenRepository: core.tokenRepo,
+    tokenEncryption: core.tokenEncryption,
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    columnMappingRepository: core.columnMappingRepo,
+    columnInferencePort: core.ruleBasedColumnInferenceAdapter,
+    llmColumnInferencePort: core.llmColumnInferenceAdapter,
+    headerDetectionPort: core.ruleBasedHeaderDetectionAdapter,
+    llmHeaderDetectionPort: core.llmHeaderDetectionAdapter,
+    messagingPort,
+    transitionState: core.transitionState,
+  });
+
+  const validateSpreadsheetAccess = new ValidateSpreadsheetAccess({
+    validateSpreadsheetAccessPortFactory: new SpreadsheetAccessAdapterFactory(),
+    tokenRepository: core.tokenRepo,
+    transitionState: core.transitionState,
+    messagingPort,
+    tokenEncryption: core.tokenEncryption,
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    inferColumnMapping,
+    logger: infra.rootLogger,
+  });
+
+  const handleSheetSelection = new HandleSheetSelection({
+    spreadsheetPortFactory: sheetsAdapterFactory,
+    tokenRepository: core.tokenRepo,
+    transitionState: core.transitionState,
+    messagingPort,
+    tokenEncryption: core.tokenEncryption,
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    validateSpreadsheetAccess,
+    logger: infra.rootLogger,
+  });
+
+  const handleSpreadsheetFileSelection = new HandleSpreadsheetFileSelection({
+    cloudStorage: driveFileDiscovery,
+    tokenRepository: core.tokenRepo,
+    transitionState: core.transitionState,
+    messagingPort,
+    tokenEncryption: core.tokenEncryption,
+    logger: infra.rootLogger,
+    handleSheetSelection,
+  });
+
+  const handleOAuthCallback = new HandleOAuthCallback({
+    redis: infra.redis,
+    logger: infra.rootLogger,
+    oauthService: adapter,
+    tokenRepository: core.tokenRepo,
+    reminderQueue: core.reminderQueue,
+    transitionState: core.transitionState,
+    messagingPort,
+    tokenEncryption: core.tokenEncryption,
+    handleSpreadsheetFileSelection,
+  });
+
+  const confirmColumnMapping = new ConfirmColumnMapping({
+    columnMappingRepository: core.columnMappingRepo,
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    messagingPort,
+    transitionState: core.transitionState,
+  });
+
+  const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
+
+  const correctColumnMapping = new CorrectColumnMapping({
+    columnMappingRepository: core.columnMappingRepo,
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    tokenRepository: core.tokenRepo,
+    tokenEncryption: core.tokenEncryption,
+    spreadsheetColumnPort: new GoogleSheetsAdapter(''),
+    correctionParser: new RuleBasedColumnMappingCorrectionParser(),
+    correctionStateRepository: mappingCorrectionStateRepository,
+    headerDetectionPort: core.ruleBasedHeaderDetectionAdapter,
+    llmHeaderDetectionPort: core.llmHeaderDetectionAdapter,
+    llmColumnInferencePort: core.llmColumnInferenceAdapter,
+    messagingPort,
+    transitionState: core.transitionState,
+    stateTtlSeconds: env.MAPPING_CORRECTION_TTL_SECONDS,
+  });
+
+  const detectCategories = new DetectCategories({
+    categoryReaderPortFactory: categoryReaderFactory,
+    tokenRepository: core.tokenRepo,
+    tokenEncryption: core.tokenEncryption,
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    columnMappingRepository: core.columnMappingRepo,
+    messagingPort,
+    transitionState: core.transitionState,
+    categoryVocabularyRepository: core.categoryVocabularyRepo,
+  });
+
+  const confirmCategories = new ConfirmCategories({
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    userRepository: core.userRepo,
+    messagingPort,
+    transitionState: core.transitionState,
+  });
+
+  return {
+    adapter,
+    initiateCloudConnection,
+    handleOAuthCallback,
+    sendOAuthReminder,
+    cancelCloudConnection,
+    driveFileDiscovery,
+    sheetsAdapterFactory,
+    categoryReaderFactory,
+    handleSpreadsheetFileSelection,
+    handleSheetSelection,
+    validateSpreadsheetAccess,
+    inferColumnMapping,
+    confirmColumnMapping,
+    correctColumnMapping,
+    detectCategories,
+    confirmCategories,
+  };
+}
+
+/**
+ * Builds the full dependency graph from infrastructure and environment.
+ *
+ * Returns `telegram: null` when Telegram is not configured and
+ * `googleOAuth: null` when Google OAuth credentials are missing.
+ */
+export function buildDependencies(
+  env: Env,
+  infra: BuildDependenciesInfra,
+): Dependencies {
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const userRepo = new DrizzleUserRepository(infra.db, infra.redis);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const conversationRepo = new DrizzleConversationStateRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const operationLogRepo = new DrizzleOperationLogRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const tokenRepo = new DrizzleOAuthTokenRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const spreadsheetConfigRepo = new DrizzleSpreadsheetConfigRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const columnMappingRepo = new DrizzleColumnMappingRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const categoryVocabularyRepo = new DrizzleCategoryVocabularyRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const userCategoryRepo = new DrizzleUserCategoryRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const expenseRecordRepo = new DrizzleExpenseRecordRepository(infra.db);
+
+  const tokenEncryption = new TokenEncryptionAdapter(env.ENCRYPTION_KEY);
+
+  const resolveIdentity = new ResolveUserIdentityUseCase(userRepo, conversationRepo);
+  const getConversationState = new GetConversationState(conversationRepo);
+  const transitionState = new TransitionConversationState(conversationRepo);
+  const recoverCorruptedState = new RecoverCorruptedState(conversationRepo, operationLogRepo);
+
+  // process-message jobs run side-effectful FSM handlers that send
+  // user-facing messages. Retrying them re-runs those side effects and
+  // can duplicate outbound messages (see ADR-015). The worker wraps the
+  // handler in a try/catch and surfaces a single fallback message, so
+  // non-lock errors must NOT be retried.
+  // A custom backoff strategy (registered on the Worker) returns -1 for
+  // every error except UserAlreadyProcessingError, ensuring only lock
+  // contention triggers a retry with exponential backoff.
+  const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
+    connection: infra.redis,
+    defaultJobOptions: {
+      attempts: 5,
+      backoff: { type: 'custom' },
+      removeOnComplete: 100,
+      removeOnFail: 500,
+    },
+  });
+
+  const incomingMessageQueue = new Queue<IncomingMessageJobData>('incoming-message', {
+    connection: infra.redis,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 1000 },
+      removeOnComplete: 100,
+      removeOnFail: 500,
+    },
+  });
+
+  const reminderQueue = new Queue('oauth-reminder', {
+    connection: infra.redis,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 1000 },
+      removeOnComplete: 100,
+      removeOnFail: 500,
+    },
+  });
+
+  const llmPort = createLLMPort(env);
+  const llmHeaderDetectionAdapter = new LLMHeaderDetectionAdapter(llmPort, infra.rootLogger);
+  const llmColumnInferenceAdapter = new LLMColumnInferenceAdapter(llmPort, infra.rootLogger);
+
+  const ruleBasedColumnInferenceAdapter = new RuleBasedColumnInferenceAdapter();
+  const ruleBasedHeaderDetectionAdapter = new RuleBasedHeaderDetectionAdapter();
+
+  const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
+  const userProcessingLock = new RedisUserProcessingLock(infra.redis);
+
+  const registerExpense = new RegisterExpenseUseCase(
+    llmPort,
+    // TODO: replace with a token-aware SpreadsheetPort once save() is wired
+    new GoogleSheetsAdapter(''),
+    expenseRecordRepo,
+    spreadsheetConfigRepo,
+    columnMappingRepo,
+    userCategoryRepo,
+    conversationRepo,
+    operationLogRepo,
+  );
+
+  const telegram = buildTelegramFeature(env, infra, {
+    messageQueue,
+    resolveIdentity,
+    getConversationState,
+    conversationRepo,
+  });
+
+  const googleOAuth = buildGoogleOAuthFeature(env, infra, {
+    tokenRepo,
+    conversationRepo,
+    userRepo,
+    spreadsheetConfigRepo,
+    columnMappingRepo,
+    categoryVocabularyRepo,
+    tokenEncryption,
+    transitionState,
+    reminderQueue,
+    ruleBasedColumnInferenceAdapter,
+    ruleBasedHeaderDetectionAdapter,
+    llmColumnInferenceAdapter,
+    llmHeaderDetectionAdapter,
+    telegramAdapter: telegram?.adapter ?? null,
+  });
+
+  return {
+    db: infra.db,
+    redis: infra.redis,
+    rootLogger: infra.rootLogger,
+    userRepo,
+    conversationRepo,
+    operationLogRepo,
+    tokenRepo,
+    spreadsheetConfigRepo,
+    columnMappingRepo,
+    categoryVocabularyRepo,
+    userCategoryRepo,
+    expenseRecordRepo,
+    tokenEncryption,
+    resolveIdentity,
+    getConversationState,
+    transitionState,
+    recoverCorruptedState,
+    messageQueue,
+    incomingMessageQueue,
+    reminderQueue,
+    llmPort,
+    llmHeaderDetectionAdapter,
+    llmColumnInferenceAdapter,
+    spreadsheetAccessAdapterFactory: new SpreadsheetAccessAdapterFactory(),
+    ruleBasedColumnInferenceAdapter,
+    ruleBasedHeaderDetectionAdapter,
+    mappingCorrectionStateRepository,
+    userProcessingLock,
+    registerExpense,
+    telegram,
+    googleOAuth,
+  };
+}
