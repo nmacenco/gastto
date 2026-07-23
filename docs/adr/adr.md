@@ -767,6 +767,97 @@ La cola `process-message` y su worker permanecen sin cambios.
 
 ---
 
+## ADR-016 · Bootstrap: Descomposición de `src/main.ts` en Feature Bundles Opcionales
+
+**Status:** Accepted **Fecha:** 2026-07-22
+
+### Contexto
+
+`src/main.ts` había crecido hasta ~600 líneas en una única función `bootstrap()` que creaba el logger, inicializaba Sentry, construía Fastify, conectaba PostgreSQL y Redis, instanciaba todos los repositorios y casos de uso, registraba rutas, workers y auto-registraba el webhook de Telegram. Esta función era el único lugar donde se ensamblaba el grafo de dependencias completo y donde se cableaba la infraestructura opcional (bot de Telegram, Google OAuth).
+
+Esto generaba tres problemas concretos:
+
+1. **Cableado no testeable**: `bootstrap()` importaba el singleton `env` y adaptadores concretos directamente, por lo que no podía iniciarse en tests sin mutar `process.env` o tocar recursos de red reales.
+2. **Cascada de `null` condicionales**: los casos de uso que dependían de Google OAuth se cableaban con repeticiones de `adapter !== null ? new SomeUseCase(...) : null`, haciendo fácil pasar una dependencia `null` por error.
+3. **Sin red de seguridad**: refactorizar el archivo arriesgaba cambiar el orden de registro de rutas, el inicio de workers o el auto-registro del webhook sin tests que detectaran la deriva.
+
+### Decisión
+
+Descomponer `src/main.ts` en un módulo `src/bootstrap/` y agrupar los adaptadores opcionales en *feature bundles* explícitos (`TelegramFeature`, `GoogleOAuthFeature`).
+
+`src/main.ts` pasa a ser un orquestador que:
+
+1. Crea el logger raíz.
+2. Inicializa Sentry.
+3. Construye Fastify mediante `createFastify(env, rootLogger)`.
+4. Conecta PostgreSQL y Redis cuando existen `DATABASE_URL` y `REDIS_URL`.
+5. Llama a `buildDependencies(env, { db, redis, rootLogger })`.
+6. Llama a `registerWorkers(app, deps, env)` y `registerRoutes(app, deps, env)`.
+7. Arranca el servidor en `env.PORT`.
+
+El módulo `src/bootstrap/` contiene:
+
+- `createFastify.ts`: factoría de Fastify, registro de plugins, compiladores Zod, Swagger y handler de errores de Sentry.
+- `buildDependencies.ts`: cableado de repositorios, casos de uso y *feature bundles* opcionales.
+- `registerRoutes.ts`: registro de `/health`, `/webhook/telegram` y `/auth/google/callback`.
+- `registerWorkers.ts`: creación de workers BullMQ y auto-registro del webhook de Telegram.
+- `types.ts`: `Dependencies`, `TelegramFeature`, `GoogleOAuthFeature`.
+- `index.ts`: re-exports públicos.
+
+### Feature bundles opcionales
+
+La infraestructura opcional se crea ahora como un único objeto:
+
+```typescript
+export interface TelegramFeature {
+  adapter: TelegramMessengerAdapter;
+  handleStartCommand: HandleStartCommand;
+  sendImmediateAcknowledgement: SendImmediateAcknowledgement;
+  handleUnsupportedMessage: HandleUnsupportedMessage;
+  classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent;
+  sendExpenseGuidance: SendExpenseGuidance;
+  processedMessageRepository: RedisProcessedMessageRepository;
+  routeIncomingMessage: RouteIncomingMessage;
+}
+
+export interface GoogleOAuthFeature {
+  adapter: GoogleDriveOAuthAdapter;
+  initiateCloudConnection: InitiateCloudConnection;
+  handleOAuthCallback: HandleOAuthCallback;
+  sendOAuthReminder: SendOAuthReminder;
+  cancelCloudConnection: CancelCloudConnection;
+  driveFileDiscovery: GoogleDriveFileDiscoveryAdapter;
+  sheetsAdapterFactory: GoogleSheetsAdapterFactory;
+  categoryReaderFactory: SpreadsheetCategoryReaderFactory;
+  handleSpreadsheetFileSelection: HandleSpreadsheetFileSelection;
+  handleSheetSelection: HandleSheetSelection;
+  validateSpreadsheetAccess: ValidateSpreadsheetAccess;
+  inferColumnMapping: InferColumnMapping;
+  confirmColumnMapping: ConfirmColumnMapping;
+  correctColumnMapping: CorrectColumnMapping;
+  detectCategories: DetectCategories;
+  confirmCategories: ConfirmCategories;
+}
+```
+
+El grafo `Dependencies` expone `telegram: TelegramFeature | null` y `googleOAuth: GoogleOAuthFeature | null`. Los consumidores verifican `deps.googleOAuth !== null` una sola vez y luego acceden a todos los miembros del bundle de forma segura.
+
+### Consecuencias
+
+**Positivas**
+
+- El cableado de bootstrap ahora está cubierto por tests unitarios e integración.
+- Se elimina la cascada de `null` condicionales; la infraestructura opcional se expresa como features completas.
+- Los nuevos casos de uso dependientes de OAuth se agregan dentro de `GoogleOAuthFeature` y fluyen automáticamente a workers y rutas.
+- `src/main.ts` se reduce a ~100 líneas y documenta la secuencia de arranque de forma legible.
+
+**Negativas**
+
+- El grafo de dependencias completo está dividido en varios archivos; rastrear una dependencia concreta requiere saltar entre `buildDependencies.ts`, `types.ts` y los archivos de rutas/workers.
+- `buildDependencies.ts` sigue siendo grande porque el proyecto usa inyección de dependencias manual. Una futura decisión de contenedor de DI requeriría un ADR separado.
+
+---
+
 ## Resumen de Decisiones
 
 | ADR     | Decisión                                                                                                                          | Status   |
@@ -785,6 +876,7 @@ La cola `process-message` y su worker permanecen sin cambios.
 | ADR-012 | Centralize User-Facing Text in Application Copy Modules                                                                          | Accepted |
 | ADR-013 | Adopt Pino as the Single Structured Logger                                                                                       | Accepted |
 | ADR-014 | Auto-trigger next use case on deterministic FSM transitions                                                                      | Proposed |
+| ADR-016 | Decompose `src/main.ts` Bootstrap into Optional Feature Bundles                                                                  | Accepted |
 
 ---
 
