@@ -19,11 +19,7 @@ import { registerOAuthCallback } from '../interfaces/http/routes/oauth.callback'
  * `deps` may be `null` when the application starts without database or Redis,
  * in which case only the health route is registered.
  */
-export function registerRoutes(
-  app: FastifyInstance,
-  deps: Dependencies | null,
-  env: Env,
-): void {
+export function registerRoutes(app: FastifyInstance, deps: Dependencies | null, env: Env): void {
   app.withTypeProvider<ZodTypeProvider>().get(
     '/health',
     {

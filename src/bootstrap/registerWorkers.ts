@@ -67,9 +67,7 @@ export async function registerWorkers(
     detectCategories: deps.googleOAuth?.detectCategories ?? null,
     confirmCategories: deps.googleOAuth?.confirmCategories ?? null,
   });
-  app.log.info(
-    `Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`,
-  );
+  app.log.info(`Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`);
 
   // Auto-register Telegram webhook on startup so Telegram knows where to deliver updates.
   // Skip for localhost since Telegram servers cannot reach local addresses.
@@ -84,9 +82,7 @@ export async function registerWorkers(
       app.log.error({ msg: 'Failed to register Telegram webhook', error: err });
     }
   } else {
-    app.log.warn(
-      'WEBHOOK_BASE_URL is localhost — Telegram webhook auto-registration skipped',
-    );
+    app.log.warn('WEBHOOK_BASE_URL is localhost — Telegram webhook auto-registration skipped');
   }
 
   if (deps.googleOAuth !== null) {

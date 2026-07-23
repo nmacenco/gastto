@@ -60,11 +60,7 @@ describe('RedisProcessedMessageRepository', () => {
 
     await repo.markAsProcessed(buildKey());
 
-    expect(mockSetex).toHaveBeenCalledWith(
-      'processed_message:telegram:msg-12345',
-      86_400,
-      '1',
-    );
+    expect(mockSetex).toHaveBeenCalledWith('processed_message:telegram:msg-12345', 86_400, '1');
   });
 
   it('uses the whatsapp channel in the key namespace', async () => {

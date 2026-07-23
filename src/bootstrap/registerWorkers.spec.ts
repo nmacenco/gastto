@@ -80,7 +80,9 @@ function buildTelegramFeature(): TelegramFeature {
     classifyFreeTextExpenseIntent: {} as TelegramFeature['classifyFreeTextExpenseIntent'],
     sendExpenseGuidance: {} as TelegramFeature['sendExpenseGuidance'],
     processedMessageRepository: {} as TelegramFeature['processedMessageRepository'],
-    routeIncomingMessage: { execute: vi.fn() } as unknown as TelegramFeature['routeIncomingMessage'],
+    routeIncomingMessage: {
+      execute: vi.fn(),
+    } as unknown as TelegramFeature['routeIncomingMessage'],
   };
 }
 
@@ -159,7 +161,9 @@ describe('registerWorkers', () => {
 
     await registerWorkers(app, deps, baseEnv);
 
-    const processMessageCall = vi.mocked(Worker).mock.calls.find(([name]) => name === 'process-message');
+    const processMessageCall = vi
+      .mocked(Worker)
+      .mock.calls.find(([name]) => name === 'process-message');
     expect(processMessageCall).toBeDefined();
     const options = processMessageCall![2] as unknown as { concurrency: number };
     expect(options.concurrency).toBe(2);

@@ -4,12 +4,7 @@
 import { Queue } from 'bullmq';
 
 import type { Env } from '../config/env.schema';
-import type {
-  Dependencies,
-  DrizzleDatabase,
-  GoogleOAuthFeature,
-  TelegramFeature,
-} from './types';
+import type { Dependencies, DrizzleDatabase, GoogleOAuthFeature, TelegramFeature } from './types';
 
 // Infrastructure
 import { DrizzleUserRepository } from '../infrastructure/db/repositories/DrizzleUserRepository';
@@ -332,10 +327,7 @@ function buildGoogleOAuthFeature(
  * Returns `telegram: null` when Telegram is not configured and
  * `googleOAuth: null` when Google OAuth credentials are missing.
  */
-export function buildDependencies(
-  env: Env,
-  infra: BuildDependenciesInfra,
-): Dependencies {
+export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Dependencies {
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const userRepo = new DrizzleUserRepository(infra.db, infra.redis);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema

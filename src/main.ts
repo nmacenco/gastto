@@ -15,12 +15,7 @@ import { createLogger } from './infrastructure/logger';
 import type { CreateLoggerOptions } from './infrastructure/logger';
 import type { Logger } from 'pino';
 
-import {
-  createFastify,
-  buildDependencies,
-  registerRoutes,
-  registerWorkers,
-} from './bootstrap';
+import { createFastify, buildDependencies, registerRoutes, registerWorkers } from './bootstrap';
 
 /** Logger factory injected into bootstrap for testability. */
 export type LoggerFactory = (opts?: CreateLoggerOptions) => Logger;
