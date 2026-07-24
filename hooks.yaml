@@ -1,0 +1,5 @@
+hooks:
+  - event: tool.after.edit
+    actions:
+      - bash: "npx prettier --write $FILE"
+      - bash: "npx eslint --fix $FILE"
