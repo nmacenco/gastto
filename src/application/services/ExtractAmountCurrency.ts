@@ -132,13 +132,33 @@ export class ExtractAmountCurrency {
     while ((match = SYMBOL_REGEX.exec(text)) !== null) {
       const symbol = match[0].toUpperCase();
       if (symbol === '€') {
-        matches.push({ code: 'EUR', candidates: [], startIndex: match.index, endIndex: match.index + 1 });
+        matches.push({
+          code: 'EUR',
+          candidates: [],
+          startIndex: match.index,
+          endIndex: match.index + 1,
+        });
       } else if (symbol === '£') {
-        matches.push({ code: 'GBP', candidates: [], startIndex: match.index, endIndex: match.index + 1 });
+        matches.push({
+          code: 'GBP',
+          candidates: [],
+          startIndex: match.index,
+          endIndex: match.index + 1,
+        });
       } else if (symbol === 'A$') {
-        matches.push({ code: 'ARS', candidates: [], startIndex: match.index, endIndex: match.index + 2 });
+        matches.push({
+          code: 'ARS',
+          candidates: [],
+          startIndex: match.index,
+          endIndex: match.index + 2,
+        });
       } else if (symbol === 'R$') {
-        matches.push({ code: 'BRL', candidates: [], startIndex: match.index, endIndex: match.index + 2 });
+        matches.push({
+          code: 'BRL',
+          candidates: [],
+          startIndex: match.index,
+          endIndex: match.index + 2,
+        });
       } else {
         // $, US$, U$S, M$N — ambiguous dollar-like symbols.
         matches.push({
@@ -192,7 +212,10 @@ export class ExtractAmountCurrency {
     }
   }
 
-  private selectBestAmount(amountMatches: AmountMatch[], currencyMatches: CurrencyMatch[]): AmountMatch {
+  private selectBestAmount(
+    amountMatches: AmountMatch[],
+    currencyMatches: CurrencyMatch[],
+  ): AmountMatch {
     if (currencyMatches.length === 0 || amountMatches.length === 1) {
       return amountMatches[0]!;
     }

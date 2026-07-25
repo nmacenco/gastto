@@ -12,7 +12,6 @@ import type { RecoverCorruptedState } from '../../application/use-cases/conversa
 import type { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
 import type { IUserProcessingLock } from '../../application/ports/UserProcessingLock';
 import type { ConversationState } from '../../domain/entities/ConversationState';
-import type { User } from '../../domain/entities/User';
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
@@ -93,14 +92,12 @@ export async function processMessageJob(
     const conversationState = await opts.getConversationState.execute({ userId });
     const currentState = conversationState?.currentState ?? 'IDLE';
 
-    const user = await opts.userRepo.findById(userId);
-
     // Route according to FSM state. Known business errors are already turned
     // into user-facing messages by each use case; this try/catch only catches
     // unexpected throws so BullMQ does not retry side-effectful handlers and
     // re-send the same messages on every attempt (ADR-005).
     try {
-      await routeByState(currentState, job.data, conversationState, user, opts, messaging);
+      await routeByState(currentState, job.data, conversationState, opts, messaging);
     } catch (err) {
       opts.logger.error({
         msg: 'process-message handler threw unexpectedly',
@@ -141,7 +138,6 @@ async function routeByState(
   currentState: string,
   jobData: ProcessMessageJobData,
   conversationState: ConversationState | null,
-  user: User | null,
   opts: MessageWorkerDeps,
   messaging: MessagingOutputPort,
 ): Promise<void> {
@@ -159,7 +155,6 @@ async function routeByState(
         userId,
         rawMessage,
         channel,
-        defaultCurrency: user?.defaultCurrency ?? null,
       });
 
       if (result.status === 'needs_clarification') {
@@ -168,6 +163,9 @@ async function routeByState(
             ? expenseCopies.clarificationAmount()
             : expenseCopies.clarificationCurrency();
         await messaging.sendMessage(externalId, question);
+      } else if (result.status === 'needs_zero_confirmation') {
+        // Zero-amount confirmation path: state already transitioned by use case
+        await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
       } else {
         // Format and send summary for review (E1-US-06)
         const summary = formatExpenseSummary(result.payload);
@@ -675,14 +673,26 @@ async function handleExpenseReview(
 ): Promise<void> {
   const { userId, rawMessage, externalId } = jobData;
 
+  // State payload shape for EXPENSE_REVIEW:
+  //   {
+  //     extracted: ExtractedExpense,
+  //     rawMessage: string,
+  //     resolvedDate: string,
+  //     resolvedCategory: string | null,
+  //     resolvedCategoryId: string | null,
+  //     awaitingZeroConfirmation?: boolean, // true when amount is 0 and needs explicit confirmation
+  //   }
+
   if (isConfirmIntent(rawMessage)) {
     // Guardado — pendiente de implementar llamada a registerExpense.save()
+    // When awaitingZeroConfirmation is true, a confirm intent also proceeds to save.
     await messaging.sendMessage(externalId, expenseCopies.saving());
   } else if (isCancelIntent(rawMessage)) {
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
     await messaging.sendMessage(externalId, expenseCopies.cancelled());
   } else {
     // Correction — re-interprets the message with the current summary context
+    // This also covers the awaitingZeroConfirmation case for non-confirm/cancel replies.
     await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
   }
 }
@@ -694,7 +704,6 @@ async function handleClarification(
   messaging: MessagingOutputPort,
 ): Promise<void> {
   const { userId, rawMessage, externalId, channel } = jobData;
-  const user = await opts.userRepo.findById(userId);
 
   if (!opts.registerExpense) {
     await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
@@ -710,7 +719,6 @@ async function handleClarification(
     userId,
     rawMessage: enrichedMessage,
     channel,
-    defaultCurrency: user?.defaultCurrency ?? null,
   });
 
   if (result.status === 'needs_clarification') {
@@ -719,6 +727,8 @@ async function handleClarification(
         ? expenseCopies.clarificationAmount()
         : expenseCopies.clarificationCurrency();
     await messaging.sendMessage(externalId, question);
+  } else if (result.status === 'needs_zero_confirmation') {
+    await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
   } else {
     const summary = expenseCopies.updatedSummary({
       monto: result.payload.extracted.monto,

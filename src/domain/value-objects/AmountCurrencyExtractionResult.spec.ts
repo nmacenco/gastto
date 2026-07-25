@@ -103,7 +103,9 @@ describe('AmountCurrencyExtractionResult', () => {
         'success:10:USD',
       );
       expect(getLabel(AmountCurrencyExtractionResult.amountNotFound())).toBe('amount-not-found');
-      expect(getLabel(AmountCurrencyExtractionResult.currencyNotFound())).toBe('currency-not-found');
+      expect(getLabel(AmountCurrencyExtractionResult.currencyNotFound())).toBe(
+        'currency-not-found',
+      );
       expect(
         getLabel(AmountCurrencyExtractionResult.ambiguousCurrency([new Currency('EUR')])),
       ).toBe('ambiguous-currency:1');

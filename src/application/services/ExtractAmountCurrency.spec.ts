@@ -189,4 +189,46 @@ describe('ExtractAmountCurrency', () => {
       assertSuccess(result, 20, 'EUR');
     });
   });
+
+  describe('zero amount formats', () => {
+    it.each([
+      { text: 'Gasté 0 pesos', defaultCurrency: 'ARS' as const, expectedCurrency: 'ARS' as const },
+      { text: 'Gasté 0.00 EUR', defaultCurrency: null, expectedCurrency: 'EUR' as const },
+      { text: 'Gasté 0,00 EUR', defaultCurrency: null, expectedCurrency: 'EUR' as const },
+    ])(
+      'treats "$text" as 0 $expectedCurrency',
+      ({ text, defaultCurrency, expectedCurrency }) => {
+        const result = extractor.execute(text, defaultCurrency);
+        assertSuccess(result, 0, expectedCurrency);
+      },
+    );
+  });
+
+  describe('ambiguous $ with default currency outside candidate list', () => {
+    it('returns ambiguous-currency when default currency is not a dollar candidate', () => {
+      const result = extractor.execute('Gasté $1.200 en el taxi', 'GBP');
+      expect(isAmbiguousCurrencyResult(result)).toBe(true);
+      if (isAmbiguousCurrencyResult(result)) {
+        expect(result.candidates.map((c) => c.code)).toEqual(['USD', 'ARS', 'MXN', 'BRL']);
+      }
+    });
+  });
+
+  describe('missing amount and missing currency combined', () => {
+    it('returns amount-not-found when no number and no currency are present', () => {
+      const result = extractor.execute('Fui al supermercado', null);
+      expect(isAmountNotFoundResult(result)).toBe(true);
+    });
+  });
+
+  describe('invalid amount format edge cases', () => {
+    it.each([
+      'Gasté 12,34,56 EUR',
+      'Gasté 1.234.56 EUR',
+      'Gasté 1,2,3 EUR',
+    ])('returns invalid-amount-format for "%s"', (text) => {
+      const result = extractor.execute(text, null);
+      expect(isInvalidAmountFormatResult(result)).toBe(true);
+    });
+  });
 });
