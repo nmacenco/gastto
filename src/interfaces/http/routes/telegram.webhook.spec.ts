@@ -347,4 +347,30 @@ describe('POST /webhook/telegram', () => {
       errorCode: 'SEND_FAILED',
     });
   });
+
+  it.each([
+    { label: 'zero amount', text: 'Cafe $0' },
+    { label: 'ambiguous amount', text: 'Cafe $1.200' },
+  ])(
+    'returns HTTP 200 and enqueues $label messages without failing at the HTTP layer',
+    async ({ text }) => {
+      const { app } = buildApp();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/webhook/telegram',
+        headers: {
+          'x-telegram-bot-api-secret-token': WEBHOOK_SECRET,
+        },
+        payload: makeValidPayload({ text }),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload)).toEqual({ ok: true });
+      expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+      const [, jobData] = mockQueueAdd.mock.calls[0] as [string, IncomingMessageJobData];
+      expect(jobData.messageType).toBe('TEXT');
+      expect(jobData.text).toBe(text);
+    },
+  );
 });

@@ -1,6 +1,7 @@
 export const expenseCopies = {
   clarificationAmount: () => '¿Cuánto gastaste?',
   clarificationCurrency: () => '¿En qué moneda fue ese gasto?',
+  zeroAmountConfirmation: () => '¿Querías registrar un gasto de $0?',
   saving: () => 'Guardando tu gasto…',
   cancelled: () => 'Registro cancelado. No se guardó nada.',
   ambiguousResponse: () => '¿Querías confirmar, corregir o cancelar el registro?',

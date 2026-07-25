@@ -1,6 +1,6 @@
 // LAYER: Application
 // Use case: register an expense from a natural language message.
-// Orchestrates: LLMPort → category → summary → (confirmation in next turn).
+// Orchestrates: LLMPort → deterministic fallback → category → summary → (confirmation in next turn).
 // Executed by BullMQ worker, NOT by Fastify handler (ADR-005).
 
 import type { LLMPort, UserContext, SpreadsheetPort } from '../../../domain/ports/services';
@@ -12,15 +12,22 @@ import type {
   IOperationLogRepository,
   IConversationStateRepository,
 } from '../../../domain/ports/repositories';
+import type { IUserProfilePort } from '../../../domain/ports/IUserProfilePort';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
-import type { Currency } from '../../../domain/entities/User';
 import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
+import { ExtractAmountCurrency } from '../../services/ExtractAmountCurrency';
+import {
+  isSuccessAmountCurrencyResult,
+  isAmountNotFoundResult,
+  isInvalidAmountFormatResult,
+  isCurrencyNotFoundResult,
+  isAmbiguousCurrencyResult,
+} from '../../../domain/value-objects/AmountCurrencyExtractionResult';
 
 export interface RegisterExpenseInput {
   userId: string;
   rawMessage: string;
   channel: 'telegram' | 'whatsapp';
-  defaultCurrency: Currency | null;
 }
 
 // Lo que se pone en state_payload cuando el estado es EXPENSE_REVIEW
@@ -30,9 +37,12 @@ export interface ExpenseReviewPayload {
   resolvedDate: string; // ISO date string
   resolvedCategory: string | null;
   resolvedCategoryId: string | null;
+  awaitingZeroConfirmation?: boolean;
 }
 
 export class RegisterExpenseUseCase {
+  private readonly fallbackExtractor = new ExtractAmountCurrency();
+
   constructor(
     private readonly llm: LLMPort,
     private readonly spreadsheetPort: SpreadsheetPort,
@@ -42,6 +52,7 @@ export class RegisterExpenseUseCase {
     private readonly categoryRepo: IUserCategoryRepository,
     private readonly conversationRepo: IConversationStateRepository,
     private readonly logRepo: IOperationLogRepository,
+    private readonly userProfilePort: IUserProfilePort,
   ) {}
 
   // Fase 1: interpreta el mensaje y transiciona a EXPENSE_REVIEW
@@ -49,8 +60,12 @@ export class RegisterExpenseUseCase {
     input: RegisterExpenseInput,
   ): Promise<
     | { status: 'needs_clarification'; missingField: 'monto' | 'moneda' }
+    | { status: 'needs_zero_confirmation'; payload: ExpenseReviewPayload }
     | { status: 'ready_for_review'; payload: ExpenseReviewPayload }
   > {
+    // Fetch user's default currency through the dedicated domain port
+    const defaultCurrency = await this.userProfilePort.getDefaultCurrency(input.userId);
+
     // Load active user categories to give context to the LLM
     const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
     const categories = config
@@ -58,7 +73,7 @@ export class RegisterExpenseUseCase {
       : [];
 
     const userContext: UserContext = {
-      defaultCurrency: input.defaultCurrency,
+      defaultCurrency,
       categories,
       channel: input.channel,
     };
@@ -66,46 +81,62 @@ export class RegisterExpenseUseCase {
     // Calls the LLM (OpenAIAdapter or ClaudeAdapter based on configuration)
     const extracted = await this.llm.extractExpense(input.rawMessage, userContext);
 
+    // Deterministic fallback when LLM misses amount or currency (E1-US-03)
+    let resolvedExtracted = extracted;
+    if (extracted.monto === null || extracted.moneda === null) {
+      const fallbackResult = this.fallbackExtractor.execute(input.rawMessage, defaultCurrency);
+
+      if (isSuccessAmountCurrencyResult(fallbackResult)) {
+        resolvedExtracted = {
+          ...extracted,
+          monto: fallbackResult.money.amount,
+          moneda: fallbackResult.money.currency,
+        };
+      } else if (isAmountNotFoundResult(fallbackResult) || isInvalidAmountFormatResult(fallbackResult)) {
+        await this.transitionToClarifying(input.userId, 'monto', extracted, input.rawMessage);
+        return { status: 'needs_clarification', missingField: 'monto' };
+      } else if (isCurrencyNotFoundResult(fallbackResult) || isAmbiguousCurrencyResult(fallbackResult)) {
+        await this.transitionToClarifying(input.userId, 'moneda', extracted, input.rawMessage);
+        return { status: 'needs_clarification', missingField: 'moneda' };
+      }
+    }
+
     // Most blocking data first: amount > currency (E1-US-05)
-    if (extracted.monto === null) {
-      await this.conversationRepo.transition(
-        input.userId,
-        'EXPENSE_CLARIFYING',
-        {
-          missingField: 'monto',
-          partialExtracted: extracted,
-          rawMessage: input.rawMessage,
-        },
-        new Date(Date.now() + 30 * 60 * 1000), // 30 min timeout
-      );
+    if (resolvedExtracted.monto === null) {
+      await this.transitionToClarifying(input.userId, 'monto', extracted, input.rawMessage);
       return { status: 'needs_clarification', missingField: 'monto' };
     }
 
-    const moneda = extracted.moneda ?? input.defaultCurrency;
+    const moneda = resolvedExtracted.moneda ?? defaultCurrency;
     if (!moneda) {
-      await this.conversationRepo.transition(
-        input.userId,
-        'EXPENSE_CLARIFYING',
-        {
-          missingField: 'moneda',
-          partialExtracted: extracted,
-          rawMessage: input.rawMessage,
-        },
-        new Date(Date.now() + 30 * 60 * 1000),
-      );
+      await this.transitionToClarifying(input.userId, 'moneda', extracted, input.rawMessage);
       return { status: 'needs_clarification', missingField: 'moneda' };
     }
 
+    const finalExtracted = { ...resolvedExtracted, moneda };
+
+    // Zero-amount confirmation path (E1-US-03)
+    if (finalExtracted.monto === 0) {
+      const payload = this.buildReviewPayload(finalExtracted, input.rawMessage, categories);
+      await this.conversationRepo.transition(
+        input.userId,
+        'EXPENSE_REVIEW',
+        { ...payload, awaitingZeroConfirmation: true },
+        new Date(Date.now() + 10 * 60 * 1000),
+      );
+      return { status: 'needs_zero_confirmation', payload };
+    }
+
     // Resolve date: today if LLM didn't detect any
-    const resolvedDate = extracted.fechaRaw
-      ? new Date(extracted.fechaRaw).toISOString().slice(0, 10)
+    const resolvedDate = finalExtracted.fechaRaw
+      ? new Date(finalExtracted.fechaRaw).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10);
 
     // Normalize category against the user's actual vocabulary
-    const resolvedCategory = this.resolveCategory(extracted.categoriaRaw, categories);
+    const resolvedCategory = this.resolveCategory(finalExtracted.categoriaRaw, categories);
 
     const payload: ExpenseReviewPayload = {
-      extracted: { ...extracted, moneda },
+      extracted: finalExtracted,
       rawMessage: input.rawMessage,
       resolvedDate,
       resolvedCategory,
@@ -165,6 +196,43 @@ export class RegisterExpenseUseCase {
     await this.conversationRepo.transition(userId, 'IDLE', null, null);
 
     return { sheetName: result.sheet, rowIndex: result.row };
+  }
+
+  private buildReviewPayload(
+    extracted: ExtractedExpense,
+    rawMessage: string,
+    categories: string[],
+  ): ExpenseReviewPayload {
+    const resolvedDate = extracted.fechaRaw
+      ? new Date(extracted.fechaRaw).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    const resolvedCategory = this.resolveCategory(extracted.categoriaRaw, categories);
+
+    return {
+      extracted,
+      rawMessage,
+      resolvedDate,
+      resolvedCategory,
+      resolvedCategoryId: null,
+    };
+  }
+
+  private async transitionToClarifying(
+    userId: string,
+    missingField: 'monto' | 'moneda',
+    partialExtracted: ExtractedExpense,
+    rawMessage: string,
+  ): Promise<void> {
+    await this.conversationRepo.transition(
+      userId,
+      'EXPENSE_CLARIFYING',
+      {
+        missingField,
+        partialExtracted,
+        rawMessage,
+      },
+      new Date(Date.now() + 30 * 60 * 1000), // 30 min timeout
+    );
   }
 
   private resolveCategory(raw: string | null, availableCategories: string[]): string | null {

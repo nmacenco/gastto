@@ -165,7 +165,6 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         rawMessage: 'Cafe 850',
         channel: 'telegram',
-        defaultCurrency: null,
       });
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
@@ -209,6 +208,57 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.expenseRegistrationUnavailable(),
+      );
+    });
+
+    it('sends zero-amount confirmation copy when interpretation needs zero confirmation', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'IDLE' }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'needs_zero_confirmation',
+        payload: {
+          rawMessage: 'Cafe 0',
+          extracted: { monto: 0, moneda: 'ARS', confianzaCategoria: 'alta' },
+          resolvedDate: '2026-01-15',
+          resolvedCategory: 'Comida',
+        },
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Cafe 850',
+        channel: 'telegram',
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.zeroAmountConfirmation(),
+      );
+    });
+
+    it('sends currency clarification when interpretation has ambiguous currency', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_RECEIVING' }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'needs_clarification',
+        missingField: 'moneda',
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Cafe 850',
+        channel: 'telegram',
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationCurrency(),
       );
     });
   });
@@ -261,6 +311,20 @@ describe('processMessageJob', () => {
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
     });
+
+    it('confirms zero-amount expense and sends saving message when awaitingZeroConfirmation is true', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: { rawMessage: 'Cafe 0', awaitingZeroConfirmation: true },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saving());
+    });
   });
 
   describe('EXPENSE_CLARIFYING state', () => {
@@ -288,7 +352,6 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         rawMessage: 'Cafe 850 pesos',
         channel: 'telegram',
-        defaultCurrency: null,
       });
       const sentText = mockSendMessage.mock.calls[0]![1] as string;
       expect(sentText).toContain('Resumen actualizado');

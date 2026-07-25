@@ -8,6 +8,7 @@ import type { Dependencies, DrizzleDatabase, GoogleOAuthFeature, TelegramFeature
 
 // Infrastructure
 import { DrizzleUserRepository } from '../infrastructure/db/repositories/DrizzleUserRepository';
+import { DrizzleUserProfileRepository } from '../infrastructure/db/repositories/DrizzleUserProfileRepository';
 import { DrizzleConversationStateRepository } from '../infrastructure/db/repositories/DrizzleConversationStateRepository';
 import { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
@@ -402,6 +403,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
   const userProcessingLock = new RedisUserProcessingLock(infra.redis);
 
+  const userProfileRepo = new DrizzleUserProfileRepository(userRepo);
+
   const registerExpense = new RegisterExpenseUseCase(
     llmPort,
     // TODO: replace with a token-aware SpreadsheetPort once save() is wired
@@ -412,6 +415,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     userCategoryRepo,
     conversationRepo,
     operationLogRepo,
+    userProfileRepo,
   );
 
   const telegram = buildTelegramFeature(env, infra, {
