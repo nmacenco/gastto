@@ -145,4 +145,37 @@ describe('envSchema', () => {
       expect(withoutToken.error.flatten().fieldErrors).toHaveProperty('TELEGRAM_BOT_TOKEN');
     }
   });
+
+  it('defaults CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD to 0.6', () => {
+    const result = envSchema.safeParse(validEnv);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD).toBe(0.6);
+    }
+  });
+
+  it('coerces CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD to a number', () => {
+    const result = envSchema.safeParse({
+      ...validEnv,
+      CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: '0.8',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD).toBe(0.8);
+    }
+  });
+
+  it('rejects CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD outside [0, 1]', () => {
+    const belowZero = envSchema.safeParse({
+      ...validEnv,
+      CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: '-0.1',
+    });
+    expect(belowZero.success).toBe(false);
+
+    const aboveOne = envSchema.safeParse({
+      ...validEnv,
+      CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: '1.1',
+    });
+    expect(aboveOne.success).toBe(false);
+  });
 });

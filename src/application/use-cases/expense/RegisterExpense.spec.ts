@@ -100,9 +100,7 @@ function buildMockDependencies() {
   };
 }
 
-function buildUseCase(
-  overrides: Partial<ReturnType<typeof buildMockDependencies>> = {},
-) {
+function buildUseCase(overrides: Partial<ReturnType<typeof buildMockDependencies>> = {}) {
   const deps = buildMockDependencies();
   return {
     useCase: new RegisterExpenseUseCase(
@@ -120,9 +118,7 @@ function buildUseCase(
   };
 }
 
-function buildExtractedExpense(
-  overrides: Partial<ExtractedExpense> = {},
-): ExtractedExpense {
+function buildExtractedExpense(overrides: Partial<ExtractedExpense> = {}): ExtractedExpense {
   return {
     monto: 100,
     moneda: 'EUR',
@@ -198,14 +194,10 @@ describe('RegisterExpenseUseCase', () => {
 
     it('LLM misses currency but user has default currency -> deterministic fallback resolves it', async () => {
       mockUserProfileGetDefaultCurrency.mockResolvedValue('USD');
-      mockLLMExtractExpense.mockResolvedValue(
-        buildExtractedExpense({ monto: 100, moneda: null }),
-      );
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ monto: 100, moneda: null }));
 
       const { useCase } = buildUseCase();
-      const result = await useCase.interpret(
-        buildInput({ rawMessage: 'Gasté 100 en el taxi' }),
-      );
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Gasté 100 en el taxi' }));
 
       expect(result.status).toBe('ready_for_review');
       if (result.status !== 'ready_for_review') {
@@ -221,9 +213,7 @@ describe('RegisterExpenseUseCase', () => {
       );
 
       const { useCase } = buildUseCase();
-      const result = await useCase.interpret(
-        buildInput({ rawMessage: 'Pagué el café en EUR' }),
-      );
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Pagué el café en EUR' }));
 
       expect(result.status).toBe('needs_clarification');
       if (result.status !== 'needs_clarification') {
@@ -244,14 +234,10 @@ describe('RegisterExpenseUseCase', () => {
 
     it('LLM/$ symbol is ambiguous and default currency matches -> resolved', async () => {
       mockUserProfileGetDefaultCurrency.mockResolvedValue('ARS');
-      mockLLMExtractExpense.mockResolvedValue(
-        buildExtractedExpense({ monto: null, moneda: null }),
-      );
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ monto: null, moneda: null }));
 
       const { useCase } = buildUseCase();
-      const result = await useCase.interpret(
-        buildInput({ rawMessage: 'Gasté $1.200 en el taxi' }),
-      );
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Gasté $1.200 en el taxi' }));
 
       expect(result.status).toBe('ready_for_review');
       if (result.status !== 'ready_for_review') {
@@ -263,14 +249,10 @@ describe('RegisterExpenseUseCase', () => {
 
     it('LLM/$ symbol is ambiguous without default currency -> needs_clarification with missingField: moneda', async () => {
       mockUserProfileGetDefaultCurrency.mockResolvedValue(null);
-      mockLLMExtractExpense.mockResolvedValue(
-        buildExtractedExpense({ monto: null, moneda: null }),
-      );
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ monto: null, moneda: null }));
 
       const { useCase } = buildUseCase();
-      const result = await useCase.interpret(
-        buildInput({ rawMessage: 'Gasté $1.200 en el taxi' }),
-      );
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Gasté $1.200 en el taxi' }));
 
       expect(result.status).toBe('needs_clarification');
       if (result.status !== 'needs_clarification') {
@@ -281,14 +263,10 @@ describe('RegisterExpenseUseCase', () => {
 
     it('default currency is fetched through the port (mock the port, not Drizzle)', async () => {
       mockUserProfileGetDefaultCurrency.mockResolvedValue('EUR');
-      mockLLMExtractExpense.mockResolvedValue(
-        buildExtractedExpense({ monto: 50, moneda: 'EUR' }),
-      );
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ monto: 50, moneda: 'EUR' }));
 
       const { useCase } = buildUseCase();
-      const result = await useCase.interpret(
-        buildInput({ rawMessage: 'Café 50 EUR' }),
-      );
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Café 50 EUR' }));
 
       expect(mockUserProfileGetDefaultCurrency).toHaveBeenCalledTimes(1);
       expect(mockUserProfileGetDefaultCurrency).toHaveBeenCalledWith('user-123');

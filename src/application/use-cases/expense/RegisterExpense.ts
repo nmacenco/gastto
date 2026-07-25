@@ -92,10 +92,16 @@ export class RegisterExpenseUseCase {
           monto: fallbackResult.money.amount,
           moneda: fallbackResult.money.currency,
         };
-      } else if (isAmountNotFoundResult(fallbackResult) || isInvalidAmountFormatResult(fallbackResult)) {
+      } else if (
+        isAmountNotFoundResult(fallbackResult) ||
+        isInvalidAmountFormatResult(fallbackResult)
+      ) {
         await this.transitionToClarifying(input.userId, 'monto', extracted, input.rawMessage);
         return { status: 'needs_clarification', missingField: 'monto' };
-      } else if (isCurrencyNotFoundResult(fallbackResult) || isAmbiguousCurrencyResult(fallbackResult)) {
+      } else if (
+        isCurrencyNotFoundResult(fallbackResult) ||
+        isAmbiguousCurrencyResult(fallbackResult)
+      ) {
         await this.transitionToClarifying(input.userId, 'moneda', extracted, input.rawMessage);
         return { status: 'needs_clarification', missingField: 'moneda' };
       }

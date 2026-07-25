@@ -21,6 +21,11 @@ export const envSchema = z.object({
   // TTL for the transient Redis-backed correction state. Default: 30 minutes.
   MAPPING_CORRECTION_TTL_SECONDS: z.coerce.number().default(1800),
 
+  // ── Category classification (E1-US-04) ──────────────────────────────────────────
+  // Minimum confidence (matched keywords / total tokens) for a keyword-based
+  // category classification to be considered high-confidence.
+  CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.6),
+
   // ── LLM ───────────────────────────────────────────────────────────────────────
   // At least one provider key must be configured at runtime (checked in main.ts).
   OPENAI_API_KEY: z.string().optional(),

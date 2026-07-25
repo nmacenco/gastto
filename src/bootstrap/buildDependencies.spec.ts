@@ -25,6 +25,7 @@ const baseEnv: Env = {
   DATABASE_URL: 'postgres://localhost:5432/test',
   REDIS_URL: 'redis://localhost:6379/0',
   MAPPING_CORRECTION_TTL_SECONDS: 1800,
+  CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: 0.6,
   OPENAI_API_KEY: 'sk-test-openai',
   TELEGRAM_WEBHOOK_SECRET: 'test-webhook-secret',
   TELEGRAM_BOT_TOKEN: 'test-bot-token',

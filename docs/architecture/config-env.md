@@ -24,6 +24,7 @@ This document describes the configuration and environment setup for this project
 | `TELEGRAM_WEBHOOK_SECRET` | Server | No       | Secret token for Telegram webhook origin validation. Required once webhook is wired.                                      |
 | `TELEGRAM_BOT_TOKEN`      | Server | No       | Telegram Bot API token. Required once the bot sends messages.                                                             |
 | `SENTRY_DSN`              | Server | No       | Sentry error tracking DSN. Optional.                                                                                      |
+| `CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD` | Server | No       | Minimum confidence for keyword-based category classification (E1-US-04). Range: [0, 1]. Default: `0.6`.                  |
 | `ENCRYPTION_KEY`          | Server | No       | AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars). Currently commented out in schema. |
 
 **Security note**: All secrets are server-side only. No env var is exposed to the client.
