@@ -386,7 +386,7 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
 // ── Helpers de formato ────────────────────────────────────────────────────────
 
 function formatExpenseSummary(payload: ExpenseReviewPayload): string {
-  const { extracted, resolvedDate, resolvedCategory } = payload;
+  const { extracted, resolvedDate, resolvedCategory, categoryStatus } = payload;
   const categoryLabel = resolvedCategory ?? '❓ Sin categoría';
 
   return expenseCopies.expenseSummary({
@@ -395,6 +395,7 @@ function formatExpenseSummary(payload: ExpenseReviewPayload): string {
     moneda: extracted.moneda,
     category: categoryLabel,
     categoryConfidence: extracted.confianzaCategoria,
+    categoryStatus,
     date: resolvedDate,
   });
 }
@@ -734,6 +735,7 @@ async function handleClarification(
       monto: result.payload.extracted.monto,
       moneda: result.payload.extracted.moneda,
       category: result.payload.resolvedCategory ?? '❓ Sin categoría',
+      categoryStatus: result.payload.categoryStatus,
       date: result.payload.resolvedDate,
     });
     await messaging.sendMessage(externalId, summary);

@@ -17,8 +17,11 @@ import type {
   IOperationLogRepository,
 } from '../../../domain/ports/repositories';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
+import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
+import { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
 
 const mockUserProfileGetDefaultCurrency = vi.fn();
+const mockClassifierExecute = vi.fn();
 const mockLLMExtractExpense = vi.fn();
 const mockSpreadsheetConfigFindByUserId = vi.fn();
 const mockCategoryFindActiveBySpreadsheetId = vi.fn();
@@ -56,6 +59,12 @@ function buildMockSpreadsheetPort(): SpreadsheetPort {
 function buildMockUserProfilePort(): IUserProfilePort {
   return {
     getDefaultCurrency: mockUserProfileGetDefaultCurrency,
+  };
+}
+
+function buildMockClassifier(): ICategoryClassifier {
+  return {
+    execute: mockClassifierExecute,
   };
 }
 
@@ -97,6 +106,7 @@ function buildMockDependencies() {
       create: mockOperationLogCreate,
     } as unknown as IOperationLogRepository,
     userProfilePort: buildMockUserProfilePort(),
+    classifier: buildMockClassifier(),
   };
 }
 
@@ -113,6 +123,7 @@ function buildUseCase(overrides: Partial<ReturnType<typeof buildMockDependencies
       overrides.conversationRepo ?? deps.conversationRepo,
       overrides.logRepo ?? deps.logRepo,
       overrides.userProfilePort ?? deps.userProfilePort,
+      overrides.classifier ?? deps.classifier,
     ),
     deps: { ...deps, ...overrides },
   };
@@ -157,6 +168,7 @@ beforeEach(() => {
   mockCategoryFindActiveBySpreadsheetId.mockResolvedValue([]);
   mockConversationTransition.mockResolvedValue(null);
   mockAppendRow.mockResolvedValue({ sheet: 'Hoja 1', row: 2 });
+  mockClassifierExecute.mockResolvedValue(ClassificationResult.noMatch());
 });
 
 describe('RegisterExpenseUseCase', () => {
@@ -176,6 +188,13 @@ describe('RegisterExpenseUseCase', () => {
       expect(result.payload.extracted.moneda).toBe('EUR');
       expect(result.payload.resolvedDate).toBe('2026-07-25');
       expect(result.payload.resolvedCategory).toBeNull();
+      expect(result.payload.categoryStatus).toBe('none');
+      expect(mockClassifierExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Café con leche 100 EUR',
+        llmCategory: 'café',
+        llmConfidence: 'alta',
+      });
       expect(mockConversationTransition).toHaveBeenCalledTimes(1);
       expect(mockConversationTransition).toHaveBeenCalledWith(
         'user-123',
@@ -189,7 +208,68 @@ describe('RegisterExpenseUseCase', () => {
         resolvedDate: '2026-07-25',
         resolvedCategory: null,
         resolvedCategoryId: null,
+        categoryStatus: 'none',
       });
+    });
+
+    it('propagates a confirmed classification as categoryStatus confirmed', async () => {
+      mockClassifierExecute.mockResolvedValue(ClassificationResult.highConfidence('Comida'));
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: 'comida' }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Almuerzo 100 EUR' }));
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') {
+        throw new Error('Expected ready_for_review');
+      }
+      expect(result.payload.resolvedCategory).toBe('Comida');
+      expect(result.payload.categoryStatus).toBe('confirmed');
+    });
+
+    it('propagates an ambiguous classification as categoryStatus ambiguous', async () => {
+      mockClassifierExecute.mockResolvedValue(ClassificationResult.ambiguous('Ocio'));
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: 'ocio' }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Cine y cena 100 EUR' }));
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') {
+        throw new Error('Expected ready_for_review');
+      }
+      expect(result.payload.resolvedCategory).toBe('Ocio');
+      expect(result.payload.categoryStatus).toBe('ambiguous');
+    });
+
+    it('propagates a fallback classification as categoryStatus fallback', async () => {
+      mockClassifierExecute.mockResolvedValue(ClassificationResult.fallback('Comida'));
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: 'restaurante' }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Restaurante 100 EUR' }));
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') {
+        throw new Error('Expected ready_for_review');
+      }
+      expect(result.payload.resolvedCategory).toBe('Comida');
+      expect(result.payload.categoryStatus).toBe('fallback');
+    });
+
+    it('propagates a no-match classification as categoryStatus none', async () => {
+      mockClassifierExecute.mockResolvedValue(ClassificationResult.noMatch());
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: null }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Gasté 100 EUR' }));
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') {
+        throw new Error('Expected ready_for_review');
+      }
+      expect(result.payload.resolvedCategory).toBeNull();
+      expect(result.payload.categoryStatus).toBe('none');
     });
 
     it('LLM misses currency but user has default currency -> deterministic fallback resolves it', async () => {

@@ -97,8 +97,6 @@ export class ClassifyExpenseCategory implements ICategoryClassifier {
   private sortScores(
     scores: ReadonlyMap<CanonicalCategory, number>,
   ): [CanonicalCategory, number][] {
-    return [...scores.entries()]
-      .filter(([, score]) => score > 0)
-      .sort((a, b) => b[1] - a[1]);
+    return [...scores.entries()].filter(([, score]) => score > 0).sort((a, b) => b[1] - a[1]);
   }
 }

@@ -15,9 +15,11 @@ import { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/D
 import { DrizzleSpreadsheetConfigRepository } from '../infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
 import { DrizzleColumnMappingRepository } from '../infrastructure/db/repositories/DrizzleColumnMappingRepository';
 import { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
+import { DrizzleCategoryKeywordVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryKeywordVocabularyRepository';
 import { DrizzleUserCategoryRepository } from '../infrastructure/db/repositories/DrizzleUserCategoryRepository';
 import { DrizzleExpenseRecordRepository } from '../infrastructure/db/repositories/DrizzleExpenseRecordRepository';
 import { TelegramMessengerAdapter } from '../infrastructure/adapters/telegram/TelegramMessengerAdapter';
+import { CategoryFallbackMapper } from '../infrastructure/adapters/category/CategoryFallbackMapper';
 import { GoogleDriveOAuthAdapter } from '../infrastructure/adapters/oauth';
 import { GoogleDriveFileDiscoveryAdapter } from '../infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
 import { GoogleSheetsAdapterFactory } from '../infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
@@ -39,6 +41,7 @@ import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProces
 
 // Application
 import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
 import { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
 import { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
 import { HandleOAuthCallback } from '../application/use-cases/spreadsheet/HandleOAuthCallback';
@@ -405,6 +408,17 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
 
   const userProfileRepo = new DrizzleUserProfileRepository(userRepo);
 
+  const categoryKeywordVocabularyRepo = new DrizzleCategoryKeywordVocabularyRepository(
+    spreadsheetConfigRepo,
+    userCategoryRepo,
+  );
+  const categoryFallbackMapper = new CategoryFallbackMapper();
+  const categoryClassifier = new ClassifyExpenseCategory(
+    categoryKeywordVocabularyRepo,
+    categoryFallbackMapper,
+    env.CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD,
+  );
+
   const registerExpense = new RegisterExpenseUseCase(
     llmPort,
     // TODO: replace with a token-aware SpreadsheetPort once save() is wired
@@ -416,6 +430,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     conversationRepo,
     operationLogRepo,
     userProfileRepo,
+    categoryClassifier,
   );
 
   const telegram = buildTelegramFeature(env, infra, {

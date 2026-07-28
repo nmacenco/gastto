@@ -51,7 +51,9 @@ function buildUseCase(
   return { useCase };
 }
 
-function buildInput(overrides: Partial<ClassifyExpenseCategoryInput> = {}): ClassifyExpenseCategoryInput {
+function buildInput(
+  overrides: Partial<ClassifyExpenseCategoryInput> = {},
+): ClassifyExpenseCategoryInput {
   return {
     userId: 'user-123',
     rawMessage: '',
@@ -128,10 +130,7 @@ describe('ClassifyExpenseCategory', () => {
 
   describe('fallback mapping', () => {
     it('returns fallback when the inferred canonical category is not in user categories', async () => {
-      const { useCase } = buildUseCase(
-        ['Comida'],
-        { entertainment: 'Comida' },
-      );
+      const { useCase } = buildUseCase(['Comida'], { entertainment: 'Comida' });
 
       const result = await useCase.execute(buildInput({ rawMessage: 'Pagué el entretenimiento' }));
 

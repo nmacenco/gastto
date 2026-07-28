@@ -5,8 +5,5 @@
 import type { CanonicalCategory } from '../../../domain/value-objects/CategoryKeywordVocabulary';
 
 export interface ICategoryFallbackMapper {
-  findClosest(
-    inferred: CanonicalCategory,
-    available: readonly string[],
-  ): Promise<string | null>;
+  findClosest(inferred: CanonicalCategory, available: readonly string[]): Promise<string | null>;
 }
