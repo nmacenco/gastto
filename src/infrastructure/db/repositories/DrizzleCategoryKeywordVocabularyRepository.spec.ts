@@ -4,7 +4,10 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DrizzleCategoryKeywordVocabularyRepository } from './DrizzleCategoryKeywordVocabularyRepository';
-import type { ISpreadsheetConfigRepository, IUserCategoryRepository } from '../../../domain/ports/repositories';
+import type {
+  ISpreadsheetConfigRepository,
+  IUserCategoryRepository,
+} from '../../../domain/ports/repositories';
 import type { SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
 import type { UserCategory } from '../../../domain/entities/SpreadsheetConfig';
 
@@ -32,7 +35,10 @@ function buildUserCategory(rawValue: string): UserCategory {
     id: `category-${rawValue}`,
     spreadsheetId: 'spreadsheet-1',
     rawValue,
-    normalizedValue: rawValue.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''),
+    normalizedValue: rawValue
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, ''),
     usageCount: 0,
     isActive: true,
     createdAt: new Date(),

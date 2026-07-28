@@ -6,9 +6,7 @@ function formatCategoryLabel(
   return category;
 }
 
-function categoryStatusNote(
-  status: 'confirmed' | 'ambiguous' | 'fallback' | 'none',
-): string {
+function categoryStatusNote(status: 'confirmed' | 'ambiguous' | 'fallback' | 'none'): string {
   if (status === 'ambiguous') return ' (¿correcto?)';
   if (status === 'fallback') return ' (sugerida)';
   return '';

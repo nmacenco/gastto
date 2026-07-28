@@ -10,9 +10,7 @@ import type {
   IUserCategoryRepository,
 } from '../../../domain/ports/repositories';
 
-export class DrizzleCategoryKeywordVocabularyRepository
-  implements ICategoryKeywordVocabularyRepository
-{
+export class DrizzleCategoryKeywordVocabularyRepository implements ICategoryKeywordVocabularyRepository {
   constructor(
     private readonly spreadsheetConfigRepo: ISpreadsheetConfigRepository,
     private readonly userCategoryRepo: IUserCategoryRepository,

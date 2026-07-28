@@ -244,7 +244,9 @@ describe('RegisterExpenseUseCase', () => {
 
     it('propagates a fallback classification as categoryStatus fallback', async () => {
       mockClassifierExecute.mockResolvedValue(ClassificationResult.fallback('Comida'));
-      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: 'restaurante' }));
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({ categoriaRaw: 'restaurante' }),
+      );
 
       const { useCase } = buildUseCase();
       const result = await useCase.interpret(buildInput({ rawMessage: 'Restaurante 100 EUR' }));

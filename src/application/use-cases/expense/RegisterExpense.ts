@@ -240,9 +240,10 @@ export class RegisterExpenseUseCase {
     };
   }
 
-  private toReviewCategory(
-    classification: ClassificationResult,
-  ): { resolvedCategory: string | null; categoryStatus: ExpenseReviewPayload['categoryStatus'] } {
+  private toReviewCategory(classification: ClassificationResult): {
+    resolvedCategory: string | null;
+    categoryStatus: ExpenseReviewPayload['categoryStatus'];
+  } {
     switch (classification.kind) {
       case 'high-confidence':
         return { resolvedCategory: classification.category, categoryStatus: 'confirmed' };

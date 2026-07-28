@@ -53,10 +53,7 @@ function isCloseEnough(distance: number, a: string, b: string): boolean {
 }
 
 export class CategoryFallbackMapper implements ICategoryFallbackMapper {
-  findClosest(
-    inferred: CanonicalCategory,
-    available: readonly string[],
-  ): Promise<string | null> {
+  findClosest(inferred: CanonicalCategory, available: readonly string[]): Promise<string | null> {
     if (available.length === 0) {
       return Promise.resolve(null);
     }

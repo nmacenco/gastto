@@ -22,9 +22,7 @@ export type ClassificationResult =
     }
   | { readonly kind: 'no-match'; readonly category: null; readonly confidence: CategoryConfidence };
 
-export function isHighConfidenceResult(
-  result: ClassificationResult,
-): result is {
+export function isHighConfidenceResult(result: ClassificationResult): result is {
   readonly kind: 'high-confidence';
   readonly category: string;
   readonly confidence: CategoryConfidence;
@@ -32,9 +30,7 @@ export function isHighConfidenceResult(
   return result.kind === 'high-confidence';
 }
 
-export function isAmbiguousResult(
-  result: ClassificationResult,
-): result is {
+export function isAmbiguousResult(result: ClassificationResult): result is {
   readonly kind: 'ambiguous';
   readonly category: string;
   readonly confidence: CategoryConfidence;
@@ -42,9 +38,7 @@ export function isAmbiguousResult(
   return result.kind === 'ambiguous';
 }
 
-export function isFallbackResult(
-  result: ClassificationResult,
-): result is {
+export function isFallbackResult(result: ClassificationResult): result is {
   readonly kind: 'fallback';
   readonly category: string;
   readonly confidence: CategoryConfidence;
@@ -52,9 +46,7 @@ export function isFallbackResult(
   return result.kind === 'fallback';
 }
 
-export function isNoMatchResult(
-  result: ClassificationResult,
-): result is {
+export function isNoMatchResult(result: ClassificationResult): result is {
   readonly kind: 'no-match';
   readonly category: null;
   readonly confidence: CategoryConfidence;
