@@ -1,3 +1,17 @@
+function formatCategoryLabel(
+  category: string,
+  status: 'confirmed' | 'ambiguous' | 'fallback' | 'none',
+): string {
+  if (status === 'none') return '❓ Sin categoría';
+  return category;
+}
+
+function categoryStatusNote(status: 'confirmed' | 'ambiguous' | 'fallback' | 'none'): string {
+  if (status === 'ambiguous') return ' (¿correcto?)';
+  if (status === 'fallback') return ' (sugerida)';
+  return '';
+}
+
 export const expenseCopies = {
   clarificationAmount: () => '¿Cuánto gastaste?',
   clarificationCurrency: () => '¿En qué moneda fue ese gasto?',
@@ -15,14 +29,17 @@ export const expenseCopies = {
     moneda: string | null;
     category: string;
     categoryConfidence: string;
+    categoryStatus: 'confirmed' | 'ambiguous' | 'fallback' | 'none';
     date: string;
   }): string => {
     const confidenceNote = payload.categoryConfidence === 'baja' ? ' (¿correcto?)' : '';
+    const categoryLabel = formatCategoryLabel(payload.category, payload.categoryStatus);
+    const statusNote = categoryStatusNote(payload.categoryStatus);
     return [
       '📋 *Resumen del gasto:*',
       `• Concepto: ${payload.rawMessage.slice(0, 80)}`,
       `• Monto: ${payload.monto ?? ''} ${payload.moneda ?? ''}`,
-      `• Categoría: ${payload.category}${confidenceNote}`,
+      `• Categoría: ${categoryLabel}${confidenceNote}${statusNote}`,
       `• Fecha: ${payload.date}`,
       '',
       '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.',
@@ -33,14 +50,18 @@ export const expenseCopies = {
     monto: number | string | null;
     moneda: string | null;
     category: string;
+    categoryStatus: 'confirmed' | 'ambiguous' | 'fallback' | 'none';
     date: string;
-  }): string =>
-    [
+  }): string => {
+    const categoryLabel = formatCategoryLabel(payload.category, payload.categoryStatus);
+    const statusNote = categoryStatusNote(payload.categoryStatus);
+    return [
       '📋 *Resumen actualizado:*',
       `• Monto: ${payload.monto ?? ''} ${payload.moneda ?? ''}`,
-      `• Categoría: ${payload.category}`,
+      `• Categoría: ${categoryLabel}${statusNote}`,
       `• Fecha: ${payload.date}`,
       '',
       '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.',
-    ].join('\n'),
+    ].join('\n');
+  },
 };

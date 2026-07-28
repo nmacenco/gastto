@@ -184,6 +184,7 @@ describe('processMessageJob', () => {
           extracted: { monto: '850', moneda: 'ARS', confianzaCategoria: 'alta' },
           resolvedDate: '2026-01-15',
           resolvedCategory: 'Comida',
+          categoryStatus: 'confirmed',
         },
       });
 
@@ -193,6 +194,74 @@ describe('processMessageJob', () => {
       const sentText = mockSendMessage.mock.calls[0]![1] as string;
       expect(sentText).toContain('850 ARS');
       expect(sentText).toContain('Comida');
+    });
+
+    it('surfaces ambiguity hint in the expense summary', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_RECEIVING' }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'success',
+        payload: {
+          rawMessage: 'Cafe o cine',
+          extracted: { monto: 850, moneda: 'ARS', confianzaCategoria: 'baja' },
+          resolvedDate: '2026-01-15',
+          resolvedCategory: 'Ocio',
+          categoryStatus: 'ambiguous',
+        },
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      const sentText = mockSendMessage.mock.calls[0]![1] as string;
+      expect(sentText).toContain('Ocio');
+      expect(sentText).toContain('(¿correcto?)');
+    });
+
+    it('surfaces fallback hint in the expense summary', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_RECEIVING' }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'success',
+        payload: {
+          rawMessage: 'Pagué el entretenimiento',
+          extracted: { monto: 850, moneda: 'ARS', confianzaCategoria: 'baja' },
+          resolvedDate: '2026-01-15',
+          resolvedCategory: 'Comida',
+          categoryStatus: 'fallback',
+        },
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      const sentText = mockSendMessage.mock.calls[0]![1] as string;
+      expect(sentText).toContain('Comida');
+      expect(sentText).toContain('(sugerida)');
+    });
+
+    it('shows the empty-category placeholder when no category is detected', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_RECEIVING' }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'success',
+        payload: {
+          rawMessage: 'Gasté 850',
+          extracted: { monto: 850, moneda: 'ARS', confianzaCategoria: 'nula' },
+          resolvedDate: '2026-01-15',
+          resolvedCategory: null,
+          categoryStatus: 'none',
+        },
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      const sentText = mockSendMessage.mock.calls[0]![1] as string;
+      expect(sentText).toContain('Sin categoría');
     });
 
     it('sends unavailable copy when registerExpense is null', async () => {
@@ -223,6 +292,7 @@ describe('processMessageJob', () => {
           extracted: { monto: 0, moneda: 'ARS', confianzaCategoria: 'alta' },
           resolvedDate: '2026-01-15',
           resolvedCategory: 'Comida',
+          categoryStatus: 'confirmed',
         },
       });
 
@@ -343,6 +413,7 @@ describe('processMessageJob', () => {
           extracted: { monto: '850', moneda: 'ARS', confianzaCategoria: 'alta' },
           resolvedDate: '2026-01-15',
           resolvedCategory: 'Comida',
+          categoryStatus: 'confirmed',
         },
       });
 
@@ -355,6 +426,32 @@ describe('processMessageJob', () => {
       });
       const sentText = mockSendMessage.mock.calls[0]![1] as string;
       expect(sentText).toContain('Resumen actualizado');
+    });
+
+    it('surfaces ambiguity hint in the updated summary', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CLARIFYING',
+          statePayload: { rawMessage: 'Cafe' },
+        }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'success',
+        payload: {
+          rawMessage: 'Cafe o cine',
+          extracted: { monto: 850, moneda: 'ARS', confianzaCategoria: 'baja' },
+          resolvedDate: '2026-01-15',
+          resolvedCategory: 'Ocio',
+          categoryStatus: 'ambiguous',
+        },
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '850 pesos' }), deps);
+
+      const sentText = mockSendMessage.mock.calls[0]![1] as string;
+      expect(sentText).toContain('Resumen actualizado');
+      expect(sentText).toContain('(¿correcto?)');
     });
 
     it('asks again when clarification still needs more info', async () => {

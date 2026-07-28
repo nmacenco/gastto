@@ -195,13 +195,10 @@ describe('ExtractAmountCurrency', () => {
       { text: 'Gasté 0 pesos', defaultCurrency: 'ARS' as const, expectedCurrency: 'ARS' as const },
       { text: 'Gasté 0.00 EUR', defaultCurrency: null, expectedCurrency: 'EUR' as const },
       { text: 'Gasté 0,00 EUR', defaultCurrency: null, expectedCurrency: 'EUR' as const },
-    ])(
-      'treats "$text" as 0 $expectedCurrency',
-      ({ text, defaultCurrency, expectedCurrency }) => {
-        const result = extractor.execute(text, defaultCurrency);
-        assertSuccess(result, 0, expectedCurrency);
-      },
-    );
+    ])('treats "$text" as 0 $expectedCurrency', ({ text, defaultCurrency, expectedCurrency }) => {
+      const result = extractor.execute(text, defaultCurrency);
+      assertSuccess(result, 0, expectedCurrency);
+    });
   });
 
   describe('ambiguous $ with default currency outside candidate list', () => {
@@ -222,13 +219,12 @@ describe('ExtractAmountCurrency', () => {
   });
 
   describe('invalid amount format edge cases', () => {
-    it.each([
-      'Gasté 12,34,56 EUR',
-      'Gasté 1.234.56 EUR',
-      'Gasté 1,2,3 EUR',
-    ])('returns invalid-amount-format for "%s"', (text) => {
-      const result = extractor.execute(text, null);
-      expect(isInvalidAmountFormatResult(result)).toBe(true);
-    });
+    it.each(['Gasté 12,34,56 EUR', 'Gasté 1.234.56 EUR', 'Gasté 1,2,3 EUR'])(
+      'returns invalid-amount-format for "%s"',
+      (text) => {
+        const result = extractor.execute(text, null);
+        expect(isInvalidAmountFormatResult(result)).toBe(true);
+      },
+    );
   });
 });

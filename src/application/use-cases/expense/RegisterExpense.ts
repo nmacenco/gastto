@@ -15,6 +15,7 @@ import type {
 import type { IUserProfilePort } from '../../../domain/ports/IUserProfilePort';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
+import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
 import { ExtractAmountCurrency } from '../../services/ExtractAmountCurrency';
 import {
   isSuccessAmountCurrencyResult,
@@ -23,6 +24,7 @@ import {
   isCurrencyNotFoundResult,
   isAmbiguousCurrencyResult,
 } from '../../../domain/value-objects/AmountCurrencyExtractionResult';
+import type { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
 
 export interface RegisterExpenseInput {
   userId: string;
@@ -37,6 +39,7 @@ export interface ExpenseReviewPayload {
   resolvedDate: string; // ISO date string
   resolvedCategory: string | null;
   resolvedCategoryId: string | null;
+  categoryStatus: 'confirmed' | 'ambiguous' | 'fallback' | 'none';
   awaitingZeroConfirmation?: boolean;
 }
 
@@ -53,6 +56,7 @@ export class RegisterExpenseUseCase {
     private readonly conversationRepo: IConversationStateRepository,
     private readonly logRepo: IOperationLogRepository,
     private readonly userProfilePort: IUserProfilePort,
+    private readonly classifier: ICategoryClassifier,
   ) {}
 
   // Fase 1: interpreta el mensaje y transiciona a EXPENSE_REVIEW
@@ -92,10 +96,16 @@ export class RegisterExpenseUseCase {
           monto: fallbackResult.money.amount,
           moneda: fallbackResult.money.currency,
         };
-      } else if (isAmountNotFoundResult(fallbackResult) || isInvalidAmountFormatResult(fallbackResult)) {
+      } else if (
+        isAmountNotFoundResult(fallbackResult) ||
+        isInvalidAmountFormatResult(fallbackResult)
+      ) {
         await this.transitionToClarifying(input.userId, 'monto', extracted, input.rawMessage);
         return { status: 'needs_clarification', missingField: 'monto' };
-      } else if (isCurrencyNotFoundResult(fallbackResult) || isAmbiguousCurrencyResult(fallbackResult)) {
+      } else if (
+        isCurrencyNotFoundResult(fallbackResult) ||
+        isAmbiguousCurrencyResult(fallbackResult)
+      ) {
         await this.transitionToClarifying(input.userId, 'moneda', extracted, input.rawMessage);
         return { status: 'needs_clarification', missingField: 'moneda' };
       }
@@ -115,9 +125,23 @@ export class RegisterExpenseUseCase {
 
     const finalExtracted = { ...resolvedExtracted, moneda };
 
+    // Resolve category through the keyword classifier (E1-US-04)
+    const classification = await this.classifier.execute({
+      userId: input.userId,
+      rawMessage: input.rawMessage,
+      llmCategory: finalExtracted.categoriaRaw,
+      llmConfidence: finalExtracted.confianzaCategoria,
+    });
+    const { resolvedCategory, categoryStatus } = this.toReviewCategory(classification);
+
     // Zero-amount confirmation path (E1-US-03)
     if (finalExtracted.monto === 0) {
-      const payload = this.buildReviewPayload(finalExtracted, input.rawMessage, categories);
+      const payload = this.buildReviewPayload(
+        finalExtracted,
+        input.rawMessage,
+        resolvedCategory,
+        categoryStatus,
+      );
       await this.conversationRepo.transition(
         input.userId,
         'EXPENSE_REVIEW',
@@ -132,15 +156,13 @@ export class RegisterExpenseUseCase {
       ? new Date(finalExtracted.fechaRaw).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10);
 
-    // Normalize category against the user's actual vocabulary
-    const resolvedCategory = this.resolveCategory(finalExtracted.categoriaRaw, categories);
-
     const payload: ExpenseReviewPayload = {
       extracted: finalExtracted,
       rawMessage: input.rawMessage,
       resolvedDate,
       resolvedCategory,
       resolvedCategoryId: null,
+      categoryStatus,
     };
 
     // Transiciona a EXPENSE_REVIEW con TTL de 10 min (E1-US-06)
@@ -201,12 +223,12 @@ export class RegisterExpenseUseCase {
   private buildReviewPayload(
     extracted: ExtractedExpense,
     rawMessage: string,
-    categories: string[],
+    resolvedCategory: string | null,
+    categoryStatus: ExpenseReviewPayload['categoryStatus'],
   ): ExpenseReviewPayload {
     const resolvedDate = extracted.fechaRaw
       ? new Date(extracted.fechaRaw).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10);
-    const resolvedCategory = this.resolveCategory(extracted.categoriaRaw, categories);
 
     return {
       extracted,
@@ -214,7 +236,25 @@ export class RegisterExpenseUseCase {
       resolvedDate,
       resolvedCategory,
       resolvedCategoryId: null,
+      categoryStatus,
     };
+  }
+
+  private toReviewCategory(classification: ClassificationResult): {
+    resolvedCategory: string | null;
+    categoryStatus: ExpenseReviewPayload['categoryStatus'];
+  } {
+    switch (classification.kind) {
+      case 'high-confidence':
+        return { resolvedCategory: classification.category, categoryStatus: 'confirmed' };
+      case 'ambiguous':
+        return { resolvedCategory: classification.category, categoryStatus: 'ambiguous' };
+      case 'fallback':
+        return { resolvedCategory: classification.category, categoryStatus: 'fallback' };
+      case 'no-match':
+      default:
+        return { resolvedCategory: null, categoryStatus: 'none' };
+    }
   }
 
   private async transitionToClarifying(
@@ -232,16 +272,6 @@ export class RegisterExpenseUseCase {
         rawMessage,
       },
       new Date(Date.now() + 30 * 60 * 1000), // 30 min timeout
-    );
-  }
-
-  private resolveCategory(raw: string | null, availableCategories: string[]): string | null {
-    if (!raw || availableCategories.length === 0) return null;
-    const normalized = raw.toLowerCase().trim();
-    return (
-      availableCategories.find(
-        (c) => c.toLowerCase() === normalized || normalized.includes(c.toLowerCase()),
-      ) ?? null
     );
   }
 
