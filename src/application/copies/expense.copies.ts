@@ -22,8 +22,7 @@ export const expenseCopies = {
   fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
   expenseRegistrationUnavailable: () =>
     'El registro de gastos no está disponible en este momento. Volvé a intentarlo más tarde.',
-  clarificationInterrupted: () =>
-    'El registro anterior fue cancelado. Procesando el nuevo gasto…',
+  clarificationInterrupted: () => 'El registro anterior fue cancelado. Procesando el nuevo gasto…',
   clarificationReformulation: (options: string[]): string => {
     if (options.length === 0) {
       return '¿En qué moneda fue ese gasto?';

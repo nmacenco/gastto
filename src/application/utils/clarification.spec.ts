@@ -21,7 +21,10 @@ describe('isNewExpenseDuringClarification', () => {
 
   it('returns true for messages with many words', () => {
     expect(
-      isNewExpenseDuringClarification('Compré café con leche y dos medialunas en la esquina', 'monto'),
+      isNewExpenseDuringClarification(
+        'Compré café con leche y dos medialunas en la esquina',
+        'monto',
+      ),
     ).toBe(true);
   });
 

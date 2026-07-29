@@ -28,7 +28,10 @@ describe('expenseCopies', () => {
     });
 
     it('returns a two-option question joined by "o"', () => {
-      const result = expenseCopies.clarificationReformulation(['pesos argentinos (ARS)', 'euros (EUR)']);
+      const result = expenseCopies.clarificationReformulation([
+        'pesos argentinos (ARS)',
+        'euros (EUR)',
+      ]);
 
       expect(result).toBe('¿El gasto fue en pesos argentinos (ARS) o euros (EUR)?');
     });
@@ -40,9 +43,7 @@ describe('expenseCopies', () => {
         'dólares (USD)',
       ]);
 
-      expect(result).toBe(
-        '¿El gasto fue en pesos argentinos (ARS), euros (EUR) o dólares (USD)?',
-      );
+      expect(result).toBe('¿El gasto fue en pesos argentinos (ARS), euros (EUR) o dólares (USD)?');
     });
   });
 });

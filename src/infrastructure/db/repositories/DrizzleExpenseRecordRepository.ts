@@ -66,9 +66,7 @@ export class DrizzleExpenseRecordRepository implements IExpenseRecordRepository 
       .orderBy(desc(expenseRecords.savedAt))
       .limit(limit);
 
-    return rows
-      .map((row) => row.moneda)
-      .filter((moneda): moneda is Currency => moneda !== null);
+    return rows.map((row) => row.moneda).filter((moneda): moneda is Currency => moneda !== null);
   }
 
   async softDelete(id: string): Promise<void> {
