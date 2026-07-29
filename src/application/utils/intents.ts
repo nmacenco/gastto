@@ -49,6 +49,29 @@ const LIST_COLUMNS_PHRASES = [
   'columnas disponibles',
 ];
 
+const IDK_VARIANTS = [
+  'no sé',
+  'no se',
+  'no lo se',
+  'no sé cuál',
+  'no se cual',
+  'no lo sé',
+  'no sé cual',
+  'ni idea',
+  'no tengo idea',
+  'no se cual es',
+  'no sé cual es',
+  'no se cual usar',
+  'no sé cual usar',
+  'no se',
+  'nose',
+  'no sepa',
+  'no c',
+  'noce',
+  'no se cual',
+  'no sé cual',
+];
+
 export function isConfirmIntent(rawMessage: string): boolean {
   const normalized = rawMessage.toLowerCase().trim();
   return CONFIRM_WORDS.some((w) => normalized === w || normalized.startsWith(w + ' '));
@@ -83,4 +106,9 @@ export function isRejectMappingIntent(rawMessage: string): boolean {
     const boundaryPattern = new RegExp(`(?:^|\\s)${phrase}(?:\\s|$)`);
     return boundaryPattern.test(normalized);
   });
+}
+
+export function isIdkVariant(rawMessage: string): boolean {
+  const normalized = rawMessage.toLowerCase().trim().replace(/\s+/g, ' ');
+  return IDK_VARIANTS.includes(normalized);
 }

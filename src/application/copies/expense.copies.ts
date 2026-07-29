@@ -22,6 +22,18 @@ export const expenseCopies = {
   fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
   expenseRegistrationUnavailable: () =>
     'El registro de gastos no está disponible en este momento. Volvé a intentarlo más tarde.',
+  clarificationInterrupted: () => 'El registro anterior fue cancelado. Procesando el nuevo gasto…',
+  clarificationReformulation: (options: string[]): string => {
+    if (options.length === 0) {
+      return '¿En qué moneda fue ese gasto?';
+    }
+    if (options.length === 1) {
+      return `¿El gasto fue en ${options[0]}?`;
+    }
+    const lastOption = options[options.length - 1];
+    const precedingOptions = options.slice(0, -1).join(', ');
+    return `¿El gasto fue en ${precedingOptions} o ${lastOption}?`;
+  },
 
   expenseSummary: (payload: {
     rawMessage: string;

@@ -26,7 +26,7 @@ import type { SheetInfo } from '../../../domain/entities/SheetInfo';
 import type { ValidateSpreadsheetAccess } from './ValidateSpreadsheetAccess';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
-import { isConfirmIntent } from '../../utils/intents';
+import { isConfirmIntent, isIdkVariant } from '../../utils/intents';
 
 export interface HandleSheetSelectionInput {
   userId: string;
@@ -54,34 +54,6 @@ export interface HandleSheetSelectionDeps {
 }
 
 // ── Normalization helpers ────────────────────────────────────────────────────
-
-const IDK_VARIANTS = [
-  'no sé',
-  'no se',
-  'no lo se',
-  'no sé cuál',
-  'no se cual',
-  'no lo sé',
-  'no sé cual',
-  'ni idea',
-  'no tengo idea',
-  'no se cual es',
-  'no sé cual es',
-  'no se cual usar',
-  'no sé cual usar',
-  'no se',
-  'nose',
-  'no sepa',
-  'no c',
-  'noce',
-  'no se cual',
-  'no sé cual',
-];
-
-function isIdkVariant(raw: string): boolean {
-  const normalized = raw.toLowerCase().trim().replace(/\s+/g, ' ');
-  return IDK_VARIANTS.includes(normalized);
-}
 
 function normalizeForComparison(raw: string): string {
   return raw

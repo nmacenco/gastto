@@ -47,6 +47,8 @@ const mockReleaseLock = vi.fn();
 const LOCK_TOKEN_A = 'lock-token-a';
 const LOCK_TOKEN_B = 'lock-token-b';
 const mockClearCorrectionState = vi.fn();
+const mockUserProfileGetDefaultCurrency = vi.fn();
+const mockFindRecentCurrenciesByUserId = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -74,6 +76,15 @@ function buildMockDeps(): MessageWorkerDeps {
     messagingAdapters: {
       telegram: { sendMessage: mockSendMessage },
       whatsapp: { sendMessage: mockSendMessage },
+    },
+    userProfilePort: {
+      getDefaultCurrency: mockUserProfileGetDefaultCurrency,
+    },
+    expenseRecordRepo: {
+      create: vi.fn(),
+      findLatestByUserId: vi.fn(),
+      findRecentCurrenciesByUserId: mockFindRecentCurrenciesByUserId,
+      softDelete: vi.fn(),
     },
     mappingCorrectionStateRepository: {
       load: mockLoadCorrectionState,
@@ -132,6 +143,25 @@ function buildConversationState(overrides: Partial<ConversationState> = {}): Con
   };
 }
 
+function buildClarificationStatePayload(
+  missingField: 'monto' | 'moneda',
+  rawMessage: string,
+): Record<string, unknown> {
+  return {
+    _type: 'ExpenseClarificationState',
+    missingField,
+    rawMessage,
+    partialExtracted: {
+      monto: missingField === 'monto' ? null : 850,
+      moneda: missingField === 'moneda' ? null : 'ARS',
+      categoriaRaw: 'café',
+      fechaRaw: '2026-07-25',
+      medioPago: null,
+      confianzaCategoria: 'alta',
+    },
+  };
+}
+
 const baseJobData: ProcessMessageJobData = {
   userId: 'user-123',
   rawMessage: 'Cafe 850',
@@ -145,6 +175,8 @@ describe('processMessageJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
+    mockUserProfileGetDefaultCurrency.mockResolvedValue(null);
+    mockFindRecentCurrenciesByUserId.mockResolvedValue([]);
   });
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
@@ -403,7 +435,7 @@ describe('processMessageJob', () => {
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_CLARIFYING',
-          statePayload: { rawMessage: 'Cafe' },
+          statePayload: buildClarificationStatePayload('monto', 'Cafe'),
         }),
       );
       mockRegisterExpenseInterpret.mockResolvedValue({
@@ -433,7 +465,7 @@ describe('processMessageJob', () => {
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_CLARIFYING',
-          statePayload: { rawMessage: 'Cafe' },
+          statePayload: buildClarificationStatePayload('monto', 'Cafe'),
         }),
       );
       mockRegisterExpenseInterpret.mockResolvedValue({
@@ -459,7 +491,7 @@ describe('processMessageJob', () => {
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_CLARIFYING',
-          statePayload: { rawMessage: 'Cafe' },
+          statePayload: buildClarificationStatePayload('monto', 'Cafe'),
         }),
       );
       mockRegisterExpenseInterpret.mockResolvedValue({
@@ -481,7 +513,7 @@ describe('processMessageJob', () => {
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_CLARIFYING',
-          statePayload: { rawMessage: 'Cafe' },
+          statePayload: buildClarificationStatePayload('monto', 'Cafe'),
         }),
       );
 
@@ -491,6 +523,115 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.expenseRegistrationUnavailable(),
+      );
+    });
+
+    it('cancels previous clarification and processes a new expense', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CLARIFYING',
+          statePayload: buildClarificationStatePayload('monto', 'Cafe'),
+        }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'success',
+        payload: {
+          rawMessage: 'Pagué 30 euros por el café',
+          extracted: { monto: 30, moneda: 'EUR', confianzaCategoria: 'alta' },
+          resolvedDate: '2026-01-15',
+          resolvedCategory: 'Comida',
+          categoryStatus: 'confirmed',
+        },
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'Pagué 30 euros por el café' }),
+        deps,
+      );
+
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationInterrupted(),
+      );
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Pagué 30 euros por el café',
+        channel: 'telegram',
+      });
+      const sentText = mockSendMessage.mock.calls[
+        mockSendMessage.mock.calls.length - 1
+      ]![1] as string;
+      expect(sentText).toContain('Resumen del gasto');
+    });
+
+    it('reformulates the currency question when the user answers invalidly', async () => {
+      const deps = buildMockDeps();
+      mockUserProfileGetDefaultCurrency.mockResolvedValue('ARS');
+      mockFindRecentCurrenciesByUserId.mockResolvedValue(['USD', 'EUR']);
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CLARIFYING',
+          statePayload: buildClarificationStatePayload('moneda', 'Gasté 100'),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'no sé' }), deps);
+
+      expect(mockUserProfileGetDefaultCurrency).toHaveBeenCalledWith('user-123');
+      expect(mockFindRecentCurrenciesByUserId).toHaveBeenCalledWith('user-123', 5);
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)?',
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('reformulates the amount question when the user answers invalidly', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CLARIFYING',
+          statePayload: buildClarificationStatePayload('monto', 'Cafe en euros'),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'ni idea' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationAmount(),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('treats a short amount+currency pair as a clarification answer', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CLARIFYING',
+          statePayload: buildClarificationStatePayload('monto', 'Cafe'),
+        }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'needs_clarification',
+        missingField: 'moneda',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '850 pesos' }), deps);
+
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Cafe 850 pesos',
+        channel: 'telegram',
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationCurrency(),
       );
     });
   });
@@ -1636,6 +1777,178 @@ describe('processMessageJob', () => {
       expect(mockLoggerError).toHaveBeenCalledWith(
         expect.objectContaining({ code: 'FALLBACK_SEND_FAILED' }),
       );
+    });
+  });
+
+  describe('E1-US-05 clarification Gherkin scenarios', () => {
+    it('asks for the missing currency when amount is present but currency is missing', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'IDLE' }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'needs_clarification',
+        missingField: 'moneda',
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'Pagué 30 por el café' }),
+        deps,
+      );
+
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Pagué 30 por el café',
+        channel: 'telegram',
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationCurrency(),
+      );
+    });
+
+    it('asks for the missing amount when no amount is found', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'IDLE' }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'needs_clarification',
+        missingField: 'monto',
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'Fui al supermercado' }),
+        deps,
+      );
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationAmount(),
+      );
+    });
+
+    it('shows ambiguous category as editable in the review summary instead of asking', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'IDLE' }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'success',
+        payload: {
+          rawMessage: 'Compré algo en el kiosco, 8 euros',
+          extracted: { monto: 8, moneda: 'EUR', confianzaCategoria: 'baja' },
+          resolvedDate: '2026-07-25',
+          resolvedCategory: 'Ocio',
+          categoryStatus: 'ambiguous',
+        },
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'Compré algo en el kiosco, 8 euros' }),
+        deps,
+      );
+
+      const sentText = mockSendMessage.mock.calls[0]![1] as string;
+      expect(sentText).toContain('Ocio');
+      expect(sentText).toContain('(¿correcto?)');
+    });
+
+    it('asks for amount first, then currency, when both are missing', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(buildConversationState({ currentState: 'IDLE' }))
+        .mockResolvedValueOnce(
+          buildConversationState({
+            currentState: 'EXPENSE_CLARIFYING',
+            statePayload: buildClarificationStatePayload('monto', 'Gasté algo'),
+          }),
+        );
+      mockRegisterExpenseInterpret
+        .mockResolvedValueOnce({ status: 'needs_clarification', missingField: 'monto' })
+        .mockResolvedValueOnce({ status: 'needs_clarification', missingField: 'moneda' });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Gasté algo' }), deps);
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationAmount(),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '100' }), deps);
+      expect(mockRegisterExpenseInterpret).toHaveBeenLastCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Gasté algo 100',
+        channel: 'telegram',
+      });
+      expect(mockSendMessage).toHaveBeenLastCalledWith(
+        '123456789',
+        expenseCopies.clarificationCurrency(),
+      );
+    });
+
+    it('cancels the previous clarification and processes a new expense message', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CLARIFYING',
+          statePayload: buildClarificationStatePayload('monto', 'Cafe'),
+        }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'success',
+        payload: {
+          rawMessage: 'Pagué 30 euros por el café',
+          extracted: { monto: 30, moneda: 'EUR', confianzaCategoria: 'alta' },
+          resolvedDate: '2026-07-25',
+          resolvedCategory: 'Comida',
+          categoryStatus: 'confirmed',
+        },
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'Pagué 30 euros por el café' }),
+        deps,
+      );
+
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationInterrupted(),
+      );
+      expect(mockRegisterExpenseInterpret).toHaveBeenLastCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Pagué 30 euros por el café',
+        channel: 'telegram',
+      });
+      const lastSent = mockSendMessage.mock.calls[
+        mockSendMessage.mock.calls.length - 1
+      ]![1] as string;
+      expect(lastSent).toContain('Resumen del gasto');
+    });
+
+    it('reformulates the currency question with concrete options when the user answers "no sé"', async () => {
+      const deps = buildMockDeps();
+      mockUserProfileGetDefaultCurrency.mockResolvedValue('ARS');
+      mockFindRecentCurrenciesByUserId.mockResolvedValue(['USD', 'EUR']);
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CLARIFYING',
+          statePayload: buildClarificationStatePayload('moneda', 'Gasté 100'),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'no sé' }), deps);
+
+      expect(mockUserProfileGetDefaultCurrency).toHaveBeenCalledWith('user-123');
+      expect(mockFindRecentCurrenciesByUserId).toHaveBeenCalledWith('user-123', 5);
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)?',
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
     });
   });
 });

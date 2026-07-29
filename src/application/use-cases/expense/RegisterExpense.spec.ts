@@ -362,5 +362,130 @@ describe('RegisterExpenseUseCase', () => {
       }
       expect(result.payload.extracted.moneda).toBe('EUR');
     });
+
+    it('asks for amount first when both amount and currency are missing', async () => {
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ monto: null, moneda: null }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Gasté algo' }));
+
+      expect(result.status).toBe('needs_clarification');
+      if (result.status !== 'needs_clarification') {
+        throw new Error('Expected needs_clarification');
+      }
+      expect(result.missingField).toBe('monto');
+      expect(mockConversationTransition).toHaveBeenCalledWith(
+        'user-123',
+        'EXPENSE_CLARIFYING',
+        expect.objectContaining({ missingField: 'monto' }),
+        expect.any(Date),
+      );
+    });
+
+    it('asks for currency when amount is present but currency is missing', async () => {
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ monto: 100, moneda: null }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Gasté 100' }));
+
+      expect(result.status).toBe('needs_clarification');
+      if (result.status !== 'needs_clarification') {
+        throw new Error('Expected needs_clarification');
+      }
+      expect(result.missingField).toBe('moneda');
+      expect(mockConversationTransition).toHaveBeenCalledWith(
+        'user-123',
+        'EXPENSE_CLARIFYING',
+        expect.objectContaining({ missingField: 'moneda' }),
+        expect.any(Date),
+      );
+    });
+
+    it('asks for amount when amount is missing even if currency is also ambiguous', async () => {
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ monto: null, moneda: null }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage: 'Pagué en euros' }));
+
+      expect(result.status).toBe('needs_clarification');
+      if (result.status !== 'needs_clarification') {
+        throw new Error('Expected needs_clarification');
+      }
+      expect(result.missingField).toBe('monto');
+    });
+
+    it('proceeds to review when category is ambiguous instead of asking for clarification', async () => {
+      mockClassifierExecute.mockResolvedValue(ClassificationResult.ambiguous('Ocio'));
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({ categoriaRaw: 'ocio', confianzaCategoria: 'baja' }),
+      );
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(
+        buildInput({ rawMessage: 'Compré algo en el kiosco, 8 euros' }),
+      );
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') {
+        throw new Error('Expected ready_for_review');
+      }
+      expect(result.payload.categoryStatus).toBe('ambiguous');
+      expect(result.payload.resolvedCategory).toBe('Ocio');
+    });
+
+    it('uses the typed ExpenseClarificationState payload in the transition', async () => {
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({ monto: null, moneda: 'EUR' }),
+      );
+
+      const { useCase } = buildUseCase();
+      await useCase.interpret(buildInput({ rawMessage: 'Pagué el café en EUR' }));
+
+      const payload = mockConversationTransition.mock.calls[0]?.[2] as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        _type: 'ExpenseClarificationState',
+        missingField: 'monto',
+        rawMessage: 'Pagué el café en EUR',
+      });
+      expect(payload).toHaveProperty('partialExtracted');
+    });
+
+    it('asks for currency after the user provides the missing amount in a sequential clarification', async () => {
+      mockLLMExtractExpense
+        .mockResolvedValueOnce(buildExtractedExpense({ monto: null, moneda: null }))
+        .mockResolvedValueOnce(buildExtractedExpense({ monto: 100, moneda: null }));
+
+      const { useCase } = buildUseCase();
+      const first = await useCase.interpret(buildInput({ rawMessage: 'Gasté algo' }));
+      expect(first.status).toBe('needs_clarification');
+      if (first.status !== 'needs_clarification') {
+        throw new Error('Expected needs_clarification');
+      }
+      expect(first.missingField).toBe('monto');
+
+      const second = await useCase.interpret(buildInput({ rawMessage: 'Gasté algo 100' }));
+      expect(second.status).toBe('needs_clarification');
+      if (second.status !== 'needs_clarification') {
+        throw new Error('Expected needs_clarification');
+      }
+      expect(second.missingField).toBe('moneda');
+    });
+
+    it('sets the EXPENSE_CLARIFYING timeout to 30 minutes', async () => {
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({ monto: null, moneda: 'EUR' }),
+      );
+
+      const { useCase } = buildUseCase();
+      await useCase.interpret(buildInput({ rawMessage: 'Pagué el café en EUR' }));
+
+      expect(mockConversationTransition).toHaveBeenCalledTimes(1);
+      const expiresAt = mockConversationTransition.mock.calls[0]?.[3] as Date;
+      const expectedMin = new Date(Date.now() + 29 * 60 * 1000);
+      const expectedMax = new Date(Date.now() + 31 * 60 * 1000);
+      expect(expiresAt).toBeInstanceOf(Date);
+      expect(expiresAt.getTime()).toBeGreaterThan(expectedMin.getTime());
+      expect(expiresAt.getTime()).toBeLessThan(expectedMax.getTime());
+    });
   });
 });

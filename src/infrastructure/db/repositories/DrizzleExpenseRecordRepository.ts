@@ -8,6 +8,7 @@ import { expenseRecords } from '../schema';
 import type * as schema from '../schema';
 import type { IExpenseRecordRepository } from '../../../domain/ports/repositories';
 import type { ExpenseRecord } from '../../../domain/entities/ExpenseRecord';
+import type { Currency } from '../../../domain/entities/User';
 
 export class DrizzleExpenseRecordRepository implements IExpenseRecordRepository {
   constructor(private readonly db: PostgresJsDatabase<typeof schema>) {}
@@ -52,6 +53,20 @@ export class DrizzleExpenseRecordRepository implements IExpenseRecordRepository 
     if (!row) return null;
 
     return this.mapExpenseRecord(row);
+  }
+
+  async findRecentCurrenciesByUserId(
+    userId: string,
+    limit: number,
+  ): Promise<ExpenseRecord['moneda'][]> {
+    const rows = await this.db
+      .selectDistinct({ moneda: expenseRecords.moneda })
+      .from(expenseRecords)
+      .where(and(eq(expenseRecords.userId, userId), eq(expenseRecords.isDeleted, false)))
+      .orderBy(desc(expenseRecords.savedAt))
+      .limit(limit);
+
+    return rows.map((row) => row.moneda).filter((moneda): moneda is Currency => moneda !== null);
   }
 
   async softDelete(id: string): Promise<void> {
