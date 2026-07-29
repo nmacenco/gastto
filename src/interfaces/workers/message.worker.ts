@@ -8,6 +8,7 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
+import type { IUserProfilePort } from '../../domain/ports/IUserProfilePort';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
 import type { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
 import type { IUserProcessingLock } from '../../application/ports/UserProcessingLock';
@@ -18,6 +19,7 @@ import type { ExpenseReviewPayload } from '../../application/use-cases/expense/R
 import type {
   IUserRepository,
   IMappingCorrectionStateRepository,
+  IExpenseRecordRepository,
 } from '../../domain/ports/repositories';
 import { ColumnMappingCorrectionState } from '../../domain/value-objects/ColumnMappingCorrectionState';
 import type { ColumnMapping } from '../../domain/entities/SpreadsheetConfig';
@@ -40,7 +42,14 @@ import {
   isConfirmIntent,
   isCancelIntent,
   isListColumnsIntent,
+  isIdkVariant,
 } from '../../application/utils/intents';
+import {
+  isNewExpenseDuringClarification,
+  buildCurrencyOptions,
+  formatCurrencyOption,
+} from '../../application/utils/clarification';
+import { ExpenseClarificationState } from '../../domain/value-objects/expense-clarification-state';
 
 // Lock TTL must exceed the longest possible job duration (LLM + side effects).
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
@@ -57,6 +66,8 @@ export interface MessageWorkerDeps {
   recoverCorruptedState: RecoverCorruptedState;
   userRepo: IUserRepository;
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
+  userProfilePort?: IUserProfilePort | null;
+  expenseRecordRepo?: IExpenseRecordRepository | null;
   mappingCorrectionStateRepository?: IMappingCorrectionStateRepository | null;
   initiateCloudConnection?: InitiateCloudConnection | null;
   cancelCloudConnection?: CancelCloudConnection | null;
@@ -711,10 +722,82 @@ async function handleClarification(
     return;
   }
 
-  // Retries interpretation with the user's clarification incorporated into the original message
-  const partial = statePayload as { rawMessage?: string } | null;
-  const originalMessage = partial?.rawMessage ?? '';
-  const enrichedMessage = `${originalMessage} ${rawMessage}`.trim();
+  if (!statePayload) {
+    opts.logger.error({
+      msg: 'Missing clarification state payload',
+      endpoint: 'handleClarification',
+      code: 'MISSING_CLARIFICATION_PAYLOAD',
+      userId,
+    });
+    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    return;
+  }
+
+  let state: ExpenseClarificationState;
+  try {
+    state = ExpenseClarificationState.fromPayload(statePayload);
+  } catch (err) {
+    opts.logger.error({
+      msg: 'Invalid clarification state payload',
+      endpoint: 'handleClarification',
+      code: 'INVALID_CLARIFICATION_PAYLOAD',
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    return;
+  }
+
+  // Interruption: a new expense message cancels the current clarification flow.
+  if (isNewExpenseDuringClarification(rawMessage, state.missingField)) {
+    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+    await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
+
+    const result = await opts.registerExpense.interpret({
+      userId,
+      rawMessage,
+      channel,
+    });
+
+    if (result.status === 'needs_clarification') {
+      const question =
+        result.missingField === 'monto'
+          ? expenseCopies.clarificationAmount()
+          : expenseCopies.clarificationCurrency();
+      await messaging.sendMessage(externalId, question);
+    } else if (result.status === 'needs_zero_confirmation') {
+      await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
+    } else {
+      const summary = formatExpenseSummary(result.payload);
+      await messaging.sendMessage(externalId, summary);
+    }
+    return;
+  }
+
+  // Invalid answer: reformulate the question with concrete options.
+  if (isIdkVariant(rawMessage)) {
+    if (state.missingField === 'moneda') {
+      const defaultCurrency = opts.userProfilePort
+        ? await opts.userProfilePort.getDefaultCurrency(userId)
+        : null;
+      const recentCurrencies = opts.expenseRecordRepo
+        ? await opts.expenseRecordRepo.findRecentCurrenciesByUserId(userId, 5)
+        : [];
+      const options = buildCurrencyOptions(defaultCurrency, recentCurrencies).map(
+        formatCurrencyOption,
+      );
+      await messaging.sendMessage(externalId, expenseCopies.clarificationReformulation(options));
+      return;
+    }
+
+    await messaging.sendMessage(externalId, expenseCopies.clarificationAmount());
+    return;
+  }
+
+  // Retries interpretation with the user's clarification incorporated into the original message.
+  const enrichedMessage = `${state.rawMessage} ${rawMessage}`.trim();
 
   const result = await opts.registerExpense.interpret({
     userId,

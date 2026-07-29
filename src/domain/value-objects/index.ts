@@ -5,6 +5,7 @@ export * from './AmountCurrencyExtractionResult';
 export * from './CategoryKeywordVocabulary';
 export * from './ClassificationResult';
 export * from './Currency';
+export * from './expense-clarification-state';
 export * from './FreeTextIntent';
 export * from './IncomingMessage';
 export * from './MessageType';

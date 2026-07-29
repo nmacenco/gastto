@@ -14,6 +14,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation, natural-language correction, and guided manual correction on rejection using the detected header row, with Redis-backed transient state.
 - [`category-confirmation.md`](./category-confirmation.md) — Reads the existing category vocabulary from the spreadsheet and presents it for confirmation.
 - [`incoming-message-routing.md`](./incoming-message-routing.md) — Webhook ingestion, payload parsing, and channel-agnostic routing of Telegram messages.
+- [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow for missing or ambiguous expense amount/currency data.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM for multi-turn conversational flows with session timeout.
 - [`deployment.md`](./deployment.md) — Multi-environment Fly.io deployment, secrets management, and Telegram bot isolation.

@@ -24,6 +24,10 @@ import {
   isCurrencyNotFoundResult,
   isAmbiguousCurrencyResult,
 } from '../../../domain/value-objects/AmountCurrencyExtractionResult';
+import {
+  ExpenseClarificationState,
+  type MissingClarificationField,
+} from '../../../domain/value-objects/expense-clarification-state';
 import type { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
 
 export interface RegisterExpenseInput {
@@ -111,7 +115,8 @@ export class RegisterExpenseUseCase {
       }
     }
 
-    // Most blocking data first: amount > currency (E1-US-05)
+    // Clarification priority: amount > currency > category (E1-US-05).
+    // Category ambiguity is not clarified here; it is shown as editable in EXPENSE_REVIEW.
     if (resolvedExtracted.monto === null) {
       await this.transitionToClarifying(input.userId, 'monto', extracted, input.rawMessage);
       return { status: 'needs_clarification', missingField: 'monto' };
@@ -259,18 +264,15 @@ export class RegisterExpenseUseCase {
 
   private async transitionToClarifying(
     userId: string,
-    missingField: 'monto' | 'moneda',
+    missingField: MissingClarificationField,
     partialExtracted: ExtractedExpense,
     rawMessage: string,
   ): Promise<void> {
+    const state = ExpenseClarificationState.create(missingField, partialExtracted, rawMessage);
     await this.conversationRepo.transition(
       userId,
       'EXPENSE_CLARIFYING',
-      {
-        missingField,
-        partialExtracted,
-        rawMessage,
-      },
+      state.toPayload(),
       new Date(Date.now() + 30 * 60 * 1000), // 30 min timeout
     );
   }

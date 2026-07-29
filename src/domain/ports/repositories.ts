@@ -158,6 +158,9 @@ export interface IExpenseRecordRepository {
   // Último registro no eliminado del usuario (para deshacer — E1-US-11)
   findLatestByUserId(userId: string): Promise<ExpenseRecord | null>;
 
+  // Distinct currencies recently used by the user, ordered by most recent (E1-US-05)
+  findRecentCurrenciesByUserId(userId: string, limit: number): Promise<ExpenseRecord['moneda'][]>;
+
   // Soft delete (ADR-006): marca is_deleted = true, deleted_at = now()
   softDelete(id: string): Promise<void>;
 }
