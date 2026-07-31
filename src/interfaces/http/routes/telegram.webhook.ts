@@ -98,6 +98,7 @@ export async function handleTelegramWebhook(
     chatId: payload.chatId,
     userId: payload.userId,
     text: payload.text,
+    callbackData: payload.callbackData,
     timestamp: payload.timestamp.toISOString(),
     channel: payload.channel,
     externalMessageId: payload.externalMessageId!,

@@ -161,6 +161,9 @@ export interface IExpenseRecordRepository {
   // Distinct currencies recently used by the user, ordered by most recent (E1-US-05)
   findRecentCurrenciesByUserId(userId: string, limit: number): Promise<ExpenseRecord['moneda'][]>;
 
+  // Average amount of non-deleted expenses for the user, or null if no history (E1-US-06)
+  findAverageAmountByUserId(userId: string): Promise<number | null>;
+
   // Soft delete (ADR-006): marca is_deleted = true, deleted_at = now()
   softDelete(id: string): Promise<void>;
 }

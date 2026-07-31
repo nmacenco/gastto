@@ -269,4 +269,80 @@ describe('RouteIncomingMessage', () => {
       expect(mockClassifyExecute).not.toHaveBeenCalled();
     });
   });
+
+  describe('CALLBACK messages', () => {
+    it('resolves identity and enqueues a process-message job with callbackData', async () => {
+      const deps = buildMockDeps();
+      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
+      const payload: NormalizedPayload = {
+        messageType: 'CALLBACK',
+        chatId: '123456789',
+        userId: '999',
+        callbackData: { action: 'confirm' },
+        timestamp: new Date('2026-05-20T12:00:00Z'),
+        channel: 'telegram',
+        externalMessageId: 'query-123',
+      };
+
+      await router.execute(payload);
+
+      expect(mockProcessedExists).toHaveBeenCalledTimes(1);
+      expect(mockResolveExecute).toHaveBeenCalledWith({
+        channel: 'telegram',
+        externalId: '123456789',
+      });
+      expect(mockAdd).toHaveBeenCalledTimes(1);
+      const [, jobData] = mockAdd.mock.calls[0] as [string, ProcessMessageJobData];
+      expect(jobData).toMatchObject({
+        userId: 'user-123',
+        rawMessage: '',
+        channel: 'telegram',
+        externalId: '123456789',
+        externalMessageId: 'query-123',
+        callbackData: { action: 'confirm' },
+      });
+      expect(mockProcessedMarkAsProcessed).toHaveBeenCalledTimes(1);
+    });
+
+    it('delegates to unsupported handler when callback data is missing', async () => {
+      const deps = buildMockDeps();
+      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
+      const payload: NormalizedPayload = {
+        messageType: 'CALLBACK',
+        chatId: '123456789',
+        userId: '999',
+        timestamp: new Date('2026-05-20T12:00:00Z'),
+        channel: 'telegram',
+        externalMessageId: 'query-123',
+      };
+
+      await router.execute(payload);
+
+      expect(mockUnsupportedExecute).toHaveBeenCalledWith('123456789');
+      expect(mockResolveExecute).not.toHaveBeenCalled();
+      expect(mockAdd).not.toHaveBeenCalled();
+    });
+
+    it('skips already processed callback queries', async () => {
+      mockProcessedExists.mockResolvedValue(true);
+      const deps = buildMockDeps();
+      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
+      const payload: NormalizedPayload = {
+        messageType: 'CALLBACK',
+        chatId: '123456789',
+        userId: '999',
+        callbackData: { action: 'cancel' },
+        timestamp: new Date('2026-05-20T12:00:00Z'),
+        channel: 'telegram',
+        externalMessageId: 'query-123',
+      };
+
+      await router.execute(payload);
+
+      expect(mockProcessedExists).toHaveBeenCalledTimes(1);
+      expect(mockResolveExecute).not.toHaveBeenCalled();
+      expect(mockAdd).not.toHaveBeenCalled();
+      expect(mockProcessedMarkAsProcessed).not.toHaveBeenCalled();
+    });
+  });
 });

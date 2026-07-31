@@ -2,7 +2,7 @@
 // Concrete IExpenseRecordRepository implementation using Drizzle ORM.
 // Maps between schema row shape and domain ExpenseRecord entity.
 
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, avg } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { expenseRecords } from '../schema';
 import type * as schema from '../schema';
@@ -67,6 +67,18 @@ export class DrizzleExpenseRecordRepository implements IExpenseRecordRepository 
       .limit(limit);
 
     return rows.map((row) => row.moneda).filter((moneda): moneda is Currency => moneda !== null);
+  }
+
+  async findAverageAmountByUserId(userId: string): Promise<number | null> {
+    const rows = await this.db
+      .select({ average: avg(expenseRecords.monto) })
+      .from(expenseRecords)
+      .where(and(eq(expenseRecords.userId, userId), eq(expenseRecords.isDeleted, false)));
+
+    const average = rows[0]?.average;
+    if (average === null || average === undefined) return null;
+
+    return Number(average);
   }
 
   async softDelete(id: string): Promise<void> {

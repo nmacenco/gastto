@@ -6,10 +6,11 @@
 // must be JSON-serializable.
 
 export type IncomingMessageJobData = {
-  messageType: 'TEXT' | 'UNSUPPORTED' | 'MALFORMED';
+  messageType: 'TEXT' | 'UNSUPPORTED' | 'MALFORMED' | 'CALLBACK';
   chatId: string;
   userId?: string | undefined;
   text?: string | undefined;
+  callbackData?: { action: 'confirm' | 'correct' | 'cancel'; field?: string } | undefined;
   timestamp: string;
   channel: 'telegram' | 'whatsapp';
   externalMessageId: string;

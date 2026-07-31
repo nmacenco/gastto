@@ -10,6 +10,7 @@ export interface NormalizedPayload {
   readonly chatId: string;
   readonly userId?: string | undefined;
   readonly text?: string | undefined;
+  readonly callbackData?: { action: 'confirm' | 'correct' | 'cancel'; field?: string } | undefined;
   readonly timestamp: Date;
   readonly channel: 'telegram' | 'whatsapp';
   readonly externalMessageId?: string | undefined;

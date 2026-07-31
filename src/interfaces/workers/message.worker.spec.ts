@@ -21,6 +21,8 @@ import type { ModifyCategoryVocabulary } from '../../application/use-cases/sprea
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
+import { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
+import type { ResolveExpenseSummaryActionInput } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
@@ -49,6 +51,7 @@ const LOCK_TOKEN_B = 'lock-token-b';
 const mockClearCorrectionState = vi.fn();
 const mockUserProfileGetDefaultCurrency = vi.fn();
 const mockFindRecentCurrenciesByUserId = vi.fn();
+const mockResolveExpenseSummaryActionExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -61,6 +64,19 @@ function buildMockDeps(): MessageWorkerDeps {
     registerExpense: {
       interpret: mockRegisterExpenseInterpret,
     } as unknown as MessageWorkerDeps['registerExpense'],
+    generateExpenseSummary: new GenerateExpenseSummaryUseCase(
+      {
+        create: vi.fn(),
+        findLatestByUserId: vi.fn(),
+        findRecentCurrenciesByUserId: vi.fn(),
+        findAverageAmountByUserId: vi.fn().mockResolvedValue(null),
+        softDelete: vi.fn(),
+      },
+      10,
+    ),
+    resolveExpenseSummaryAction: {
+      execute: mockResolveExpenseSummaryActionExecute,
+    } as unknown as MessageWorkerDeps['resolveExpenseSummaryAction'],
     getConversationState: {
       execute: mockGetConversationStateExecute,
     } as unknown as MessageWorkerDeps['getConversationState'],
@@ -77,6 +93,38 @@ function buildMockDeps(): MessageWorkerDeps {
       telegram: { sendMessage: mockSendMessage },
       whatsapp: { sendMessage: mockSendMessage },
     },
+    expenseSummaryPresenterFactory: (messaging, chatId) => ({
+      presentSummary: async (summary) => {
+        const categoryMarker =
+          summary.categoryStatus === 'ambiguous'
+            ? ' (¿correcto?)'
+            : summary.categoryStatus === 'fallback'
+              ? ' (sugerida)'
+              : '';
+        const text = [
+          summary.isHighAmount ? '⚠️ *Monto inusualmente alto*' : '',
+          '📋 *Resumen del gasto:*',
+          `• Concepto: ${summary.concept.slice(0, 80)}`,
+          `• Monto: ${summary.amount} ${summary.currency}`,
+          `• Categoría: ${summary.category || '❓ Sin categoría'}${categoryMarker}`,
+          `• Fecha: ${summary.date}`,
+          '',
+          '¿Confirmamos?',
+        ]
+          .filter(Boolean)
+          .join('\n');
+        await messaging.sendMessage(chatId, text);
+      },
+      showTimeoutWarning: async () => {
+        await messaging.sendMessage(chatId, 'timeout warning');
+      },
+      notifyCancellation: async () => {
+        await messaging.sendMessage(chatId, 'cancelled');
+      },
+      requestHighAmountConfirmation: async (summary) => {
+        await messaging.sendMessage(chatId, `high amount ${summary.amount}`);
+      },
+    }),
     userProfilePort: {
       getDefaultCurrency: mockUserProfileGetDefaultCurrency,
     },
@@ -84,6 +132,7 @@ function buildMockDeps(): MessageWorkerDeps {
       create: vi.fn(),
       findLatestByUserId: vi.fn(),
       findRecentCurrenciesByUserId: mockFindRecentCurrenciesByUserId,
+      findAverageAmountByUserId: vi.fn().mockResolvedValue(null),
       softDelete: vi.fn(),
     },
     mappingCorrectionStateRepository: {
@@ -177,6 +226,16 @@ describe('processMessageJob', () => {
     mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
     mockUserProfileGetDefaultCurrency.mockResolvedValue(null);
     mockFindRecentCurrenciesByUserId.mockResolvedValue([]);
+    mockResolveExpenseSummaryActionExecute.mockImplementation(
+      async (input: ResolveExpenseSummaryActionInput) => {
+        if (input.action === 'confirm') {
+          await mockSendMessage(input.chatId, expenseCopies.saving());
+        } else if (input.action === 'cancel') {
+          await mockTransitionStateExecute({ userId: input.userId, targetState: 'IDLE' });
+          await mockSendMessage(input.chatId, expenseCopies.cancelled());
+        }
+      },
+    );
   });
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
@@ -365,20 +424,46 @@ describe('processMessageJob', () => {
     });
   });
 
+  function buildReviewStatePayload(
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      rawMessage: 'Cafe 850',
+      extracted: {
+        monto: 850,
+        moneda: 'ARS',
+        categoriaRaw: 'café',
+        fechaRaw: '2026-07-25',
+        medioPago: null,
+        confianzaCategoria: 'alta',
+      },
+      resolvedDate: '2026-07-25',
+      resolvedCategory: 'Comida',
+      resolvedCategoryId: null,
+      categoryStatus: 'confirmed',
+      ...overrides,
+    };
+  }
+
   describe('EXPENSE_REVIEW state', () => {
     it('confirms expense and sends saving message', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_REVIEW',
-          statePayload: { rawMessage: 'Cafe 850' },
+          statePayload: buildReviewStatePayload(),
         }),
       );
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
 
+      expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        action: 'confirm',
+        payload: buildReviewStatePayload(),
+        chatId: '123456789',
+      });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saving());
-      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
     });
 
     it('cancels expense and transitions to IDLE', async () => {
@@ -386,7 +471,7 @@ describe('processMessageJob', () => {
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_REVIEW',
-          statePayload: { rawMessage: 'Cafe 850' },
+          statePayload: buildReviewStatePayload(),
         }),
       );
 
@@ -404,7 +489,7 @@ describe('processMessageJob', () => {
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_REVIEW',
-          statePayload: { rawMessage: 'Cafe 850' },
+          statePayload: buildReviewStatePayload(),
         }),
       );
 
@@ -419,13 +504,97 @@ describe('processMessageJob', () => {
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_REVIEW',
-          statePayload: { rawMessage: 'Cafe 0', awaitingZeroConfirmation: true },
+          statePayload: buildReviewStatePayload({
+            rawMessage: 'Cafe 0',
+            extracted: {
+              monto: 0,
+              moneda: 'ARS',
+              categoriaRaw: 'café',
+              fechaRaw: '2026-07-25',
+              medioPago: null,
+              confianzaCategoria: 'alta',
+            },
+            awaitingZeroConfirmation: true,
+          }),
         }),
       );
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
 
+      expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          action: 'confirm',
+          chatId: '123456789',
+        }),
+      );
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saving());
+    });
+
+    it('resolves confirm callback via inline button', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: buildReviewStatePayload(),
+        }),
+      );
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: '', callbackData: { action: 'confirm' } }),
+        deps,
+      );
+
+      expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        action: 'confirm',
+        payload: buildReviewStatePayload(),
+        chatId: '123456789',
+      });
+    });
+
+    it('resolves cancel callback via inline button', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: buildReviewStatePayload(),
+        }),
+      );
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: '', callbackData: { action: 'cancel' } }),
+        deps,
+      );
+
+      expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        action: 'cancel',
+        payload: buildReviewStatePayload(),
+        chatId: '123456789',
+      });
+    });
+
+    it('resolves correct callback via inline button', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: buildReviewStatePayload(),
+        }),
+      );
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: '', callbackData: { action: 'correct' } }),
+        deps,
+      );
+
+      expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        action: 'correct',
+        payload: buildReviewStatePayload(),
+        chatId: '123456789',
+      });
     });
   });
 

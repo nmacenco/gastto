@@ -32,6 +32,9 @@ export class RouteIncomingMessage {
       case 'TEXT':
         await this.handleText(payload);
         return;
+      case 'CALLBACK':
+        await this.handleCallback(payload);
+        return;
       case 'UNSUPPORTED':
         await this.deps.handleUnsupportedMessage.execute(payload.chatId);
         return;
@@ -92,6 +95,41 @@ export class RouteIncomingMessage {
       externalId: payload.chatId,
       externalMessageId: payload.externalMessageId!,
       receivedAt: new Date().toISOString(),
+    });
+
+    await this.deps.processedMessageRepository.markAsProcessed(processedKey);
+  }
+
+  private async handleCallback(payload: NormalizedPayload): Promise<void> {
+    const callbackData = payload.callbackData;
+    if (!callbackData) {
+      // Defensive: CALLBACK payloads should always have data, but if not,
+      // treat as unsupported rather than throwing.
+      await this.deps.handleUnsupportedMessage.execute(payload.chatId);
+      return;
+    }
+
+    const processedKey = new ProcessedMessageKey({
+      channel: payload.channel,
+      externalMessageId: payload.externalMessageId!,
+    });
+    if (await this.deps.processedMessageRepository.exists(processedKey)) {
+      return;
+    }
+
+    const { userId } = await this.deps.resolveIdentity.execute({
+      channel: payload.channel,
+      externalId: payload.chatId,
+    });
+
+    await this.deps.messageQueue.add('process-message', {
+      userId,
+      rawMessage: '',
+      channel: payload.channel,
+      externalId: payload.chatId,
+      externalMessageId: payload.externalMessageId!,
+      receivedAt: new Date().toISOString(),
+      callbackData,
     });
 
     await this.deps.processedMessageRepository.markAsProcessed(processedKey);

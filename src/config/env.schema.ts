@@ -26,6 +26,17 @@ export const envSchema = z.object({
   // category classification to be considered high-confidence.
   CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.6),
 
+  // ── Expense review (E1-US-06) ─────────────────────────────────────────────────
+  // Multiplier over the user's historical average expense amount above which an
+  // amount is considered unusually high and requires explicit confirmation.
+  HIGH_AMOUNT_THRESHOLD_MULTIPLIER: z.coerce.number().min(1).default(10),
+
+  // Initial review timeout before the one-time reminder is sent.
+  EXPENSE_REVIEW_TIMEOUT_MINUTES: z.coerce.number().min(1).default(10),
+
+  // Additional timeout after the reminder before the review is auto-cancelled.
+  EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: z.coerce.number().min(1).default(10),
+
   // ── LLM ───────────────────────────────────────────────────────────────────────
   // At least one provider key must be configured at runtime (checked in main.ts).
   OPENAI_API_KEY: z.string().optional(),

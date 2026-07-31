@@ -10,4 +10,5 @@ export type ProcessMessageJobData = {
   externalId: string;
   externalMessageId: string;
   receivedAt: string;
+  callbackData?: { action: 'confirm' | 'correct' | 'cancel'; field?: string } | undefined;
 };

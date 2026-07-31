@@ -340,4 +340,113 @@ describe('parseTelegramPayload', () => {
       expect(result.messageType).toBe('MALFORMED');
     });
   });
+
+  describe('CALLBACK messages', () => {
+    it('extracts all fields from a valid callback query', () => {
+      const payload = {
+        update_id: 2,
+        callback_query: {
+          id: 'query-123',
+          from: { id: 999, username: 'testuser' },
+          message: {
+            message_id: 42,
+            chat: { id: 123456789 },
+            date: 1716206400,
+          },
+          data: JSON.stringify({ action: 'confirm' }),
+        },
+      };
+
+      const result = parseTelegramPayload(payload);
+
+      expect(result.messageType).toBe('CALLBACK');
+      expect(result.chatId).toBe('123456789');
+      expect(result.userId).toBe('999');
+      expect(result.externalMessageId).toBe('query-123');
+      expect(result.callbackData).toEqual({ action: 'confirm' });
+      expect(result.timestamp).toEqual(new Date(1716206400 * 1000));
+      expect(result.channel).toBe('telegram');
+      expect(result.rawPayload).toBe(payload);
+    });
+
+    it('parses correct and cancel actions', () => {
+      const correct = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q1',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'correct' }),
+        },
+      });
+
+      const cancel = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q2',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'cancel' }),
+        },
+      });
+
+      expect(correct.callbackData).toEqual({ action: 'correct' });
+      expect(cancel.callbackData).toEqual({ action: 'cancel' });
+    });
+
+    it('parses callback data with optional field', () => {
+      const result = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q1',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'correct', field: 'monto' }),
+        },
+      });
+
+      expect(result.callbackData).toEqual({ action: 'correct', field: 'monto' });
+    });
+
+    it('returns UNSUPPORTED when callback data is unknown', () => {
+      const result = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q1',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'unknown' }),
+        },
+      });
+
+      expect(result.messageType).toBe('UNSUPPORTED');
+    });
+
+    it('returns UNSUPPORTED when callback data is not valid JSON', () => {
+      const result = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q1',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: 'not-json',
+        },
+      });
+
+      expect(result.messageType).toBe('UNSUPPORTED');
+    });
+
+    it('returns MALFORMED when callback_query id is missing', () => {
+      const result = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'confirm' }),
+        },
+      });
+
+      expect(result.messageType).toBe('MALFORMED');
+    });
+  });
 });
