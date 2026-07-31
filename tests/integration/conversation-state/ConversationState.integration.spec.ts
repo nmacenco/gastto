@@ -26,6 +26,7 @@ import { RecoverCorruptedState } from '../../../src/application/use-cases/conver
 import { HandleExpiredSessions } from '../../../src/application/use-cases/conversation/HandleExpiredSessions';
 import type { IChatMessenger } from '../../../src/application/ports/IChatMessenger';
 import type { MessagingOutputPort } from '../../../src/application/ports/output/messaging.port';
+import type { ExpenseSummaryPresenter } from '../../../src/application/ports/output/expense-summary.presenter';
 import type { Logger } from 'pino';
 import type { Redis } from 'ioredis';
 
@@ -170,7 +171,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     const past = new Date(Date.now() - 3600_000); // 1 hour ago
     await createConversationState(db, {
       userId: user.userId,
-      currentState: 'EXPENSE_REVIEW',
+      currentState: 'EXPENSE_CLARIFYING',
       expiresAt: past,
     });
     await createMessagingIdentity(db, {
@@ -182,6 +183,15 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     const messagingMock: MessagingOutputPort = {
       sendMessage: vi.fn().mockResolvedValue({ status: 'success' }),
     };
+    const mockPresenterFactory = (
+      _messaging: MessagingOutputPort,
+      _chatId: string,
+    ): ExpenseSummaryPresenter => ({
+      presentSummary: vi.fn(),
+      showTimeoutWarning: vi.fn(),
+      notifyCancellation: vi.fn(),
+      requestHighAmountConfirmation: vi.fn(),
+    });
     const mockLogger = { error: vi.fn() } as unknown as Logger;
 
     const transition = new TransitionConversationState(conversationRepo);
@@ -190,6 +200,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
       userRepo,
       transition,
       messagingMock,
+      mockPresenterFactory,
+      10,
       mockLogger,
     );
 
