@@ -26,6 +26,7 @@ import { RecoverCorruptedState } from '../../../src/application/use-cases/conver
 import { HandleExpiredSessions } from '../../../src/application/use-cases/conversation/HandleExpiredSessions';
 import type { IChatMessenger } from '../../../src/application/ports/IChatMessenger';
 import type { MessagingOutputPort } from '../../../src/application/ports/output/messaging.port';
+import type { Logger } from 'pino';
 import type { Redis } from 'ioredis';
 
 describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', () => {
@@ -181,6 +182,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     const messagingMock: MessagingOutputPort = {
       sendMessage: vi.fn().mockResolvedValue({ status: 'success' }),
     };
+    const mockLogger = { error: vi.fn() } as unknown as Logger;
 
     const transition = new TransitionConversationState(conversationRepo);
     const useCase = new HandleExpiredSessions(
@@ -188,6 +190,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
       userRepo,
       transition,
       messagingMock,
+      mockLogger,
     );
 
     await useCase.execute();
