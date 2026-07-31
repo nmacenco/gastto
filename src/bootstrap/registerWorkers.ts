@@ -46,6 +46,8 @@ export async function registerWorkers(
     logger: deps.rootLogger,
     userProcessingLock: deps.userProcessingLock,
     registerExpense: deps.registerExpense,
+    generateExpenseSummary: deps.generateExpenseSummary,
+    resolveExpenseSummaryAction: deps.resolveExpenseSummaryAction,
     getConversationState: deps.getConversationState,
     transitionState: deps.transitionState,
     recoverCorruptedState: deps.recoverCorruptedState,
@@ -55,6 +57,7 @@ export async function registerWorkers(
       // TODO: replace with real WhatsApp adapter when implemented
       whatsapp: telegramAdapter,
     },
+    expenseSummaryPresenterFactory: deps.expenseSummaryPresenterFactory,
     mappingCorrectionStateRepository: deps.mappingCorrectionStateRepository,
     initiateCloudConnection: deps.googleOAuth?.initiateCloudConnection ?? null,
     cancelCloudConnection: deps.googleOAuth?.cancelCloudConnection ?? null,
@@ -109,6 +112,8 @@ export async function registerWorkers(
       deps.userRepo,
       deps.transitionState,
       telegramAdapter,
+      deps.expenseSummaryPresenterFactory,
+      env.EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES,
       deps.rootLogger,
     );
 

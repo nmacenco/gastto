@@ -45,6 +45,7 @@ export interface ExpenseReviewPayload {
   resolvedCategoryId: string | null;
   categoryStatus: 'confirmed' | 'ambiguous' | 'fallback' | 'none';
   awaitingZeroConfirmation?: boolean;
+  reminderSent?: boolean;
 }
 
 export class RegisterExpenseUseCase {
@@ -61,6 +62,7 @@ export class RegisterExpenseUseCase {
     private readonly logRepo: IOperationLogRepository,
     private readonly userProfilePort: IUserProfilePort,
     private readonly classifier: ICategoryClassifier,
+    private readonly reviewTimeoutMinutes: number = 10,
   ) {}
 
   // Fase 1: interpreta el mensaje y transiciona a EXPENSE_REVIEW
@@ -150,8 +152,8 @@ export class RegisterExpenseUseCase {
       await this.conversationRepo.transition(
         input.userId,
         'EXPENSE_REVIEW',
-        { ...payload, awaitingZeroConfirmation: true },
-        new Date(Date.now() + 10 * 60 * 1000),
+        { ...payload, awaitingZeroConfirmation: true, reminderSent: false },
+        new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
       );
       return { status: 'needs_zero_confirmation', payload };
     }
@@ -174,8 +176,8 @@ export class RegisterExpenseUseCase {
     await this.conversationRepo.transition(
       input.userId,
       'EXPENSE_REVIEW',
-      payload as unknown as Record<string, unknown>,
-      new Date(Date.now() + 10 * 60 * 1000),
+      { ...payload, reminderSent: false },
+      new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
     );
 
     return { status: 'ready_for_review', payload };
@@ -242,6 +244,7 @@ export class RegisterExpenseUseCase {
       resolvedCategory,
       resolvedCategoryId: null,
       categoryStatus,
+      reminderSent: false,
     };
   }
 

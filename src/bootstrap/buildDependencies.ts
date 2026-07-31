@@ -41,7 +41,10 @@ import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProces
 
 // Application
 import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
+import { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
+import { TelegramExpenseSummaryPresenter } from '../infrastructure/adapters/telegram/TelegramExpenseSummaryPresenter';
 import { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
 import { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
 import { HandleOAuthCallback } from '../application/use-cases/spreadsheet/HandleOAuthCallback';
@@ -70,6 +73,7 @@ import type { Logger } from 'pino';
 import type { ProcessMessageJobData } from '../application/ports/ProcessMessageJob';
 import type { IncomingMessageJobData } from '../application/ports/IncomingMessageJob';
 import type { LLMPort } from '../domain/ports/services';
+import type { MessagingOutputPort } from '../application/ports/output/messaging.port';
 
 /** Core infrastructure required to build the dependency graph. */
 export interface BuildDependenciesInfra {
@@ -431,6 +435,12 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     operationLogRepo,
     userProfileRepo,
     categoryClassifier,
+    env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
+  );
+
+  const generateExpenseSummary = new GenerateExpenseSummaryUseCase(
+    expenseRecordRepo,
+    env.HIGH_AMOUNT_THRESHOLD_MULTIPLIER,
   );
 
   const telegram = buildTelegramFeature(env, infra, {
@@ -456,6 +466,16 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     llmHeaderDetectionAdapter,
     telegramAdapter: telegram?.adapter ?? null,
   });
+
+  const resolveExpenseSummaryAction = new ResolveExpenseSummaryActionUseCase({
+    registerExpense,
+    transitionState,
+    messagingPort: telegram?.adapter ?? {
+      sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
+    },
+  });
+  const expenseSummaryPresenterFactory = (messaging: MessagingOutputPort, chatId: string) =>
+    new TelegramExpenseSummaryPresenter(messaging, telegram!.adapter, chatId);
 
   return {
     db: infra.db,
@@ -487,6 +507,9 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     mappingCorrectionStateRepository,
     userProcessingLock,
     registerExpense,
+    generateExpenseSummary,
+    resolveExpenseSummaryAction,
+    expenseSummaryPresenterFactory,
     telegram,
     googleOAuth,
   };

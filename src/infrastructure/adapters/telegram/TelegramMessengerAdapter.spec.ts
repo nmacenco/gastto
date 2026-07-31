@@ -312,6 +312,62 @@ describe('TelegramMessengerAdapter', () => {
     });
   });
 
+  describe('sendMessageWithInlineKeyboard', () => {
+    it('calls Telegram /sendMessage with inline keyboard markup', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ ok: true }),
+      });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
+      const result = await adapter.sendMessageWithInlineKeyboard(CHAT_ID, 'Summary', [
+        [{ text: 'Confirm', callbackData: JSON.stringify({ action: 'confirm' }) }],
+        [
+          { text: 'Correct', callbackData: JSON.stringify({ action: 'correct' }) },
+          { text: 'Cancel', callbackData: JSON.stringify({ action: 'cancel' }) },
+        ],
+      ]);
+
+      expect(result).toEqual({ status: 'success' });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`);
+
+      const body = JSON.parse(init.body as string) as {
+        chat_id: string;
+        text: string;
+        reply_markup: {
+          inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+        };
+      };
+      expect(body.chat_id).toBe(CHAT_ID);
+      expect(body.text).toBe('Summary');
+      expect(body.reply_markup.inline_keyboard).toEqual([
+        [{ text: 'Confirm', callback_data: JSON.stringify({ action: 'confirm' }) }],
+        [
+          { text: 'Correct', callback_data: JSON.stringify({ action: 'correct' }) },
+          { text: 'Cancel', callback_data: JSON.stringify({ action: 'cancel' }) },
+        ],
+      ]);
+    });
+
+    it('returns failure on HTTP error without retry', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('Bad Request'),
+      });
+
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
+      const result = await adapter.sendMessageWithInlineKeyboard(CHAT_ID, 'Summary', [
+        [{ text: 'A', callbackData: 'a' }],
+      ]);
+
+      expect(result).toEqual({ status: 'failure', errorCode: 'PERMANENT_FAILURE' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('sendWelcome', () => {
     it('sends a personalized welcome message when username is provided', async () => {
       fetchMock.mockResolvedValue({

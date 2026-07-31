@@ -23,6 +23,14 @@ export const expenseCopies = {
   expenseRegistrationUnavailable: () =>
     'El registro de gastos no está disponible en este momento. Volvé a intentarlo más tarde.',
   clarificationInterrupted: () => 'El registro anterior fue cancelado. Procesando el nuevo gasto…',
+  highAmountWarning: () => '⚠️ *Monto inusualmente alto*',
+  highAmountConfirmationPrompt: () =>
+    'Este monto supera notablemente tu gasto promedio. ¿Confirmamos que es correcto?',
+  reviewTimeoutWarning: () => '¿Confirmamos el registro? Respondé *sí*, *corregir*, o *cancelar*.',
+  reviewCancellation: () => 'Registro cancelado. No se guardó nada.',
+  expenseSavedConfirmation: () => 'Gasto guardado.',
+  expenseCorrectionPrompt: () =>
+    '¿Qué campo querés corregir? Escribí por ejemplo: "corregir monto: 150".',
   clarificationReformulation: (options: string[]): string => {
     if (options.length === 0) {
       return '¿En qué moneda fue ese gasto?';

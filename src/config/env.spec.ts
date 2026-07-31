@@ -178,4 +178,57 @@ describe('envSchema', () => {
     });
     expect(aboveOne.success).toBe(false);
   });
+
+  it('defaults HIGH_AMOUNT_THRESHOLD_MULTIPLIER to 10', () => {
+    const result = envSchema.safeParse(validEnv);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.HIGH_AMOUNT_THRESHOLD_MULTIPLIER).toBe(10);
+    }
+  });
+
+  it('coerces HIGH_AMOUNT_THRESHOLD_MULTIPLIER to a number and rejects values below 1', () => {
+    const valid = envSchema.safeParse({
+      ...validEnv,
+      HIGH_AMOUNT_THRESHOLD_MULTIPLIER: '5',
+    });
+    expect(valid.success).toBe(true);
+    if (valid.success) {
+      expect(valid.data.HIGH_AMOUNT_THRESHOLD_MULTIPLIER).toBe(5);
+    }
+
+    const belowOne = envSchema.safeParse({
+      ...validEnv,
+      HIGH_AMOUNT_THRESHOLD_MULTIPLIER: '0.5',
+    });
+    expect(belowOne.success).toBe(false);
+  });
+
+  it('defaults review timeout constants', () => {
+    const result = envSchema.safeParse(validEnv);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.EXPENSE_REVIEW_TIMEOUT_MINUTES).toBe(10);
+      expect(result.data.EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES).toBe(10);
+    }
+  });
+
+  it('coerces review timeout constants to numbers and rejects values below 1', () => {
+    const valid = envSchema.safeParse({
+      ...validEnv,
+      EXPENSE_REVIEW_TIMEOUT_MINUTES: '15',
+      EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: '20',
+    });
+    expect(valid.success).toBe(true);
+    if (valid.success) {
+      expect(valid.data.EXPENSE_REVIEW_TIMEOUT_MINUTES).toBe(15);
+      expect(valid.data.EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES).toBe(20);
+    }
+
+    const invalid = envSchema.safeParse({
+      ...validEnv,
+      EXPENSE_REVIEW_TIMEOUT_MINUTES: '0',
+    });
+    expect(invalid.success).toBe(false);
+  });
 });

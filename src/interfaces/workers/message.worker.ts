@@ -7,6 +7,8 @@ import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
+import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
+import type { ResolveExpenseSummaryActionUseCase } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 import type { IUserProfilePort } from '../../domain/ports/IUserProfilePort';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
@@ -14,6 +16,7 @@ import type { GetConversationState } from '../../application/use-cases/conversat
 import type { IUserProcessingLock } from '../../application/ports/UserProcessingLock';
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
+import type { ExpenseSummaryPresenter } from '../../application/ports/output/expense-summary.presenter';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
 import type {
@@ -61,8 +64,14 @@ export interface MessageWorkerDeps {
   logger: Logger;
   userProcessingLock: IUserProcessingLock;
   registerExpense: RegisterExpenseUseCase | null;
+  generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
+  resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
+  expenseSummaryPresenterFactory?: (
+    messaging: MessagingOutputPort,
+    chatId: string,
+  ) => ExpenseSummaryPresenter;
   recoverCorruptedState: RecoverCorruptedState;
   userRepo: IUserRepository;
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
@@ -179,8 +188,7 @@ async function routeByState(
         await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
       } else {
         // Format and send summary for review (E1-US-06)
-        const summary = formatExpenseSummary(result.payload);
-        await messaging.sendMessage(externalId, summary);
+        await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
       }
       break;
     }
@@ -396,19 +404,20 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
 
 // ── Helpers de formato ────────────────────────────────────────────────────────
 
-function formatExpenseSummary(payload: ExpenseReviewPayload): string {
-  const { extracted, resolvedDate, resolvedCategory, categoryStatus } = payload;
-  const categoryLabel = resolvedCategory ?? '❓ Sin categoría';
+async function presentExpenseSummary(
+  userId: string,
+  payload: ExpenseReviewPayload,
+  messaging: MessagingOutputPort,
+  externalId: string,
+  opts: MessageWorkerDeps,
+): Promise<void> {
+  if (!opts.generateExpenseSummary || !opts.expenseSummaryPresenterFactory) {
+    await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+    return;
+  }
 
-  return expenseCopies.expenseSummary({
-    rawMessage: payload.rawMessage,
-    monto: extracted.monto,
-    moneda: extracted.moneda,
-    category: categoryLabel,
-    categoryConfidence: extracted.confianzaCategoria,
-    categoryStatus,
-    date: resolvedDate,
-  });
+  const presenter = opts.expenseSummaryPresenterFactory(messaging, externalId);
+  await opts.generateExpenseSummary.execute({ userId, payload, presenter });
 }
 
 async function handleOnboardingMapping(
@@ -683,7 +692,36 @@ async function handleExpenseReview(
   opts: MessageWorkerDeps,
   messaging: MessagingOutputPort,
 ): Promise<void> {
-  const { userId, rawMessage, externalId } = jobData;
+  const { userId, rawMessage, externalId, callbackData } = jobData;
+
+  // Inline-button actions (Phase 3) take precedence over legacy text intents.
+  if (callbackData !== undefined) {
+    if (!opts.resolveExpenseSummaryAction) {
+      await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+      return;
+    }
+
+    if (!isValidExpenseReviewPayload(statePayload)) {
+      opts.logger.error({
+        msg: 'Missing or invalid expense review payload for callback action',
+        endpoint: 'handleExpenseReview',
+        code: 'INVALID_REVIEW_PAYLOAD',
+        userId,
+        action: callbackData.action,
+      });
+      await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+      await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+      return;
+    }
+
+    await opts.resolveExpenseSummaryAction.execute({
+      userId,
+      action: callbackData.action,
+      payload: statePayload as unknown as ExpenseReviewPayload,
+      chatId: externalId,
+    });
+    return;
+  }
 
   // State payload shape for EXPENSE_REVIEW:
   //   {
@@ -696,9 +734,17 @@ async function handleExpenseReview(
   //   }
 
   if (isConfirmIntent(rawMessage)) {
-    // Guardado — pendiente de implementar llamada a registerExpense.save()
-    // When awaitingZeroConfirmation is true, a confirm intent also proceeds to save.
-    await messaging.sendMessage(externalId, expenseCopies.saving());
+    if (!opts.resolveExpenseSummaryAction || !isValidExpenseReviewPayload(statePayload)) {
+      await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+      return;
+    }
+
+    await opts.resolveExpenseSummaryAction.execute({
+      userId,
+      action: 'confirm',
+      payload: statePayload as unknown as ExpenseReviewPayload,
+      chatId: externalId,
+    });
   } else if (isCancelIntent(rawMessage)) {
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
     await messaging.sendMessage(externalId, expenseCopies.cancelled());
@@ -707,6 +753,16 @@ async function handleExpenseReview(
     // This also covers the awaitingZeroConfirmation case for non-confirm/cancel replies.
     await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
   }
+}
+
+function isValidExpenseReviewPayload(
+  statePayload: Record<string, unknown> | null,
+): statePayload is Record<string, unknown> & { rawMessage: string; extracted: unknown } {
+  if (statePayload === null) {
+    return false;
+  }
+
+  return typeof statePayload.rawMessage === 'string' && statePayload.extracted !== undefined;
 }
 
 async function handleClarification(
@@ -770,8 +826,7 @@ async function handleClarification(
     } else if (result.status === 'needs_zero_confirmation') {
       await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
     } else {
-      const summary = formatExpenseSummary(result.payload);
-      await messaging.sendMessage(externalId, summary);
+      await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
     }
     return;
   }

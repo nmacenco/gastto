@@ -23,6 +23,7 @@ export async function processIncomingMessageJob(
     chatId: data.chatId,
     userId: data.userId,
     text: data.text,
+    callbackData: data.callbackData,
     timestamp: new Date(data.timestamp),
     channel: data.channel,
     externalMessageId: data.externalMessageId,

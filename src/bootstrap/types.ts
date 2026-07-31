@@ -30,6 +30,9 @@ import type { RedisMappingCorrectionStateRepository } from '../infrastructure/re
 import type { RedisProcessedMessageRepository } from '../infrastructure/redis/RedisProcessedMessageRepository';
 import type { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProcessingLock';
 import type { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import type { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
+import type { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
+import type { ExpenseSummaryPresenter } from '../application/ports/output/expense-summary.presenter';
 import type { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
 import type { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { HandleOAuthCallback } from '../application/use-cases/spreadsheet/HandleOAuthCallback';
@@ -55,6 +58,7 @@ import type { GetConversationState } from '../application/use-cases/conversation
 import type { LLMPort } from '../domain/ports/services';
 import type { ProcessMessageJobData } from '../application/ports/ProcessMessageJob';
 import type { IncomingMessageJobData } from '../application/ports/IncomingMessageJob';
+import type { MessagingOutputPort } from '../application/ports/output/messaging.port';
 
 /** Drizzle database handle produced by `drizzle(sql)`. */
 export type DrizzleDatabase = ReturnType<typeof drizzle>;
@@ -163,8 +167,14 @@ export interface Dependencies {
   mappingCorrectionStateRepository: RedisMappingCorrectionStateRepository;
   userProcessingLock: RedisUserProcessingLock;
 
-  // Expense registration use case
+  // Expense registration use cases
   registerExpense: RegisterExpenseUseCase;
+  generateExpenseSummary: GenerateExpenseSummaryUseCase;
+  resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase;
+  expenseSummaryPresenterFactory: (
+    messaging: MessagingOutputPort,
+    chatId: string,
+  ) => ExpenseSummaryPresenter;
 
   /** Optional Telegram feature bundle. */
   telegram: TelegramFeature | null;
