@@ -30,7 +30,25 @@ export const expenseCopies = {
   reviewCancellation: () => 'Registro cancelado. No se guardó nada.',
   expenseSavedConfirmation: () => 'Gasto guardado.',
   expenseCorrectionPrompt: () =>
-    '¿Qué campo querés corregir? Escribí por ejemplo: "corregir monto: 150".',
+    '¿Qué querés corregir? Escribí la corrección en lenguaje natural.\n\n' +
+    'Por ejemplo:\n' +
+    '• "no, fueron 15"\n' +
+    '• "ponlo en transporte"\n' +
+    '• "fue ayer"\n' +
+    '• "no, fueron 15 y es transporte" (varios campos en un solo mensaje)',
+  correctionApplied: (field: string, value: string | number): string => {
+    const labels: Record<string, string> = {
+      monto: 'Monto',
+      moneda: 'Moneda',
+      categoria: 'Categoría',
+      fecha: 'Fecha',
+    };
+    return `✅ *${labels[field] ?? field}* actualizado: ${value}`;
+  },
+  correctionCycleLimitReached: () =>
+    'Llegamos al límite de correcciones. ¿Confirmamos el gasto como está o lo cancelamos?',
+  correctionHighAmountConfirmation: () =>
+    'El monto corregido es inusualmente alto. ¿Confirmamos que es correcto? Respondé *sí* o *cancelar*.',
   clarificationReformulation: (options: string[]): string => {
     if (options.length === 0) {
       return '¿En qué moneda fue ese gasto?';

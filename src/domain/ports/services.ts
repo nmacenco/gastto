@@ -22,9 +22,27 @@ export interface ConversationContext {
   statePayload: Record<string, unknown> | null;
 }
 
+export type CorrectionField = 'monto' | 'moneda' | 'categoria' | 'fecha';
+
+export interface ExpenseCorrectionSuggestion {
+  interpretable: boolean;
+  changedFields: CorrectionField[];
+  monto: number | null;
+  moneda: Currency | null;
+  categoriaRaw: string | null;
+  fechaRaw: string | null;
+}
+
 export interface LLMPort {
   // Extrae entidades financieras de un mensaje en lenguaje natural
   extractExpense(userMessage: string, userContext: UserContext): Promise<ExtractedExpense>;
+
+  // Interpreta una corrección relativa al resumen que se acaba de mostrar
+  interpretCorrection(
+    rawMessage: string,
+    currentExtracted: ExtractedExpense,
+    userContext: UserContext,
+  ): Promise<ExpenseCorrectionSuggestion>;
 
   // Genera una respuesta en lenguaje natural para enviar al usuario
   generateResponse(prompt: string, context: ConversationContext): Promise<string>;

@@ -4,7 +4,9 @@
 // and route layers.
 
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
-import type { RegisterExpenseUseCase, ExpenseReviewPayload } from './RegisterExpense';
+import type { RegisterExpenseUseCase } from './RegisterExpense';
+import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
+import { ExpenseCorrectionState } from '../../../domain/value-objects/expense-correction-state';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { expenseCopies } from '../../copies/expense.copies';
 
@@ -56,10 +58,12 @@ export class ResolveExpenseSummaryActionUseCase {
   }
 
   private async handleCorrect(input: ResolveExpenseSummaryActionInput): Promise<void> {
+    const correctionState = ExpenseCorrectionState.create(input.payload, 0, false);
+
     await this.deps.transitionState.execute({
       userId: input.userId,
       targetState: 'EXPENSE_CORRECTING',
-      payload: input.payload as unknown as Record<string, unknown>,
+      payload: correctionState.toPayload(),
     });
 
     await this.deps.messagingPort.sendMessage(

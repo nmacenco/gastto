@@ -41,6 +41,7 @@ import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProces
 
 // Application
 import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
@@ -443,6 +444,18 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     env.HIGH_AMOUNT_THRESHOLD_MULTIPLIER,
   );
 
+  const correctExpense = new CorrectExpenseUseCase(
+    {
+      llm: llmPort,
+      classifier: categoryClassifier,
+      expenseRepo: expenseRecordRepo,
+      spreadsheetConfigRepo,
+      categoryRepo: userCategoryRepo,
+      transitionState,
+    },
+    env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
+  );
+
   const telegram = buildTelegramFeature(env, infra, {
     messageQueue,
     resolveIdentity,
@@ -507,6 +520,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     mappingCorrectionStateRepository,
     userProcessingLock,
     registerExpense,
+    correctExpense,
     generateExpenseSummary,
     resolveExpenseSummaryAction,
     expenseSummaryPresenterFactory,

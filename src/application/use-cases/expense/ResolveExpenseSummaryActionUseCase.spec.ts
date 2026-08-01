@@ -5,7 +5,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResolveExpenseSummaryActionUseCase } from './ResolveExpenseSummaryActionUseCase';
-import type { RegisterExpenseUseCase, ExpenseReviewPayload } from './RegisterExpense';
+import type { RegisterExpenseUseCase } from './RegisterExpense';
+import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { expenseCopies } from '../../copies/expense.copies';
@@ -117,7 +118,14 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       }),
     );
     const transitionCall = transitionMock.mock.calls[0];
-    expect(transitionCall?.[0].payload).toEqual(payload);
+    expect(transitionCall?.[0].payload).toEqual(
+      expect.objectContaining({
+        _type: 'ExpenseCorrectionState',
+        payload,
+        correctionCycles: 0,
+        pendingHighAmountConfirmation: false,
+      }),
+    );
     expect(sendMessageMock).toHaveBeenCalledWith(
       '123456789',
       expenseCopies.expenseCorrectionPrompt(),

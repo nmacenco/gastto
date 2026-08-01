@@ -69,6 +69,7 @@ function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
     mappingCorrectionStateRepository: {} as Dependencies['mappingCorrectionStateRepository'],
     userProcessingLock: {} as Dependencies['userProcessingLock'],
     registerExpense: {} as Dependencies['registerExpense'],
+    correctExpense: {} as Dependencies['correctExpense'],
     generateExpenseSummary: {} as Dependencies['generateExpenseSummary'],
     resolveExpenseSummaryAction: {} as Dependencies['resolveExpenseSummaryAction'],
     expenseSummaryPresenterFactory: {} as Dependencies['expenseSummaryPresenterFactory'],

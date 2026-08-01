@@ -76,6 +76,7 @@ describe('buildDependencies', () => {
     expect(deps.transitionState).toBeDefined();
     expect(deps.recoverCorruptedState).toBeDefined();
     expect(deps.registerExpense).toBeDefined();
+    expect(deps.correctExpense).toBeDefined();
     expect(deps.generateExpenseSummary).toBeDefined();
     expect(deps.resolveExpenseSummaryAction).toBeDefined();
     expect(deps.expenseSummaryPresenterFactory).toBeDefined();

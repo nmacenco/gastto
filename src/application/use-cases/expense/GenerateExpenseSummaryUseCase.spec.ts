@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GenerateExpenseSummaryUseCase } from './GenerateExpenseSummaryUseCase';
 import type { ExpenseSummaryPresenter } from '../../ports/output/expense-summary.presenter';
 import type { ExpenseSummary } from '../../dtos/expense-summary.dto';
-import type { ExpenseReviewPayload } from './RegisterExpense';
+import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { IExpenseRecordRepository } from '../../../domain/ports/repositories';
 

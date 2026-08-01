@@ -52,6 +52,7 @@ const mockClearCorrectionState = vi.fn();
 const mockUserProfileGetDefaultCurrency = vi.fn();
 const mockFindRecentCurrenciesByUserId = vi.fn();
 const mockResolveExpenseSummaryActionExecute = vi.fn();
+const mockCorrectExpenseExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -64,6 +65,9 @@ function buildMockDeps(): MessageWorkerDeps {
     registerExpense: {
       interpret: mockRegisterExpenseInterpret,
     } as unknown as MessageWorkerDeps['registerExpense'],
+    correctExpense: {
+      execute: mockCorrectExpenseExecute,
+    } as unknown as MessageWorkerDeps['correctExpense'],
     generateExpenseSummary: new GenerateExpenseSummaryUseCase(
       {
         create: vi.fn(),
@@ -236,6 +240,7 @@ describe('processMessageJob', () => {
         }
       },
     );
+    mockCorrectExpenseExecute.mockResolvedValue({ status: 'not_interpretable' });
   });
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
@@ -496,6 +501,61 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'maybe' }), deps);
 
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockCorrectExpenseExecute).toHaveBeenCalledTimes(1);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
+    });
+
+    it('applies a direct natural-language correction and presents one updated summary', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: payload,
+        }),
+      );
+      mockCorrectExpenseExecute.mockResolvedValue({
+        status: 'corrected',
+        payload: {
+          ...payload,
+          extracted: { ...(payload.extracted as Record<string, unknown>), monto: 15 },
+        },
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'no, fueron 15' }),
+        deps,
+      );
+
+      expect(mockCorrectExpenseExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'no, fueron 15',
+          channel: 'telegram',
+        }),
+      );
+      const directCorrectionInput = mockCorrectExpenseExecute.mock.calls[0]?.[0] as {
+        state: { correctionCycles: number };
+      };
+      expect(directCorrectionInput.state.correctionCycles).toBe(0);
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Monto: 15 ARS');
+    });
+
+    it('keeps the review state and sends the ambiguity prompt when direct correction is not interpretable', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: payload,
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'uh-huh' }), deps);
+
+      expect(mockCorrectExpenseExecute).toHaveBeenCalledTimes(1);
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
     });
 
@@ -595,6 +655,197 @@ describe('processMessageJob', () => {
         payload: buildReviewStatePayload(),
         chatId: '123456789',
       });
+    });
+  });
+
+  describe('EXPENSE_CORRECTING state', () => {
+    it('routes correction messages through CorrectExpenseUseCase and presents one summary', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCorrectionState',
+            payload,
+            correctionCycles: 2,
+            pendingHighAmountConfirmation: false,
+          },
+        }),
+      );
+      mockCorrectExpenseExecute.mockResolvedValue({ status: 'corrected', payload });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'ponlo en transporte' }),
+        deps,
+      );
+
+      expect(mockCorrectExpenseExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawMessage: 'ponlo en transporte',
+        }),
+      );
+      const correctingInput = mockCorrectExpenseExecute.mock.calls[0]?.[0] as {
+        state: { correctionCycles: number };
+      };
+      expect(correctingInput.state.correctionCycles).toBe(2);
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends the cycle-limit copy and does not present another summary', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCorrectionState',
+            payload,
+            correctionCycles: 5,
+          },
+        }),
+      );
+      mockCorrectExpenseExecute.mockResolvedValue({ status: 'cycle_limit', payload });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'otra corrección' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.correctionCycleLimitReached(),
+      );
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends the ambiguity copy without changing data for an uninterpretable correction', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCorrectionState',
+            payload,
+            correctionCycles: 1,
+          },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'uh-huh' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.ambiguousResponse(),
+      );
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
+    it('recovers an invalid correction state and logs the validation failure', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCorrectionState',
+            payload: { invalid: true },
+            correctionCycles: 0,
+          },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'corrige el monto' }), deps);
+
+      expect(mockCorrectExpenseExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+      });
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'handleExpenseCorrection',
+          code: 'INVALID_CORRECTION_PAYLOAD',
+          userId: 'user-123',
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.fallbackError(),
+      );
+    });
+
+    it('presents a high-amount correction once and keeps it unsaved for confirmation', async () => {
+      const deps = buildMockDeps();
+      const basePayload = buildReviewStatePayload();
+      const payload = buildReviewStatePayload({
+        extracted: {
+          ...(basePayload.extracted as Record<string, unknown>),
+          monto: 1500,
+        },
+      });
+      deps.generateExpenseSummary = new GenerateExpenseSummaryUseCase(
+        {
+          findAverageAmountByUserId: vi.fn().mockResolvedValue(100),
+        } as never,
+        10,
+      );
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCorrectionState',
+            payload: basePayload,
+            correctionCycles: 0,
+          },
+        }),
+      );
+      mockCorrectExpenseExecute.mockResolvedValue({
+        status: 'high_amount_confirmation',
+        payload,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'fueron 1500' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Monto inusualmente alto');
+      expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Monto: 1500 ARS');
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
+    it('presents exactly one updated summary for an atomic multi-field correction', async () => {
+      const deps = buildMockDeps();
+      const basePayload = buildReviewStatePayload();
+      const payload = buildReviewStatePayload({
+        extracted: {
+          ...(basePayload.extracted as Record<string, unknown>),
+          monto: 15,
+          moneda: 'EUR',
+          categoriaRaw: 'transporte',
+          fechaRaw: '2026-07-28',
+        },
+        resolvedDate: '2026-07-28',
+        resolvedCategory: 'Transporte',
+      });
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCorrectionState',
+            payload: basePayload,
+            correctionCycles: 0,
+          },
+        }),
+      );
+      mockCorrectExpenseExecute.mockResolvedValue({ status: 'corrected', payload });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: '15 euros en transporte el 28 de julio' }),
+        deps,
+      );
+
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      const summary = mockSendMessage.mock.calls[0]?.[1] as string;
+      expect(summary).toContain('Monto: 15 EUR');
+      expect(summary).toContain('Categoría: Transporte');
+      expect(summary).toContain('Fecha: 2026-07-28');
     });
   });
 

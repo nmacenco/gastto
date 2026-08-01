@@ -5,7 +5,7 @@
 import type { ExpenseSummary } from '../../dtos/expense-summary.dto';
 import type { ExpenseSummaryPresenter } from '../../ports/output/expense-summary.presenter';
 import type { IExpenseRecordRepository } from '../../../domain/ports/repositories';
-import type { ExpenseReviewPayload } from './RegisterExpense';
+import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 
 export interface GenerateExpenseSummaryInput {
   userId: string;

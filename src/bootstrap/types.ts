@@ -30,6 +30,7 @@ import type { RedisMappingCorrectionStateRepository } from '../infrastructure/re
 import type { RedisProcessedMessageRepository } from '../infrastructure/redis/RedisProcessedMessageRepository';
 import type { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProcessingLock';
 import type { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import type { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { ExpenseSummaryPresenter } from '../application/ports/output/expense-summary.presenter';
@@ -169,6 +170,7 @@ export interface Dependencies {
 
   // Expense registration use cases
   registerExpense: RegisterExpenseUseCase;
+  correctExpense: CorrectExpenseUseCase;
   generateExpenseSummary: GenerateExpenseSummaryUseCase;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase;
   expenseSummaryPresenterFactory: (
