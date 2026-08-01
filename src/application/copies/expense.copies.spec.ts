@@ -5,6 +5,12 @@ import { describe, it, expect } from 'vitest';
 import { expenseCopies } from './expense.copies';
 
 describe('expenseCopies', () => {
+  it('uses the E1-US-08 orientation copy for ambiguous review replies', () => {
+    expect(expenseCopies.ambiguousResponse()).toBe(
+      '¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?',
+    );
+  });
+
   describe('clarificationInterrupted', () => {
     it('returns a cancellation notice for the interrupted registration', () => {
       const result = expenseCopies.clarificationInterrupted();

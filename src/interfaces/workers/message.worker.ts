@@ -10,6 +10,10 @@ import type { RegisterExpenseUseCase } from '../../application/use-cases/expense
 import type { CorrectExpenseUseCase } from '../../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
+import type {
+  ResolveExpenseReviewReplyOutcome,
+  ResolveExpenseReviewReplyUseCase,
+} from '../../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 import type { IUserProfilePort } from '../../domain/ports/IUserProfilePort';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
@@ -69,6 +73,7 @@ export interface MessageWorkerDeps {
   correctExpense: CorrectExpenseUseCase | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
+  resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase | null;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
   expenseSummaryPresenterFactory?: (
@@ -746,54 +751,19 @@ async function handleExpenseReview(
   //     awaitingZeroConfirmation?: boolean, // true when amount is 0 and needs explicit confirmation
   //   }
 
-  if (isConfirmIntent(rawMessage)) {
-    if (!opts.resolveExpenseSummaryAction || !isValidExpenseReviewPayload(statePayload)) {
-      await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
-      return;
-    }
-
-    await opts.resolveExpenseSummaryAction.execute({
-      userId,
-      action: 'confirm',
-      payload: statePayload as unknown as ExpenseReviewPayload,
-      chatId: externalId,
-    });
-  } else if (isCancelIntent(rawMessage)) {
-    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.cancelled());
-  } else {
-    // Free-text corrections can be sent directly from the review summary.
-    // The typed state is built locally so an uninterpretable message does not
-    // write a transient FSM transition.
-    if (!opts.correctExpense || !isValidExpenseReviewPayload(statePayload)) {
-      await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
-      return;
-    }
-
-    try {
-      const correctionState = ExpenseCorrectionState.create(
-        statePayload as unknown as ExpenseReviewPayload,
-        0,
-        statePayload.pendingHighAmountConfirmation === true,
-      );
-      await handleExpenseCorrection(
-        jobData,
-        correctionState.toPayload(),
-        opts,
-        messaging,
-      );
-    } catch (err) {
-      opts.logger.error({
-        msg: 'Invalid expense review payload for correction',
-        endpoint: 'handleExpenseReview',
-        code: 'INVALID_REVIEW_CORRECTION_PAYLOAD',
-        userId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-      await messaging.sendMessage(externalId, expenseCopies.fallbackError());
-    }
+  if (!opts.resolveExpenseReviewReply || !isValidExpenseReviewPayload(statePayload)) {
+    await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+    return;
   }
+
+  const outcome = await opts.resolveExpenseReviewReply.execute({
+    userId,
+    rawMessage,
+    payload: statePayload as unknown as ExpenseReviewPayload,
+    chatId: externalId,
+    channel: jobData.channel,
+  });
+  await renderExpenseReviewReplyOutcome(outcome, userId, messaging, externalId, opts);
 }
 
 async function handleExpenseCorrection(
@@ -832,7 +802,19 @@ async function handleExpenseCorrection(
     channel,
   });
 
+  await renderExpenseReviewReplyOutcome(outcome, userId, messaging, externalId, opts);
+}
+
+async function renderExpenseReviewReplyOutcome(
+  outcome: ResolveExpenseReviewReplyOutcome | Awaited<ReturnType<CorrectExpenseUseCase['execute']>>,
+  userId: string,
+  messaging: MessagingOutputPort,
+  externalId: string,
+  opts: MessageWorkerDeps,
+): Promise<void> {
   switch (outcome.status) {
+    case 'action_handled':
+      return;
     case 'not_interpretable':
       await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
       return;

@@ -49,9 +49,7 @@ function buildCorrectionState(
   return ExpenseCorrectionState.create(payload, cycles);
 }
 
-function getPayload(
-  outcome: CorrectExpenseOutcome,
-): ExpenseReviewPayload {
+function getPayload(outcome: CorrectExpenseOutcome): ExpenseReviewPayload {
   assert('payload' in outcome, `unexpected outcome status: ${outcome.status}`);
   return outcome.payload;
 }

@@ -44,6 +44,7 @@ import { RegisterExpenseUseCase } from '../application/use-cases/expense/Registe
 import { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
+import { ResolveExpenseReviewReplyUseCase } from '../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
 import { TelegramExpenseSummaryPresenter } from '../infrastructure/adapters/telegram/TelegramExpenseSummaryPresenter';
 import { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
@@ -487,6 +488,10 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
     },
   });
+  const resolveExpenseReviewReply = new ResolveExpenseReviewReplyUseCase({
+    resolveExpenseSummaryAction,
+    correctExpense,
+  });
   const expenseSummaryPresenterFactory = (messaging: MessagingOutputPort, chatId: string) =>
     new TelegramExpenseSummaryPresenter(messaging, telegram!.adapter, chatId);
 
@@ -523,6 +528,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     correctExpense,
     generateExpenseSummary,
     resolveExpenseSummaryAction,
+    resolveExpenseReviewReply,
     expenseSummaryPresenterFactory,
     telegram,
     googleOAuth,

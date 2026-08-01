@@ -79,6 +79,7 @@ describe('buildDependencies', () => {
     expect(deps.correctExpense).toBeDefined();
     expect(deps.generateExpenseSummary).toBeDefined();
     expect(deps.resolveExpenseSummaryAction).toBeDefined();
+    expect(deps.resolveExpenseReviewReply).toBeDefined();
     expect(deps.expenseSummaryPresenterFactory).toBeDefined();
   });
 

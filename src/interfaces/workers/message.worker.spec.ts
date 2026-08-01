@@ -52,6 +52,7 @@ const mockClearCorrectionState = vi.fn();
 const mockUserProfileGetDefaultCurrency = vi.fn();
 const mockFindRecentCurrenciesByUserId = vi.fn();
 const mockResolveExpenseSummaryActionExecute = vi.fn();
+const mockResolveExpenseReviewReplyExecute = vi.fn();
 const mockCorrectExpenseExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
@@ -81,6 +82,9 @@ function buildMockDeps(): MessageWorkerDeps {
     resolveExpenseSummaryAction: {
       execute: mockResolveExpenseSummaryActionExecute,
     } as unknown as MessageWorkerDeps['resolveExpenseSummaryAction'],
+    resolveExpenseReviewReply: {
+      execute: mockResolveExpenseReviewReplyExecute,
+    } as unknown as MessageWorkerDeps['resolveExpenseReviewReply'],
     getConversationState: {
       execute: mockGetConversationStateExecute,
     } as unknown as MessageWorkerDeps['getConversationState'],
@@ -228,6 +232,10 @@ describe('processMessageJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
+    mockResolveExpenseReviewReplyExecute.mockResolvedValue({
+      status: 'action_handled',
+      action: 'confirm',
+    });
     mockUserProfileGetDefaultCurrency.mockResolvedValue(null);
     mockFindRecentCurrenciesByUserId.mockResolvedValue([]);
     mockResolveExpenseSummaryActionExecute.mockImplementation(
@@ -451,7 +459,7 @@ describe('processMessageJob', () => {
   }
 
   describe('EXPENSE_REVIEW state', () => {
-    it('confirms expense and sends saving message', async () => {
+    it('delegates a standard text confirmation to the application resolver', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
@@ -462,16 +470,35 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
 
-      expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith({
         userId: 'user-123',
-        action: 'confirm',
+        rawMessage: 'sí',
         payload: buildReviewStatePayload(),
         chatId: '123456789',
+        channel: 'telegram',
       });
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saving());
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
     });
 
-    it('cancels expense and transitions to IDLE', async () => {
+    it('delegates a regional text confirmation to the application resolver', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: buildReviewStatePayload(),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'órale' }), deps);
+
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ rawMessage: 'órale' }),
+      );
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('delegates text cancellation to the application resolver', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
@@ -482,11 +509,9 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
 
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'IDLE',
-      });
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.cancelled());
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ rawMessage: 'cancelar' }),
+      );
     });
 
     it('asks for clarification on ambiguous response', async () => {
@@ -497,11 +522,13 @@ describe('processMessageJob', () => {
           statePayload: buildReviewStatePayload(),
         }),
       );
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({ status: 'not_interpretable' });
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'maybe' }), deps);
 
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
-      expect(mockCorrectExpenseExecute).toHaveBeenCalledTimes(1);
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledTimes(1);
+      expect(mockCorrectExpenseExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
     });
 
@@ -514,7 +541,7 @@ describe('processMessageJob', () => {
           statePayload: payload,
         }),
       );
-      mockCorrectExpenseExecute.mockResolvedValue({
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({
         status: 'corrected',
         payload: {
           ...payload,
@@ -522,22 +549,16 @@ describe('processMessageJob', () => {
         },
       });
 
-      await processMessageJob(
-        buildJob({ ...baseJobData, rawMessage: 'no, fueron 15' }),
-        deps,
-      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'no, fueron 15' }), deps);
 
-      expect(mockCorrectExpenseExecute).toHaveBeenCalledWith(
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: 'user-123',
           rawMessage: 'no, fueron 15',
           channel: 'telegram',
         }),
       );
-      const directCorrectionInput = mockCorrectExpenseExecute.mock.calls[0]?.[0] as {
-        state: { correctionCycles: number };
-      };
-      expect(directCorrectionInput.state.correctionCycles).toBe(0);
+      expect(mockCorrectExpenseExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
       expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Monto: 15 ARS');
     });
@@ -551,15 +572,17 @@ describe('processMessageJob', () => {
           statePayload: payload,
         }),
       );
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({ status: 'not_interpretable' });
 
-      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'uh-huh' }), deps);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '🤔' }), deps);
 
-      expect(mockCorrectExpenseExecute).toHaveBeenCalledTimes(1);
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledTimes(1);
+      expect(mockCorrectExpenseExecute).not.toHaveBeenCalled();
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
     });
 
-    it('confirms zero-amount expense and sends saving message when awaitingZeroConfirmation is true', async () => {
+    it('delegates a zero-amount confirmation to the application resolver', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
@@ -581,14 +604,14 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
 
-      expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith(
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: 'user-123',
-          action: 'confirm',
+          rawMessage: 'sí',
           chatId: '123456789',
         }),
       );
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saving());
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
     });
 
     it('resolves confirm callback via inline button', async () => {
@@ -732,10 +755,7 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'uh-huh' }), deps);
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        expenseCopies.ambiguousResponse(),
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
     });
 
@@ -766,10 +786,7 @@ describe('processMessageJob', () => {
           userId: 'user-123',
         }),
       );
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        expenseCopies.fallbackError(),
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.fallbackError());
     });
 
     it('presents a high-amount correction once and keeps it unsaved for confirmation', async () => {

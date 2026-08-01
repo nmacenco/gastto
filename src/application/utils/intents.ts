@@ -3,7 +3,6 @@
 // Centralizes confirmation and cancellation word lists used across use cases.
 
 const CONFIRM_WORDS = [
-  'sí',
   'si',
   'yes',
   'ok',
@@ -12,11 +11,14 @@ const CONFIRM_WORDS = [
   'correcto',
   'listo',
   'va',
-  'bárbaro',
+  'barbaro',
   'okey',
   'perfecto',
   'yep',
   'sip',
+  'vale',
+  'orale',
+  'ya',
 ];
 
 const CANCEL_WORDS = ['cancelar', 'cancela', 'para', 'stop', 'salir'];
@@ -73,8 +75,16 @@ const IDK_VARIANTS = [
 ];
 
 export function isConfirmIntent(rawMessage: string): boolean {
-  const normalized = rawMessage.toLowerCase().trim();
-  return CONFIRM_WORDS.some((w) => normalized === w || normalized.startsWith(w + ' '));
+  const tokens = rawMessage
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return tokens.length > 0 && tokens.every((token) => CONFIRM_WORDS.includes(token));
 }
 
 export function isCancelIntent(rawMessage: string): boolean {

@@ -72,6 +72,7 @@ function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
     correctExpense: {} as Dependencies['correctExpense'],
     generateExpenseSummary: {} as Dependencies['generateExpenseSummary'],
     resolveExpenseSummaryAction: {} as Dependencies['resolveExpenseSummaryAction'],
+    resolveExpenseReviewReply: {} as Dependencies['resolveExpenseReviewReply'],
     expenseSummaryPresenterFactory: {} as Dependencies['expenseSummaryPresenterFactory'],
     telegram: null,
     googleOAuth: null,
