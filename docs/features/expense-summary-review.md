@@ -26,14 +26,10 @@ After the user describes an expense in natural language, the system interprets t
 - `RouteIncomingMessage` routes `CALLBACK` payloads to the `process-message` queue so the thick worker can resolve them in FSM context.
 - `ResolveExpenseSummaryActionUseCase` handles the three actions:
   - **Confirm**: invokes `RegisterExpenseUseCase.save()` and sends a saving/confirmation message.
-  - **Correct**: transitions to `EXPENSE_CORRECTING` and asks which field to change (stub until E1-US-07 is implemented).
+  - **Correct**: transitions to `EXPENSE_CORRECTING` and asks for a natural-language correction. See [`expense-correction.md`](./expense-correction.md).
   - **Cancel**: transitions to `IDLE` and sends the cancellation copy.
 - The messaging adapter contract remains stable: `MessagingOutputPort` handles plain text, while a narrow `InlineKeyboardOutputPort` is used for inline keyboards.
 - Legacy text-based confirm/cancel intents are still supported as a fallback.
-
-## Behavior (TODO)
-
-- Implement the actual field-correction sub-dialog when E1-US-07 is available.
 
 ## API / Interface
 
@@ -69,5 +65,5 @@ After the user describes an expense in natural language, the system interprets t
 ## Notes
 
 - The `expenseSummaryPresenterFactory` is currently wired to the Telegram presenter. A WhatsApp presenter can be added later without changing the use case.
-- The "Correct" action now uses an inline button and transitions to `EXPENSE_CORRECTING`; the actual field-correction dialog belongs to E1-US-07.
+- The "Correct" action uses an inline button and transitions to `EXPENSE_CORRECTING`; the natural-language correction flow is documented in [`expense-correction.md`](./expense-correction.md).
 - The presenter exposes `showTimeoutWarning`, `notifyCancellation`, and `requestHighAmountConfirmation` methods used by `HandleExpiredSessions` and high-amount flows.

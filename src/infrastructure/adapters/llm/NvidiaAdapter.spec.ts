@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NvidiaAdapter } from './NvidiaAdapter';
 import type { UserContext, ConversationContext } from '../../../domain/ports/services';
+import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 
 const API_KEY = 'nvidia-test-key';
 
@@ -195,6 +196,144 @@ describe('NvidiaAdapter', () => {
 
       const adapter = new NvidiaAdapter(API_KEY);
       await expect(adapter.extractExpense('test', userContext)).rejects.toThrow();
+    });
+  });
+
+  describe('interpretCorrection', () => {
+    const currentExtracted: ExtractedExpense = {
+      monto: 12,
+      moneda: 'EUR',
+      categoriaRaw: 'Comida',
+      fechaRaw: '2026-07-25',
+      medioPago: null,
+      confianzaCategoria: 'alta' as const,
+    };
+
+    it('maps an amount correction response', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            buildNvidiaResponse(
+              JSON.stringify({
+                interpretable: true,
+                changed_fields: ['monto'],
+                monto: 15,
+                moneda: null,
+                categoria_raw: null,
+                fecha_raw: null,
+              }),
+            ),
+          ),
+      });
+
+      const adapter = new NvidiaAdapter(API_KEY);
+      const result = await adapter.interpretCorrection(
+        'no, fueron 15',
+        currentExtracted,
+        userContext,
+      );
+
+      expect(result).toEqual({
+        interpretable: true,
+        changedFields: ['monto'],
+        monto: 15,
+        moneda: null,
+        categoriaRaw: null,
+        fechaRaw: null,
+      });
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as NvidiaRequestBody;
+      expect(body.messages).toHaveLength(2);
+      expect(body.messages[0]?.role).toBe('system');
+      expect(body.messages[0]?.content).toContain('Resumen actual:');
+      expect(body.messages[0]?.content).toContain('Monto: 12 EUR');
+      expect(body.messages[1]).toEqual({ role: 'user', content: 'no, fueron 15' });
+      expect(body.temperature).toBe(0);
+    });
+
+    it('maps a multi-field correction response', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            buildNvidiaResponse(
+              JSON.stringify({
+                interpretable: true,
+                changed_fields: ['monto', 'categoria'],
+                monto: 15,
+                moneda: null,
+                categoria_raw: 'transporte',
+                fecha_raw: null,
+              }),
+            ),
+          ),
+      });
+
+      const adapter = new NvidiaAdapter(API_KEY);
+      const result = await adapter.interpretCorrection(
+        'no, fueron 15 y es transporte',
+        currentExtracted,
+        userContext,
+      );
+
+      expect(result.changedFields).toEqual(['monto', 'categoria']);
+      expect(result.monto).toBe(15);
+      expect(result.categoriaRaw).toBe('transporte');
+    });
+
+    it('returns not interpretable for unrelated messages', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            buildNvidiaResponse(
+              JSON.stringify({
+                interpretable: false,
+                changed_fields: [],
+                monto: null,
+                moneda: null,
+                categoria_raw: null,
+                fecha_raw: null,
+              }),
+            ),
+          ),
+      });
+
+      const adapter = new NvidiaAdapter(API_KEY);
+      const result = await adapter.interpretCorrection('uh-huh', currentExtracted, userContext);
+
+      expect(result.interpretable).toBe(false);
+      expect(result.changedFields).toEqual([]);
+    });
+
+    it('throws when the response JSON does not match the correction schema', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            buildNvidiaResponse(
+              JSON.stringify({
+                interpretable: true,
+                changed_fields: ['monto'],
+                monto: 'not a number',
+                moneda: null,
+                categoria_raw: null,
+                fecha_raw: null,
+              }),
+            ),
+          ),
+      });
+
+      const adapter = new NvidiaAdapter(API_KEY);
+      await expect(
+        adapter.interpretCorrection('invalid', currentExtracted, userContext),
+      ).rejects.toThrow();
     });
   });
 

@@ -40,6 +40,7 @@ const mockUpdateCorrected = vi.fn();
 function buildMockLLMPort(): LLMPort {
   return {
     extractExpense: mockLLMExtractExpense,
+    interpretCorrection: vi.fn(),
     generateResponse: vi.fn(),
   };
 }

@@ -21,6 +21,7 @@ function buildMockLLMPort(response: string | (() => string) | Error): {
     port: {
       generateResponse,
       extractExpense: vi.fn(),
+      interpretCorrection: vi.fn(),
     },
     generateResponse,
   };

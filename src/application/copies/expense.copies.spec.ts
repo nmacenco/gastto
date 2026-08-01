@@ -14,6 +14,52 @@ describe('expenseCopies', () => {
     });
   });
 
+  describe('expenseCorrectionPrompt', () => {
+    it('includes natural-language examples and mentions multi-field corrections', () => {
+      const result = expenseCopies.expenseCorrectionPrompt();
+
+      expect(result).toContain('no, fueron 15');
+      expect(result).toContain('ponlo en transporte');
+      expect(result).toContain('fue ayer');
+      expect(result).toContain('varios campos en un solo mensaje');
+    });
+  });
+
+  describe('correctionApplied', () => {
+    it('returns a confirmation for amount correction', () => {
+      const result = expenseCopies.correctionApplied('monto', '15 EUR');
+
+      expect(result).toContain('Monto');
+      expect(result).toContain('15 EUR');
+    });
+
+    it('returns a confirmation for category correction', () => {
+      const result = expenseCopies.correctionApplied('categoria', 'Transporte');
+
+      expect(result).toContain('Categoría');
+      expect(result).toContain('Transporte');
+    });
+  });
+
+  describe('correctionCycleLimitReached', () => {
+    it('offers confirm or cancel', () => {
+      const result = expenseCopies.correctionCycleLimitReached();
+
+      expect(result).toContain('límite de correcciones');
+      expect(result).toContain('Confirmamos');
+      expect(result).toContain('cancelamos');
+    });
+  });
+
+  describe('correctionHighAmountConfirmation', () => {
+    it('requests explicit confirmation for a high amount', () => {
+      const result = expenseCopies.correctionHighAmountConfirmation();
+
+      expect(result).toContain('inusualmente alto');
+      expect(result).toContain('Confirmamos');
+    });
+  });
+
   describe('clarificationReformulation', () => {
     it('returns the default question when no options are provided', () => {
       const result = expenseCopies.clarificationReformulation([]);

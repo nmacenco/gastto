@@ -93,6 +93,10 @@ describe('isCancelIntent', () => {
     expect(isCancelIntent('no registres')).toBe(true);
   });
 
+  it('does not treat a natural-language correction beginning with "no," as cancellation', () => {
+    expect(isCancelIntent('no, fueron 15')).toBe(false);
+  });
+
   it('returns true for "para"', () => {
     expect(isCancelIntent('para')).toBe(true);
   });

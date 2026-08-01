@@ -46,6 +46,7 @@ export async function registerWorkers(
     logger: deps.rootLogger,
     userProcessingLock: deps.userProcessingLock,
     registerExpense: deps.registerExpense,
+    correctExpense: deps.correctExpense,
     generateExpenseSummary: deps.generateExpenseSummary,
     resolveExpenseSummaryAction: deps.resolveExpenseSummaryAction,
     getConversationState: deps.getConversationState,

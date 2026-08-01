@@ -7,6 +7,7 @@ import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
+import type { CorrectExpenseUseCase } from '../../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
@@ -18,7 +19,7 @@ import type { ConversationState } from '../../domain/entities/ConversationState'
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ExpenseSummaryPresenter } from '../../application/ports/output/expense-summary.presenter';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
-import type { ExpenseReviewPayload } from '../../application/use-cases/expense/RegisterExpense';
+import type { ExpenseReviewPayload } from '../../domain/value-objects/expense-review-payload';
 import type {
   IUserRepository,
   IMappingCorrectionStateRepository,
@@ -53,6 +54,7 @@ import {
   formatCurrencyOption,
 } from '../../application/utils/clarification';
 import { ExpenseClarificationState } from '../../domain/value-objects/expense-clarification-state';
+import { ExpenseCorrectionState } from '../../domain/value-objects/expense-correction-state';
 
 // Lock TTL must exceed the longest possible job duration (LLM + side effects).
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
@@ -64,6 +66,7 @@ export interface MessageWorkerDeps {
   logger: Logger;
   userProcessingLock: IUserProcessingLock;
   registerExpense: RegisterExpenseUseCase | null;
+  correctExpense: CorrectExpenseUseCase | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
   getConversationState: GetConversationState;
@@ -196,6 +199,16 @@ async function routeByState(
     case 'EXPENSE_REVIEW': {
       // User is confirming, correcting or canceling
       await handleExpenseReview(jobData, conversationState?.statePayload ?? null, opts, messaging);
+      break;
+    }
+
+    case 'EXPENSE_CORRECTING': {
+      await handleExpenseCorrection(
+        jobData,
+        conversationState?.statePayload ?? null,
+        opts,
+        messaging,
+      );
       break;
     }
 
@@ -749,9 +762,87 @@ async function handleExpenseReview(
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
     await messaging.sendMessage(externalId, expenseCopies.cancelled());
   } else {
-    // Correction — re-interprets the message with the current summary context
-    // This also covers the awaitingZeroConfirmation case for non-confirm/cancel replies.
-    await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
+    // Free-text corrections can be sent directly from the review summary.
+    // The typed state is built locally so an uninterpretable message does not
+    // write a transient FSM transition.
+    if (!opts.correctExpense || !isValidExpenseReviewPayload(statePayload)) {
+      await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
+      return;
+    }
+
+    try {
+      const correctionState = ExpenseCorrectionState.create(
+        statePayload as unknown as ExpenseReviewPayload,
+        0,
+        statePayload.pendingHighAmountConfirmation === true,
+      );
+      await handleExpenseCorrection(
+        jobData,
+        correctionState.toPayload(),
+        opts,
+        messaging,
+      );
+    } catch (err) {
+      opts.logger.error({
+        msg: 'Invalid expense review payload for correction',
+        endpoint: 'handleExpenseReview',
+        code: 'INVALID_REVIEW_CORRECTION_PAYLOAD',
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+      await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    }
+  }
+}
+
+async function handleExpenseCorrection(
+  jobData: ProcessMessageJobData,
+  statePayload: Record<string, unknown> | null,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  const { userId, rawMessage, channel, externalId } = jobData;
+
+  if (!opts.correctExpense) {
+    await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+    return;
+  }
+
+  let correctionState: ExpenseCorrectionState;
+  try {
+    correctionState = ExpenseCorrectionState.fromPayload(statePayload);
+  } catch (err) {
+    opts.logger.error({
+      msg: 'Missing or invalid expense correction state payload',
+      endpoint: 'handleExpenseCorrection',
+      code: 'INVALID_CORRECTION_PAYLOAD',
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    return;
+  }
+
+  const outcome = await opts.correctExpense.execute({
+    userId,
+    rawMessage,
+    state: correctionState,
+    channel,
+  });
+
+  switch (outcome.status) {
+    case 'not_interpretable':
+      await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
+      return;
+    case 'cycle_limit':
+      await messaging.sendMessage(externalId, expenseCopies.correctionCycleLimitReached());
+      return;
+    case 'high_amount_confirmation':
+    case 'corrected':
+      await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
+      return;
   }
 }
 

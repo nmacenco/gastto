@@ -19,7 +19,7 @@ const CONFIRM_WORDS = [
   'sip',
 ];
 
-const CANCEL_WORDS = ['no', 'cancelar', 'cancela', 'no registres', 'para', 'stop', 'salir'];
+const CANCEL_WORDS = ['cancelar', 'cancela', 'para', 'stop', 'salir'];
 
 const REJECT_MAPPING_PHRASES = [
   'no',
@@ -79,7 +79,12 @@ export function isConfirmIntent(rawMessage: string): boolean {
 
 export function isCancelIntent(rawMessage: string): boolean {
   const normalized = rawMessage.toLowerCase().trim();
-  return CANCEL_WORDS.some((w) => normalized === w || normalized.startsWith(w));
+  return (
+    normalized === 'no' ||
+    normalized.startsWith('no quiero') ||
+    normalized.startsWith('no registres') ||
+    CANCEL_WORDS.some((w) => normalized === w || normalized.startsWith(w + ' '))
+  );
 }
 
 export function isListColumnsIntent(rawMessage: string): boolean {

@@ -29,23 +29,12 @@ import {
   type MissingClarificationField,
 } from '../../../domain/value-objects/expense-clarification-state';
 import type { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
+import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 
 export interface RegisterExpenseInput {
   userId: string;
   rawMessage: string;
   channel: 'telegram' | 'whatsapp';
-}
-
-// Lo que se pone en state_payload cuando el estado es EXPENSE_REVIEW
-export interface ExpenseReviewPayload {
-  extracted: ExtractedExpense;
-  rawMessage: string;
-  resolvedDate: string; // ISO date string
-  resolvedCategory: string | null;
-  resolvedCategoryId: string | null;
-  categoryStatus: 'confirmed' | 'ambiguous' | 'fallback' | 'none';
-  awaitingZeroConfirmation?: boolean;
-  reminderSent?: boolean;
 }
 
 export class RegisterExpenseUseCase {
