@@ -17,6 +17,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow for missing or ambiguous expense amount/currency data.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with confirm / correct / cancel options before saving.
 - [`expense-correction.md`](./expense-correction.md) — Natural-language correction of amount, currency, category, or date before expense confirmation.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Fixed-vocabulary text confirmation from expense review, with correction-safe precedence and regional Spanish coverage.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM for multi-turn conversational flows with session timeout.
 - [`deployment.md`](./deployment.md) — Multi-environment Fly.io deployment, secrets management, and Telegram bot isolation.

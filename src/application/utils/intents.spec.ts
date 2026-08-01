@@ -50,7 +50,26 @@ describe('isConfirmIntent', () => {
     expect(isConfirmIntent('okey')).toBe(true);
   });
 
-  it('returns true for confirm word with trailing text', () => {
+  it.each(['sí', 'si', 'ok', 'dale', 'confirmo', 'correcto', 'listo', 'va'])(
+    'recognizes the standard confirmation word %s',
+    (reply) => {
+      expect(isConfirmIntent(reply)).toBe(true);
+    },
+  );
+
+  it.each([
+    ['Spain', 'vale'],
+    ['Argentina', 'dale'],
+    ['Argentina', 'bárbaro'],
+    ['Mexico', 'va'],
+    ['Mexico', 'órale'],
+    ['Mexico without accent', 'orale'],
+    ['Chile', 'ya'],
+  ])('recognizes the %s regional variant %s', (_region, reply) => {
+    expect(isConfirmIntent(reply)).toBe(true);
+  });
+
+  it('returns true for a whitespace-separated sequence of confirmation words', () => {
     expect(isConfirmIntent('sí dale')).toBe(true);
     expect(isConfirmIntent('ok perfecto')).toBe(true);
   });
@@ -64,10 +83,16 @@ describe('isConfirmIntent', () => {
     expect(isConfirmIntent('OK')).toBe(true);
   });
 
+  it('normalizes punctuation and accents', () => {
+    expect(isConfirmIntent('  SÍ, correcto!  ')).toBe(true);
+    expect(isConfirmIntent('BÁRBARO.')).toBe(true);
+  });
+
   it('returns false for non-confirm words', () => {
     expect(isConfirmIntent('no')).toBe(false);
     expect(isConfirmIntent('cancelar')).toBe(false);
     expect(isConfirmIntent('algo random')).toBe(false);
+    expect(isConfirmIntent('comida sí, pero el monto no')).toBe(false);
   });
 
   it('returns false for partial matches that are not confirm words', () => {
