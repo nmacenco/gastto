@@ -11,7 +11,7 @@ Decompose a User Story (HU) markdown file into atomic, implementation-ready task
 
 Given an absolute path to a User Story `.md` file, produce:
 
-1. A folder named `<HU-ID>-<english-slug>` in the same directory as the original file.
+1. A folder named `<story-ID>-<english-slug>` in the same directory as the original file.
 2. An English-translated version of the User Story inside that folder.
 3. A `tasks/` subfolder containing one `.md` file per atomic implementation task.
 4. A dependency tree file mapping task relationships.
@@ -35,8 +35,11 @@ Example:
 
 - Check the file exists.
 - Verify it is a `.md` file.
-- Extract the HU ID from the filename. Expected pattern: `HU-N.M — <title>.md` or `HU-N.M - <title>.md`.
-- If the filename does not match the expected pattern, warn the user and stop.
+- Extract the story ID from the filename. Accept either of these patterns:
+  - `HU-N.M — <title>.md` or `HU-N.M - <title>.md` (legacy format).
+  - `E<epic>-US-<story> — <title>.md` or `E<epic>-US-<story> - <title>.md` (project format, for example `E1-US-09`).
+- Preserve the detected story ID exactly as written. Do not force the `HU-` prefix or convert one supported format into the other.
+- If the filename does not match either supported pattern, warn the user with the accepted formats and stop.
 
 ### 2. Read project context
 
@@ -48,15 +51,16 @@ Example:
 
 - Translate the entire User Story content to English, preserving all Markdown formatting.
 - Translate the title to English. This title is used to build the folder slug.
-- Keep the HU ID (e.g., `HU-0.01`) unchanged.
+- Keep the story ID (e.g., `HU-0.01` or `E1-US-09`) unchanged.
 
 ### 4. Generate the folder name
 
-- Format: `<HU-ID>-<english-slug>`
+- Format: `<story-ID>-<english-slug>`
 - The `english-slug` is derived from the translated title: lowercase, special characters and spaces replaced with hyphens, consecutive hyphens collapsed, no trailing hyphen.
 - Examples:
   - `HU-0.01 — Registrar el bot en Telegram y configurar el webhook` → `HU-0.01-register-telegram-bot-and-configure-webhook`
   - `HU-1.02 — Crear entidad de Gasto` → `HU-1.02-create-expense-entity`
+  - `E1-US-09 — Cancelación del registro sin consecuencias` → `E1-US-09-cancel-registration-without-consequences`
 
 ### 5. Create folder and persist translated User Story
 
@@ -72,8 +76,9 @@ Analyze the User Story content (Gherkin scenarios, acceptance criteria, definiti
 
 Each task must:
 
-- Have a unique ID: `T-<HU-ID-without-HU-prefix>-<zero-padded-sequence>`
-  - Example: for `HU-0.01`, the first task is `T-0.01-01`, the second `T-0.01-02`, etc.
+- Have a unique ID: `T-<story-ID>-<zero-padded-sequence>`.
+  - For the legacy `HU-N.M` format, omit the `HU-` prefix in task IDs: `HU-0.01` becomes `T-0.01-01`.
+  - For the project `E<epic>-US-<story>` format, preserve the complete ID: `E1-US-09` becomes `T-E1-US-09-01`.
 - Be assigned to exactly one Clean Architecture layer: `Domain`, `Application`, `Infrastructure`, `Interfaces`, or `Cross-cutting`.
 - Include a clear technical description of what to implement.
 - List verifiable acceptance criteria.
@@ -198,7 +203,7 @@ docs/user-stories/01-mvp/00-Infraestructura conversacional MVP/
 - **One file per task.** No monolithic task documents.
 - **Ask for confirmation before overwriting** if the target folder already exists.
 - **Delete the original file only after** the translated version is successfully written inside the new folder.
-- **Preserve the original filename** (including the HU ID and em-dash) for the translated file, but with the English title.
+- **Preserve the original filename's story ID and separator** (including the em-dash when present) for the translated file, but replace the title with its English translation.
 
 ## References
 
