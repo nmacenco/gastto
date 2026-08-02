@@ -1,0 +1,1 @@
+ALTER TABLE "expense_records" ALTER COLUMN "row_index" DROP NOT NULL;

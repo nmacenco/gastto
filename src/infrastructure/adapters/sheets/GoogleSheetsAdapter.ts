@@ -132,8 +132,38 @@ export class GoogleSheetsAdapter
     return Promise.reject(new SpreadsheetError('readRows not yet implemented'));
   }
 
-  appendRow(_fileId: string, _sheetName: string, _values: CellValue[]): Promise<AppendResult> {
-    return Promise.reject(new SpreadsheetError('appendRow not yet implemented'));
+  async appendRow(fileId: string, sheetName: string, values: CellValue[]): Promise<AppendResult> {
+    const encodedSheetName = encodeURIComponent(sheetName);
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ values: [values] }),
+      });
+    } catch (err) {
+      throw new SpreadsheetError(`Network error during row append: ${String(err)}`);
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new SpreadsheetError(`Invalid JSON response from Google Sheets API: HTTP ${response.status}`);
+    }
+
+    if (!response.ok) {
+      throw new SpreadsheetError(
+        `Google Sheets API error during row append: HTTP ${response.status}`,
+      );
+    }
+
+    return parseAppendResponse(data, sheetName);
   }
 
   deleteRow(_fileId: string, _sheetName: string, _rowIndex: number): Promise<void> {
@@ -326,6 +356,28 @@ export class GoogleSheetsAdapter
     const canEdit = parseCanEdit(data);
     return canEdit ? { kind: 'can-edit', canEdit: true } : { kind: 'cannot-edit', canEdit: false };
   }
+}
+
+function parseAppendResponse(data: unknown, sheetName: string): AppendResult {
+  if (!isRecord(data) || !isRecord(data.updates) || typeof data.updates.updatedRange !== 'string') {
+    throw new SpreadsheetError('Invalid append response from Google Sheets API');
+  }
+
+  const rowMatch = data.updates.updatedRange.match(/![A-Z]+(\d+)(?::[A-Z]+\d+)?$/i);
+  if (!rowMatch?.[1]) {
+    return { sheet: sheetName };
+  }
+
+  const row = Number(rowMatch[1]);
+  if (!Number.isSafeInteger(row) || row < 1) {
+    throw new SpreadsheetError('Invalid row reference in Google Sheets append response');
+  }
+
+  return { sheet: sheetName, row };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 // ── Response parsers ─────────────────────────────────────────────────────────

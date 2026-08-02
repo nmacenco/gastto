@@ -60,7 +60,7 @@ export interface Row {
 
 export interface AppendResult {
   sheet: string;
-  row: number; // row index where the record ended up (ADR-006)
+  row?: number | undefined; // row index where the record ended up (ADR-006)
 }
 
 export interface SpreadsheetPort {

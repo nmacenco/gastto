@@ -155,12 +155,17 @@ describe('RouteIncomingMessage', () => {
       'enqueues global cancellation command %s from IDLE',
       async (text) => {
         mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
-        const router = new RouteIncomingMessage(buildMockDeps() as unknown as RouteIncomingMessageDeps);
+        const router = new RouteIncomingMessage(
+          buildMockDeps() as unknown as RouteIncomingMessageDeps,
+        );
 
         await router.execute(buildTextPayload({ text }));
 
         expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
-        expect(mockAdd).toHaveBeenCalledWith('process-message', expect.objectContaining({ rawMessage: text }));
+        expect(mockAdd).toHaveBeenCalledWith(
+          'process-message',
+          expect.objectContaining({ rawMessage: text }),
+        );
       },
     );
 

@@ -157,7 +157,7 @@ Immutable record of every successfully saved expense. Enables undo and future qu
 | `fecha_gasto`          | `DATE`          | NOT NULL                                  | User-facing expense date.                         |
 | `medio_pago`           | `TEXT`          | NULL                                      | Payment method.                                   |
 | `sheet_name`           | `TEXT`          | NOT NULL                                  | Target sheet at save time.                        |
-| `row_index`            | `INTEGER`       | NOT NULL                                  | Sheet row index returned by `appendRow`.          |
+| `row_index`            | `INTEGER`       | NULL                                      | Sheet row index returned by `appendRow`, when the provider exposes it. |
 | `categoria_confidence` | `TEXT`          | NULL, CHECK                               | `alta`, `baja`, `nula`, or NULL.                  |
 | `raw_message`          | `TEXT`          | NOT NULL                                  | Original user message for audit.                  |
 | `is_deleted`           | `BOOLEAN`       | NOT NULL, default `false`                 | Soft delete flag.                                 |
@@ -244,6 +244,7 @@ The aggregate is persisted via `ICategoryVocabularyRepository`, which translates
 - **AES-256-GCM token storage.** OAuth tokens are encrypted at rest with a per-row IV. The encryption key is a runtime secret; the database contains no plaintext credentials. See ADR-007.
 - **Placeholder `access_verified_at` on first creation (Option A).** When `spreadsheet_configs` is first created during HU-4.03 sheet selection, `access_verified_at` is initialized to the current timestamp as a placeholder. The real read/write permission verification is performed later during HU-4.04 and the timestamp is updated to the actual verification time via `updateAccessVerified`. This allows the record to be persisted immediately while keeping the verification step separate.
 - **Config replaced on re-onboarding via upsert.** When a user re-onboards (e.g., after an expired OAuth token), `ISpreadsheetConfigRepository.upsertByUserId` transparently replaces the existing row via `ON CONFLICT (user_id) DO UPDATE`, avoiding `uq_user_spreadsheet` violations. The `create` method remains for first-time users only.
+- **Optional spreadsheet row reference.** A confirmed spreadsheet write always records its destination sheet; `expense_records.row_index` is nullable only when the provider confirms the write but does not expose a row number. This preserves the successful-save audit while preventing an unverified row reference from being invented.
 - **Aggregate-oriented category repository.** `ICategoryVocabularyRepository` provides aggregate-level operations (`findBySpreadsheetId`, `save`) while `IUserCategoryRepository` continues to expose row-level operations (`findActiveBySpreadsheetId`, `upsertMany`, `incrementUsage`). Both interfaces are implemented by separate Drizzle repository classes operating on the same `user_categories` table, keeping the Domain and Application layers clean of ORM details.
 
 ## Related ADRs

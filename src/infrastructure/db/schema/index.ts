@@ -235,7 +235,7 @@ export const expenseRecords = pgTable(
     fechaGasto: date('fecha_gasto').notNull(),
     medioPago: text('medio_pago'),
     sheetName: text('sheet_name').notNull(),
-    rowIndex: integer('row_index').notNull(),
+    rowIndex: integer('row_index'),
     categoriaConfidence: text('categoria_confidence'),
     rawMessage: text('raw_message').notNull(),
     isDeleted: boolean('is_deleted').notNull().default(false),

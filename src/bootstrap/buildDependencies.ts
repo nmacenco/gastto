@@ -425,11 +425,11 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     categoryFallbackMapper,
     env.CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD,
   );
+  const spreadsheetPortFactory = new GoogleSheetsAdapterFactory();
 
   const registerExpense = new RegisterExpenseUseCase(
     llmPort,
-    // TODO: replace with a token-aware SpreadsheetPort once save() is wired
-    new GoogleSheetsAdapter(''),
+    spreadsheetPortFactory,
     expenseRecordRepo,
     spreadsheetConfigRepo,
     columnMappingRepo,
@@ -438,6 +438,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     operationLogRepo,
     userProfileRepo,
     categoryClassifier,
+    tokenRepo,
+    tokenEncryption,
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
   );
 

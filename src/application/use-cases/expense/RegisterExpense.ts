@@ -3,7 +3,7 @@
 // Orchestrates: LLMPort → deterministic fallback → category → summary → (confirmation in next turn).
 // Executed by BullMQ worker, NOT by Fastify handler (ADR-005).
 
-import type { LLMPort, UserContext, SpreadsheetPort } from '../../../domain/ports/services';
+import type { LLMPort, UserContext, SpreadsheetPortFactory } from '../../../domain/ports/services';
 import type {
   IExpenseRecordRepository,
   ISpreadsheetConfigRepository,
@@ -11,8 +11,10 @@ import type {
   IUserCategoryRepository,
   IOperationLogRepository,
   IConversationStateRepository,
+  IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
 import type { IUserProfilePort } from '../../../domain/ports/IUserProfilePort';
+import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
@@ -30,6 +32,7 @@ import {
 } from '../../../domain/value-objects/expense-clarification-state';
 import type { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 export interface RegisterExpenseInput {
   userId: string;
@@ -42,7 +45,7 @@ export class RegisterExpenseUseCase {
 
   constructor(
     private readonly llm: LLMPort,
-    private readonly spreadsheetPort: SpreadsheetPort,
+    private readonly spreadsheetPortFactory: SpreadsheetPortFactory,
     private readonly expenseRepo: IExpenseRecordRepository,
     private readonly spreadsheetConfigRepo: ISpreadsheetConfigRepository,
     private readonly columnMappingRepo: IColumnMappingRepository,
@@ -51,6 +54,8 @@ export class RegisterExpenseUseCase {
     private readonly logRepo: IOperationLogRepository,
     private readonly userProfilePort: IUserProfilePort,
     private readonly classifier: ICategoryClassifier,
+    private readonly tokenRepository: IOAuthTokenRepository,
+    private readonly tokenEncryption: TokenEncryptionPort,
     private readonly reviewTimeoutMinutes: number = 10,
   ) {}
 
@@ -177,16 +182,32 @@ export class RegisterExpenseUseCase {
     userId: string,
     payload: ExpenseReviewPayload,
     spreadsheetId: string,
-  ): Promise<{ sheetName: string; rowIndex: number }> {
+  ): Promise<{ sheetName: string; rowIndex?: number | undefined }> {
     const _spreadsheetId = spreadsheetId; // TODO: use when implementing multi-spreadsheet support
     const config = await this.spreadsheetConfigRepo.findByUserId(userId);
     if (!config) throw new Error('SpreadsheetConfig not found for user');
 
+    if (config.provider !== 'google') {
+      throw new SpreadsheetError(`Spreadsheet provider ${config.provider} is not supported for expense saving`);
+    }
+
+    const token = await this.tokenRepository.findByUserAndProvider(userId, config.provider);
+    if (!token || token.revokedAt || token.accessTokenExpiresAt.getTime() <= Date.now()) {
+      throw new SpreadsheetError('No active spreadsheet access token is available');
+    }
+
+    let accessToken: string;
+    try {
+      accessToken = this.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
+    } catch {
+      throw new SpreadsheetError('Could not decrypt spreadsheet access token');
+    }
+
     const mappings = await this.columnMappingRepo.findBySpreadsheetId(config.id);
     const row = this.buildRow(payload, mappings);
 
-    // appendRow devuelve la referencia de fila (ADR-006)
-    const result = await this.spreadsheetPort.appendRow(config.fileId, config.sheetName, row);
+    const spreadsheetPort = this.spreadsheetPortFactory.create(accessToken);
+    const result = await spreadsheetPort.appendRow(config.fileId, config.sheetName, row);
 
     // Persists internally for auditing and for E1-US-11 (undo)
     await this.expenseRepo.create({
@@ -199,7 +220,7 @@ export class RegisterExpenseUseCase {
       fechaGasto: new Date(payload.resolvedDate),
       medioPago: payload.extracted.medioPago,
       sheetName: result.sheet,
-      rowIndex: result.row,
+      rowIndex: result.row ?? null,
       categoriaConfidence: payload.extracted.confianzaCategoria,
       rawMessage: payload.rawMessage,
       isDeleted: false,
@@ -208,12 +229,14 @@ export class RegisterExpenseUseCase {
 
     await this.logRepo.create(userId, 'EXPENSE_SAVED', {
       sheet: result.sheet,
-      row: result.row,
+      ...(result.row === undefined ? {} : { row: result.row }),
     });
 
     await this.conversationRepo.transition(userId, 'IDLE', null, null);
 
-    return { sheetName: result.sheet, rowIndex: result.row };
+    return result.row === undefined
+      ? { sheetName: result.sheet }
+      : { sheetName: result.sheet, rowIndex: result.row };
   }
 
   private buildReviewPayload(
