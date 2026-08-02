@@ -13,6 +13,7 @@ import type { HandleUnsupportedMessage } from './HandleUnsupportedMessage';
 import type { ClassifyFreeTextExpenseIntent } from './ClassifyFreeTextExpenseIntent';
 import type { SendExpenseGuidance } from './SendExpenseGuidance';
 import type { GetConversationState } from './GetConversationState';
+import { isCancelIntent } from '../../utils/intents';
 
 export interface RouteIncomingMessageDeps {
   messageQueue: Queue<ProcessMessageJobData>;
@@ -80,7 +81,7 @@ export class RouteIncomingMessage {
     if (currentState === 'IDLE' || currentState === 'EXPENSE_RECEIVING') {
       const intent = this.deps.classifyFreeTextExpenseIntent.execute(text);
 
-      if (intent.kind === 'non-financial') {
+      if (intent.kind === 'non-financial' && !isCancelIntent(text)) {
         await this.deps.sendGuidance.execute(payload.chatId);
         return;
       }

@@ -54,6 +54,7 @@ const mockFindRecentCurrenciesByUserId = vi.fn();
 const mockResolveExpenseSummaryActionExecute = vi.fn();
 const mockResolveExpenseReviewReplyExecute = vi.fn();
 const mockCorrectExpenseExecute = vi.fn();
+const mockCancelExpenseRegistrationExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -82,6 +83,9 @@ function buildMockDeps(): MessageWorkerDeps {
     resolveExpenseSummaryAction: {
       execute: mockResolveExpenseSummaryActionExecute,
     } as unknown as MessageWorkerDeps['resolveExpenseSummaryAction'],
+    cancelExpenseRegistration: {
+      execute: mockCancelExpenseRegistrationExecute,
+    } as unknown as MessageWorkerDeps['cancelExpenseRegistration'],
     resolveExpenseReviewReply: {
       execute: mockResolveExpenseReviewReplyExecute,
     } as unknown as MessageWorkerDeps['resolveExpenseReviewReply'],
@@ -249,9 +253,63 @@ describe('processMessageJob', () => {
       },
     );
     mockCorrectExpenseExecute.mockResolvedValue({ status: 'not_interpretable' });
+    mockCancelExpenseRegistrationExecute.mockResolvedValue({ status: 'cancelled' });
   });
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
+    it('cancels from IDLE before expense interpretation', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'IDLE' }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+
+      expect(mockCancelExpenseRegistrationExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        chatId: '123456789',
+        currentState: 'IDLE',
+        source: 'text',
+      });
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('cancels from EXPENSE_RECEIVING before expense interpretation', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_RECEIVING' }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'stop' }), deps);
+
+      expect(mockCancelExpenseRegistrationExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ currentState: 'EXPENSE_RECEIVING', source: 'text' }),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('can process a new expense immediately after cancellation', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(buildConversationState({ currentState: 'EXPENSE_CLARIFYING' }))
+        .mockResolvedValueOnce(buildConversationState({ currentState: 'IDLE' }));
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'needs_clarification',
+        missingField: 'monto',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi' }), deps);
+
+      expect(mockCancelExpenseRegistrationExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ currentState: 'EXPENSE_CLARIFYING' }),
+      );
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Taxi',
+        channel: 'telegram',
+      });
+    });
     it('sends clarification question when expense is missing monto', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
@@ -655,6 +713,7 @@ describe('processMessageJob', () => {
         action: 'cancel',
         payload: buildReviewStatePayload(),
         chatId: '123456789',
+        cancellationSource: 'callback',
       });
     });
 
@@ -682,6 +741,23 @@ describe('processMessageJob', () => {
   });
 
   describe('EXPENSE_CORRECTING state', () => {
+    it('cancels before correction handling', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: { _type: 'ExpenseCorrectionState' },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'salir' }), deps);
+
+      expect(mockCancelExpenseRegistrationExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ currentState: 'EXPENSE_CORRECTING', source: 'text' }),
+      );
+      expect(mockCorrectExpenseExecute).not.toHaveBeenCalled();
+    });
+
     it('routes correction messages through CorrectExpenseUseCase and presents one summary', async () => {
       const deps = buildMockDeps();
       const payload = buildReviewStatePayload();
@@ -867,6 +943,23 @@ describe('processMessageJob', () => {
   });
 
   describe('EXPENSE_CLARIFYING state', () => {
+    it('cancels before clarification handling', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CLARIFYING',
+          statePayload: buildClarificationStatePayload('monto', 'Cafe'),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'para' }), deps);
+
+      expect(mockCancelExpenseRegistrationExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ currentState: 'EXPENSE_CLARIFYING', source: 'text' }),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
     it('sends updated summary when clarification resolves', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(

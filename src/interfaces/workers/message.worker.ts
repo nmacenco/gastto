@@ -10,6 +10,7 @@ import type { RegisterExpenseUseCase } from '../../application/use-cases/expense
 import type { CorrectExpenseUseCase } from '../../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
+import type { CancelExpenseRegistrationUseCase } from '../../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import type {
   ResolveExpenseReviewReplyOutcome,
   ResolveExpenseReviewReplyUseCase,
@@ -73,6 +74,7 @@ export interface MessageWorkerDeps {
   correctExpense: CorrectExpenseUseCase | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
+  cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase | null;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
@@ -170,6 +172,31 @@ async function routeByState(
   messaging: MessagingOutputPort,
 ): Promise<void> {
   const { userId, rawMessage, channel, externalId } = jobData;
+
+  const cancellationSource =
+    jobData.callbackData?.action === 'cancel'
+      ? 'callback'
+      : isCancelIntent(rawMessage)
+        ? 'text'
+        : null;
+  // Review replies retain their existing resolver so text and inline actions
+  // share the cancellation use case there. Every other state is cancelled
+  // before it can invoke NLP, mutate state, or write an expense.
+  const supportsExpenseCancellation =
+    currentState === 'IDLE' ||
+    currentState === 'EXPENSE_RECEIVING' ||
+    currentState === 'EXPENSE_CLARIFYING' ||
+    currentState === 'EXPENSE_CORRECTING';
+  if (cancellationSource !== null && supportsExpenseCancellation) {
+    await opts.cancelExpenseRegistration.execute({
+      userId,
+      chatId: externalId,
+      currentState,
+      source: cancellationSource,
+    });
+    return;
+  }
+
   switch (currentState) {
     case 'IDLE':
     case 'EXPENSE_RECEIVING': {
@@ -737,6 +764,7 @@ async function handleExpenseReview(
       action: callbackData.action,
       payload: statePayload as unknown as ExpenseReviewPayload,
       chatId: externalId,
+      ...(callbackData.action === 'cancel' ? { cancellationSource: 'callback' as const } : {}),
     });
     return;
   }

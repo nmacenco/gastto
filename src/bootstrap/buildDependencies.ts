@@ -44,6 +44,7 @@ import { RegisterExpenseUseCase } from '../application/use-cases/expense/Registe
 import { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
+import { CancelExpenseRegistrationUseCase } from '../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import { ResolveExpenseReviewReplyUseCase } from '../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
 import { TelegramExpenseSummaryPresenter } from '../infrastructure/adapters/telegram/TelegramExpenseSummaryPresenter';
@@ -481,12 +482,19 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     telegramAdapter: telegram?.adapter ?? null,
   });
 
+  const cancelExpenseRegistration = new CancelExpenseRegistrationUseCase({
+    transitionState,
+    messagingPort: telegram?.adapter ?? {
+      sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
+    },
+  });
   const resolveExpenseSummaryAction = new ResolveExpenseSummaryActionUseCase({
     registerExpense,
     transitionState,
     messagingPort: telegram?.adapter ?? {
       sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
     },
+    cancelExpenseRegistration,
   });
   const resolveExpenseReviewReply = new ResolveExpenseReviewReplyUseCase({
     resolveExpenseSummaryAction,
@@ -528,6 +536,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     correctExpense,
     generateExpenseSummary,
     resolveExpenseSummaryAction,
+    cancelExpenseRegistration,
     resolveExpenseReviewReply,
     expenseSummaryPresenterFactory,
     telegram,

@@ -151,6 +151,19 @@ describe('RouteIncomingMessage', () => {
       expect(mockAdd).not.toHaveBeenCalled();
     });
 
+    it.each(['no', 'cancelar', 'cancela', 'no registres', 'para', 'stop', 'salir'])(
+      'enqueues global cancellation command %s from IDLE',
+      async (text) => {
+        mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
+        const router = new RouteIncomingMessage(buildMockDeps() as unknown as RouteIncomingMessageDeps);
+
+        await router.execute(buildTextPayload({ text }));
+
+        expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
+        expect(mockAdd).toHaveBeenCalledWith('process-message', expect.objectContaining({ rawMessage: text }));
+      },
+    );
+
     it('enqueues non-financial text when user is in ONBOARDING_MAPPING', async () => {
       mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
       mockGetConversationStateExecute.mockResolvedValue({

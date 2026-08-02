@@ -24,6 +24,7 @@ import { TransitionConversationState } from '../../../src/application/use-cases/
 import { GetConversationState } from '../../../src/application/use-cases/conversation/GetConversationState';
 import { RecoverCorruptedState } from '../../../src/application/use-cases/conversation/RecoverCorruptedState';
 import { HandleExpiredSessions } from '../../../src/application/use-cases/conversation/HandleExpiredSessions';
+import { CancelExpenseRegistrationUseCase } from '../../../src/application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import type { IChatMessenger } from '../../../src/application/ports/IChatMessenger';
 import type { MessagingOutputPort } from '../../../src/application/ports/output/messaging.port';
 import type { ExpenseSummaryPresenter } from '../../../src/application/ports/output/expense-summary.presenter';
@@ -214,6 +215,89 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     expect(messagingMock.sendMessage).toHaveBeenCalledWith(
       '987654321',
       'Tu sesion expiro. Queres continuar o empezar de nuevo?',
+    );
+  });
+
+  it.each([
+    'EXPENSE_RECEIVING',
+    'EXPENSE_CLARIFYING',
+    'EXPENSE_REVIEW',
+    'EXPENSE_CORRECTING',
+  ] as const)(
+    'cancels %s, removes its persisted payload, and permits a fresh expense flow',
+    async (currentState) => {
+      const user = await createUser(db);
+      const cancelledPayload = { rawMessage: 'Cena 1200', marker: `cancelled-${currentState}` };
+      await createConversationState(db, {
+        userId: user.userId,
+        currentState,
+        statePayload: cancelledPayload,
+        expiresAt: new Date(Date.now() + 600_000),
+      });
+      const messagingMock: MessagingOutputPort = {
+        sendMessage: vi.fn().mockResolvedValue({ status: 'success' }),
+      };
+      const transition = new TransitionConversationState(conversationRepo);
+      const cancel = new CancelExpenseRegistrationUseCase({
+        transitionState: transition,
+        messagingPort: messagingMock,
+      });
+
+      await expect(
+        cancel.execute({
+          userId: user.userId,
+          chatId: 'chat-1',
+          currentState,
+          source: 'text',
+        }),
+      ).resolves.toEqual({ status: 'cancelled' });
+
+      const cancelledState = await conversationRepo.findByUserId(user.userId);
+      expect(cancelledState).toMatchObject({
+        currentState: 'IDLE',
+        statePayload: null,
+        expiresAt: null,
+      });
+      await expect(
+        db
+          .select()
+          .from(schema.expenseRecords)
+          .where(eq(schema.expenseRecords.userId, user.userId)),
+      ).resolves.toEqual([]);
+
+      await transition.execute({
+        userId: user.userId,
+        targetState: 'EXPENSE_RECEIVING',
+        payload: { rawMessage: 'Taxi 500', marker: 'fresh-expense' },
+      });
+      const freshState = await conversationRepo.findByUserId(user.userId);
+      expect(freshState?.statePayload).toEqual({ rawMessage: 'Taxi 500', marker: 'fresh-expense' });
+      expect(freshState?.statePayload).not.toEqual(cancelledPayload);
+    },
+  );
+
+  it('reports a friendly response when there is no active expense to cancel', async () => {
+    const user = await createUser(db);
+    await createConversationState(db, { userId: user.userId });
+    const messagingMock: MessagingOutputPort = {
+      sendMessage: vi.fn().mockResolvedValue({ status: 'success' }),
+    };
+    const cancel = new CancelExpenseRegistrationUseCase({
+      transitionState: new TransitionConversationState(conversationRepo),
+      messagingPort: messagingMock,
+    });
+
+    await expect(
+      cancel.execute({
+        userId: user.userId,
+        chatId: 'chat-1',
+        currentState: 'IDLE',
+        source: 'text',
+      }),
+    ).resolves.toEqual({ status: 'no_active_expense' });
+    expect(messagingMock.sendMessage).toHaveBeenCalledWith(
+      'chat-1',
+      'No hay ningún registro pendiente para cancelar.',
     );
   });
 });
