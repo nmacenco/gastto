@@ -29,7 +29,25 @@ export const expenseCopies = {
     'Este monto supera notablemente tu gasto promedio. ¿Confirmamos que es correcto?',
   reviewTimeoutWarning: () => '¿Confirmamos el registro? Respondé *sí*, *corregir*, o *cancelar*.',
   reviewCancellation: () => 'Registro cancelado. No se guardó nada.',
-  expenseSavedConfirmation: () => 'Gasto guardado.',
+  expenseSavedConfirmation: (input: {
+    concept: string;
+    amount: number;
+    currency: string;
+    sheetName: string;
+    rowIndex?: number | undefined;
+  }): string => {
+    const location =
+      input.rowIndex === undefined
+        ? `Guardado en '${input.sheetName}'`
+        : `Guardado en '${input.sheetName}', fila ${input.rowIndex}`;
+
+    return [
+      '✅ *Gasto guardado*',
+      `• Concepto: ${input.concept.slice(0, 80)}`,
+      `• Monto: ${input.amount} ${input.currency}`,
+      `• Ubicación: ${location}`,
+    ].join('\n');
+  },
   expenseCorrectionPrompt: () =>
     '¿Qué querés corregir? Escribí la corrección en lenguaje natural.\n\n' +
     'Por ejemplo:\n' +

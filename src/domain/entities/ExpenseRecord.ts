@@ -17,7 +17,7 @@ export interface ExpenseRecord {
   fechaGasto: Date; // DATE en BD
   medioPago: string | null;
   sheetName: string;
-  rowIndex: number; // fila real en la planilla (necesario para deshacer, ADR-006)
+  rowIndex: number | null; // fila real en la planilla, si el proveedor la confirmó
   categoriaConfidence: CategoryConfidence | null;
   rawMessage: string; // mensaje original del usuario
   isDeleted: boolean; // soft delete (ADR-006 / E1-US-11)

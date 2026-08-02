@@ -11,6 +11,7 @@ import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { expenseCopies } from '../../copies/expense.copies';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 function buildPayload(overrides: Partial<ExpenseReviewPayload> = {}): ExpenseReviewPayload {
   return {
@@ -105,7 +106,58 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     expect(sendMessageMock).toHaveBeenNthCalledWith(
       2,
       '123456789',
-      expenseCopies.expenseSavedConfirmation(),
+      expenseCopies.expenseSavedConfirmation({
+        concept: 'Cafe 850 ARS',
+        amount: 850,
+        currency: 'ARS',
+        sheetName: 'Hoja 1',
+        rowIndex: 2,
+      }),
+    );
+  });
+
+  it('confirms the destination sheet without a row when the save result has no row', async () => {
+    const save = vi.fn<RegisterExpenseUseCase['save']>().mockResolvedValue({ sheetName: 'Gastos' });
+    const { useCase, sendMessageMock } = buildUseCase({ save });
+
+    await useCase.execute({
+      userId: 'user-123',
+      action: 'confirm',
+      payload: buildPayload(),
+      chatId: '123456789',
+    });
+
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      '123456789',
+      expenseCopies.expenseSavedConfirmation({
+        concept: 'Cafe 850 ARS',
+        amount: 850,
+        currency: 'ARS',
+        sheetName: 'Gastos',
+      }),
+    );
+  });
+
+  it('does not send a successful confirmation when saving fails', async () => {
+    const save = vi
+      .fn<RegisterExpenseUseCase['save']>()
+      .mockRejectedValue(new SpreadsheetError('Network error during row append'));
+    const { useCase, sendMessageMock } = buildUseCase({ save });
+
+    await expect(
+      useCase.execute({
+        userId: 'user-123',
+        action: 'confirm',
+        payload: buildPayload(),
+        chatId: '123456789',
+      }),
+    ).rejects.toThrow('Network error during row append');
+
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock).toHaveBeenCalledWith('123456789', expenseCopies.saving());
+    expect(sendMessageMock).not.toHaveBeenCalledWith(
+      '123456789',
+      expect.stringContaining('Gasto guardado'),
     );
   });
 

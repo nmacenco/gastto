@@ -32,6 +32,7 @@ export class UndoLastExpenseUseCase {
 
     const config = await this.spreadsheetConfigRepo.findByUserId(userId);
     if (!config) return { status: 'nothing_to_undo' };
+    if (last.rowIndex === null) return { status: 'failed', errorType: 'STRUCTURE_ERROR' };
 
     try {
       // 2. Elimina la fila de la planilla real

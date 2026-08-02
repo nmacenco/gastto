@@ -398,13 +398,67 @@ describe('GoogleSheetsAdapter', () => {
     });
   });
 
+  describe('appendRow', () => {
+    it('appends a row and returns the confirmed sheet and row', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: { updatedRange: 'Gastos!A47:F47' } }),
+      });
+
+      await expect(adapter.appendRow('spreadsheet-123', 'Gastos', ['Taxi', 500])).resolves.toEqual({
+        sheet: 'Gastos',
+        row: 47,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer access-token-123',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: [['Taxi', 500]] }),
+        },
+      );
+    });
+
+    it('uses the selected sheet and returns no row when the response lacks one', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: { updatedRange: "'Expenses 2026'!A:F" } }),
+      });
+
+      await expect(adapter.appendRow('spreadsheet-123', 'Expenses 2026', [100])).resolves.toEqual({
+        sheet: 'Expenses 2026',
+      });
+    });
+
+    it('throws SpreadsheetError on an API error, invalid response, or network failure', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({ error: 'forbidden' }),
+      });
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toBeInstanceOf(SpreadsheetError);
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: {} }),
+      });
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toBeInstanceOf(SpreadsheetError);
+
+      fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toBeInstanceOf(SpreadsheetError);
+    });
+  });
+
   describe('unimplemented methods', () => {
     it('readRows throws SpreadsheetError', async () => {
       await expect(adapter.readRows('id', 'range')).rejects.toBeInstanceOf(SpreadsheetError);
-    });
-
-    it('appendRow throws SpreadsheetError', async () => {
-      await expect(adapter.appendRow('id', 'sheet', [])).rejects.toBeInstanceOf(SpreadsheetError);
     });
 
     it('deleteRow throws SpreadsheetError', async () => {

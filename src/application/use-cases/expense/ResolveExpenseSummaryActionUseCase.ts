@@ -52,11 +52,17 @@ export class ResolveExpenseSummaryActionUseCase {
 
     // The third argument is a legacy spreadsheetId placeholder that the current
     // save() implementation does not use; it is kept to preserve the interface.
-    await this.deps.registerExpense.save(input.userId, input.payload, '');
+    const saveResult = await this.deps.registerExpense.save(input.userId, input.payload, '');
 
     await this.deps.messagingPort.sendMessage(
       input.chatId,
-      expenseCopies.expenseSavedConfirmation(),
+      expenseCopies.expenseSavedConfirmation({
+        concept: input.payload.rawMessage,
+        amount: input.payload.extracted.monto!,
+        currency: input.payload.extracted.moneda!,
+        sheetName: saveResult.sheetName,
+        ...(saveResult.rowIndex === undefined ? {} : { rowIndex: saveResult.rowIndex }),
+      }),
     );
   }
 

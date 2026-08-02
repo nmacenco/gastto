@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RegisterExpenseUseCase, type RegisterExpenseInput } from './RegisterExpense';
-import type { LLMPort, SpreadsheetPort } from '../../../domain/ports/services';
+import type { LLMPort, SpreadsheetPort, SpreadsheetPortFactory } from '../../../domain/ports/services';
 import type { IUserProfilePort } from '../../../domain/ports/IUserProfilePort';
 import type {
   IExpenseRecordRepository,
@@ -15,10 +15,14 @@ import type {
   IUserCategoryRepository,
   IConversationStateRepository,
   IOperationLogRepository,
+  IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
+import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
 import { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
+import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 const mockUserProfileGetDefaultCurrency = vi.fn();
 const mockClassifierExecute = vi.fn();
@@ -29,6 +33,9 @@ const mockConversationTransition = vi.fn();
 const mockExpenseRecordCreate = vi.fn();
 const mockOperationLogCreate = vi.fn();
 const mockAppendRow = vi.fn();
+const mockSpreadsheetPortFactoryCreate = vi.fn();
+const mockTokenFindByUserAndProvider = vi.fn();
+const mockTokenDecrypt = vi.fn();
 const mockFindLatestByUserId = vi.fn();
 const mockSoftDelete = vi.fn();
 const mockFindBySpreadsheetId = vi.fn();
@@ -57,6 +64,10 @@ function buildMockSpreadsheetPort(): SpreadsheetPort {
   };
 }
 
+function buildMockSpreadsheetPortFactory(): SpreadsheetPortFactory {
+  return { create: mockSpreadsheetPortFactoryCreate };
+}
+
 function buildMockUserProfilePort(): IUserProfilePort {
   return {
     getDefaultCurrency: mockUserProfileGetDefaultCurrency,
@@ -72,7 +83,7 @@ function buildMockClassifier(): ICategoryClassifier {
 function buildMockDependencies() {
   return {
     llm: buildMockLLMPort(),
-    spreadsheetPort: buildMockSpreadsheetPort(),
+    spreadsheetPortFactory: buildMockSpreadsheetPortFactory(),
     expenseRepo: {
       create: mockExpenseRecordCreate,
       findLatestByUserId: mockFindLatestByUserId,
@@ -108,6 +119,12 @@ function buildMockDependencies() {
     } as unknown as IOperationLogRepository,
     userProfilePort: buildMockUserProfilePort(),
     classifier: buildMockClassifier(),
+    tokenRepository: {
+      findByUserAndProvider: mockTokenFindByUserAndProvider,
+    } as unknown as IOAuthTokenRepository,
+    tokenEncryption: {
+      decrypt: mockTokenDecrypt,
+    } as unknown as TokenEncryptionPort,
   };
 }
 
@@ -116,7 +133,7 @@ function buildUseCase(overrides: Partial<ReturnType<typeof buildMockDependencies
   return {
     useCase: new RegisterExpenseUseCase(
       overrides.llm ?? deps.llm,
-      overrides.spreadsheetPort ?? deps.spreadsheetPort,
+      overrides.spreadsheetPortFactory ?? deps.spreadsheetPortFactory,
       overrides.expenseRepo ?? deps.expenseRepo,
       overrides.spreadsheetConfigRepo ?? deps.spreadsheetConfigRepo,
       overrides.columnMappingRepo ?? deps.columnMappingRepo,
@@ -125,6 +142,8 @@ function buildUseCase(overrides: Partial<ReturnType<typeof buildMockDependencies
       overrides.logRepo ?? deps.logRepo,
       overrides.userProfilePort ?? deps.userProfilePort,
       overrides.classifier ?? deps.classifier,
+      overrides.tokenRepository ?? deps.tokenRepository,
+      overrides.tokenEncryption ?? deps.tokenEncryption,
     ),
     deps: { ...deps, ...overrides },
   };
@@ -169,10 +188,104 @@ beforeEach(() => {
   mockCategoryFindActiveBySpreadsheetId.mockResolvedValue([]);
   mockConversationTransition.mockResolvedValue(null);
   mockAppendRow.mockResolvedValue({ sheet: 'Hoja 1', row: 2 });
+  mockSpreadsheetPortFactoryCreate.mockReturnValue(buildMockSpreadsheetPort());
+  mockTokenFindByUserAndProvider.mockResolvedValue({
+    id: 'token-1',
+    userId: 'user-123',
+    provider: 'google',
+    accessTokenEnc: Buffer.from('encrypted-access-token'),
+    refreshTokenEnc: Buffer.from('encrypted-refresh-token'),
+    iv: Buffer.from('iv'),
+    refreshIv: Buffer.from('refresh-iv'),
+    accessTokenExpiresAt: new Date(Date.now() + 3_600_000),
+    scope: [],
+    grantedAt: new Date(),
+    lastRefreshedAt: null,
+    revokedAt: null,
+  });
+  mockTokenDecrypt.mockReturnValue('access-token-123');
   mockClassifierExecute.mockResolvedValue(ClassificationResult.noMatch());
 });
 
 describe('RegisterExpenseUseCase', () => {
+  describe('save()', () => {
+    const payload: ExpenseReviewPayload = {
+      rawMessage: 'Café 100 EUR',
+      extracted: {
+        monto: 100,
+        moneda: 'EUR',
+        categoriaRaw: 'café',
+        fechaRaw: '2026-07-25',
+        medioPago: null,
+        confianzaCategoria: 'alta',
+      },
+      resolvedDate: '2026-07-25',
+      resolvedCategory: 'Comida',
+      resolvedCategoryId: null,
+      categoryStatus: 'confirmed',
+    };
+
+    beforeEach(() => {
+      mockFindBySpreadsheetId.mockResolvedValue([
+        {
+          id: 'mapping-1',
+          spreadsheetId: 'config-1',
+          GasttoField: 'monto',
+          columnIndex: 0,
+          columnHeader: 'Monto',
+          inferred: false,
+          confirmedAt: new Date(),
+        },
+      ]);
+      mockExpenseRecordCreate.mockResolvedValue({});
+      mockOperationLogCreate.mockResolvedValue({});
+    });
+
+    it('uses a decrypted token to append and persists the confirmed location', async () => {
+      const { useCase } = buildUseCase();
+
+      await expect(useCase.save('user-123', payload, '')).resolves.toEqual({
+        sheetName: 'Hoja 1',
+        rowIndex: 2,
+      });
+
+      expect(mockTokenFindByUserAndProvider).toHaveBeenCalledWith('user-123', 'google');
+      expect(mockTokenDecrypt).toHaveBeenCalledOnce();
+      expect(mockSpreadsheetPortFactoryCreate).toHaveBeenCalledWith('access-token-123');
+      expect(mockAppendRow).toHaveBeenCalledWith('file-1', 'Hoja 1', [100]);
+      expect(mockExpenseRecordCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ sheetName: 'Hoja 1', rowIndex: 2 }),
+      );
+    });
+
+    it('persists a confirmed save with no row as null and returns a sheet-only result', async () => {
+      mockAppendRow.mockResolvedValue({ sheet: 'Hoja 1' });
+      const { useCase } = buildUseCase();
+
+      await expect(useCase.save('user-123', payload, '')).resolves.toEqual({ sheetName: 'Hoja 1' });
+
+      expect(mockExpenseRecordCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ sheetName: 'Hoja 1', rowIndex: null }),
+      );
+      expect(mockOperationLogCreate).toHaveBeenCalledWith('user-123', 'EXPENSE_SAVED', {
+        sheet: 'Hoja 1',
+      });
+    });
+
+    it('does not persist an expense record or transition to IDLE when appending fails', async () => {
+      mockAppendRow.mockRejectedValue(new SpreadsheetError('Network error during row append'));
+      const { useCase } = buildUseCase();
+
+      await expect(useCase.save('user-123', payload, '')).rejects.toThrow(
+        'Network error during row append',
+      );
+
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+      expect(mockOperationLogCreate).not.toHaveBeenCalled();
+      expect(mockConversationTransition).not.toHaveBeenCalled();
+    });
+  });
+
   describe('interpret()', () => {
     it('LLM succeeds with amount and currency -> ready_for_review', async () => {
       const extracted = buildExtractedExpense({ monto: 100, moneda: 'EUR' });

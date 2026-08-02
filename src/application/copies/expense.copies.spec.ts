@@ -5,6 +5,34 @@ import { describe, it, expect } from 'vitest';
 import { expenseCopies } from './expense.copies';
 
 describe('expenseCopies', () => {
+  describe('expenseSavedConfirmation', () => {
+    it('includes expense details and the confirmed sheet and row', () => {
+      expect(
+        expenseCopies.expenseSavedConfirmation({
+          concept: 'Taxi to the airport',
+          amount: 500,
+          currency: 'ARS',
+          sheetName: 'Gastos',
+          rowIndex: 47,
+        }),
+      ).toBe(
+        "✅ *Gasto guardado*\n• Concepto: Taxi to the airport\n• Monto: 500 ARS\n• Ubicación: Guardado en 'Gastos', fila 47",
+      );
+    });
+
+    it('names the confirmed sheet without a malformed row when the row is unavailable', () => {
+      const copy = expenseCopies.expenseSavedConfirmation({
+        concept: 'Lunch',
+        amount: 12,
+        currency: 'EUR',
+        sheetName: 'Expenses',
+      });
+
+      expect(copy).toContain("Guardado en 'Expenses'");
+      expect(copy).not.toContain('fila');
+    });
+  });
+
   it('uses the E1-US-08 orientation copy for ambiguous review replies', () => {
     expect(expenseCopies.ambiguousResponse()).toBe(
       '¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?',
