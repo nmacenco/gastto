@@ -9,18 +9,21 @@ import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense
 import { ExpenseCorrectionState } from '../../../domain/value-objects/expense-correction-state';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { expenseCopies } from '../../copies/expense.copies';
+import type { CancelExpenseRegistrationUseCase } from './CancelExpenseRegistrationUseCase';
 
 export interface ResolveExpenseSummaryActionInput {
   userId: string;
   action: 'confirm' | 'correct' | 'cancel';
   payload: ExpenseReviewPayload;
   chatId: string;
+  cancellationSource?: 'text' | 'callback';
 }
 
 export interface ResolveExpenseSummaryActionDeps {
   registerExpense: RegisterExpenseUseCase;
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
+  cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
 }
 
 export class ResolveExpenseSummaryActionUseCase {
@@ -73,12 +76,11 @@ export class ResolveExpenseSummaryActionUseCase {
   }
 
   private async handleCancel(input: ResolveExpenseSummaryActionInput): Promise<void> {
-    await this.deps.transitionState.execute({
+    await this.deps.cancelExpenseRegistration.execute({
       userId: input.userId,
-      targetState: 'IDLE',
-      payload: null,
+      chatId: input.chatId,
+      currentState: 'EXPENSE_REVIEW',
+      source: input.cancellationSource ?? 'callback',
     });
-
-    await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.cancelled());
   }
 }

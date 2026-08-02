@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResolveExpenseSummaryActionUseCase } from './ResolveExpenseSummaryActionUseCase';
+import type { CancelExpenseRegistrationUseCase } from './CancelExpenseRegistrationUseCase';
 import type { RegisterExpenseUseCase } from './RegisterExpense';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
@@ -35,6 +36,7 @@ function buildUseCase(
     save?: ReturnType<typeof vi.fn<RegisterExpenseUseCase['save']>>;
     transition?: ReturnType<typeof vi.fn<TransitionConversationState['execute']>>;
     sendMessage?: ReturnType<typeof vi.fn<MessagingOutputPort['sendMessage']>>;
+    cancelExpenseRegistration?: ReturnType<typeof vi.fn>;
   } = {},
 ) {
   const saveMock: ReturnType<typeof vi.fn<RegisterExpenseUseCase['save']>> =
@@ -57,11 +59,17 @@ function buildUseCase(
   const registerExpense = { save: saveMock } as unknown as RegisterExpenseUseCase;
   const transitionState = { execute: transitionMock } as unknown as TransitionConversationState;
   const messagingPort = { sendMessage: sendMessageMock };
+  const cancelExpenseRegistration = {
+    execute:
+      overrides.cancelExpenseRegistration ?? vi.fn().mockResolvedValue({ status: 'cancelled' }),
+  };
 
   const useCase = new ResolveExpenseSummaryActionUseCase({
     registerExpense,
     transitionState,
     messagingPort,
+    cancelExpenseRegistration:
+      cancelExpenseRegistration as unknown as CancelExpenseRegistrationUseCase,
   });
 
   return {
@@ -72,6 +80,7 @@ function buildUseCase(
     saveMock,
     transitionMock,
     sendMessageMock,
+    cancelExpenseRegistration,
   };
 }
 
@@ -133,7 +142,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
   });
 
   it('cancel transitions to IDLE and sends the cancellation copy', async () => {
-    const { useCase, transitionMock, sendMessageMock } = buildUseCase();
+    const { useCase, transitionMock, sendMessageMock, cancelExpenseRegistration } = buildUseCase();
 
     await useCase.execute({
       userId: 'user-123',
@@ -142,11 +151,13 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       chatId: '123456789',
     });
 
-    expect(transitionMock).toHaveBeenCalledWith({
+    expect(transitionMock).not.toHaveBeenCalled();
+    expect(cancelExpenseRegistration.execute).toHaveBeenCalledWith({
       userId: 'user-123',
-      targetState: 'IDLE',
-      payload: null,
+      chatId: '123456789',
+      currentState: 'EXPENSE_REVIEW',
+      source: 'callback',
     });
-    expect(sendMessageMock).toHaveBeenCalledWith('123456789', expenseCopies.cancelled());
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 });

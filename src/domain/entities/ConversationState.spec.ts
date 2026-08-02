@@ -46,6 +46,7 @@ describe('ConversationState FSM', () => {
       ['ONBOARDING_CATEGORIES', 'ONBOARDING_CATEGORIES'],
       ['EXPENSE_RECEIVING', 'EXPENSE_CLARIFYING'],
       ['EXPENSE_RECEIVING', 'EXPENSE_REVIEW'],
+      ['EXPENSE_RECEIVING', 'IDLE'],
       ['EXPENSE_CLARIFYING', 'EXPENSE_REVIEW'],
       ['EXPENSE_REVIEW', 'EXPENSE_REVIEW'],
       ['EXPENSE_CLARIFYING', 'IDLE'],
@@ -53,6 +54,7 @@ describe('ConversationState FSM', () => {
       ['EXPENSE_REVIEW', 'EXPENSE_CORRECTING'],
       ['EXPENSE_REVIEW', 'IDLE'],
       ['EXPENSE_CORRECTING', 'EXPENSE_REVIEW'],
+      ['EXPENSE_CORRECTING', 'IDLE'],
       ['EXPENSE_SAVING', 'IDLE'],
       ['EXPENSE_SAVING', 'EXPENSE_SAVING_RETRY'],
       ['EXPENSE_SAVING_RETRY', 'IDLE'],
@@ -63,7 +65,6 @@ describe('ConversationState FSM', () => {
     it.each([
       ['IDLE', 'EXPENSE_SAVING'],
       ['IDLE', 'ONBOARDING_MAPPING'],
-      ['EXPENSE_RECEIVING', 'IDLE'],
       ['EXPENSE_SAVING', 'EXPENSE_RECEIVING'],
     ] as const)('rejects %s → %s', (from, to) => {
       expect(canTransition(from, to)).toBe(false);

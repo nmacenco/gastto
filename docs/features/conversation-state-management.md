@@ -7,7 +7,7 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 ## Behavior (Implemented)
 
 - Each user has exactly one row in `conversation_states`, referenced by `user_id` with `ON DELETE CASCADE`.
-- The FSM defines **13 states** and valid transitions between them (see ADR-003).
+- The FSM defines **14 states** and valid transitions between them (see ADR-003).
 - State transitions are atomic: `DrizzleConversationStateRepository.transition` wraps the UPDATE in a transaction.
 - `HandleStartCommand` ensures every new user has a valid conversation state. If missing, it creates `IDLE`.
 - `TransitionConversationState` validates transitions against `FSM_TRANSITIONS`. Invalid transitions throw `InvalidStateTransitionError`.
@@ -50,7 +50,7 @@ Primary table: `conversation_states` (1:1 with `users`).
 | Column          | Type          | Constraints                        | Description                              |
 | --------------- | ------------- | ---------------------------------- | ---------------------------------------- |
 | `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | Owner of the state.                      |
-| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 13 FSM states.                    |
+| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 14 FSM states.                    |
 | `state_payload` | `JSONB`       | NULL                               | Contextual data for the active flow.     |
 | `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.      |
 | `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute timeout; NULL means no timeout. |
@@ -65,21 +65,21 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 
 ## FSM Reference
 
-| State                   | Description                             | Valid Transitions                              |
-| ----------------------- | --------------------------------------- | ---------------------------------------------- |
-| `IDLE`                  | No active flow                          | `ONBOARDING_START`, `EXPENSE_RECEIVING`        |
-| `ONBOARDING_START`      | First contact, no spreadsheet linked    | `ONBOARDING_DRIVE`                             |
-| `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | `ONBOARDING_FILE`                              |
-| `ONBOARDING_FILE`       | Waiting for file selection              | `ONBOARDING_SHEET`, `ONBOARDING_START`         |
+| State                   | Description                             | Valid Transitions                                  |
+| ----------------------- | --------------------------------------- | -------------------------------------------------- |
+| `IDLE`                  | No active flow                          | `ONBOARDING_START`, `EXPENSE_RECEIVING`            |
+| `ONBOARDING_START`      | First contact, no spreadsheet linked    | `ONBOARDING_DRIVE`                                 |
+| `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | `ONBOARDING_FILE`                                  |
+| `ONBOARDING_FILE`       | Waiting for file selection              | `ONBOARDING_SHEET`, `ONBOARDING_START`             |
 | `ONBOARDING_SHEET`      | Waiting for sheet selection             | `ONBOARDING_VALIDATING_ACCESS`, `ONBOARDING_START` |
-| `ONBOARDING_MAPPING`    | Waiting for column mapping confirmation | `ONBOARDING_CATEGORIES`, `ONBOARDING_START`    |
-| `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | `IDLE`                                         |
-| `EXPENSE_RECEIVING`     | Message received, NLP processing        | `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`         |
-| `EXPENSE_CLARIFYING`    | Waiting for user clarification          | `EXPENSE_REVIEW`, `IDLE`                       |
-| `EXPENSE_REVIEW`        | Summary sent, awaiting confirmation     | `EXPENSE_SAVING`, `EXPENSE_CORRECTING`, `IDLE` |
-| `EXPENSE_CORRECTING`    | Applying user correction                | `EXPENSE_REVIEW`                               |
-| `EXPENSE_SAVING`        | Writing to spreadsheet                  | `IDLE`, `EXPENSE_SAVING_RETRY`                 |
-| `EXPENSE_SAVING_RETRY`  | Retry failed save (TTL: 10 min)         | `IDLE`                                         |
+| `ONBOARDING_MAPPING`    | Waiting for column mapping confirmation | `ONBOARDING_CATEGORIES`, `ONBOARDING_START`        |
+| `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | `IDLE`                                             |
+| `EXPENSE_RECEIVING`     | Message received, NLP processing        | `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `IDLE`     |
+| `EXPENSE_CLARIFYING`    | Waiting for user clarification          | `EXPENSE_REVIEW`, `IDLE`                           |
+| `EXPENSE_REVIEW`        | Summary sent, awaiting confirmation     | `EXPENSE_SAVING`, `EXPENSE_CORRECTING`, `IDLE`     |
+| `EXPENSE_CORRECTING`    | Applying user correction                | `EXPENSE_REVIEW`, `IDLE`                           |
+| `EXPENSE_SAVING`        | Writing to spreadsheet                  | `IDLE`, `EXPENSE_SAVING_RETRY`                     |
+| `EXPENSE_SAVING_RETRY`  | Retry failed save (TTL: 10 min)         | `IDLE`                                             |
 
 ## Tests
 
@@ -98,5 +98,6 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 
 - The `operation_logs` table captures anomalies via `RecoverCorruptedState` with `operation = 'STATE_CORRUPTED'` and `error_type = 'CORRUPTED_STATE'`. This links the conversational FSM to the audit trail.
 - `HandleExpiredSessions` iterates over all expired states and processes each user independently; a per-user failure is caught and logged without aborting the batch.
+- [`expense-cancellation.md`](./expense-cancellation.md) defines global cancellation for active expense states. It clears `statePayload` and `expiresAt` when returning to `IDLE`.
 - Redis is used only for identity caching (ADR-008) and BullMQ broker (ADR-005). The conversation state itself is never stored in Redis.
 - The timeout prompt copy (`"Tu sesion expiro. Queres continuar o empezar de nuevo?"`) is owned by the Application layer (`HandleExpiredSessions`), not by the Telegram adapter.

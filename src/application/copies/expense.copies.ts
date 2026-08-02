@@ -18,6 +18,7 @@ export const expenseCopies = {
   zeroAmountConfirmation: () => '¿Querías registrar un gasto de $0?',
   saving: () => 'Guardando tu gasto…',
   cancelled: () => 'Registro cancelado. No se guardó nada.',
+  noActiveExpenseToCancel: () => 'No hay ningún registro pendiente para cancelar.',
   ambiguousResponse: () => '¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?',
   fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
   expenseRegistrationUnavailable: () =>

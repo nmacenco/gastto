@@ -2,6 +2,7 @@
 
 > **Why this document exists:** The FSM is the operational heart of the system. An agent that generates message-handling code without knowing the valid states and their transitions will produce incoherent logic. ADR-003 mentions the FSM but is not the right place to consult transitions during development.
 > **Related:**
+>
 > - [ADR-003 · Estado Conversacional: FSM Persistida en PostgreSQL](../adr/adr.md#adr-003--estado-conversacional-fsm-persistida-en-postgresql)
 > - [ADR-014 · FSM Eager Advance](../adr/ADR-014-fsm-eager-advance.md)
 
@@ -9,22 +10,22 @@
 
 ## State table
 
-| State                   | Description                             | Valid outgoing transitions                           | Timeout |
-| ----------------------- | --------------------------------------- | ---------------------------------------------------- | ------- |
-| `IDLE`                  | No active flow                          | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`          | —       |
-| `ONBOARDING_START`      | First contact, no spreadsheet linked    | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` | 30 min  |
-| `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | → `ONBOARDING_FILE`                                  | 30 min  |
-| `ONBOARDING_FILE`       | Waiting for file selection              | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` | 30 min  |
-| `ONBOARDING_SHEET`      | Waiting for sheet selection             | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` | 30 min  |
-| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` | 30 min  |
-| `ONBOARDING_MAPPING`    | Waiting for column-mapping confirmation | → `ONBOARDING_CATEGORIES`                            | 30 min  |
-| `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | → `IDLE`                                             | 30 min  |
-| `EXPENSE_RECEIVING`     | Message received, processing NLP        | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW`           | —       |
-| `EXPENSE_CLARIFYING`    | Waiting for user clarification          | → `EXPENSE_REVIEW` \| `IDLE`                         | 10 min  |
-| `EXPENSE_REVIEW`        | Summary sent, waiting for confirmation  | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE` | 10 min  |
-| `EXPENSE_CORRECTING`    | Applying user correction                | → `EXPENSE_REVIEW`                                   | —       |
-| `EXPENSE_SAVING`        | Writing to the spreadsheet              | → `IDLE` \| `EXPENSE_SAVING_RETRY`                   | —       |
-| `EXPENSE_SAVING_RETRY`  | Retrying a failed save (TTL: 10 min)    | → `IDLE`                                             | 10 min  |
+| State                          | Description                                    | Valid outgoing transitions                                                          | Timeout |
+| ------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------- | ------- |
+| `IDLE`                         | No active flow                                 | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`                                         | —       |
+| `ONBOARDING_START`             | First contact, no spreadsheet linked           | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE`                      | 30 min  |
+| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                   | → `ONBOARDING_FILE`                                                                 | 30 min  |
+| `ONBOARDING_FILE`              | Waiting for file selection                     | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET`               | 30 min  |
+| `ONBOARDING_SHEET`             | Waiting for sheet selection                    | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` | 30 min  |
+| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START`                  | 30 min  |
+| `ONBOARDING_MAPPING`           | Waiting for column-mapping confirmation        | → `ONBOARDING_CATEGORIES`                                                           | 30 min  |
+| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation              | → `IDLE`                                                                            | 30 min  |
+| `EXPENSE_RECEIVING`            | Message received, processing NLP               | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW` \| `IDLE`                                | —       |
+| `EXPENSE_CLARIFYING`           | Waiting for user clarification                 | → `EXPENSE_REVIEW` \| `IDLE`                                                        | 10 min  |
+| `EXPENSE_REVIEW`               | Summary sent, waiting for confirmation         | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`                                | 10 min  |
+| `EXPENSE_CORRECTING`           | Applying user correction                       | → `EXPENSE_REVIEW` \| `IDLE`                                                        | —       |
+| `EXPENSE_SAVING`               | Writing to the spreadsheet                     | → `IDLE` \| `EXPENSE_SAVING_RETRY`                                                  | —       |
+| `EXPENSE_SAVING_RETRY`         | Retrying a failed save (TTL: 10 min)           | → `IDLE`                                                                            | 10 min  |
 
 ---
 
@@ -67,6 +68,7 @@ flowchart TD
 
     EXPENSE_RECEIVING -->|needs clarification| EXPENSE_CLARIFYING
     EXPENSE_RECEIVING -->|complete| EXPENSE_REVIEW
+    EXPENSE_RECEIVING -->|cancelled| IDLE
 
     EXPENSE_CLARIFYING -->|clarified| EXPENSE_REVIEW
     EXPENSE_CLARIFYING -->|cancelled| IDLE
@@ -76,6 +78,7 @@ flowchart TD
     EXPENSE_REVIEW -->|cancelled| IDLE
 
     EXPENSE_CORRECTING -->|corrected| EXPENSE_REVIEW
+    EXPENSE_CORRECTING -->|cancelled| IDLE
 
     EXPENSE_SAVING -->|success| IDLE
     EXPENSE_SAVING -->|failure| EXPENSE_SAVING_RETRY
@@ -89,22 +92,22 @@ flowchart TD
 
 The `state_payload` column in the `conversation_states` table is a `JSONB` blob whose shape depends on the current state. Fields that are not relevant to the current state must be `null` or absent.
 
-| State                   | Relevant `state_payload` fields                                                                                                             | Meaning                                                    |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `IDLE`                  | _(empty or `{}`)_                                                                                                                           | Nothing to persist                                         |
-| `ONBOARDING_START`      | `promptShown: boolean`, `provider?: 'google' \| 'microsoft'`                                                                                | `promptShown` tracks whether the welcome/provider prompt has been displayed; `provider` may be present transiently |
-| `ONBOARDING_DRIVE`      | `oauth_state: string`                                                                                                                       | PKCE / OAuth state token for CSRF protection               |
-| `ONBOARDING_FILE`       | `drive_folder_id?: string`, `files: Array<{id, name}>`                                                                                      | List of candidate files to show the user                   |
-| `ONBOARDING_SHEET`      | `file_id: string`, `sheets: Array<{name, id}>`                                                                                              | Selected file and its internal sheets                      |
+| State                          | Relevant `state_payload` fields                                                                                                                                               | Meaning                                                                                                                        |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `IDLE`                         | _(empty or `{}`)_                                                                                                                                                             | Nothing to persist                                                                                                             |
+| `ONBOARDING_START`             | `promptShown: boolean`, `provider?: 'google' \| 'microsoft'`                                                                                                                  | `promptShown` tracks whether the welcome/provider prompt has been displayed; `provider` may be present transiently             |
+| `ONBOARDING_DRIVE`             | `oauth_state: string`                                                                                                                                                         | PKCE / OAuth state token for CSRF protection                                                                                   |
+| `ONBOARDING_FILE`              | `drive_folder_id?: string`, `files: Array<{id, name}>`                                                                                                                        | List of candidate files to show the user                                                                                       |
+| `ONBOARDING_SHEET`             | `file_id: string`, `sheets: Array<{name, id}>`                                                                                                                                | Selected file and its internal sheets                                                                                          |
 | `ONBOARDING_VALIDATING_ACCESS` | `selectedFileId: string`, `selectedFileName: string`, `selectedSheetName: string`, `provider: SpreadsheetProvider`, `sheetList?: SheetInfo[]`, `step?: 'empty-sheet-confirm'` | File and sheet being validated; `step` and `sheetList` present when transitioning back to `ONBOARDING_SHEET` after empty-sheet |
-| `ONBOARDING_MAPPING`    | `file_id`, `sheet_id`, `headers: string[]`, `mapping: Record<string, string>`                                                               | Detected column mapping waiting for confirmation           |
-| `ONBOARDING_CATEGORIES` | `file_id`, `sheet_id`, `mapping`, `categories: string[]`                                                                                    | Detected category list waiting for confirmation            |
-| `EXPENSE_RECEIVING`     | `raw_message: string`, `extracted?: ExtractedExpense`                                                                                       | The incoming message and any partial NLP result            |
-| `EXPENSE_CLARIFYING`    | `raw_message`, `missing_fields: string[]`, `partial: ExtractedExpense`                                                                      | Which fields the user still needs to provide               |
-| `EXPENSE_REVIEW`        | `expense: ExpenseEntity`, `summary_text: string`                                                                                            | The fully formed expense and the summary shown to the user |
-| `EXPENSE_CORRECTING`    | `expense: ExpenseEntity`, `correction_field: string`                                                                                        | Which field the user wants to correct                      |
-| `EXPENSE_SAVING`        | `expense: ExpenseEntity`, `attempt: number`                                                                                                 | Current save attempt count                                 |
-| `EXPENSE_SAVING_RETRY`  | `expense: ExpenseEntity`, `attempt: number`, `error_type: 'NETWORK_ERROR' \| 'AUTH_ERROR' \| 'STRUCTURE_ERROR'`, `last_error_at: ISOString` | Why the save failed and when                               |
+| `ONBOARDING_MAPPING`           | `file_id`, `sheet_id`, `headers: string[]`, `mapping: Record<string, string>`                                                                                                 | Detected column mapping waiting for confirmation                                                                               |
+| `ONBOARDING_CATEGORIES`        | `file_id`, `sheet_id`, `mapping`, `categories: string[]`                                                                                                                      | Detected category list waiting for confirmation                                                                                |
+| `EXPENSE_RECEIVING`            | `raw_message: string`, `extracted?: ExtractedExpense`                                                                                                                         | The incoming message and any partial NLP result                                                                                |
+| `EXPENSE_CLARIFYING`           | `raw_message`, `missing_fields: string[]`, `partial: ExtractedExpense`                                                                                                        | Which fields the user still needs to provide                                                                                   |
+| `EXPENSE_REVIEW`               | `expense: ExpenseEntity`, `summary_text: string`                                                                                                                              | The fully formed expense and the summary shown to the user                                                                     |
+| `EXPENSE_CORRECTING`           | `expense: ExpenseEntity`, `correction_field: string`                                                                                                                          | Which field the user wants to correct                                                                                          |
+| `EXPENSE_SAVING`               | `expense: ExpenseEntity`, `attempt: number`                                                                                                                                   | Current save attempt count                                                                                                     |
+| `EXPENSE_SAVING_RETRY`         | `expense: ExpenseEntity`, `attempt: number`, `error_type: 'NETWORK_ERROR' \| 'AUTH_ERROR' \| 'STRUCTURE_ERROR'`, `last_error_at: ISOString`                                   | Why the save failed and when                                                                                                   |
 
 ---
 

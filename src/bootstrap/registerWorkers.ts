@@ -49,6 +49,7 @@ export async function registerWorkers(
     correctExpense: deps.correctExpense,
     generateExpenseSummary: deps.generateExpenseSummary,
     resolveExpenseSummaryAction: deps.resolveExpenseSummaryAction,
+    cancelExpenseRegistration: deps.cancelExpenseRegistration,
     resolveExpenseReviewReply: deps.resolveExpenseReviewReply,
     getConversationState: deps.getConversationState,
     transitionState: deps.transitionState,

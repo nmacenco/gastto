@@ -44,6 +44,7 @@ export class ResolveExpenseReviewReplyUseCase {
         action: 'cancel',
         payload: input.payload,
         chatId: input.chatId,
+        cancellationSource: 'text',
       });
       return { status: 'action_handled', action: 'cancel' };
     }

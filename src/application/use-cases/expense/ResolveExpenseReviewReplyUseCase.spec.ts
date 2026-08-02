@@ -95,7 +95,7 @@ describe('ResolveExpenseReviewReplyUseCase', () => {
     });
 
     expect(resolveActionExecute).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'cancel' }),
+      expect.objectContaining({ action: 'cancel', cancellationSource: 'text' }),
     );
     expect(correctExpenseExecute).not.toHaveBeenCalled();
   });

@@ -21,7 +21,7 @@ const CONFIRM_WORDS = [
   'ya',
 ];
 
-const CANCEL_WORDS = ['cancelar', 'cancela', 'para', 'stop', 'salir'];
+const CANCEL_WORDS = ['cancelar', 'cancela', 'para', 'stop', 'salir', 'cancel', 'exit'];
 
 const REJECT_MAPPING_PHRASES = [
   'no',
@@ -93,6 +93,7 @@ export function isCancelIntent(rawMessage: string): boolean {
     normalized === 'no' ||
     normalized.startsWith('no quiero') ||
     normalized.startsWith('no registres') ||
+    normalized.startsWith('do not register') ||
     CANCEL_WORDS.some((w) => normalized === w || normalized.startsWith(w + ' '))
   );
 }

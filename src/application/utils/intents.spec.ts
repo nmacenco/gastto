@@ -134,6 +134,13 @@ describe('isCancelIntent', () => {
     expect(isCancelIntent('salir')).toBe(true);
   });
 
+  it.each(['cancel', 'cancel it', 'do not register', 'exit'])(
+    'returns true for English cancellation command %s',
+    (message) => {
+      expect(isCancelIntent(message)).toBe(true);
+    },
+  );
+
   it('returns true for cancel word with trailing text', () => {
     expect(isCancelIntent('no quiero')).toBe(true);
     expect(isCancelIntent('cancelar todo')).toBe(true);

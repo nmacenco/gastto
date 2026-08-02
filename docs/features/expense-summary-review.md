@@ -27,9 +27,9 @@ After the user describes an expense in natural language, the system interprets t
 - `ResolveExpenseSummaryActionUseCase` handles the three actions:
   - **Confirm**: invokes `RegisterExpenseUseCase.save()` and sends a saving/confirmation message.
   - **Correct**: transitions to `EXPENSE_CORRECTING` and asks for a natural-language correction. See [`expense-correction.md`](./expense-correction.md).
-  - **Cancel**: transitions to `IDLE` and sends the cancellation copy.
+  - **Cancel**: delegates to the shared expense-cancellation path, which clears the active state before sending the cancellation copy. See [`expense-cancellation.md`](./expense-cancellation.md).
 - The messaging adapter contract remains stable: `MessagingOutputPort` handles plain text, while a narrow `InlineKeyboardOutputPort` is used for inline keyboards.
-- Legacy text-based confirm/cancel intents are still supported as a fallback.
+- Legacy text-based confirm/cancel intents are still supported as a fallback. Global cancellation commands also work from clarification and correction states.
 
 ## API / Interface
 
