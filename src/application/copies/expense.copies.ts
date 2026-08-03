@@ -23,6 +23,14 @@ export const expenseCopies = {
   fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
   expenseRegistrationUnavailable: () =>
     'El registro de gastos no está disponible en este momento. Volvé a intentarlo más tarde.',
+  undoDeleted: (concept: string, amount: number, currency: string) =>
+    `Listo, se eliminó el último registro (${concept.slice(0, 80)}, ${amount} ${currency}).`,
+  undoNotFound: () => 'No encontré un registro reciente para deshacer.',
+  undoConfirmationRequired: (concept: string, amount: number, currency: string, savedAt: Date) =>
+    `¿Querés eliminar '${concept.slice(0, 80)}, ${amount} ${currency}' registrado a las ${savedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}? Respondé sí o cancelar.`,
+  undoCancelled: () => 'No se eliminó ningún registro.',
+  undoDeletionFailed: () =>
+    'No pude eliminar el último registro en este momento. Verificá tu planilla e intentá de nuevo más tarde.',
   clarificationInterrupted: () => 'El registro anterior fue cancelado. Procesando el nuevo gasto…',
   highAmountWarning: () => '⚠️ *Monto inusualmente alto*',
   highAmountConfirmationPrompt: () =>

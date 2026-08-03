@@ -249,7 +249,7 @@ The aggregate is persisted via `ICategoryVocabularyRepository`, which translates
 
 ## Related ADRs
 
-- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/adr.md#adr-003--estado-conversacional-fsm-persistida-en-postgresql) — Defines the 14 FSM states stored in `conversation_states`.
+- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/ADR-003-fsm-postgresql.md) and [ADR-017: Require Confirmation for Delayed Expense Undo](../adr/ADR-017-undo-confirmation-fsm.md) — Define the 15 FSM states stored in `conversation_states`, including `EXPENSE_UNDO_CONFIRMING`.
 - [ADR-004: Spreadsheet Integration — Adapter Pattern](../adr/adr.md#adr-004--integración-con-planillas-adapter-pattern) — Motivates `spreadsheet_configs`, `column_mappings`, and dynamic column mapping.
 - [ADR-007: Security — OAuth Token Storage with AES-256](../adr/adr.md#adr-007--seguridad-almacenamiento-de-tokens-oauth-con-aes-256) — Describes the encryption strategy for `oauth_tokens`.
 - [ADR-008: User Identity — Local Registration with Own userId](../adr/adr.md#adr-008--identidad-de-usuario-registro-local-con-userid-propio) — Explains the `users` / `messaging_identities` split and the internal `user_id` anchor.

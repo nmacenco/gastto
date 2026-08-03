@@ -456,13 +456,59 @@ describe('GoogleSheetsAdapter', () => {
     });
   });
 
+  describe('deleteRow', () => {
+    it('resolves the sheet ID and deletes exactly the requested one-based row', async () => {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 42 } }] }),
+        })
+        .mockResolvedValueOnce({ ok: true, status: 200 });
+
+      await expect(adapter.deleteRow('spreadsheet-123', 'Gastos', 7)).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123?fields=sheets.properties(sheetId,title)',
+        { headers: { Authorization: 'Bearer access-token-123' } },
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123:batchUpdate',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            requests: [
+              { deleteDimension: { range: { sheetId: 42, dimension: 'ROWS', startIndex: 6, endIndex: 7 } } },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('maps missing sheets and provider failures to SpreadsheetError', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ sheets: [{ properties: { title: 'Other', sheetId: 1 } }] }),
+      });
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toBeInstanceOf(SpreadsheetError);
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 1 } }] }),
+        })
+        .mockResolvedValueOnce({ ok: false, status: 403 });
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toBeInstanceOf(SpreadsheetError);
+    });
+  });
+
   describe('unimplemented methods', () => {
     it('readRows throws SpreadsheetError', async () => {
       await expect(adapter.readRows('id', 'range')).rejects.toBeInstanceOf(SpreadsheetError);
-    });
-
-    it('deleteRow throws SpreadsheetError', async () => {
-      await expect(adapter.deleteRow('id', 'sheet', 1)).rejects.toBeInstanceOf(SpreadsheetError);
     });
 
     it('validateAccess throws SpreadsheetError', async () => {

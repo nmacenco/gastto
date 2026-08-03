@@ -210,7 +210,7 @@ export class RegisterExpenseUseCase {
     const result = await spreadsheetPort.appendRow(config.fileId, config.sheetName, row);
 
     // Persists internally for auditing and for E1-US-11 (undo)
-    await this.expenseRepo.create({
+    const savedExpense = await this.expenseRepo.create({
       userId,
       spreadsheetId: config.id,
       concepto: payload.extracted.categoriaRaw ?? payload.rawMessage.slice(0, 100),
@@ -232,7 +232,12 @@ export class RegisterExpenseUseCase {
       ...(result.row === undefined ? {} : { row: result.row }),
     });
 
-    await this.conversationRepo.transition(userId, 'IDLE', null, null);
+    await this.conversationRepo.transition(
+      userId,
+      'IDLE',
+      { immediateUndoExpenseId: savedExpense.id },
+      null,
+    );
 
     return result.row === undefined
       ? { sheetName: result.sheet }

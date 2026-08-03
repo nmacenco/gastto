@@ -166,8 +166,43 @@ export class GoogleSheetsAdapter
     return parseAppendResponse(data, sheetName);
   }
 
-  deleteRow(_fileId: string, _sheetName: string, _rowIndex: number): Promise<void> {
-    return Promise.reject(new SpreadsheetError('deleteRow not yet implemented'));
+  async deleteRow(fileId: string, sheetName: string, rowIndex: number): Promise<void> {
+    const metadataUrl = `${GOOGLE_SHEETS_API_URL}/${fileId}?fields=sheets.properties(sheetId,title)`;
+    let metadataResponse: Response;
+    try {
+      metadataResponse = await fetch(metadataUrl, { headers: { Authorization: `Bearer ${this.accessToken}` } });
+    } catch (error) {
+      throw new SpreadsheetError(`Network error during sheet lookup: ${String(error)}`);
+    }
+
+    let metadata: unknown;
+    try {
+      metadata = await metadataResponse.json();
+    } catch {
+      throw new SpreadsheetError(`Invalid JSON response from Google Sheets API: HTTP ${metadataResponse.status}`);
+    }
+    if (!metadataResponse.ok) {
+      throw new SpreadsheetError(`Google Sheets API error during sheet lookup: HTTP ${metadataResponse.status}`);
+    }
+
+    const sheetId = findGoogleSheetId(metadata, sheetName);
+    if (sheetId === null) throw new SpreadsheetError(`Sheet structure error: sheet '${sheetName}' not found`);
+
+    let deleteResponse: Response;
+    try {
+      deleteResponse = await fetch(`${GOOGLE_SHEETS_API_URL}/${fileId}:batchUpdate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requests: [{ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: rowIndex - 1, endIndex: rowIndex } } }],
+        }),
+      });
+    } catch (error) {
+      throw new SpreadsheetError(`Network error during row deletion: ${String(error)}`);
+    }
+    if (!deleteResponse.ok) {
+      throw new SpreadsheetError(`Google Sheets API error during row deletion: HTTP ${deleteResponse.status}`);
+    }
   }
 
   async getUniqueValues(fileId: string, columnIndex: number, sheetName: string): Promise<string[]> {
@@ -378,6 +413,21 @@ function parseAppendResponse(data: unknown, sheetName: string): AppendResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function findGoogleSheetId(data: unknown, sheetName: string): number | null {
+  if (!isRecord(data) || !Array.isArray(data.sheets)) {
+    throw new SpreadsheetError('Unexpected sheet metadata response from Google Sheets API');
+  }
+
+  for (const sheet of data.sheets) {
+    if (!isRecord(sheet) || !isRecord(sheet.properties)) continue;
+    const { title, sheetId } = sheet.properties;
+    if (title === sheetName && typeof sheetId === 'number' && Number.isInteger(sheetId)) {
+      return sheetId;
+    }
+  }
+  return null;
 }
 
 // ── Response parsers ─────────────────────────────────────────────────────────

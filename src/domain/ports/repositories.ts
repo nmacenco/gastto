@@ -166,6 +166,14 @@ export interface IExpenseRecordRepository {
 
   // Soft delete (ADR-006): marca is_deleted = true, deleted_at = now()
   softDelete(id: string): Promise<void>;
+
+  // Keeps the local undo mutation and its audit record consistent after the
+  // spreadsheet provider has confirmed the external deletion.
+  softDeleteWithAudit(
+    id: string,
+    userId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void>;
 }
 
 // ── Auditoría ─────────────────────────────────────────────────────────────────

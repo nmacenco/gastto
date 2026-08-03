@@ -35,6 +35,7 @@ import type { GenerateExpenseSummaryUseCase } from '../application/use-cases/exp
 import type { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { CancelExpenseRegistrationUseCase } from '../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import type { ResolveExpenseReviewReplyUseCase } from '../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
+import type { UndoLastExpenseUseCase } from '../application/use-cases/expense/UndoLastExpense';
 import type { ExpenseSummaryPresenter } from '../application/ports/output/expense-summary.presenter';
 import type { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
 import type { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
@@ -177,6 +178,7 @@ export interface Dependencies {
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase;
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase;
+  undoLastExpense?: UndoLastExpenseUseCase;
   expenseSummaryPresenterFactory: (
     messaging: MessagingOutputPort,
     chatId: string,

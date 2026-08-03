@@ -7,7 +7,7 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 ## Behavior (Implemented)
 
 - Each user has exactly one row in `conversation_states`, referenced by `user_id` with `ON DELETE CASCADE`.
-- The FSM defines **14 states** and valid transitions between them (see ADR-003).
+- The FSM defines **15 states** and valid transitions between them (see ADR-003 and ADR-017).
 - State transitions are atomic: `DrizzleConversationStateRepository.transition` wraps the UPDATE in a transaction.
 - `HandleStartCommand` ensures every new user has a valid conversation state. If missing, it creates `IDLE`.
 - `TransitionConversationState` validates transitions against `FSM_TRANSITIONS`. Invalid transitions throw `InvalidStateTransitionError`.
@@ -50,7 +50,7 @@ Primary table: `conversation_states` (1:1 with `users`).
 | Column          | Type          | Constraints                        | Description                              |
 | --------------- | ------------- | ---------------------------------- | ---------------------------------------- |
 | `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | Owner of the state.                      |
-| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 14 FSM states.                    |
+| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 15 FSM states.                    |
 | `state_payload` | `JSONB`       | NULL                               | Contextual data for the active flow.     |
 | `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.      |
 | `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute timeout; NULL means no timeout. |
@@ -80,6 +80,7 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 | `EXPENSE_CORRECTING`    | Applying user correction                | `EXPENSE_REVIEW`, `IDLE`                           |
 | `EXPENSE_SAVING`        | Writing to spreadsheet                  | `IDLE`, `EXPENSE_SAVING_RETRY`                     |
 | `EXPENSE_SAVING_RETRY`  | Retry failed save (TTL: 10 min)         | `IDLE`                                             |
+| `EXPENSE_UNDO_CONFIRMING` | Waiting for explicit delayed-undo confirmation (short TTL) | `IDLE` |
 
 ## Tests
 
@@ -99,5 +100,6 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 - The `operation_logs` table captures anomalies via `RecoverCorruptedState` with `operation = 'STATE_CORRUPTED'` and `error_type = 'CORRUPTED_STATE'`. This links the conversational FSM to the audit trail.
 - `HandleExpiredSessions` iterates over all expired states and processes each user independently; a per-user failure is caught and logged without aborting the batch.
 - [`expense-cancellation.md`](./expense-cancellation.md) defines global cancellation for active expense states. It clears `statePayload` and `expiresAt` when returning to `IDLE`.
+- [`undo-last-expense.md`](./undo-last-expense.md) defines one-message immediate undo eligibility and the confirmation-safe `EXPENSE_UNDO_CONFIRMING` state.
 - Redis is used only for identity caching (ADR-008) and BullMQ broker (ADR-005). The conversation state itself is never stored in Redis.
 - The timeout prompt copy (`"Tu sesion expiro. Queres continuar o empezar de nuevo?"`) is owned by the Application layer (`HandleExpiredSessions`), not by the Telegram adapter.

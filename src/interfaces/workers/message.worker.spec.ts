@@ -55,6 +55,7 @@ const mockResolveExpenseSummaryActionExecute = vi.fn();
 const mockResolveExpenseReviewReplyExecute = vi.fn();
 const mockCorrectExpenseExecute = vi.fn();
 const mockCancelExpenseRegistrationExecute = vi.fn();
+const mockUndoLastExpenseExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -77,6 +78,7 @@ function buildMockDeps(): MessageWorkerDeps {
         findRecentCurrenciesByUserId: vi.fn(),
         findAverageAmountByUserId: vi.fn().mockResolvedValue(null),
         softDelete: vi.fn(),
+        softDeleteWithAudit: vi.fn(),
       },
       10,
     ),
@@ -89,6 +91,9 @@ function buildMockDeps(): MessageWorkerDeps {
     resolveExpenseReviewReply: {
       execute: mockResolveExpenseReviewReplyExecute,
     } as unknown as MessageWorkerDeps['resolveExpenseReviewReply'],
+    undoLastExpense: {
+      execute: mockUndoLastExpenseExecute,
+    } as unknown as MessageWorkerDeps['undoLastExpense'],
     getConversationState: {
       execute: mockGetConversationStateExecute,
     } as unknown as MessageWorkerDeps['getConversationState'],
@@ -146,6 +151,7 @@ function buildMockDeps(): MessageWorkerDeps {
       findRecentCurrenciesByUserId: mockFindRecentCurrenciesByUserId,
       findAverageAmountByUserId: vi.fn().mockResolvedValue(null),
       softDelete: vi.fn(),
+      softDeleteWithAudit: vi.fn(),
     },
     mappingCorrectionStateRepository: {
       load: mockLoadCorrectionState,
@@ -254,9 +260,107 @@ describe('processMessageJob', () => {
     );
     mockCorrectExpenseExecute.mockResolvedValue({ status: 'not_interpretable' });
     mockCancelExpenseRegistrationExecute.mockResolvedValue({ status: 'cancelled' });
+    mockUndoLastExpenseExecute.mockResolvedValue({
+      status: 'deleted',
+      expense: { id: 'expense-1', concepto: 'Café', monto: 4.5, moneda: 'EUR', savedAt: new Date() },
+    });
   });
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
+    it.each(['deshacer', 'UNDO', 'borrar el último'])(
+      'routes normalized undo command %s without interpreting a new expense',
+      async (rawMessage) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ statePayload: { immediateUndoExpenseId: 'expense-1' } }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+
+        expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          action: 'request',
+          immediateEligible: true,
+        });
+        expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expenseCopies.undoDeleted('Café', 4.5, 'EUR'),
+        );
+      },
+    );
+
+    it('requires confirmation for delayed undo without deleting in the request turn', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      mockUndoLastExpenseExecute.mockResolvedValue({
+        status: 'confirmation_required',
+        expense: {
+          id: 'expense-1',
+          concepto: 'Café',
+          monto: 4.5,
+          moneda: 'EUR',
+          savedAt: new Date('2026-08-02T10:00:00Z'),
+        },
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'deshacer' }), deps);
+
+      expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        action: 'request',
+        immediateEligible: false,
+      });
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          targetState: 'EXPENSE_UNDO_CONFIRMING',
+          payload: { pendingExpenseId: 'expense-1' },
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expect.stringContaining("¿Querés eliminar 'Café, 4.5 EUR'"),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('clears immediate undo eligibility before processing any non-undo message', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ statePayload: { immediateUndoExpenseId: 'expense-1' } }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({
+        status: 'needs_clarification',
+        missingField: 'monto',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 20 EUR' }), deps);
+
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: null,
+      });
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalled();
+    });
+
+    it('clears immediate undo eligibility before a global cancellation command', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ statePayload: { immediateUndoExpenseId: 'expense-1' } }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: null,
+      });
+      expect(mockCancelExpenseRegistrationExecute).toHaveBeenCalled();
+    });
+
     it('cancels from IDLE before expense interpretation', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
@@ -515,6 +619,48 @@ describe('processMessageJob', () => {
       ...overrides,
     };
   }
+
+  describe('EXPENSE_UNDO_CONFIRMING state', () => {
+    it('deletes only after affirmative confirmation and returns to IDLE', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_UNDO_CONFIRMING',
+          statePayload: { pendingExpenseId: 'expense-1' },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+      expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        action: 'confirm',
+        immediateEligible: false,
+        pendingExpenseId: 'expense-1',
+      });
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({ userId: 'user-123', targetState: 'IDLE' });
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.undoDeleted('Café', 4.5, 'EUR'),
+      );
+    });
+
+    it('cancels without invoking the undo use case', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_UNDO_CONFIRMING',
+          statePayload: { pendingExpenseId: 'expense-1' },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+
+      expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({ userId: 'user-123', targetState: 'IDLE' });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.undoCancelled());
+    });
+  });
 
   describe('EXPENSE_REVIEW state', () => {
     it('delegates a standard text confirmation to the application resolver', async () => {

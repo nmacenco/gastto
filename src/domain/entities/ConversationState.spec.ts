@@ -27,6 +27,8 @@ describe('ConversationState FSM', () => {
     it.each([
       ['IDLE', 'ONBOARDING_START'],
       ['IDLE', 'EXPENSE_RECEIVING'],
+      ['IDLE', 'IDLE'],
+      ['IDLE', 'EXPENSE_UNDO_CONFIRMING'],
       ['ONBOARDING_START', 'ONBOARDING_START'],
       ['ONBOARDING_START', 'ONBOARDING_DRIVE'],
       ['ONBOARDING_DRIVE', 'ONBOARDING_FILE'],
@@ -58,6 +60,7 @@ describe('ConversationState FSM', () => {
       ['EXPENSE_SAVING', 'IDLE'],
       ['EXPENSE_SAVING', 'EXPENSE_SAVING_RETRY'],
       ['EXPENSE_SAVING_RETRY', 'IDLE'],
+      ['EXPENSE_UNDO_CONFIRMING', 'IDLE'],
     ] as const)('allows %s → %s', (from, to) => {
       expect(canTransition(from, to)).toBe(true);
     });
@@ -88,6 +91,7 @@ describe('ConversationState FSM', () => {
         'EXPENSE_CORRECTING',
         'EXPENSE_SAVING',
         'EXPENSE_SAVING_RETRY',
+        'EXPENSE_UNDO_CONFIRMING',
       ];
 
       for (const state of allStates) {
