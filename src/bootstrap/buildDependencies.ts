@@ -46,6 +46,7 @@ import { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/
 import { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import { CancelExpenseRegistrationUseCase } from '../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import { ResolveExpenseReviewReplyUseCase } from '../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
+import { UndoLastExpenseUseCase } from '../application/use-cases/expense/UndoLastExpense';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
 import { TelegramExpenseSummaryPresenter } from '../infrastructure/adapters/telegram/TelegramExpenseSummaryPresenter';
 import { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
@@ -447,6 +448,14 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     expenseRecordRepo,
     env.HIGH_AMOUNT_THRESHOLD_MULTIPLIER,
   );
+  const undoLastExpense = new UndoLastExpenseUseCase(
+    spreadsheetPortFactory,
+    expenseRecordRepo,
+    spreadsheetConfigRepo,
+    operationLogRepo,
+    tokenRepo,
+    tokenEncryption,
+  );
 
   const correctExpense = new CorrectExpenseUseCase(
     {
@@ -540,6 +549,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     resolveExpenseSummaryAction,
     cancelExpenseRegistration,
     resolveExpenseReviewReply,
+    undoLastExpense,
     expenseSummaryPresenterFactory,
     telegram,
     googleOAuth,

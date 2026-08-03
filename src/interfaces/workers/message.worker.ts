@@ -11,6 +11,7 @@ import type { CorrectExpenseUseCase } from '../../application/use-cases/expense/
 import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { CancelExpenseRegistrationUseCase } from '../../application/use-cases/expense/CancelExpenseRegistrationUseCase';
+import type { UndoLastExpenseUseCase } from '../../application/use-cases/expense/UndoLastExpense';
 import type {
   ResolveExpenseReviewReplyOutcome,
   ResolveExpenseReviewReplyUseCase,
@@ -65,6 +66,7 @@ import { ExpenseCorrectionState } from '../../domain/value-objects/expense-corre
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
 // without renewal complexity.
 const USER_LOCK_TTL_MS = 180_000;
+const UNDO_CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface MessageWorkerDeps {
   redis: Redis;
@@ -76,6 +78,7 @@ export interface MessageWorkerDeps {
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase | null;
+  undoLastExpense?: UndoLastExpenseUseCase | null | undefined;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
   expenseSummaryPresenterFactory?: (
@@ -173,6 +176,17 @@ async function routeByState(
 ): Promise<void> {
   const { userId, rawMessage, channel, externalId } = jobData;
 
+  // The immediate-undo token is valid for precisely the next inbound message.
+  // Clear it before any other routing path, including global cancellation.
+  const isImmediateUndoCommand = currentState === 'IDLE' && isUndoCommand(rawMessage);
+  if (
+    currentState === 'IDLE' &&
+    conversationState?.statePayload?.immediateUndoExpenseId &&
+    !isImmediateUndoCommand
+  ) {
+    await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+  }
+
   const cancellationSource =
     jobData.callbackData?.action === 'cancel'
       ? 'callback'
@@ -200,6 +214,34 @@ async function routeByState(
   switch (currentState) {
     case 'IDLE':
     case 'EXPENSE_RECEIVING': {
+      if (currentState === 'IDLE' && isUndoCommand(rawMessage) && opts.undoLastExpense) {
+        const immediateUndoExpenseId = conversationState?.statePayload?.immediateUndoExpenseId;
+        const result = await opts.undoLastExpense.execute({
+          userId,
+          action: 'request',
+          immediateEligible: typeof immediateUndoExpenseId === 'string',
+        });
+        if (result.status === 'confirmation_required' && result.expense) {
+          await opts.transitionState.execute({
+            userId,
+            targetState: 'EXPENSE_UNDO_CONFIRMING',
+            payload: { pendingExpenseId: result.expense.id },
+            expiresAt: new Date(Date.now() + UNDO_CONFIRMATION_TIMEOUT_MS),
+          });
+          await messaging.sendMessage(
+            externalId,
+            expenseCopies.undoConfirmationRequired(
+              result.expense.concepto,
+              result.expense.monto,
+              result.expense.moneda,
+              result.expense.savedAt,
+            ),
+          );
+        } else {
+          await sendUndoOutcome(result, messaging, externalId);
+        }
+        break;
+      }
       if (!opts.registerExpense) {
         await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
         break;
@@ -247,6 +289,36 @@ async function routeByState(
     case 'EXPENSE_CLARIFYING': {
       // User is responding to a clarification question
       await handleClarification(jobData, conversationState?.statePayload ?? null, opts, messaging);
+      break;
+    }
+
+    case 'EXPENSE_UNDO_CONFIRMING': {
+      const pendingExpenseId = conversationState?.statePayload?.pendingExpenseId;
+      if (typeof pendingExpenseId !== 'string' || !opts.undoLastExpense) {
+        await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+        await messaging.sendMessage(externalId, expenseCopies.undoNotFound());
+        break;
+      }
+
+      if (isCancelIntent(rawMessage)) {
+        await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+        await messaging.sendMessage(externalId, expenseCopies.undoCancelled());
+        break;
+      }
+
+      if (!isConfirmIntent(rawMessage)) {
+        await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
+        break;
+      }
+
+      const result = await opts.undoLastExpense.execute({
+        userId,
+        action: 'confirm',
+        immediateEligible: false,
+        pendingExpenseId,
+      });
+      await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+      await sendUndoOutcome(result, messaging, externalId);
       break;
     }
 
@@ -407,6 +479,44 @@ async function routeByState(
         await messaging.sendMessage(externalId, expenseCopies.fallbackError());
       }
     }
+  }
+}
+
+function isUndoCommand(rawMessage: string): boolean {
+  const normalized = rawMessage
+    .trim()
+    .toLocaleLowerCase('es')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return normalized === 'deshacer' || normalized === 'undo' || normalized === 'borrar el ultimo';
+}
+
+async function sendUndoOutcome(
+  result: Awaited<ReturnType<UndoLastExpenseUseCase['execute']>>,
+  messaging: MessagingOutputPort,
+  chatId: string,
+): Promise<void> {
+  switch (result.status) {
+    case 'deleted':
+      if (result.expense) {
+        await messaging.sendMessage(
+          chatId,
+          expenseCopies.undoDeleted(
+            result.expense.concepto,
+            result.expense.monto,
+            result.expense.moneda,
+          ),
+        );
+      }
+      return;
+    case 'not_found':
+      await messaging.sendMessage(chatId, expenseCopies.undoNotFound());
+      return;
+    case 'deletion_failed':
+      await messaging.sendMessage(chatId, expenseCopies.undoDeletionFailed());
+      return;
+    case 'confirmation_required':
+      await messaging.sendMessage(chatId, expenseCopies.undoNotFound());
   }
 }
 

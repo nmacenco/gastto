@@ -185,14 +185,14 @@ describe('HandleExpiredSessions', () => {
     expect(mockShowTimeoutWarning).not.toHaveBeenCalled();
   });
 
-  it('transitions non-review expired states to IDLE and sends generic timeout message', async () => {
+  it('expires an undo confirmation safely to IDLE and sends the generic timeout message', async () => {
     const conversationRepo = buildMockConversationRepo();
     const userRepo = buildMockUserRepo();
     const transitionState = buildMockTransitionState();
     const messagingPort = buildMockMessagingPort();
 
     mockFindExpired.mockResolvedValue([
-      buildConversationState({ userId: 'user-1', currentState: 'EXPENSE_CLARIFYING' }),
+      buildConversationState({ userId: 'user-1', currentState: 'EXPENSE_UNDO_CONFIRMING' }),
     ]);
     mockFindMessagingIdentities.mockResolvedValue([buildMessagingIdentity({ userId: 'user-1' })]);
 

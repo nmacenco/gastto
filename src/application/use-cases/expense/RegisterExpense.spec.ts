@@ -6,7 +6,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RegisterExpenseUseCase, type RegisterExpenseInput } from './RegisterExpense';
-import type { LLMPort, SpreadsheetPort, SpreadsheetPortFactory } from '../../../domain/ports/services';
+import type {
+  LLMPort,
+  SpreadsheetPort,
+  SpreadsheetPortFactory,
+} from '../../../domain/ports/services';
 import type { IUserProfilePort } from '../../../domain/ports/IUserProfilePort';
 import type {
   IExpenseRecordRepository,

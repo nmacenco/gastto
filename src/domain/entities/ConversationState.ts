@@ -17,6 +17,7 @@ export const FSM_STATES = [
   'EXPENSE_CORRECTING',
   'EXPENSE_SAVING',
   'EXPENSE_SAVING_RETRY',
+  'EXPENSE_UNDO_CONFIRMING',
 ] as const;
 
 export type FsmState = (typeof FSM_STATES)[number];
@@ -43,7 +44,7 @@ export interface ExpenseQueueItem {
 // Transiciones válidas de la FSM. La FSM rechaza cualquier transición
 // no listada aquí (principio de máquina de estados estricta).
 export const FSM_TRANSITIONS: Record<FsmState, FsmState[]> = {
-  IDLE: ['ONBOARDING_START', 'EXPENSE_RECEIVING'],
+  IDLE: ['IDLE', 'ONBOARDING_START', 'EXPENSE_RECEIVING', 'EXPENSE_UNDO_CONFIRMING'],
   ONBOARDING_START: ['ONBOARDING_START', 'ONBOARDING_DRIVE'],
   ONBOARDING_DRIVE: ['ONBOARDING_FILE', 'ONBOARDING_DRIVE', 'IDLE'],
   ONBOARDING_FILE: ['ONBOARDING_FILE', 'ONBOARDING_SHEET', 'ONBOARDING_START'],
@@ -57,6 +58,7 @@ export const FSM_TRANSITIONS: Record<FsmState, FsmState[]> = {
   EXPENSE_CORRECTING: ['EXPENSE_REVIEW', 'EXPENSE_CORRECTING', 'IDLE'],
   EXPENSE_SAVING: ['IDLE', 'EXPENSE_SAVING_RETRY'],
   EXPENSE_SAVING_RETRY: ['IDLE'],
+  EXPENSE_UNDO_CONFIRMING: ['IDLE'],
 };
 
 export function canTransition(from: FsmState, to: FsmState): boolean {

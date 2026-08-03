@@ -21,6 +21,7 @@ function buildMockExpenseRepo(): IExpenseRecordRepository {
     findRecentCurrenciesByUserId: vi.fn(),
     findAverageAmountByUserId: mockFindAverageAmountByUserId,
     softDelete: vi.fn(),
+    softDeleteWithAudit: vi.fn(),
   };
 }
 

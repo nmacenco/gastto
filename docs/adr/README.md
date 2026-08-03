@@ -22,6 +22,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-014](./ADR-014-fsm-eager-advance.md)       | Auto-trigger next use case on deterministic FSM transitions      | Proposed |
 | [ADR-015](./ADR-015-upsert-spreadsheet-config-on-reonboarding.md) | Spreadsheet config idempotencia en re-onboarding               | Accepted |
 | [ADR-016](./ADR-016-bootstrap-decomposition.md) | Decompose `src/main.ts` Bootstrap into Optional Feature Bundles  | Accepted |
+| [ADR-017](./ADR-017-undo-confirmation-fsm.md) | Require Confirmation for Delayed Expense Undo | Accepted |
 
 ## Template
 

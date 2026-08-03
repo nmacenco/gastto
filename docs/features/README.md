@@ -19,6 +19,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Global safe cancellation of in-progress expense registrations.
 - [`expense-correction.md`](./expense-correction.md) — Natural-language correction of amount, currency, category, or date before expense confirmation.
 - [`expense-confirmation.md`](./expense-confirmation.md) — Fixed-vocabulary text confirmation from expense review, with correction-safe precedence, regional Spanish coverage, and save-location confirmation.
+- [`undo-last-expense.md`](./undo-last-expense.md) — Safe one-record Google Sheets undo with immediate eligibility and delayed explicit confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM for multi-turn conversational flows with session timeout.
 - [`deployment.md`](./deployment.md) — Multi-environment Fly.io deployment, secrets management, and Telegram bot isolation.

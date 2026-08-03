@@ -4,7 +4,7 @@
 
 import { eq, and, desc, sql, avg } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { expenseRecords } from '../schema';
+import { expenseRecords, operationLogs } from '../schema';
 import type * as schema from '../schema';
 import type { IExpenseRecordRepository } from '../../../domain/ports/repositories';
 import type { ExpenseRecord } from '../../../domain/entities/ExpenseRecord';
@@ -92,6 +92,28 @@ export class DrizzleExpenseRecordRepository implements IExpenseRecordRepository 
       .returning();
 
     if (!row) throw new Error('Failed to soft-delete expense record');
+  }
+
+  async softDeleteWithAudit(
+    id: string,
+    userId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(expenseRecords)
+        .set({ isDeleted: true, deletedAt: sql`now()` })
+        .where(eq(expenseRecords.id, id))
+        .returning({ id: expenseRecords.id });
+
+      if (!row) throw new Error('Failed to soft-delete expense record');
+
+      await tx.insert(operationLogs).values({
+        userId,
+        operation: 'EXPENSE_DELETED',
+        payload,
+      });
+    });
   }
 
   // ── Mappers ────────────────────────────────────────────────────────────────
