@@ -462,7 +462,8 @@ describe('GoogleSheetsAdapter', () => {
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
-          json: () => Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 42 } }] }),
+          json: () =>
+            Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 42 } }] }),
         })
         .mockResolvedValueOnce({ ok: true, status: 200 });
 
@@ -480,7 +481,11 @@ describe('GoogleSheetsAdapter', () => {
           method: 'POST',
           body: JSON.stringify({
             requests: [
-              { deleteDimension: { range: { sheetId: 42, dimension: 'ROWS', startIndex: 6, endIndex: 7 } } },
+              {
+                deleteDimension: {
+                  range: { sheetId: 42, dimension: 'ROWS', startIndex: 6, endIndex: 7 },
+                },
+              },
             ],
           }),
         }),
@@ -499,7 +504,8 @@ describe('GoogleSheetsAdapter', () => {
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
-          json: () => Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 1 } }] }),
+          json: () =>
+            Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 1 } }] }),
         })
         .mockResolvedValueOnce({ ok: false, status: 403 });
       await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toBeInstanceOf(SpreadsheetError);

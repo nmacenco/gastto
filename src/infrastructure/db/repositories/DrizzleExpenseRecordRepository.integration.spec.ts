@@ -77,11 +77,13 @@ function expense(id: string, savedAt: Date, isDeleted = false) {
 
 describePostgres('DrizzleExpenseRecordRepository (PostgreSQL)', () => {
   it('selects only the latest non-deleted expense', async () => {
-    await db.insert(expenseRecords).values([
-      expense('33333333-3333-4333-8333-333333333333', new Date('2026-08-02T10:00:00Z')),
-      expense('44444444-4444-4444-8444-444444444444', new Date('2026-08-02T11:00:00Z'), true),
-      expense('55555555-5555-4555-8555-555555555555', new Date('2026-08-02T12:00:00Z')),
-    ]);
+    await db
+      .insert(expenseRecords)
+      .values([
+        expense('33333333-3333-4333-8333-333333333333', new Date('2026-08-02T10:00:00Z')),
+        expense('44444444-4444-4444-8444-444444444444', new Date('2026-08-02T11:00:00Z'), true),
+        expense('55555555-5555-4555-8555-555555555555', new Date('2026-08-02T12:00:00Z')),
+      ]);
 
     await expect(repository.findLatestByUserId(userId)).resolves.toMatchObject({
       id: '55555555-5555-4555-8555-555555555555',
@@ -109,16 +111,22 @@ describePostgres('DrizzleExpenseRecordRepository (PostgreSQL)', () => {
   it('soft-deletes the selected record and writes its audit entry atomically', async () => {
     const deletedId = '88888888-8888-4888-8888-888888888888';
     const remainingId = '99999999-9999-4999-8999-999999999999';
-    await db.insert(expenseRecords).values([
-      expense(deletedId, new Date('2026-08-02T12:00:00Z')),
-      expense(remainingId, new Date('2026-08-02T11:00:00Z')),
-    ]);
+    await db
+      .insert(expenseRecords)
+      .values([
+        expense(deletedId, new Date('2026-08-02T12:00:00Z')),
+        expense(remainingId, new Date('2026-08-02T11:00:00Z')),
+      ]);
 
     await repository.softDeleteWithAudit(deletedId, userId, { expenseId: deletedId });
 
     await expect(repository.findLatestByUserId(userId)).resolves.toMatchObject({ id: remainingId });
     await expect(db.select().from(operationLogs)).resolves.toContainEqual(
-      expect.objectContaining({ userId, operation: 'EXPENSE_DELETED', payload: { expenseId: deletedId } }),
+      expect.objectContaining({
+        userId,
+        operation: 'EXPENSE_DELETED',
+        payload: { expenseId: deletedId },
+      }),
     );
   });
 });

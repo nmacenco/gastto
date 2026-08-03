@@ -262,7 +262,13 @@ describe('processMessageJob', () => {
     mockCancelExpenseRegistrationExecute.mockResolvedValue({ status: 'cancelled' });
     mockUndoLastExpenseExecute.mockResolvedValue({
       status: 'deleted',
-      expense: { id: 'expense-1', concepto: 'Café', monto: 4.5, moneda: 'EUR', savedAt: new Date() },
+      expense: {
+        id: 'expense-1',
+        concepto: 'Café',
+        monto: 4.5,
+        moneda: 'EUR',
+        savedAt: new Date(),
+      },
     });
   });
 
@@ -638,7 +644,10 @@ describe('processMessageJob', () => {
         immediateEligible: false,
         pendingExpenseId: 'expense-1',
       });
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({ userId: 'user-123', targetState: 'IDLE' });
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+      });
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.undoDeleted('Café', 4.5, 'EUR'),
@@ -657,7 +666,10 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
 
       expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({ userId: 'user-123', targetState: 'IDLE' });
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+      });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.undoCancelled());
     });
   });

@@ -188,7 +188,9 @@ export class RegisterExpenseUseCase {
     if (!config) throw new Error('SpreadsheetConfig not found for user');
 
     if (config.provider !== 'google') {
-      throw new SpreadsheetError(`Spreadsheet provider ${config.provider} is not supported for expense saving`);
+      throw new SpreadsheetError(
+        `Spreadsheet provider ${config.provider} is not supported for expense saving`,
+      );
     }
 
     const token = await this.tokenRepository.findByUserAndProvider(userId, config.provider);

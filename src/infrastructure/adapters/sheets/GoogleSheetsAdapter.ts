@@ -154,7 +154,9 @@ export class GoogleSheetsAdapter
     try {
       data = await response.json();
     } catch {
-      throw new SpreadsheetError(`Invalid JSON response from Google Sheets API: HTTP ${response.status}`);
+      throw new SpreadsheetError(
+        `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
+      );
     }
 
     if (!response.ok) {
@@ -170,7 +172,9 @@ export class GoogleSheetsAdapter
     const metadataUrl = `${GOOGLE_SHEETS_API_URL}/${fileId}?fields=sheets.properties(sheetId,title)`;
     let metadataResponse: Response;
     try {
-      metadataResponse = await fetch(metadataUrl, { headers: { Authorization: `Bearer ${this.accessToken}` } });
+      metadataResponse = await fetch(metadataUrl, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
     } catch (error) {
       throw new SpreadsheetError(`Network error during sheet lookup: ${String(error)}`);
     }
@@ -179,29 +183,45 @@ export class GoogleSheetsAdapter
     try {
       metadata = await metadataResponse.json();
     } catch {
-      throw new SpreadsheetError(`Invalid JSON response from Google Sheets API: HTTP ${metadataResponse.status}`);
+      throw new SpreadsheetError(
+        `Invalid JSON response from Google Sheets API: HTTP ${metadataResponse.status}`,
+      );
     }
     if (!metadataResponse.ok) {
-      throw new SpreadsheetError(`Google Sheets API error during sheet lookup: HTTP ${metadataResponse.status}`);
+      throw new SpreadsheetError(
+        `Google Sheets API error during sheet lookup: HTTP ${metadataResponse.status}`,
+      );
     }
 
     const sheetId = findGoogleSheetId(metadata, sheetName);
-    if (sheetId === null) throw new SpreadsheetError(`Sheet structure error: sheet '${sheetName}' not found`);
+    if (sheetId === null)
+      throw new SpreadsheetError(`Sheet structure error: sheet '${sheetName}' not found`);
 
     let deleteResponse: Response;
     try {
       deleteResponse = await fetch(`${GOOGLE_SHEETS_API_URL}/${fileId}:batchUpdate`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.accessToken}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          requests: [{ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: rowIndex - 1, endIndex: rowIndex } } }],
+          requests: [
+            {
+              deleteDimension: {
+                range: { sheetId, dimension: 'ROWS', startIndex: rowIndex - 1, endIndex: rowIndex },
+              },
+            },
+          ],
         }),
       });
     } catch (error) {
       throw new SpreadsheetError(`Network error during row deletion: ${String(error)}`);
     }
     if (!deleteResponse.ok) {
-      throw new SpreadsheetError(`Google Sheets API error during row deletion: HTTP ${deleteResponse.status}`);
+      throw new SpreadsheetError(
+        `Google Sheets API error during row deletion: HTTP ${deleteResponse.status}`,
+      );
     }
   }
 
