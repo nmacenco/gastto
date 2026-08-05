@@ -288,6 +288,20 @@ describe('RegisterExpenseUseCase', () => {
       expect(mockOperationLogCreate).not.toHaveBeenCalled();
       expect(mockConversationTransition).not.toHaveBeenCalled();
     });
+
+    it('classifies missing column mappings as a structure failure before appending', async () => {
+      mockFindBySpreadsheetId.mockResolvedValue([]);
+      const { useCase } = buildUseCase();
+
+      await expect(useCase.save('user-123', payload, '')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
+
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+      expect(mockConversationTransition).not.toHaveBeenCalled();
+    });
   });
 
   describe('interpret()', () => {

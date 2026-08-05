@@ -436,23 +436,32 @@ describe('GoogleSheetsAdapter', () => {
       });
     });
 
-    it('throws SpreadsheetError on an API error, invalid response, or network failure', async () => {
+    it('classifies authorization, structure, and network append failures', async () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 403,
         json: () => Promise.resolve({ error: 'forbidden' }),
       });
-      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toBeInstanceOf(SpreadsheetError);
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
+        code: 'AUTH_ERROR',
+        retryable: false,
+      });
 
       fetchMock.mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: () => Promise.resolve({ updates: {} }),
       });
-      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toBeInstanceOf(SpreadsheetError);
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
 
       fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toBeInstanceOf(SpreadsheetError);
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
     });
   });
 

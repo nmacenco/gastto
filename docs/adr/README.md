@@ -23,6 +23,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-015](./ADR-015-upsert-spreadsheet-config-on-reonboarding.md) | Spreadsheet config idempotencia en re-onboarding               | Accepted |
 | [ADR-016](./ADR-016-bootstrap-decomposition.md) | Decompose `src/main.ts` Bootstrap into Optional Feature Bundles  | Accepted |
 | [ADR-017](./ADR-017-undo-confirmation-fsm.md) | Require Confirmation for Delayed Expense Undo | Accepted |
+| [ADR-018](./ADR-018-user-initiated-save-retry.md) | Limit Unconfirmed Spreadsheet Save Retries to One User-Initiated Attempt | Accepted |
 
 ## Template
 

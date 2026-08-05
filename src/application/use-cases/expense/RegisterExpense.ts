@@ -185,24 +185,33 @@ export class RegisterExpenseUseCase {
   ): Promise<{ sheetName: string; rowIndex?: number | undefined }> {
     const _spreadsheetId = spreadsheetId; // TODO: use when implementing multi-spreadsheet support
     const config = await this.spreadsheetConfigRepo.findByUserId(userId);
-    if (!config) throw new Error('SpreadsheetConfig not found for user');
+    if (!config) {
+      throw new SpreadsheetError('Spreadsheet configuration not found for user', {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
 
     if (config.provider !== 'google') {
       throw new SpreadsheetError(
         `Spreadsheet provider ${config.provider} is not supported for expense saving`,
+        { code: 'STRUCTURE_ERROR' },
       );
     }
 
     const token = await this.tokenRepository.findByUserAndProvider(userId, config.provider);
     if (!token || token.revokedAt || token.accessTokenExpiresAt.getTime() <= Date.now()) {
-      throw new SpreadsheetError('No active spreadsheet access token is available');
+      throw new SpreadsheetError('No active spreadsheet access token is available', {
+        code: 'AUTH_ERROR',
+      });
     }
 
     let accessToken: string;
     try {
       accessToken = this.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
     } catch {
-      throw new SpreadsheetError('Could not decrypt spreadsheet access token');
+      throw new SpreadsheetError('Could not decrypt spreadsheet access token', {
+        code: 'AUTH_ERROR',
+      });
     }
 
     const mappings = await this.columnMappingRepo.findBySpreadsheetId(config.id);
@@ -303,6 +312,12 @@ export class RegisterExpenseUseCase {
     payload: ExpenseReviewPayload,
     mappings: ColumnMapping[],
   ): (string | number | null)[] {
+    if (mappings.length === 0 || mappings.some((mapping) => mapping.columnIndex < 0)) {
+      throw new SpreadsheetError('Spreadsheet column mappings are missing or invalid', {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+
     const MAX_COLS = Math.max(...mappings.map((m) => m.columnIndex)) + 1;
     const row: (string | number | null)[] = Array<string | number | null>(MAX_COLS).fill(null);
 

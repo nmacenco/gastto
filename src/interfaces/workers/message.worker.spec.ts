@@ -18,6 +18,8 @@ import type { CorrectColumnMapping } from '../../application/use-cases/spreadshe
 import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
 import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/ConfirmCategories';
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
+import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
+import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
@@ -56,6 +58,8 @@ const mockResolveExpenseReviewReplyExecute = vi.fn();
 const mockCorrectExpenseExecute = vi.fn();
 const mockCancelExpenseRegistrationExecute = vi.fn();
 const mockUndoLastExpenseExecute = vi.fn();
+const mockRetryExpenseSaveExecute = vi.fn();
+const mockStartSpreadsheetReconfigurationExecute = vi.fn();
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -94,6 +98,9 @@ function buildMockDeps(): MessageWorkerDeps {
     undoLastExpense: {
       execute: mockUndoLastExpenseExecute,
     } as unknown as MessageWorkerDeps['undoLastExpense'],
+    retryExpenseSave: {
+      execute: mockRetryExpenseSaveExecute,
+    } as unknown as RetryExpenseSaveUseCase,
     getConversationState: {
       execute: mockGetConversationStateExecute,
     } as unknown as MessageWorkerDeps['getConversationState'],
@@ -191,6 +198,9 @@ function buildMockDeps(): MessageWorkerDeps {
     modifyCategoryVocabulary: {
       execute: mockModifyCategoryVocabularyExecute,
     } as unknown as ModifyCategoryVocabulary,
+    startSpreadsheetReconfiguration: {
+      execute: mockStartSpreadsheetReconfigurationExecute,
+    } as unknown as StartSpreadsheetReconfigurationUseCase,
   };
 }
 
@@ -2637,6 +2647,75 @@ describe('processMessageJob', () => {
         '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)?',
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+  });
+  describe('EXPENSE_SAVING_RETRY state', () => {
+    const payload = {
+      expense: {
+        rawMessage: 'Café 200 EUR',
+        extracted: { monto: 200, moneda: 'EUR' },
+      },
+      failureCode: 'NETWORK_ERROR',
+      firstAttemptAt: '2026-08-05T10:00:00.000Z',
+      attemptCount: 1,
+    };
+
+    it('delegates reintentar without re-running NLP', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: payload,
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'reintentar' }), deps);
+
+      expect(mockRetryExpenseSaveExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-123', chatId: '123456789', statePayload: payload }),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('delegates reconfigurar to the reconfiguration use case', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: payload,
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'reconfigurar' }), deps);
+
+      expect(mockStartSpreadsheetReconfigurationExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        chatId: '123456789',
+        channel: 'telegram',
+      });
+    });
+
+    it('clears expired retry state without invoking a resolution use case', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: payload,
+          expiresAt: new Date(Date.now() - 1),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'reintentar' }), deps);
+
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: null,
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saveRetryExpired());
+      expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
     });
   });
 });

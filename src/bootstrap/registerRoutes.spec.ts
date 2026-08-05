@@ -67,6 +67,7 @@ function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
     resolveExpenseSummaryAction: {} as Dependencies['resolveExpenseSummaryAction'],
     cancelExpenseRegistration: {} as Dependencies['cancelExpenseRegistration'],
     resolveExpenseReviewReply: {} as Dependencies['resolveExpenseReviewReply'],
+    retryExpenseSave: {} as Dependencies['retryExpenseSave'],
     expenseSummaryPresenterFactory: {} as Dependencies['expenseSummaryPresenterFactory'],
     telegram: null,
     googleOAuth: null,
@@ -140,6 +141,8 @@ describe('registerRoutes', () => {
         handleSpreadsheetFileSelection: {} as GoogleOAuthFeature['handleSpreadsheetFileSelection'],
         handleSheetSelection: {} as GoogleOAuthFeature['handleSheetSelection'],
         validateSpreadsheetAccess: {} as GoogleOAuthFeature['validateSpreadsheetAccess'],
+        startSpreadsheetReconfiguration:
+          {} as GoogleOAuthFeature['startSpreadsheetReconfiguration'],
         inferColumnMapping: {} as GoogleOAuthFeature['inferColumnMapping'],
         confirmColumnMapping: {} as GoogleOAuthFeature['confirmColumnMapping'],
         correctColumnMapping: {} as GoogleOAuthFeature['correctColumnMapping'],

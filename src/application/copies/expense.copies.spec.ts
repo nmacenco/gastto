@@ -5,6 +5,27 @@ import { describe, it, expect } from 'vitest';
 import { expenseCopies } from './expense.copies';
 
 describe('expenseCopies', () => {
+  describe('save recovery copies', () => {
+    it('provides distinct network, authorization, and structure recovery instructions', () => {
+      expect(expenseCopies.saveNetworkFailure()).toContain('reintentar');
+      expect(expenseCopies.saveAuthorizationFailure()).toContain('empezar');
+      expect(expenseCopies.saveStructureFailure()).toContain('reconfigurar');
+      expect(expenseCopies.saveRetryExpired()).toContain('venció');
+    });
+
+    it('formats a manual-copy fallback without claiming a successful save', () => {
+      const copy = expenseCopies.saveManualCopyFallback({
+        concept: 'Café',
+        amount: 200,
+        currency: 'EUR',
+      });
+
+      expect(copy).toContain('Café');
+      expect(copy).toContain('200 EUR');
+      expect(copy).not.toContain('Gasto guardado');
+    });
+  });
+
   describe('expenseSavedConfirmation', () => {
     it('includes expense details and the confirmed sheet and row', () => {
       expect(

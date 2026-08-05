@@ -16,10 +16,12 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - A mixed reply, such as `comida sí, pero el monto no`, is not a confirmation. It is delegated to `CorrectExpenseUseCase` through the E1-US-07 correction flow before any save occurs.
 - An uninterpretable reply keeps the `EXPENSE_REVIEW` payload and FSM state unchanged and sends exactly: `¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?`.
 - Callback **Confirmar**, **Corregir**, and **Cancelar** actions remain on their existing action-resolver path.
-
-## Behavior (TODO)
-
-- E1-US-12 owns failure classification, retry, and recovery messaging for unsuccessful spreadsheet writes.
+- A Google Sheets append is successful only after the provider confirms it. Only then does the system persist the expense record and send the E1-US-10 save confirmation.
+- A failed append creates an `EXPENSE_SAVE_FAILED` audit entry. It never creates an expense record or sends the successful-save confirmation.
+- Retryable network failures persist the confirmed review payload in `EXPENSE_SAVING_RETRY` for ten minutes. The recovery copy accepts `reintentar`; it causes exactly one user-initiated reattempt.
+- A successful reattempt uses the normal E1-US-10 confirmation once. A second failed attempt clears the retry state and sends a manual-copy fallback containing the concept and amount.
+- Authorization failures direct the user to `empezar` to start a fresh Google authorization flow. Structure failures direct the user to `reconfigurar`, which restarts access validation and column inference for the active Google spreadsheet.
+- Retry state that is expired or malformed is cleared and receives the restart/manual-resolution response. The commands `reintentar` and `reconfigurar` are only active in `EXPENSE_SAVING_RETRY`.
 
 ## API / Interface
 
@@ -27,7 +29,7 @@ No HTTP route or external messaging contract is added. `ResolveExpenseReviewRepl
 
 ## Data Model
 
-The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conversation FSM state. Successful saves persist the confirmed destination sheet and an optional spreadsheet row index in `expense_records`; the row index is NULL only when the provider confirms the write without exposing it.
+The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conversation FSM state. Retryable failures persist an `ExpenseSaveRetryPayload` only in `EXPENSE_SAVING_RETRY`: the confirmed review payload, typed failure code, first-attempt timestamp, and an attempt count of one. Successful saves persist the confirmed destination sheet and an optional spreadsheet row index in `expense_records`; the row index is NULL only when the provider confirms the write without exposing it.
 
 ## Tests
 
@@ -36,6 +38,7 @@ The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conve
 - `message.worker.spec.ts` covers delegation, orientation copy, callback regression, zero-amount confirmation, correction cycle limits, and high-amount review behavior.
 - `ResolveExpenseSummaryActionUseCase.spec.ts` covers the success confirmation with complete and omitted row metadata.
 - `expense.copies.spec.ts` covers the location-aware successful-save copy.
+- `expense-save-failure-recovery.integration.spec.ts` wires the real save orchestration with boundary mocks and proves an unconfirmed append emits recovery copy without persisting an expense or emitting E1-US-10 confirmation.
 - A connected staging verification must measure the elapsed time from user confirmation to successful save confirmation against the normal-condition ≤3-second target. Unit tests intentionally do not assert that wall-clock threshold because they mock spreadsheet and messaging boundaries.
 
 ## Related User Stories

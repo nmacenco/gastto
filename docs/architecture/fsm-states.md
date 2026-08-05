@@ -25,7 +25,7 @@
 | `EXPENSE_REVIEW`               | Summary sent, waiting for confirmation         | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`                                | 10 min  |
 | `EXPENSE_CORRECTING`           | Applying user correction                       | → `EXPENSE_REVIEW` \| `IDLE`                                                        | —       |
 | `EXPENSE_SAVING`               | Writing to the spreadsheet                     | → `IDLE` \| `EXPENSE_SAVING_RETRY`                                                  | —       |
-| `EXPENSE_SAVING_RETRY`         | Retrying a failed save (TTL: 10 min)           | → `IDLE`                                                                            | 10 min  |
+| `EXPENSE_SAVING_RETRY`         | Waiting for a user decision after a retryable failed save | → `IDLE` \| `ONBOARDING_VALIDATING_ACCESS`                              | 10 min  |
 
 ---
 
@@ -39,8 +39,9 @@ Current and planned eager-advance transitions:
 - `ONBOARDING_FILE` → `ONBOARDING_SHEET`: file selection triggers sheet discovery.
 - `ONBOARDING_SHEET` → `ONBOARDING_VALIDATING_ACCESS`: sheet confirmation (single-sheet auto-confirm, number, or name match) triggers access validation.
 - `ONBOARDING_VALIDATING_ACCESS` → `ONBOARDING_MAPPING`: successful access validation triggers column-mapping inference.
-- `EXPENSE_REVIEW` → `EXPENSE_SAVING`: user confirmation triggers save. _(planned)_
-- `EXPENSE_SAVING` → `IDLE`: successful save triggers final confirmation. _(planned)_
+- `EXPENSE_REVIEW` → `EXPENSE_SAVING`: user confirmation triggers save.
+- `EXPENSE_SAVING` → `IDLE`: a confirmed save persists the record and triggers final confirmation.
+- `EXPENSE_SAVING_RETRY` → `ONBOARDING_VALIDATING_ACCESS`: `reconfigurar` restarts validation and eager column inference for the active Google spreadsheet.
 
 Transitions that present a list or require explicit confirmation (e.g., `ONBOARDING_FILE` self-transition, `ONBOARDING_MAPPING` self-transition) do **not** use eager advance.
 
@@ -83,7 +84,8 @@ flowchart TD
     EXPENSE_SAVING -->|success| IDLE
     EXPENSE_SAVING -->|failure| EXPENSE_SAVING_RETRY
 
-    EXPENSE_SAVING_RETRY -->|success or exhausted| IDLE
+    EXPENSE_SAVING_RETRY -->|successful retry, fallback, or expiry| IDLE
+    EXPENSE_SAVING_RETRY -->|reconfigurar| ONBOARDING_VALIDATING_ACCESS
 ```
 
 ---
@@ -107,7 +109,7 @@ The `state_payload` column in the `conversation_states` table is a `JSONB` blob 
 | `EXPENSE_REVIEW`               | `expense: ExpenseEntity`, `summary_text: string`                                                                                                                              | The fully formed expense and the summary shown to the user                                                                     |
 | `EXPENSE_CORRECTING`           | `expense: ExpenseEntity`, `correction_field: string`                                                                                                                          | Which field the user wants to correct                                                                                          |
 | `EXPENSE_SAVING`               | `expense: ExpenseEntity`, `attempt: number`                                                                                                                                   | Current save attempt count                                                                                                     |
-| `EXPENSE_SAVING_RETRY`         | `expense: ExpenseEntity`, `attempt: number`, `error_type: 'NETWORK_ERROR' \| 'AUTH_ERROR' \| 'STRUCTURE_ERROR'`, `last_error_at: ISOString`                                   | Why the save failed and when                                                                                                   |
+| `EXPENSE_SAVING_RETRY`         | `expense: ExpenseReviewPayload`, `failureCode: 'NETWORK_ERROR' \| 'AUTH_ERROR' \| 'STRUCTURE_ERROR' \| 'UNKNOWN'`, `firstAttemptAt: ISOString`, `attemptCount: 1` | Confirmed expense retained for the sole permitted user-initiated retry; only retryable network failures enter this state |
 
 ---
 
