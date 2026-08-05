@@ -17,6 +17,20 @@ export const expenseCopies = {
   clarificationCurrency: () => '¿En qué moneda fue ese gasto?',
   zeroAmountConfirmation: () => '¿Querías registrar un gasto de $0?',
   saving: () => 'Guardando tu gasto…',
+  saveNetworkFailure: () =>
+    'No pude confirmar el guardado por un problema de conexión. Respondé *reintentar* dentro de los próximos 10 minutos.',
+  saveAuthorizationFailure: () =>
+    'No pude acceder a tu planilla. Respondé *empezar* para volver a conectar tu cuenta.',
+  saveStructureFailure: () =>
+    'No pude guardar el gasto porque la hoja o sus columnas cambiaron. Respondé *reconfigurar* para revisar la configuración.',
+  saveRetryExpired: () =>
+    'El tiempo para reintentar este guardado venció. Verificá tu planilla y registrá el gasto nuevamente.',
+  saveManualCopyFallback: (input: { concept: string; amount: number; currency: string }): string =>
+    [
+      'No pude confirmar que el gasto se haya guardado. Copiá estos datos manualmente en tu planilla:',
+      `• Concepto: ${input.concept.slice(0, 80)}`,
+      `• Monto: ${input.amount} ${input.currency}`,
+    ].join('\n'),
   cancelled: () => 'Registro cancelado. No se guardó nada.',
   noActiveExpenseToCancel: () => 'No hay ningún registro pendiente para cancelar.',
   ambiguousResponse: () => '¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?',

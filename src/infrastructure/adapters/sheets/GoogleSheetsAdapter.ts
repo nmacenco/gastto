@@ -147,7 +147,10 @@ export class GoogleSheetsAdapter
         body: JSON.stringify({ values: [values] }),
       });
     } catch (err) {
-      throw new SpreadsheetError(`Network error during row append: ${String(err)}`);
+      throw new SpreadsheetError(`Network error during row append: ${String(err)}`, {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
     }
 
     let data: unknown;
@@ -156,12 +159,28 @@ export class GoogleSheetsAdapter
     } catch {
       throw new SpreadsheetError(
         `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
+        { code: 'STRUCTURE_ERROR' },
       );
     }
 
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new SpreadsheetError(
+          `Google Sheets authorization error during row append: HTTP ${response.status}`,
+          { code: 'AUTH_ERROR' },
+        );
+      }
+
+      if (response.status === 400 || response.status === 404) {
+        throw new SpreadsheetError(
+          `Google Sheets structure error during row append: HTTP ${response.status}`,
+          { code: 'STRUCTURE_ERROR' },
+        );
+      }
+
       throw new SpreadsheetError(
         `Google Sheets API error during row append: HTTP ${response.status}`,
+        { code: 'UNKNOWN' },
       );
     }
 
@@ -415,7 +434,9 @@ export class GoogleSheetsAdapter
 
 function parseAppendResponse(data: unknown, sheetName: string): AppendResult {
   if (!isRecord(data) || !isRecord(data.updates) || typeof data.updates.updatedRange !== 'string') {
-    throw new SpreadsheetError('Invalid append response from Google Sheets API');
+    throw new SpreadsheetError('Invalid append response from Google Sheets API', {
+      code: 'STRUCTURE_ERROR',
+    });
   }
 
   const rowMatch = data.updates.updatedRange.match(/![A-Z]+(\d+)(?::[A-Z]+\d+)?$/i);
@@ -425,7 +446,9 @@ function parseAppendResponse(data: unknown, sheetName: string): AppendResult {
 
   const row = Number(rowMatch[1]);
   if (!Number.isSafeInteger(row) || row < 1) {
-    throw new SpreadsheetError('Invalid row reference in Google Sheets append response');
+    throw new SpreadsheetError('Invalid row reference in Google Sheets append response', {
+      code: 'STRUCTURE_ERROR',
+    });
   }
 
   return { sheet: sheetName, row };

@@ -12,6 +12,7 @@ import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/
 import type { ResolveExpenseSummaryActionUseCase } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { CancelExpenseRegistrationUseCase } from '../../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import type { UndoLastExpenseUseCase } from '../../application/use-cases/expense/UndoLastExpense';
+import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type {
   ResolveExpenseReviewReplyOutcome,
   ResolveExpenseReviewReplyUseCase,
@@ -45,6 +46,7 @@ import type { CorrectColumnMapping } from '../../application/use-cases/spreadshe
 import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
 import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/ConfirmCategories';
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
+import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
@@ -61,6 +63,7 @@ import {
 } from '../../application/utils/clarification';
 import { ExpenseClarificationState } from '../../domain/value-objects/expense-clarification-state';
 import { ExpenseCorrectionState } from '../../domain/value-objects/expense-correction-state';
+import { isExpenseSaveRetryPayload } from '../../domain/value-objects/expense-save-retry-payload';
 
 // Lock TTL must exceed the longest possible job duration (LLM + side effects).
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
@@ -78,6 +81,7 @@ export interface MessageWorkerDeps {
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase | null;
+  retryExpenseSave?: RetryExpenseSaveUseCase | null;
   undoLastExpense?: UndoLastExpenseUseCase | null | undefined;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
@@ -102,6 +106,7 @@ export interface MessageWorkerDeps {
   detectCategories?: DetectCategories | null;
   confirmCategories?: ConfirmCategories | null;
   modifyCategoryVocabulary?: ModifyCategoryVocabulary | null;
+  startSpreadsheetReconfiguration?: StartSpreadsheetReconfigurationUseCase | null;
 }
 
 export async function processMessageJob(
@@ -273,6 +278,17 @@ async function routeByState(
     case 'EXPENSE_REVIEW': {
       // User is confirming, correcting or canceling
       await handleExpenseReview(jobData, conversationState?.statePayload ?? null, opts, messaging);
+      break;
+    }
+
+    case 'EXPENSE_SAVING_RETRY': {
+      await handleExpenseSavingRetry(
+        jobData,
+        conversationState?.statePayload ?? null,
+        conversationState?.expiresAt ?? null,
+        opts,
+        messaging,
+      );
       break;
     }
 
@@ -480,6 +496,51 @@ async function routeByState(
       }
     }
   }
+}
+
+async function handleExpenseSavingRetry(
+  jobData: ProcessMessageJobData,
+  statePayload: Record<string, unknown> | null,
+  expiresAt: Date | null,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  const { userId, rawMessage, externalId, channel } = jobData;
+  if (
+    !isExpenseSaveRetryPayload(statePayload) ||
+    expiresAt === null ||
+    expiresAt.getTime() <= Date.now()
+  ) {
+    await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+    await messaging.sendMessage(externalId, expenseCopies.saveRetryExpired());
+    return;
+  }
+
+  const command = rawMessage.toLocaleLowerCase('es-AR').trim();
+  if (command === 'reintentar') {
+    if (!opts.retryExpenseSave) {
+      await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+      return;
+    }
+    await opts.retryExpenseSave.execute({
+      userId,
+      chatId: externalId,
+      statePayload,
+      expiresAt,
+    });
+    return;
+  }
+
+  if (command === 'reconfigurar') {
+    if (!opts.startSpreadsheetReconfiguration) {
+      await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+      return;
+    }
+    await opts.startSpreadsheetReconfiguration.execute({ userId, chatId: externalId, channel });
+    return;
+  }
+
+  await messaging.sendMessage(externalId, expenseCopies.saveNetworkFailure());
 }
 
 function isUndoCommand(rawMessage: string): boolean {

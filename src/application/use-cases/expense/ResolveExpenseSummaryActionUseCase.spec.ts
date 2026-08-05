@@ -12,6 +12,7 @@ import type { TransitionConversationState } from '../conversation/TransitionConv
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { expenseCopies } from '../../copies/expense.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import type { IOperationLogRepository } from '../../../domain/ports/repositories';
 
 function buildPayload(overrides: Partial<ExpenseReviewPayload> = {}): ExpenseReviewPayload {
   return {
@@ -38,6 +39,7 @@ function buildUseCase(
     transition?: ReturnType<typeof vi.fn<TransitionConversationState['execute']>>;
     sendMessage?: ReturnType<typeof vi.fn<MessagingOutputPort['sendMessage']>>;
     cancelExpenseRegistration?: ReturnType<typeof vi.fn>;
+    operationLogCreate?: ReturnType<typeof vi.fn<IOperationLogRepository['create']>>;
   } = {},
 ) {
   const saveMock: ReturnType<typeof vi.fn<RegisterExpenseUseCase['save']>> =
@@ -64,6 +66,9 @@ function buildUseCase(
     execute:
       overrides.cancelExpenseRegistration ?? vi.fn().mockResolvedValue({ status: 'cancelled' }),
   };
+  const operationLogCreate =
+    overrides.operationLogCreate ??
+    vi.fn<IOperationLogRepository['create']>().mockResolvedValue({} as never);
 
   const useCase = new ResolveExpenseSummaryActionUseCase({
     registerExpense,
@@ -71,6 +76,7 @@ function buildUseCase(
     messagingPort,
     cancelExpenseRegistration:
       cancelExpenseRegistration as unknown as CancelExpenseRegistrationUseCase,
+    operationLogRepo: { create: operationLogCreate },
   });
 
   return {
@@ -82,6 +88,7 @@ function buildUseCase(
     transitionMock,
     sendMessageMock,
     cancelExpenseRegistration,
+    operationLogCreate,
   };
 }
 
@@ -138,23 +145,72 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     );
   });
 
-  it('does not send a successful confirmation when saving fails', async () => {
+  it('persists a retry state and sends recovery copy for a retryable save failure', async () => {
     const save = vi
       .fn<RegisterExpenseUseCase['save']>()
-      .mockRejectedValue(new SpreadsheetError('Network error during row append'));
-    const { useCase, sendMessageMock } = buildUseCase({ save });
+      .mockRejectedValue(
+        new SpreadsheetError('Network error during row append', {
+          code: 'NETWORK_ERROR',
+          retryable: true,
+        }),
+      );
+    const { useCase, sendMessageMock, transitionMock, operationLogCreate } = buildUseCase({ save });
 
-    await expect(
-      useCase.execute({
-        userId: 'user-123',
-        action: 'confirm',
-        payload: buildPayload(),
-        chatId: '123456789',
-      }),
-    ).rejects.toThrow('Network error during row append');
+    await useCase.execute({
+      userId: 'user-123',
+      action: 'confirm',
+      payload: buildPayload(),
+      chatId: '123456789',
+    });
 
-    expect(sendMessageMock).toHaveBeenCalledTimes(1);
-    expect(sendMessageMock).toHaveBeenCalledWith('123456789', expenseCopies.saving());
+    const savingTransition = transitionMock.mock.calls[0]?.[0];
+    const retryTransition = transitionMock.mock.calls[1]?.[0];
+    if (!savingTransition || !retryTransition) throw new Error('Expected both save transitions');
+
+    expect(savingTransition).toMatchObject({
+      userId: 'user-123',
+      targetState: 'EXPENSE_SAVING',
+      payload: { rawMessage: 'Cafe 850 ARS' },
+    });
+    expect(retryTransition.userId).toBe('user-123');
+    expect(retryTransition.targetState).toBe('EXPENSE_SAVING_RETRY');
+    expect(retryTransition.expiresAt).toBeInstanceOf(Date);
+    expect(retryTransition.payload).toMatchObject({
+      failureCode: 'NETWORK_ERROR',
+      attemptCount: 1,
+      expense: { rawMessage: 'Cafe 850 ARS' },
+    });
+    expect(operationLogCreate).toHaveBeenCalledWith(
+      'user-123',
+      'EXPENSE_SAVE_FAILED',
+      { failureCode: 'NETWORK_ERROR' },
+      'NETWORK_ERROR',
+    );
+    expect(sendMessageMock).toHaveBeenLastCalledWith('123456789', expenseCopies.saveNetworkFailure());
+    expect(sendMessageMock).not.toHaveBeenCalledWith(
+      '123456789',
+      expect.stringContaining('Gasto guardado'),
+    );
+  });
+
+  it('returns to IDLE and sends authorization recovery copy for an auth failure', async () => {
+    const save = vi
+      .fn<RegisterExpenseUseCase['save']>()
+      .mockRejectedValue(new SpreadsheetError('Access token expired', { code: 'AUTH_ERROR' }));
+    const { useCase, sendMessageMock, transitionMock } = buildUseCase({ save });
+
+    await useCase.execute({
+      userId: 'user-123',
+      action: 'confirm',
+      payload: buildPayload(),
+      chatId: '123456789',
+    });
+
+    expect(transitionMock).toHaveBeenLastCalledWith({ userId: 'user-123', targetState: 'IDLE' });
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      '123456789',
+      expenseCopies.saveAuthorizationFailure(),
+    );
     expect(sendMessageMock).not.toHaveBeenCalledWith(
       '123456789',
       expect.stringContaining('Gasto guardado'),

@@ -47,6 +47,7 @@ import { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/exp
 import { CancelExpenseRegistrationUseCase } from '../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import { ResolveExpenseReviewReplyUseCase } from '../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
 import { UndoLastExpenseUseCase } from '../application/use-cases/expense/UndoLastExpense';
+import { RetryExpenseSaveUseCase } from '../application/use-cases/expense/RetryExpenseSaveUseCase';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
 import { TelegramExpenseSummaryPresenter } from '../infrastructure/adapters/telegram/TelegramExpenseSummaryPresenter';
 import { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
@@ -57,6 +58,7 @@ import { CancelCloudConnection } from '../application/use-cases/spreadsheet/Canc
 import { HandleSpreadsheetFileSelection } from '../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import { HandleSheetSelection } from '../application/use-cases/spreadsheet/HandleSheetSelection';
 import { ValidateSpreadsheetAccess } from '../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
+import { StartSpreadsheetReconfigurationUseCase } from '../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { InferColumnMapping } from '../application/use-cases/spreadsheet/InferColumnMapping';
 import { ConfirmColumnMapping } from '../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import { CorrectColumnMapping } from '../application/use-cases/spreadsheet/CorrectColumnMapping';
@@ -237,6 +239,13 @@ function buildGoogleOAuthFeature(
     logger: infra.rootLogger,
   });
 
+  const startSpreadsheetReconfiguration = new StartSpreadsheetReconfigurationUseCase({
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    transitionState: core.transitionState,
+    validateSpreadsheetAccess,
+    messagingPort,
+  });
+
   const handleSheetSelection = new HandleSheetSelection({
     spreadsheetPortFactory: sheetsAdapterFactory,
     tokenRepository: core.tokenRepo,
@@ -325,6 +334,7 @@ function buildGoogleOAuthFeature(
     handleSpreadsheetFileSelection,
     handleSheetSelection,
     validateSpreadsheetAccess,
+    startSpreadsheetReconfiguration,
     inferColumnMapping,
     confirmColumnMapping,
     correctColumnMapping,
@@ -456,7 +466,6 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     tokenRepo,
     tokenEncryption,
   );
-
   const correctExpense = new CorrectExpenseUseCase(
     {
       llm: llmPort,
@@ -499,6 +508,14 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
     },
   });
+  const retryExpenseSave = new RetryExpenseSaveUseCase({
+    registerExpense,
+    transitionState,
+    messagingPort: telegram?.adapter ?? {
+      sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
+    },
+    operationLogRepo,
+  });
   const resolveExpenseSummaryAction = new ResolveExpenseSummaryActionUseCase({
     registerExpense,
     transitionState,
@@ -506,6 +523,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
     },
     cancelExpenseRegistration,
+    operationLogRepo,
   });
   const resolveExpenseReviewReply = new ResolveExpenseReviewReplyUseCase({
     resolveExpenseSummaryAction,
@@ -550,6 +568,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     cancelExpenseRegistration,
     resolveExpenseReviewReply,
     undoLastExpense,
+    retryExpenseSave,
     expenseSummaryPresenterFactory,
     telegram,
     googleOAuth,

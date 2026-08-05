@@ -96,7 +96,7 @@ describe('InitiateCloudConnection', () => {
       expect(result.payload).toEqual({ provider: 'google', state: 'test-state-123' });
     });
 
-    it.each([['1'], ['google drive'], ['Google Drive'], ['GOOGLE'], ['drive'], ['gdrive']])(
+    it.each([['1'], ['google drive'], ['Google Drive'], ['GOOGLE'], ['drive'], ['gdrive'], ['empezar']])(
       'accepts "%s" as Google Drive',
       async (rawMessage) => {
         const deps = buildMockDeps();

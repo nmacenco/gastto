@@ -36,6 +36,7 @@ import type { ResolveExpenseSummaryActionUseCase } from '../application/use-case
 import type { CancelExpenseRegistrationUseCase } from '../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import type { ResolveExpenseReviewReplyUseCase } from '../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
 import type { UndoLastExpenseUseCase } from '../application/use-cases/expense/UndoLastExpense';
+import type { RetryExpenseSaveUseCase } from '../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { ExpenseSummaryPresenter } from '../application/ports/output/expense-summary.presenter';
 import type { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
 import type { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
@@ -45,6 +46,7 @@ import type { CancelCloudConnection } from '../application/use-cases/spreadsheet
 import type { HandleSpreadsheetFileSelection } from '../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import type { HandleSheetSelection } from '../application/use-cases/spreadsheet/HandleSheetSelection';
 import type { ValidateSpreadsheetAccess } from '../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
+import type { StartSpreadsheetReconfigurationUseCase } from '../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import type { InferColumnMapping } from '../application/use-cases/spreadsheet/InferColumnMapping';
 import type { ConfirmColumnMapping } from '../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import type { CorrectColumnMapping } from '../application/use-cases/spreadsheet/CorrectColumnMapping';
@@ -111,6 +113,8 @@ export interface GoogleOAuthFeature {
   handleSheetSelection: HandleSheetSelection;
   /** Validates read/write access to the selected spreadsheet. */
   validateSpreadsheetAccess: ValidateSpreadsheetAccess;
+  /** Restarts access validation and mapping inference for the active sheet. */
+  startSpreadsheetReconfiguration: StartSpreadsheetReconfigurationUseCase;
   /** Infers column mappings from the sheet headers. */
   inferColumnMapping: InferColumnMapping;
   /** Persists a confirmed column mapping. */
@@ -179,6 +183,7 @@ export interface Dependencies {
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase;
   undoLastExpense?: UndoLastExpenseUseCase;
+  retryExpenseSave: RetryExpenseSaveUseCase;
   expenseSummaryPresenterFactory: (
     messaging: MessagingOutputPort,
     chatId: string,

@@ -60,6 +60,7 @@ describe('ConversationState FSM', () => {
       ['EXPENSE_SAVING', 'IDLE'],
       ['EXPENSE_SAVING', 'EXPENSE_SAVING_RETRY'],
       ['EXPENSE_SAVING_RETRY', 'IDLE'],
+      ['EXPENSE_SAVING_RETRY', 'ONBOARDING_VALIDATING_ACCESS'],
       ['EXPENSE_UNDO_CONFIRMING', 'IDLE'],
     ] as const)('allows %s → %s', (from, to) => {
       expect(canTransition(from, to)).toBe(true);

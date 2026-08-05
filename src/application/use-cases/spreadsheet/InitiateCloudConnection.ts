@@ -39,7 +39,7 @@ export interface InitiateCloudConnectionDeps {
 function parseProviderChoice(raw: string): 'google' | 'onedrive' | 'invalid' {
   const normalized = raw.toLowerCase().trim().replace(/\s+/g, ' ');
 
-  const googleVariants = ['1', 'google drive', 'google', 'drive', 'gdrive'];
+  const googleVariants = ['1', 'google drive', 'google', 'drive', 'gdrive', 'empezar'];
   const onedriveVariants = ['2', 'onedrive', 'one drive', 'microsoft', 'office365', 'office 365'];
 
   if (googleVariants.includes(normalized)) return 'google';
