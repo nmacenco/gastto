@@ -86,9 +86,16 @@ describe('RetryExpenseSaveUseCase', () => {
     expect(transition).toHaveBeenCalledWith({ userId: 'user-123', targetState: 'IDLE' });
     expect(sendMessage).toHaveBeenLastCalledWith(
       'chat-123',
-      expenseCopies.saveManualCopyFallback({ concept: 'Café 200 EUR', amount: 200, currency: 'EUR' }),
+      expenseCopies.saveManualCopyFallback({
+        concept: 'Café 200 EUR',
+        amount: 200,
+        currency: 'EUR',
+      }),
     );
-    expect(sendMessage).not.toHaveBeenCalledWith('chat-123', expect.stringContaining('Gasto guardado'));
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      'chat-123',
+      expect.stringContaining('Gasto guardado'),
+    );
   });
 
   it('does not append malformed or expired retry state', async () => {
@@ -100,7 +107,11 @@ describe('RetryExpenseSaveUseCase', () => {
     });
 
     expect(save).not.toHaveBeenCalled();
-    expect(transition).toHaveBeenCalledWith({ userId: 'user-123', targetState: 'IDLE', payload: null });
+    expect(transition).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'IDLE',
+      payload: null,
+    });
     expect(sendMessage).toHaveBeenCalledWith('chat-123', expenseCopies.saveRetryExpired());
   });
 });

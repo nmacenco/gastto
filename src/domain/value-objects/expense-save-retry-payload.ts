@@ -14,7 +14,11 @@ export interface ExpenseSaveRetryPayload {
 export function isExpenseSaveRetryPayload(
   payload: Record<string, unknown> | null,
 ): payload is ExpenseSaveRetryPayload & Record<string, unknown> {
-  if (payload === null || payload.attemptCount !== 1 || typeof payload.firstAttemptAt !== 'string') {
+  if (
+    payload === null ||
+    payload.attemptCount !== 1 ||
+    typeof payload.firstAttemptAt !== 'string'
+  ) {
     return false;
   }
 

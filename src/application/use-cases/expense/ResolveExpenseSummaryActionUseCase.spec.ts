@@ -146,14 +146,12 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
   });
 
   it('persists a retry state and sends recovery copy for a retryable save failure', async () => {
-    const save = vi
-      .fn<RegisterExpenseUseCase['save']>()
-      .mockRejectedValue(
-        new SpreadsheetError('Network error during row append', {
-          code: 'NETWORK_ERROR',
-          retryable: true,
-        }),
-      );
+    const save = vi.fn<RegisterExpenseUseCase['save']>().mockRejectedValue(
+      new SpreadsheetError('Network error during row append', {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      }),
+    );
     const { useCase, sendMessageMock, transitionMock, operationLogCreate } = buildUseCase({ save });
 
     await useCase.execute({
@@ -186,7 +184,10 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       { failureCode: 'NETWORK_ERROR' },
       'NETWORK_ERROR',
     );
-    expect(sendMessageMock).toHaveBeenLastCalledWith('123456789', expenseCopies.saveNetworkFailure());
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      '123456789',
+      expenseCopies.saveNetworkFailure(),
+    );
     expect(sendMessageMock).not.toHaveBeenCalledWith(
       '123456789',
       expect.stringContaining('Gasto guardado'),

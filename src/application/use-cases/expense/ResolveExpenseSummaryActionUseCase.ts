@@ -82,7 +82,10 @@ export class ResolveExpenseSummaryActionUseCase {
     );
   }
 
-  private async handleSaveFailure(input: ResolveExpenseSummaryActionInput, error: unknown): Promise<void> {
+  private async handleSaveFailure(
+    input: ResolveExpenseSummaryActionInput,
+    error: unknown,
+  ): Promise<void> {
     const spreadsheetError =
       error instanceof SpreadsheetError
         ? error

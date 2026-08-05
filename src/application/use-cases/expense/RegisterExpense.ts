@@ -209,7 +209,9 @@ export class RegisterExpenseUseCase {
     try {
       accessToken = this.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
     } catch {
-      throw new SpreadsheetError('Could not decrypt spreadsheet access token', { code: 'AUTH_ERROR' });
+      throw new SpreadsheetError('Could not decrypt spreadsheet access token', {
+        code: 'AUTH_ERROR',
+      });
     }
 
     const mappings = await this.columnMappingRepo.findBySpreadsheetId(config.id);

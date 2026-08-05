@@ -64,13 +64,13 @@ describe('expense save failure recovery', () => {
           statePayload: Record<string, unknown> | null,
           expiresAt: Date | null,
         ) => {
-        state = {
-          ...state,
-          currentState,
-          statePayload,
-          expiresAt,
-          updatedAt: new Date(),
-        };
+          state = {
+            ...state,
+            currentState,
+            statePayload,
+            expiresAt,
+            updatedAt: new Date(),
+          };
           return Promise.resolve(state);
         },
       ),
@@ -91,9 +91,7 @@ describe('expense save failure recovery', () => {
         }),
       } as never,
       {
-        findBySpreadsheetId: vi.fn().mockResolvedValue([
-          { GasttoField: 'monto', columnIndex: 0 },
-        ]),
+        findBySpreadsheetId: vi.fn().mockResolvedValue([{ GasttoField: 'monto', columnIndex: 0 }]),
       } as never,
       {} as never,
       conversationRepository as never,
@@ -135,6 +133,9 @@ describe('expense save failure recovery', () => {
     });
     expect(state.expiresAt?.getTime()).toBeGreaterThan(Date.now() + 9 * 60 * 1000);
     expect(sendMessage).toHaveBeenCalledWith('chat-123', expect.stringContaining('reintentar'));
-    expect(sendMessage).not.toHaveBeenCalledWith('chat-123', expect.stringContaining('✅ *Gasto guardado*'));
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      'chat-123',
+      expect.stringContaining('✅ *Gasto guardado*'),
+    );
   });
 });

@@ -96,17 +96,22 @@ describe('InitiateCloudConnection', () => {
       expect(result.payload).toEqual({ provider: 'google', state: 'test-state-123' });
     });
 
-    it.each([['1'], ['google drive'], ['Google Drive'], ['GOOGLE'], ['drive'], ['gdrive'], ['empezar']])(
-      'accepts "%s" as Google Drive',
-      async (rawMessage) => {
-        const deps = buildMockDeps();
-        const useCase = new InitiateCloudConnection(deps);
-        const result = await useCase.execute({ ...baseInput, rawMessage });
+    it.each([
+      ['1'],
+      ['google drive'],
+      ['Google Drive'],
+      ['GOOGLE'],
+      ['drive'],
+      ['gdrive'],
+      ['empezar'],
+    ])('accepts "%s" as Google Drive', async (rawMessage) => {
+      const deps = buildMockDeps();
+      const useCase = new InitiateCloudConnection(deps);
+      const result = await useCase.execute({ ...baseInput, rawMessage });
 
-        expect(result.nextState).toBe('ONBOARDING_DRIVE');
-        expect(mockBuildAuthUrl).toHaveBeenCalled();
-      },
-    );
+      expect(result.nextState).toBe('ONBOARDING_DRIVE');
+      expect(mockBuildAuthUrl).toHaveBeenCalled();
+    });
   });
 
   describe('OneDrive selection', () => {

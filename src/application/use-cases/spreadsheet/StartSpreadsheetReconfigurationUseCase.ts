@@ -26,7 +26,11 @@ export class StartSpreadsheetReconfigurationUseCase {
   async execute(input: StartSpreadsheetReconfigurationInput): Promise<void> {
     const config = await this.deps.spreadsheetConfigRepository.findByUserId(input.userId);
     if (!config || config.provider !== 'google') {
-      await this.deps.transitionState.execute({ userId: input.userId, targetState: 'IDLE', payload: null });
+      await this.deps.transitionState.execute({
+        userId: input.userId,
+        targetState: 'IDLE',
+        payload: null,
+      });
       await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.saveRetryExpired());
       return;
     }

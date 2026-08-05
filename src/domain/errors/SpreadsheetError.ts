@@ -2,11 +2,7 @@
 // Error thrown when a spreadsheet operation fails (e.g., API error,
 // network failure, or unexpected response from the spreadsheet provider).
 
-export type SpreadsheetErrorCode =
-  | 'NETWORK_ERROR'
-  | 'AUTH_ERROR'
-  | 'STRUCTURE_ERROR'
-  | 'UNKNOWN';
+export type SpreadsheetErrorCode = 'NETWORK_ERROR' | 'AUTH_ERROR' | 'STRUCTURE_ERROR' | 'UNKNOWN';
 
 export interface SpreadsheetErrorOptions {
   code?: SpreadsheetErrorCode;
