@@ -6,6 +6,7 @@ import { ExpenseCorrectionState } from '../../../domain/value-objects/expense-co
 import { isCancelIntent, isConfirmIntent } from '../../utils/intents';
 import type { CorrectExpenseOutcome, CorrectExpenseUseCase } from './CorrectExpenseUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from './ResolveExpenseSummaryActionUseCase';
+import type { IExpenseQueueRepository } from '../../../domain/ports/repositories';
 
 export interface ResolveExpenseReviewReplyInput {
   userId: string;
@@ -17,11 +18,13 @@ export interface ResolveExpenseReviewReplyInput {
 
 export type ResolveExpenseReviewReplyOutcome =
   | { status: 'action_handled'; action: 'confirm' | 'cancel' }
+  | { status: 'not_interpretable'; pendingCount: number }
   | CorrectExpenseOutcome;
 
 export interface ResolveExpenseReviewReplyUseCaseDeps {
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase;
   correctExpense: CorrectExpenseUseCase;
+  expenseQueueRepository?: IExpenseQueueRepository;
 }
 
 export class ResolveExpenseReviewReplyUseCase {
@@ -34,6 +37,7 @@ export class ResolveExpenseReviewReplyUseCase {
         action: 'confirm',
         payload: input.payload,
         chatId: input.chatId,
+        channel: input.channel,
       });
       return { status: 'action_handled', action: 'confirm' };
     }
@@ -44,6 +48,7 @@ export class ResolveExpenseReviewReplyUseCase {
         action: 'cancel',
         payload: input.payload,
         chatId: input.chatId,
+        channel: input.channel,
         cancellationSource: 'text',
       });
       return { status: 'action_handled', action: 'cancel' };
@@ -54,11 +59,19 @@ export class ResolveExpenseReviewReplyUseCase {
       0,
       input.payload.pendingHighAmountConfirmation === true,
     );
-    return this.deps.correctExpense.execute({
+    const outcome = await this.deps.correctExpense.execute({
       userId: input.userId,
       rawMessage: input.rawMessage,
       state,
       channel: input.channel,
     });
+    if (outcome.status === 'not_interpretable') {
+      if (!this.deps.expenseQueueRepository) return outcome;
+      return {
+        status: 'not_interpretable',
+        pendingCount: await this.deps.expenseQueueRepository.countByUserId(input.userId),
+      };
+    }
+    return outcome;
   }
 }

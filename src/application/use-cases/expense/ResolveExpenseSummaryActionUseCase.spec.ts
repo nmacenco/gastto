@@ -40,6 +40,7 @@ function buildUseCase(
     sendMessage?: ReturnType<typeof vi.fn<MessagingOutputPort['sendMessage']>>;
     cancelExpenseRegistration?: ReturnType<typeof vi.fn>;
     operationLogCreate?: ReturnType<typeof vi.fn<IOperationLogRepository['create']>>;
+    advancePendingExpense?: ReturnType<typeof vi.fn>;
   } = {},
 ) {
   const saveMock: ReturnType<typeof vi.fn<RegisterExpenseUseCase['save']>> =
@@ -69,6 +70,8 @@ function buildUseCase(
   const operationLogCreate =
     overrides.operationLogCreate ??
     vi.fn<IOperationLogRepository['create']>().mockResolvedValue({} as never);
+  const advancePendingExpense =
+    overrides.advancePendingExpense ?? vi.fn().mockResolvedValue({ status: 'empty' });
 
   const useCase = new ResolveExpenseSummaryActionUseCase({
     registerExpense,
@@ -77,6 +80,7 @@ function buildUseCase(
     cancelExpenseRegistration:
       cancelExpenseRegistration as unknown as CancelExpenseRegistrationUseCase,
     operationLogRepo: { create: operationLogCreate },
+    advancePendingExpense: { execute: advancePendingExpense } as never,
   });
 
   return {
@@ -89,6 +93,7 @@ function buildUseCase(
     sendMessageMock,
     cancelExpenseRegistration,
     operationLogCreate,
+    advancePendingExpense,
   };
 }
 
@@ -98,7 +103,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
   });
 
   it('confirm sends saving message, saves the expense, and sends confirmation', async () => {
-    const { useCase, saveMock, sendMessageMock } = buildUseCase();
+    const { useCase, saveMock, sendMessageMock, advancePendingExpense } = buildUseCase();
     const payload = buildPayload();
 
     await useCase.execute({
@@ -120,6 +125,16 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
         sheetName: 'Hoja 1',
         rowIndex: 2,
       }),
+    );
+    expect(advancePendingExpense).toHaveBeenCalledWith({
+      userId: 'user-123',
+      chatId: '123456789',
+      channel: 'telegram',
+      reason: 'confirmed',
+      completedCount: 1,
+    });
+    expect(sendMessageMock.mock.invocationCallOrder[1]).toBeLessThan(
+      advancePendingExpense.mock.invocationCallOrder[0]!,
     );
   });
 
@@ -152,7 +167,8 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
         retryable: true,
       }),
     );
-    const { useCase, sendMessageMock, transitionMock, operationLogCreate } = buildUseCase({ save });
+    const { useCase, sendMessageMock, transitionMock, operationLogCreate, advancePendingExpense } =
+      buildUseCase({ save });
 
     await useCase.execute({
       userId: 'user-123',
@@ -192,6 +208,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       '123456789',
       expect.stringContaining('Gasto guardado'),
     );
+    expect(advancePendingExpense).not.toHaveBeenCalled();
   });
 
   it('returns to IDLE and sends authorization recovery copy for an auth failure', async () => {
@@ -268,5 +285,33 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       source: 'callback',
     });
     expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('sends the batch closing summary only after the final queued expense is saved', async () => {
+    const { useCase, sendMessageMock, advancePendingExpense } = buildUseCase({
+      advancePendingExpense: vi.fn().mockResolvedValue({ status: 'empty' }),
+    });
+
+    await useCase.execute({
+      userId: 'user-123',
+      action: 'confirm',
+      payload: buildPayload({ queueRegisteredCount: 2 }),
+      chatId: '123456789',
+    });
+
+    expect(advancePendingExpense).toHaveBeenCalledWith({
+      userId: 'user-123',
+      chatId: '123456789',
+      channel: 'telegram',
+      reason: 'confirmed',
+      completedCount: 3,
+    });
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      '123456789',
+      expenseCopies.expenseQueueClosingSummary(3),
+    );
+    expect(advancePendingExpense.mock.invocationCallOrder[0]).toBeLessThan(
+      sendMessageMock.mock.invocationCallOrder[2]!,
+    );
   });
 });

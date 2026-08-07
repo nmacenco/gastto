@@ -5,6 +5,7 @@ import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { expenseCopies } from '../../copies/expense.copies';
+import type { AdvancePendingExpense } from './AdvancePendingExpense';
 
 const ACTIVE_EXPENSE_STATES: readonly FsmState[] = [
   'EXPENSE_RECEIVING',
@@ -18,6 +19,8 @@ export interface CancelExpenseRegistrationInput {
   chatId: string;
   currentState: FsmState;
   source: 'text' | 'callback';
+  channel?: 'telegram' | 'whatsapp';
+  completedCount?: number;
 }
 
 export type CancelExpenseRegistrationOutcome =
@@ -28,6 +31,7 @@ export type CancelExpenseRegistrationOutcome =
 export interface CancelExpenseRegistrationDeps {
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
+  advancePendingExpense?: AdvancePendingExpense;
 }
 
 export class CancelExpenseRegistrationUseCase {
@@ -49,6 +53,15 @@ export class CancelExpenseRegistrationUseCase {
       expiresAt: null,
     });
     await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.cancelled());
+    if (this.deps.advancePendingExpense) {
+      await this.deps.advancePendingExpense.execute({
+        userId: input.userId,
+        chatId: input.chatId,
+        channel: input.channel ?? 'telegram',
+        reason: 'cancelled',
+        completedCount: input.completedCount ?? 0,
+      });
+    }
     return { status: 'cancelled' };
   }
 }

@@ -64,6 +64,7 @@ describe('ResolveExpenseReviewReplyUseCase', () => {
       action: 'confirm',
       payload: request.payload,
       chatId: request.chatId,
+      channel: request.channel,
     });
     expect(correctExpenseExecute).not.toHaveBeenCalled();
   });

@@ -22,6 +22,7 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - A successful reattempt uses the normal E1-US-10 confirmation once. A second failed attempt clears the retry state and sends a manual-copy fallback containing the concept and amount.
 - Authorization failures direct the user to `empezar` to start a fresh Google authorization flow. Structure failures direct the user to `reconfigurar`, which restarts access validation and column inference for the active Google spreadsheet.
 - Retry state that is expired or malformed is cleared and receives the restart/manual-resolution response. The commands `reintentar` and `reconfigurar` are only active in `EXPENSE_SAVING_RETRY`.
+- When pending expenses exist, a successful save is delivered first, then the queue notice, then the next review. The final queued confirmation sends the batch closing copy only after the save returns the FSM to `IDLE`.
 
 ## API / Interface
 

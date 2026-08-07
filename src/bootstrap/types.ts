@@ -15,6 +15,7 @@ import type { DrizzleColumnMappingRepository } from '../infrastructure/db/reposi
 import type { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
 import type { DrizzleUserCategoryRepository } from '../infrastructure/db/repositories/DrizzleUserCategoryRepository';
 import type { DrizzleExpenseRecordRepository } from '../infrastructure/db/repositories/DrizzleExpenseRecordRepository';
+import type { DrizzleExpenseQueueRepository } from '../infrastructure/db/repositories/DrizzleExpenseQueueRepository';
 import type { TelegramMessengerAdapter } from '../infrastructure/adapters/telegram/TelegramMessengerAdapter';
 import type { GoogleDriveOAuthAdapter } from '../infrastructure/adapters/oauth';
 import type { GoogleDriveFileDiscoveryAdapter } from '../infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
@@ -37,6 +38,8 @@ import type { CancelExpenseRegistrationUseCase } from '../application/use-cases/
 import type { ResolveExpenseReviewReplyUseCase } from '../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
 import type { UndoLastExpenseUseCase } from '../application/use-cases/expense/UndoLastExpense';
 import type { RetryExpenseSaveUseCase } from '../application/use-cases/expense/RetryExpenseSaveUseCase';
+import type { QueuePendingExpense } from '../application/use-cases/expense/QueuePendingExpense';
+import type { AdvancePendingExpense } from '../application/use-cases/expense/AdvancePendingExpense';
 import type { ExpenseSummaryPresenter } from '../application/ports/output/expense-summary.presenter';
 import type { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
 import type { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
@@ -146,6 +149,7 @@ export interface Dependencies {
   categoryVocabularyRepo: DrizzleCategoryVocabularyRepository;
   userCategoryRepo: DrizzleUserCategoryRepository;
   expenseRecordRepo: DrizzleExpenseRecordRepository;
+  expenseQueueRepo: DrizzleExpenseQueueRepository;
 
   // Security
   tokenEncryption: TokenEncryptionAdapter;
@@ -177,6 +181,8 @@ export interface Dependencies {
 
   // Expense registration use cases
   registerExpense: RegisterExpenseUseCase;
+  queuePendingExpense: QueuePendingExpense;
+  advancePendingExpense: AdvancePendingExpense;
   correctExpense: CorrectExpenseUseCase;
   generateExpenseSummary: GenerateExpenseSummaryUseCase;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase;

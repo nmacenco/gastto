@@ -18,6 +18,7 @@ import { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/reposi
 import { DrizzleCategoryKeywordVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryKeywordVocabularyRepository';
 import { DrizzleUserCategoryRepository } from '../infrastructure/db/repositories/DrizzleUserCategoryRepository';
 import { DrizzleExpenseRecordRepository } from '../infrastructure/db/repositories/DrizzleExpenseRecordRepository';
+import { DrizzleExpenseQueueRepository } from '../infrastructure/db/repositories/DrizzleExpenseQueueRepository';
 import { TelegramMessengerAdapter } from '../infrastructure/adapters/telegram/TelegramMessengerAdapter';
 import { CategoryFallbackMapper } from '../infrastructure/adapters/category/CategoryFallbackMapper';
 import { GoogleDriveOAuthAdapter } from '../infrastructure/adapters/oauth';
@@ -48,6 +49,8 @@ import { CancelExpenseRegistrationUseCase } from '../application/use-cases/expen
 import { ResolveExpenseReviewReplyUseCase } from '../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
 import { UndoLastExpenseUseCase } from '../application/use-cases/expense/UndoLastExpense';
 import { RetryExpenseSaveUseCase } from '../application/use-cases/expense/RetryExpenseSaveUseCase';
+import { QueuePendingExpense } from '../application/use-cases/expense/QueuePendingExpense';
+import { AdvancePendingExpense } from '../application/use-cases/expense/AdvancePendingExpense';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
 import { TelegramExpenseSummaryPresenter } from '../infrastructure/adapters/telegram/TelegramExpenseSummaryPresenter';
 import { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
@@ -368,6 +371,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   const userCategoryRepo = new DrizzleUserCategoryRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const expenseRecordRepo = new DrizzleExpenseRecordRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const expenseQueueRepo = new DrizzleExpenseQueueRepository(infra.db);
 
   const tokenEncryption = new TokenEncryptionAdapter(env.ENCRYPTION_KEY);
 
@@ -453,6 +458,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     tokenEncryption,
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
   );
+  const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
 
   const generateExpenseSummary = new GenerateExpenseSummaryUseCase(
     expenseRecordRepo,
@@ -502,35 +508,43 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     telegramAdapter: telegram?.adapter ?? null,
   });
 
+  const messagingPort = telegram?.adapter ?? {
+    sendMessage: () =>
+      Promise.resolve({ status: 'failure' as const, errorCode: 'NO_MESSAGING_ADAPTER' }),
+  };
+  const expenseSummaryPresenterFactory = (messaging: MessagingOutputPort, chatId: string) =>
+    new TelegramExpenseSummaryPresenter(messaging, telegram!.adapter, chatId);
+  const advancePendingExpense = new AdvancePendingExpense({
+    expenseQueueRepository: expenseQueueRepo,
+    registerExpense,
+    generateExpenseSummary,
+    messagingPort,
+    expenseSummaryPresenterFactory,
+  });
   const cancelExpenseRegistration = new CancelExpenseRegistrationUseCase({
     transitionState,
-    messagingPort: telegram?.adapter ?? {
-      sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
-    },
+    messagingPort,
+    advancePendingExpense,
   });
   const retryExpenseSave = new RetryExpenseSaveUseCase({
     registerExpense,
     transitionState,
-    messagingPort: telegram?.adapter ?? {
-      sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
-    },
+    messagingPort,
     operationLogRepo,
   });
   const resolveExpenseSummaryAction = new ResolveExpenseSummaryActionUseCase({
     registerExpense,
     transitionState,
-    messagingPort: telegram?.adapter ?? {
-      sendMessage: () => Promise.resolve({ status: 'failure', errorCode: 'NO_MESSAGING_ADAPTER' }),
-    },
+    messagingPort,
     cancelExpenseRegistration,
     operationLogRepo,
+    advancePendingExpense,
   });
   const resolveExpenseReviewReply = new ResolveExpenseReviewReplyUseCase({
     resolveExpenseSummaryAction,
     correctExpense,
+    expenseQueueRepository: expenseQueueRepo,
   });
-  const expenseSummaryPresenterFactory = (messaging: MessagingOutputPort, chatId: string) =>
-    new TelegramExpenseSummaryPresenter(messaging, telegram!.adapter, chatId);
 
   return {
     db: infra.db,
@@ -545,6 +559,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     categoryVocabularyRepo,
     userCategoryRepo,
     expenseRecordRepo,
+    expenseQueueRepo,
     tokenEncryption,
     resolveIdentity,
     getConversationState,
@@ -562,6 +577,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     mappingCorrectionStateRepository,
     userProcessingLock,
     registerExpense,
+    queuePendingExpense,
+    advancePendingExpense,
     correctExpense,
     generateExpenseSummary,
     resolveExpenseSummaryAction,

@@ -33,6 +33,16 @@ export const expenseCopies = {
     ].join('\n'),
   cancelled: () => 'Registro cancelado. No se guardó nada.',
   noActiveExpenseToCancel: () => 'No hay ningún registro pendiente para cancelar.',
+  expenseQueueFull: () =>
+    'You already have 3 expenses in progress. Confirm or cancel the current one before adding more.',
+  expenseQueueNotice: (pendingCount: 1 | 2) =>
+    `You have ${pendingCount} pending expense${pendingCount === 1 ? '' : 's'}. Let's do the next one:`,
+  expenseQueueNonFinancialReminder: (pendingCount: number) =>
+    `You still have one expense awaiting confirmation and ${pendingCount} more in the queue. Shall we confirm, correct, or cancel the current one?`,
+  expenseQueueExpirationAdvance: () =>
+    "The previous registration expired without confirmation and was cancelled. Let's do the next pending expense:",
+  expenseQueueClosingSummary: (registeredCount: number) =>
+    `All set! I registered the ${registeredCount} expenses. You have no more pending expenses.`,
   ambiguousResponse: () => '¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?',
   fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
   expenseRegistrationUnavailable: () =>
@@ -49,7 +59,15 @@ export const expenseCopies = {
   highAmountWarning: () => '⚠️ *Monto inusualmente alto*',
   highAmountConfirmationPrompt: () =>
     'Este monto supera notablemente tu gasto promedio. ¿Confirmamos que es correcto?',
-  reviewTimeoutWarning: () => '¿Confirmamos el registro? Respondé *sí*, *corregir*, o *cancelar*.',
+  reviewTimeoutWarning: (pendingCount?: number) =>
+    [
+      '¿Confirmamos el registro? Respondé *sí*, *corregir*, o *cancelar*.',
+      ...(pendingCount && pendingCount > 0
+        ? [
+            `(También tenés ${pendingCount} gasto${pendingCount === 1 ? '' : 's'} esperando en la cola.)`,
+          ]
+        : []),
+    ].join('\n'),
   reviewCancellation: () => 'Registro cancelado. No se guardó nada.',
   expenseSavedConfirmation: (input: {
     concept: string;

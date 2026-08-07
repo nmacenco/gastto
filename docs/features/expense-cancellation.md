@@ -13,6 +13,7 @@ Let users safely abandon an in-progress expense registration from any active exp
 - Text commands are queued even from `IDLE`, bypassing generic non-financial guidance only for recognized cancellation commands.
 - Telegram's **Cancelar** callback and review text replies use the same application cancellation use case; the use case communicates through `MessagingOutputPort`, with no Telegram-specific business logic.
 - A later expense starts with fresh state and cannot reuse the canceled payload.
+- If pending expenses exist, cancellation clears only the active draft, delivers the cancellation copy, and then advances the oldest queued expense for review.
 
 ## API / Interface
 

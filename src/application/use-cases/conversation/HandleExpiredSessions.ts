@@ -7,12 +7,14 @@
 
 import type {
   IConversationStateRepository,
+  IExpenseQueueRepository,
   IUserRepository,
 } from '../../../domain/ports/repositories';
 import type { Logger } from 'pino';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { ExpenseSummaryPresenter } from '../../ports/output/expense-summary.presenter';
 import { type TransitionConversationState } from './TransitionConversationState';
+import type { AdvancePendingExpense } from '../expense/AdvancePendingExpense';
 
 export class HandleExpiredSessions {
   constructor(
@@ -26,6 +28,8 @@ export class HandleExpiredSessions {
     ) => ExpenseSummaryPresenter,
     private readonly reminderTimeoutMinutes: number = 10,
     private readonly logger: Logger,
+    private readonly expenseQueueRepository?: IExpenseQueueRepository,
+    private readonly advancePendingExpense?: AdvancePendingExpense,
   ) {}
 
   async execute(): Promise<void> {
@@ -55,8 +59,9 @@ export class HandleExpiredSessions {
   ): Promise<void> {
     const reminderSent = payload?.reminderSent === true;
 
+    const pendingCount = await this.expenseQueueRepository?.countByUserId(userId);
     if (!reminderSent) {
-      await this.sendReminder(userId);
+      await this.sendReminder(userId, pendingCount);
       await this.transitionState.execute({
         userId,
         targetState: 'EXPENSE_REVIEW',
@@ -73,6 +78,30 @@ export class HandleExpiredSessions {
       expiresAt: null,
     });
     await this.notifyCancellation(userId);
+    if ((pendingCount ?? 0) > 0 && this.advancePendingExpense) {
+      const identities = await this.userRepo.findMessagingIdentitiesByUserId(userId);
+      const identity = identities[0];
+      if (identity) {
+        try {
+          await this.advancePendingExpense.execute({
+            userId,
+            chatId: identity.externalId,
+            channel: identity.channel,
+            reason: 'expired',
+            completedCount:
+              typeof payload?.queueRegisteredCount === 'number' ? payload.queueRegisteredCount : 0,
+          });
+        } catch (err) {
+          this.logger.error({
+            msg: 'Failed to advance pending expense after review timeout',
+            endpoint: 'HandleExpiredSessions',
+            code: 'QUEUE_TIMEOUT_ADVANCE_FAILED',
+            userId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
   }
 
   private async handleGenericExpiredSession(userId: string): Promise<void> {
@@ -103,7 +132,7 @@ export class HandleExpiredSessions {
     }
   }
 
-  private async sendReminder(userId: string): Promise<void> {
+  private async sendReminder(userId: string, pendingCount?: number): Promise<void> {
     const identities = await this.userRepo.findMessagingIdentitiesByUserId(userId);
 
     for (const identity of identities) {
@@ -112,7 +141,7 @@ export class HandleExpiredSessions {
           this.messagingPort,
           identity.externalId,
         );
-        await presenter.showTimeoutWarning();
+        await presenter.showTimeoutWarning(pendingCount);
       } catch (err) {
         this.logger.error({
           msg: 'Failed to send review timeout reminder',

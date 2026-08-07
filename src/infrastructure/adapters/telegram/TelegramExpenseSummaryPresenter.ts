@@ -24,8 +24,8 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
     await this.inlineKeyboard.sendMessageWithInlineKeyboard(this.chatId, text, buttons);
   }
 
-  async showTimeoutWarning(): Promise<void> {
-    await this.messaging.sendMessage(this.chatId, expenseCopies.reviewTimeoutWarning());
+  async showTimeoutWarning(pendingCount?: number): Promise<void> {
+    await this.messaging.sendMessage(this.chatId, expenseCopies.reviewTimeoutWarning(pendingCount));
   }
 
   async notifyCancellation(): Promise<void> {
