@@ -63,7 +63,9 @@ export const expenseCopies = {
     [
       '¿Confirmamos el registro? Respondé *sí*, *corregir*, o *cancelar*.',
       ...(pendingCount && pendingCount > 0
-        ? [`(También tenés ${pendingCount} gasto${pendingCount === 1 ? '' : 's'} esperando en la cola.)`]
+        ? [
+            `(También tenés ${pendingCount} gasto${pendingCount === 1 ? '' : 's'} esperando en la cola.)`,
+          ]
         : []),
     ].join('\n'),
   reviewCancellation: () => 'Registro cancelado. No se guardó nada.',

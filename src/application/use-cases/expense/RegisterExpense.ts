@@ -172,14 +172,14 @@ export class RegisterExpenseUseCase {
       await this.conversationRepo.transition(
         input.userId,
         'EXPENSE_REVIEW',
-      {
-        ...payload,
-        awaitingZeroConfirmation: true,
-        reminderSent: false,
-        ...(input.queueRegisteredCount === undefined
-          ? {}
-          : { queueRegisteredCount: input.queueRegisteredCount }),
-      },
+        {
+          ...payload,
+          awaitingZeroConfirmation: true,
+          reminderSent: false,
+          ...(input.queueRegisteredCount === undefined
+            ? {}
+            : { queueRegisteredCount: input.queueRegisteredCount }),
+        },
         new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
       );
       return { status: 'needs_zero_confirmation', payload };

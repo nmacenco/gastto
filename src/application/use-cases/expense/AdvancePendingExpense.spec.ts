@@ -37,14 +37,16 @@ function buildUseCase() {
 describe('AdvancePendingExpense', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    findByUserId.mockResolvedValue([{
-      id: 'queue-1',
-      userId: 'user-1',
-      position: 1,
-      rawMessage: 'Taxi 12 EUR',
-      receivedAt: new Date(),
-      channel: 'telegram',
-    }]);
+    findByUserId.mockResolvedValue([
+      {
+        id: 'queue-1',
+        userId: 'user-1',
+        position: 1,
+        rawMessage: 'Taxi 12 EUR',
+        receivedAt: new Date(),
+        channel: 'telegram',
+      },
+    ]);
     countByUserId.mockResolvedValue(1);
     interpret.mockResolvedValue({
       status: 'ready_for_review',

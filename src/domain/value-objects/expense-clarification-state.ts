@@ -71,7 +71,9 @@ export class ExpenseClarificationState {
       missingField: this.missingField,
       partialExtracted: this.partialExtracted,
       rawMessage: this.rawMessage,
-      ...(this.queueRegisteredCount === undefined ? {} : { queueRegisteredCount: this.queueRegisteredCount }),
+      ...(this.queueRegisteredCount === undefined
+        ? {}
+        : { queueRegisteredCount: this.queueRegisteredCount }),
     };
   }
 

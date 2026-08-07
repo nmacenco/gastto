@@ -50,7 +50,9 @@ describe('CancelExpenseRegistrationUseCase', () => {
   });
 
   it('advances one queued expense only after cancellation is delivered', async () => {
-    const advancePendingExpense = vi.fn().mockResolvedValue({ status: 'advanced', pendingCount: 1 });
+    const advancePendingExpense = vi
+      .fn()
+      .mockResolvedValue({ status: 'advanced', pendingCount: 1 });
     const queuedUseCase = new CancelExpenseRegistrationUseCase({
       transitionState: { execute: transition } as unknown as TransitionConversationState,
       messagingPort: { sendMessage },

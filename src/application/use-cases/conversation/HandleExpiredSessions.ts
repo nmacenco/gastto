@@ -89,9 +89,7 @@ export class HandleExpiredSessions {
             channel: identity.channel,
             reason: 'expired',
             completedCount:
-              typeof payload?.queueRegisteredCount === 'number'
-                ? payload.queueRegisteredCount
-                : 0,
+              typeof payload?.queueRegisteredCount === 'number' ? payload.queueRegisteredCount : 0,
           });
         } catch (err) {
           this.logger.error({
