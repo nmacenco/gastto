@@ -12,6 +12,7 @@ import { createIncomingMessageWorker } from '../interfaces/workers/incomingMessa
 import { createMessageWorker } from '../interfaces/workers/message.worker';
 import { createSessionTimeoutWorker } from '../interfaces/workers/sessionTimeout.worker';
 import { createOAuthReminderWorker } from '../interfaces/workers/oauthReminder.worker';
+import { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
 
 /**
  * Starts all background workers and auto-registers the Telegram webhook.
@@ -46,6 +47,8 @@ export async function registerWorkers(
     logger: deps.rootLogger,
     userProcessingLock: deps.userProcessingLock,
     registerExpense: deps.registerExpense,
+    queuePendingExpense: deps.queuePendingExpense,
+    classifyFreeTextExpenseIntent: new ClassifyFreeTextExpenseIntent(),
     correctExpense: deps.correctExpense,
     generateExpenseSummary: deps.generateExpenseSummary,
     resolveExpenseSummaryAction: deps.resolveExpenseSummaryAction,
@@ -121,6 +124,8 @@ export async function registerWorkers(
       deps.expenseSummaryPresenterFactory,
       env.EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES,
       deps.rootLogger,
+      deps.expenseQueueRepo,
+      deps.advancePendingExpense,
     );
 
     createSessionTimeoutWorker({

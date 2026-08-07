@@ -41,6 +41,7 @@ Current and planned eager-advance transitions:
 - `ONBOARDING_VALIDATING_ACCESS` → `ONBOARDING_MAPPING`: successful access validation triggers column-mapping inference.
 - `EXPENSE_REVIEW` → `EXPENSE_SAVING`: user confirmation triggers save.
 - `EXPENSE_SAVING` → `IDLE`: a confirmed save persists the record and triggers final confirmation.
+- `EXPENSE_REVIEW` with pending queue entries: confirmation, cancellation, or second-stage timeout deterministically advances exactly one oldest queued message after the active outcome is delivered.
 - `EXPENSE_SAVING_RETRY` → `ONBOARDING_VALIDATING_ACCESS`: `reconfigurar` restarts validation and eager column inference for the active Google spreadsheet.
 
 Transitions that present a list or require explicit confirmation (e.g., `ONBOARDING_FILE` self-transition, `ONBOARDING_MAPPING` self-transition) do **not** use eager advance.

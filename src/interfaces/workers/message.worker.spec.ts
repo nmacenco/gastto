@@ -33,6 +33,8 @@ const mockTransitionStateExecute = vi.fn();
 const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
 const mockRegisterExpenseInterpret = vi.fn();
+const mockQueuePendingExpenseExecute = vi.fn();
+const mockClassifyFreeTextExpenseIntentExecute = vi.fn();
 const mockInitiateCloudConnectionExecute = vi.fn();
 const mockCancelCloudConnectionExecute = vi.fn();
 const mockHandleSpreadsheetFileSelectionExecute = vi.fn();
@@ -72,6 +74,12 @@ function buildMockDeps(): MessageWorkerDeps {
     registerExpense: {
       interpret: mockRegisterExpenseInterpret,
     } as unknown as MessageWorkerDeps['registerExpense'],
+    queuePendingExpense: {
+      execute: mockQueuePendingExpenseExecute,
+    } as unknown as MessageWorkerDeps['queuePendingExpense'],
+    classifyFreeTextExpenseIntent: {
+      execute: mockClassifyFreeTextExpenseIntentExecute,
+    },
     correctExpense: {
       execute: mockCorrectExpenseExecute,
     } as unknown as MessageWorkerDeps['correctExpense'],
@@ -256,6 +264,8 @@ describe('processMessageJob', () => {
       status: 'action_handled',
       action: 'confirm',
     });
+    mockClassifyFreeTextExpenseIntentExecute.mockReturnValue({ kind: 'non-financial' });
+    mockQueuePendingExpenseExecute.mockResolvedValue({ status: 'queued', pendingCount: 1 });
     mockUserProfileGetDefaultCurrency.mockResolvedValue(null);
     mockFindRecentCurrenciesByUserId.mockResolvedValue([]);
     mockResolveExpenseSummaryActionExecute.mockImplementation(
@@ -390,6 +400,7 @@ describe('processMessageJob', () => {
         chatId: '123456789',
         currentState: 'IDLE',
         source: 'text',
+        channel: 'telegram',
       });
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
     });
@@ -685,6 +696,63 @@ describe('processMessageJob', () => {
   });
 
   describe('EXPENSE_REVIEW state', () => {
+    it('keeps correction routing ahead of queue admission', async () => {
+      const deps = buildMockDeps();
+      mockClassifyFreeTextExpenseIntentExecute.mockReturnValue({ kind: 'expense-like' });
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: buildReviewStatePayload(),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'no, fueron 15' }), deps);
+
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ rawMessage: 'no, fueron 15' }),
+      );
+    });
+
+    it('delegates an additional expense to queue admission without mutating the active review', async () => {
+      const deps = buildMockDeps();
+      mockClassifyFreeTextExpenseIntentExecute.mockReturnValue({ kind: 'expense-like' });
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: buildReviewStatePayload(),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 12 EUR' }), deps);
+
+      expect(mockQueuePendingExpenseExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Taxi 12 EUR',
+        channel: 'telegram',
+      });
+      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
+    it('reports a full queue without changing the active review', async () => {
+      const deps = buildMockDeps();
+      mockClassifyFreeTextExpenseIntentExecute.mockReturnValue({ kind: 'expense-like' });
+      mockQueuePendingExpenseExecute.mockResolvedValue({ status: 'full', pendingCount: 2 });
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: buildReviewStatePayload(),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 12 EUR' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.expenseQueueFull());
+      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
     it('delegates a standard text confirmation to the application resolver', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
@@ -859,6 +927,7 @@ describe('processMessageJob', () => {
         action: 'confirm',
         payload: buildReviewStatePayload(),
         chatId: '123456789',
+        channel: 'telegram',
       });
     });
 
@@ -882,6 +951,7 @@ describe('processMessageJob', () => {
         payload: buildReviewStatePayload(),
         chatId: '123456789',
         cancellationSource: 'callback',
+        channel: 'telegram',
       });
     });
 
@@ -904,6 +974,7 @@ describe('processMessageJob', () => {
         action: 'correct',
         payload: buildReviewStatePayload(),
         chatId: '123456789',
+        channel: 'telegram',
       });
     });
   });

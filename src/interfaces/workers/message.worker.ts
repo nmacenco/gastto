@@ -13,6 +13,8 @@ import type { ResolveExpenseSummaryActionUseCase } from '../../application/use-c
 import type { CancelExpenseRegistrationUseCase } from '../../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import type { UndoLastExpenseUseCase } from '../../application/use-cases/expense/UndoLastExpense';
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
+import type { QueuePendingExpense } from '../../application/use-cases/expense/QueuePendingExpense';
+import type { ClassifyFreeTextExpenseIntent } from '../../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
 import type {
   ResolveExpenseReviewReplyOutcome,
   ResolveExpenseReviewReplyUseCase,
@@ -64,6 +66,7 @@ import {
 import { ExpenseClarificationState } from '../../domain/value-objects/expense-clarification-state';
 import { ExpenseCorrectionState } from '../../domain/value-objects/expense-correction-state';
 import { isExpenseSaveRetryPayload } from '../../domain/value-objects/expense-save-retry-payload';
+import { isExpenseLikeIntent } from '../../domain/value-objects/FreeTextIntent';
 
 // Lock TTL must exceed the longest possible job duration (LLM + side effects).
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
@@ -76,6 +79,8 @@ export interface MessageWorkerDeps {
   logger: Logger;
   userProcessingLock: IUserProcessingLock;
   registerExpense: RegisterExpenseUseCase | null;
+  queuePendingExpense: QueuePendingExpense;
+  classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent;
   correctExpense: CorrectExpenseUseCase | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
@@ -198,6 +203,47 @@ async function routeByState(
       : isCancelIntent(rawMessage)
         ? 'text'
         : null;
+  if (
+    currentState === 'EXPENSE_REVIEW' &&
+    isUndoCommand(rawMessage) &&
+    typeof conversationState?.statePayload?.immediateUndoExpenseId === 'string' &&
+    opts.undoLastExpense &&
+    isValidExpenseReviewPayload(conversationState.statePayload)
+  ) {
+    const reviewPayload = { ...conversationState.statePayload };
+    delete reviewPayload.immediateUndoExpenseId;
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'EXPENSE_REVIEW',
+      payload: reviewPayload,
+      expiresAt: conversationState.expiresAt,
+    });
+    try {
+      const result = await opts.undoLastExpense.execute({
+        userId,
+        action: 'request',
+        immediateEligible: true,
+      });
+      await sendUndoOutcome(result, messaging, externalId);
+    } catch (err) {
+      opts.logger.error({
+        msg: 'Failed to undo while preserving queued review',
+        endpoint: 'routeByState',
+        code: 'QUEUE_UNDO_FAILED',
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await messaging.sendMessage(externalId, expenseCopies.undoDeletionFailed());
+    }
+    await presentExpenseSummary(
+      userId,
+      reviewPayload as unknown as ExpenseReviewPayload,
+      messaging,
+      externalId,
+      opts,
+    );
+    return;
+  }
   // Review replies retain their existing resolver so text and inline actions
   // share the cancellation use case there. Every other state is cancelled
   // before it can invoke NLP, mutate state, or write an expense.
@@ -212,7 +258,24 @@ async function routeByState(
       chatId: externalId,
       currentState,
       source: cancellationSource,
+      channel,
     });
+    return;
+  }
+
+  if (
+    jobData.callbackData === undefined &&
+    shouldQueueAdditionalExpense(
+      currentState,
+      conversationState?.statePayload ?? null,
+      rawMessage,
+      opts.classifyFreeTextExpenseIntent,
+    )
+  ) {
+    const outcome = await opts.queuePendingExpense.execute({ userId, rawMessage, channel });
+    if (outcome.status === 'full') {
+      await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
+    }
     return;
   }
 
@@ -496,6 +559,45 @@ async function routeByState(
       }
     }
   }
+}
+
+function isActiveExpenseQueueState(currentState: string): boolean {
+  return (
+    currentState === 'EXPENSE_REVIEW' ||
+    currentState === 'EXPENSE_CLARIFYING' ||
+    currentState === 'EXPENSE_CORRECTING'
+  );
+}
+
+function shouldQueueAdditionalExpense(
+  currentState: string,
+  statePayload: Record<string, unknown> | null,
+  rawMessage: string,
+  classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent,
+): boolean {
+  if (
+    !isActiveExpenseQueueState(currentState) ||
+    !isExpenseLikeIntent(classifyFreeTextExpenseIntent.execute(rawMessage))
+  ) {
+    return false;
+  }
+
+  if (currentState === 'EXPENSE_CLARIFYING') {
+    try {
+      return isNewExpenseDuringClarification(
+        rawMessage,
+        ExpenseClarificationState.fromPayload(statePayload).missingField,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  return !isLikelyExpenseCorrection(rawMessage);
+}
+
+function isLikelyExpenseCorrection(rawMessage: string): boolean {
+  return /^(?:no\b|correg|fueron\b|pon(?:elo|lo)\b|cambi)/i.test(rawMessage.trim());
 }
 
 async function handleExpenseSavingRetry(
@@ -935,6 +1037,7 @@ async function handleExpenseReview(
       action: callbackData.action,
       payload: statePayload as unknown as ExpenseReviewPayload,
       chatId: externalId,
+      channel: jobData.channel,
       ...(callbackData.action === 'cancel' ? { cancellationSource: 'callback' as const } : {}),
     });
     return;
@@ -1015,7 +1118,12 @@ async function renderExpenseReviewReplyOutcome(
     case 'action_handled':
       return;
     case 'not_interpretable':
-      await messaging.sendMessage(externalId, expenseCopies.ambiguousResponse());
+      await messaging.sendMessage(
+        externalId,
+        'pendingCount' in outcome && outcome.pendingCount > 0
+          ? expenseCopies.expenseQueueNonFinancialReminder(outcome.pendingCount)
+          : expenseCopies.ambiguousResponse(),
+      );
       return;
     case 'cycle_limit':
       await messaging.sendMessage(externalId, expenseCopies.correctionCycleLimitReached());
@@ -1130,6 +1238,9 @@ async function handleClarification(
     userId,
     rawMessage: enrichedMessage,
     channel,
+    ...(state.queueRegisteredCount === undefined
+      ? {}
+      : { queueRegisteredCount: state.queueRegisteredCount }),
   });
 
   if (result.status === 'needs_clarification') {

@@ -6,7 +6,7 @@ import type { ExpenseSummary } from '../../dtos/expense-summary.dto';
 
 export interface ExpenseSummaryPresenter {
   presentSummary(summary: ExpenseSummary): Promise<void>;
-  showTimeoutWarning(): Promise<void>;
+  showTimeoutWarning(pendingCount?: number): Promise<void>;
   notifyCancellation(): Promise<void>;
   requestHighAmountConfirmation(summary: ExpenseSummary): Promise<void>;
 }

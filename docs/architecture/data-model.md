@@ -73,6 +73,8 @@ FIFO queue of pending expense messages while a user is in a blocking conversatio
 | `channel`     | `TEXT`        | NOT NULL, CHECK                   | `'telegram'` or `'whatsapp'`.                      |
 | **UNIQUE**    | —             | `(user_id, position)`             | Optimistic lock against double enqueue.            |
 
+`expense_queue` is independent from `conversation_states`: it stores at most two pending messages while the FSM stores exactly one active expense flow. Dequeueing shifts the remaining positions in the same transaction so the next item is always FIFO.
+
 ### oauth_tokens
 
 Encrypted OAuth 2.0 tokens for Google Drive and OneDrive access.

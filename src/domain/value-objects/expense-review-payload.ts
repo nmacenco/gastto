@@ -16,6 +16,9 @@ export interface ExpenseReviewPayload {
   awaitingZeroConfirmation?: boolean;
   reminderSent?: boolean;
   pendingHighAmountConfirmation?: boolean;
+  /** Number of expenses already saved in the current queued batch. */
+  queueRegisteredCount?: number;
+  immediateUndoExpenseId?: string;
 }
 
 export type ExpenseReviewCategoryStatus = ExpenseReviewPayload['categoryStatus'];

@@ -13,6 +13,7 @@ import type { CancelExpenseRegistrationUseCase } from './CancelExpenseRegistrati
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import type { IOperationLogRepository } from '../../../domain/ports/repositories';
 import type { ExpenseSaveRetryPayload } from '../../../domain/value-objects/expense-save-retry-payload';
+import type { AdvancePendingExpense } from './AdvancePendingExpense';
 
 export interface ResolveExpenseSummaryActionInput {
   userId: string;
@@ -20,6 +21,7 @@ export interface ResolveExpenseSummaryActionInput {
   payload: ExpenseReviewPayload;
   chatId: string;
   cancellationSource?: 'text' | 'callback';
+  channel?: 'telegram' | 'whatsapp';
 }
 
 export interface ResolveExpenseSummaryActionDeps {
@@ -28,6 +30,7 @@ export interface ResolveExpenseSummaryActionDeps {
   messagingPort: MessagingOutputPort;
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
   operationLogRepo: IOperationLogRepository;
+  advancePendingExpense?: AdvancePendingExpense;
 }
 
 export class ResolveExpenseSummaryActionUseCase {
@@ -62,7 +65,7 @@ export class ResolveExpenseSummaryActionUseCase {
 
     // The third argument is a legacy spreadsheetId placeholder that the current
     // save() implementation does not use; it is kept to preserve the interface.
-    let saveResult: { sheetName: string; rowIndex?: number | undefined };
+    let saveResult: { sheetName: string; rowIndex?: number | undefined; expenseId?: string };
     try {
       saveResult = await this.deps.registerExpense.save(input.userId, input.payload, '');
     } catch (error) {
@@ -80,6 +83,24 @@ export class ResolveExpenseSummaryActionUseCase {
         ...(saveResult.rowIndex === undefined ? {} : { rowIndex: saveResult.rowIndex }),
       }),
     );
+    if (this.deps.advancePendingExpense) {
+      const advanceOutcome = await this.deps.advancePendingExpense.execute({
+        userId: input.userId,
+        chatId: input.chatId,
+        channel: input.channel ?? 'telegram',
+        reason: 'confirmed',
+        completedCount: (input.payload.queueRegisteredCount ?? 0) + 1,
+        ...(saveResult.expenseId === undefined
+          ? {}
+          : { immediateUndoExpenseId: saveResult.expenseId }),
+      });
+      if (advanceOutcome.status === 'empty' && input.payload.queueRegisteredCount !== undefined) {
+        await this.deps.messagingPort.sendMessage(
+          input.chatId,
+          expenseCopies.expenseQueueClosingSummary(input.payload.queueRegisteredCount + 1),
+        );
+      }
+    }
   }
 
   private async handleSaveFailure(
@@ -150,6 +171,10 @@ export class ResolveExpenseSummaryActionUseCase {
       chatId: input.chatId,
       currentState: 'EXPENSE_REVIEW',
       source: input.cancellationSource ?? 'callback',
+      ...(input.channel === undefined ? {} : { channel: input.channel }),
+      ...(input.payload.queueRegisteredCount === undefined
+        ? {}
+        : { completedCount: input.payload.queueRegisteredCount }),
     });
   }
 }

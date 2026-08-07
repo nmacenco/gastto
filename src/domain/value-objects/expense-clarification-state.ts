@@ -17,6 +17,7 @@ export class ExpenseClarificationState {
     public readonly missingField: MissingClarificationField,
     public readonly partialExtracted: ExtractedExpense,
     public readonly rawMessage: string,
+    public readonly queueRegisteredCount?: number,
   ) {
     Object.freeze(this);
     Object.freeze(this.partialExtracted);
@@ -26,12 +27,19 @@ export class ExpenseClarificationState {
     missingField: MissingClarificationField,
     partialExtracted: ExtractedExpense,
     rawMessage: string,
+    queueRegisteredCount?: number,
   ): ExpenseClarificationState {
     ExpenseClarificationState.validateMissingField(missingField);
     ExpenseClarificationState.validatePartialExtracted(partialExtracted);
     ExpenseClarificationState.validateRawMessage(rawMessage);
+    ExpenseClarificationState.validateQueueRegisteredCount(queueRegisteredCount);
 
-    return new ExpenseClarificationState(missingField, partialExtracted, rawMessage);
+    return new ExpenseClarificationState(
+      missingField,
+      partialExtracted,
+      rawMessage,
+      queueRegisteredCount,
+    );
   }
 
   static fromPayload(payload: unknown): ExpenseClarificationState {
@@ -42,12 +50,19 @@ export class ExpenseClarificationState {
     const missingField = payload.missingField;
     const rawMessage = payload.rawMessage;
     const partialExtracted = payload.partialExtracted;
+    const queueRegisteredCount = payload.queueRegisteredCount;
 
     ExpenseClarificationState.validateMissingField(missingField);
     ExpenseClarificationState.validateRawMessage(rawMessage);
     ExpenseClarificationState.validatePartialExtracted(partialExtracted);
+    ExpenseClarificationState.validateQueueRegisteredCount(queueRegisteredCount);
 
-    return new ExpenseClarificationState(missingField, partialExtracted, rawMessage);
+    return new ExpenseClarificationState(
+      missingField,
+      partialExtracted,
+      rawMessage,
+      queueRegisteredCount,
+    );
   }
 
   toPayload(): Record<string, unknown> {
@@ -56,6 +71,7 @@ export class ExpenseClarificationState {
       missingField: this.missingField,
       partialExtracted: this.partialExtracted,
       rawMessage: this.rawMessage,
+      ...(this.queueRegisteredCount === undefined ? {} : { queueRegisteredCount: this.queueRegisteredCount }),
     };
   }
 
@@ -70,6 +86,17 @@ export class ExpenseClarificationState {
   private static validateRawMessage(value: unknown): asserts value is string {
     if (typeof value !== 'string' || value.trim().length === 0) {
       throw new DomainValidationError('rawMessage must be a non-empty string');
+    }
+  }
+
+  private static validateQueueRegisteredCount(value: unknown): asserts value is number | undefined {
+    if (
+      value !== undefined &&
+      (typeof value !== 'number' || !Number.isInteger(value) || value < 0)
+    ) {
+      throw new DomainValidationError(
+        'queueRegisteredCount must be a non-negative integer when provided',
+      );
     }
   }
 

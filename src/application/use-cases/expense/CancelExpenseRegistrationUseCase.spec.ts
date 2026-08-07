@@ -48,4 +48,33 @@ describe('CancelExpenseRegistrationUseCase', () => {
     expect(transition).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith('chat-1', expenseCopies.noActiveExpenseToCancel());
   });
+
+  it('advances one queued expense only after cancellation is delivered', async () => {
+    const advancePendingExpense = vi.fn().mockResolvedValue({ status: 'advanced', pendingCount: 1 });
+    const queuedUseCase = new CancelExpenseRegistrationUseCase({
+      transitionState: { execute: transition } as unknown as TransitionConversationState,
+      messagingPort: { sendMessage },
+      advancePendingExpense: { execute: advancePendingExpense } as never,
+    });
+
+    await queuedUseCase.execute({
+      userId: 'user-1',
+      chatId: 'chat-1',
+      currentState: 'EXPENSE_REVIEW',
+      source: 'text',
+      channel: 'telegram',
+      completedCount: 1,
+    });
+
+    expect(advancePendingExpense).toHaveBeenCalledWith({
+      userId: 'user-1',
+      chatId: 'chat-1',
+      channel: 'telegram',
+      reason: 'cancelled',
+      completedCount: 1,
+    });
+    expect(sendMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      advancePendingExpense.mock.invocationCallOrder[0]!,
+    );
+  });
 });

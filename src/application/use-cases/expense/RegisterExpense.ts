@@ -38,6 +38,8 @@ export interface RegisterExpenseInput {
   userId: string;
   rawMessage: string;
   channel: 'telegram' | 'whatsapp';
+  queueRegisteredCount?: number;
+  immediateUndoExpenseId?: string;
 }
 
 export class RegisterExpenseUseCase {
@@ -100,13 +102,25 @@ export class RegisterExpenseUseCase {
         isAmountNotFoundResult(fallbackResult) ||
         isInvalidAmountFormatResult(fallbackResult)
       ) {
-        await this.transitionToClarifying(input.userId, 'monto', extracted, input.rawMessage);
+        await this.transitionToClarifying(
+          input.userId,
+          'monto',
+          extracted,
+          input.rawMessage,
+          input.queueRegisteredCount,
+        );
         return { status: 'needs_clarification', missingField: 'monto' };
       } else if (
         isCurrencyNotFoundResult(fallbackResult) ||
         isAmbiguousCurrencyResult(fallbackResult)
       ) {
-        await this.transitionToClarifying(input.userId, 'moneda', extracted, input.rawMessage);
+        await this.transitionToClarifying(
+          input.userId,
+          'moneda',
+          extracted,
+          input.rawMessage,
+          input.queueRegisteredCount,
+        );
         return { status: 'needs_clarification', missingField: 'moneda' };
       }
     }
@@ -114,13 +128,25 @@ export class RegisterExpenseUseCase {
     // Clarification priority: amount > currency > category (E1-US-05).
     // Category ambiguity is not clarified here; it is shown as editable in EXPENSE_REVIEW.
     if (resolvedExtracted.monto === null) {
-      await this.transitionToClarifying(input.userId, 'monto', extracted, input.rawMessage);
+      await this.transitionToClarifying(
+        input.userId,
+        'monto',
+        extracted,
+        input.rawMessage,
+        input.queueRegisteredCount,
+      );
       return { status: 'needs_clarification', missingField: 'monto' };
     }
 
     const moneda = resolvedExtracted.moneda ?? defaultCurrency;
     if (!moneda) {
-      await this.transitionToClarifying(input.userId, 'moneda', extracted, input.rawMessage);
+      await this.transitionToClarifying(
+        input.userId,
+        'moneda',
+        extracted,
+        input.rawMessage,
+        input.queueRegisteredCount,
+      );
       return { status: 'needs_clarification', missingField: 'moneda' };
     }
 
@@ -146,7 +172,14 @@ export class RegisterExpenseUseCase {
       await this.conversationRepo.transition(
         input.userId,
         'EXPENSE_REVIEW',
-        { ...payload, awaitingZeroConfirmation: true, reminderSent: false },
+      {
+        ...payload,
+        awaitingZeroConfirmation: true,
+        reminderSent: false,
+        ...(input.queueRegisteredCount === undefined
+          ? {}
+          : { queueRegisteredCount: input.queueRegisteredCount }),
+      },
         new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
       );
       return { status: 'needs_zero_confirmation', payload };
@@ -164,6 +197,12 @@ export class RegisterExpenseUseCase {
       resolvedCategory,
       resolvedCategoryId: null,
       categoryStatus,
+      ...(input.queueRegisteredCount === undefined
+        ? {}
+        : { queueRegisteredCount: input.queueRegisteredCount }),
+      ...(input.immediateUndoExpenseId === undefined
+        ? {}
+        : { immediateUndoExpenseId: input.immediateUndoExpenseId }),
     };
 
     // Transiciona a EXPENSE_REVIEW con TTL de 10 min (E1-US-06)
@@ -182,7 +221,7 @@ export class RegisterExpenseUseCase {
     userId: string,
     payload: ExpenseReviewPayload,
     spreadsheetId: string,
-  ): Promise<{ sheetName: string; rowIndex?: number | undefined }> {
+  ): Promise<{ sheetName: string; rowIndex?: number | undefined; expenseId?: string }> {
     const _spreadsheetId = spreadsheetId; // TODO: use when implementing multi-spreadsheet support
     const config = await this.spreadsheetConfigRepo.findByUserId(userId);
     if (!config) {
@@ -251,8 +290,8 @@ export class RegisterExpenseUseCase {
     );
 
     return result.row === undefined
-      ? { sheetName: result.sheet }
-      : { sheetName: result.sheet, rowIndex: result.row };
+      ? { sheetName: result.sheet, expenseId: savedExpense.id }
+      : { sheetName: result.sheet, rowIndex: result.row, expenseId: savedExpense.id };
   }
 
   private buildReviewPayload(
@@ -298,8 +337,14 @@ export class RegisterExpenseUseCase {
     missingField: MissingClarificationField,
     partialExtracted: ExtractedExpense,
     rawMessage: string,
+    queueRegisteredCount?: number,
   ): Promise<void> {
-    const state = ExpenseClarificationState.create(missingField, partialExtracted, rawMessage);
+    const state = ExpenseClarificationState.create(
+      missingField,
+      partialExtracted,
+      rawMessage,
+      queueRegisteredCount,
+    );
     await this.conversationRepo.transition(
       userId,
       'EXPENSE_CLARIFYING',
