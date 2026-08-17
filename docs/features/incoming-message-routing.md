@@ -20,6 +20,8 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
   - Returns HTTP 200 immediately to prevent Telegram retry loops.
 - For all other payloads, the route enqueues an `IncomingMessageJobData` to the `incoming-message` BullMQ queue and returns HTTP 200.
 - A thin FIFO worker (`incomingMessage.worker.ts`, `concurrency: 1`) consumes `incoming-message` jobs, deserializes `timestamp` back to `Date`, rebuilds `NormalizedPayload`, and delegates to `RouteIncomingMessage.execute()`.
+- BullMQ job payloads are runtime trust boundaries: the incoming-message and process-message workers parse strict Zod schemas before any side effect. Unknown fields, invalid values, and invalid timestamps fail the job with metadata-only logging.
+- Before processing a `process-message` job, the worker verifies that its `(channel, externalId)` resolves to its declared `userId`. A mismatch is rejected before the per-user lock, state lookup, messaging, or FSM handling.
 - `RouteIncomingMessage` routes `TEXT` and `UNSUPPORTED`:
   - `TEXT` → resolves user identity, loads the current conversation state, and decides based on the FSM state:
     - `IDLE` / `EXPENSE_RECEIVING` → classifies the text with `ClassifyFreeTextExpenseIntent`. Expense-like or very-long messages are enqueued to `process-message` and acknowledged; non-financial messages receive guidance and are not enqueued.
@@ -103,7 +105,7 @@ No database schema changes yet. The feature operates on transient domain value o
 - [x] `ProcessedMessageRepository.spec.ts` — contract test for `exists` and `markAsProcessed`.
 - [x] `telegram.webhook.spec.ts` — origin authentication before body validation, private-chat routing, metadata-only malformed logging, non-private zero-side-effect acknowledgment, unsupported messages, `/start` short-circuit, and FIFO enqueue.
 - [x] `telegram.webhook.integration.spec.ts` — end-to-end scenarios including non-financial replies during active onboarding states that must be enqueued to `process-message` instead of receiving guidance.
-- [x] `incomingMessage.worker.spec.ts` — job deserialization, FIFO processing, worker construction (`concurrency: 1`), failed-event structured logging.
+- [x] `incomingMessage.worker.spec.ts` — strict payload validation, job deserialization, FIFO processing, worker construction (`concurrency: 1`), and metadata-only failed-event logging.
 
 ## Related User Stories
 

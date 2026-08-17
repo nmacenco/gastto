@@ -66,6 +66,12 @@ If you are adding code to the Fastify route handler (`src/interfaces/http/routes
 
 The worker runs in the same persistent Node.js process as Fastify but in a separate BullMQ consumer thread.
 
+### Runtime job trust boundary
+
+Every worker validates `job.data` with an exported strict Zod schema before acquiring locks, resolving state, sending messages, or invoking use cases. Unknown fields, invalid enums, malformed timestamps, and non-empty session-timeout payloads fail with `INVALID_JOB_PAYLOAD`; logs retain only the queue, job ID, error code, and validation paths.
+
+`process-message` and `oauth-reminder` jobs also resolve `(channel, externalId)` and require it to match the supplied `userId` before performing side effects. This prevents a validly-shaped queue payload from acting on another user's messaging identity.
+
 1. Receives the `process-message` job payload.
 2. Loads the user's current FSM state from PostgreSQL (`conversation_states`).
 3. Runs the FSM transition logic to determine the next state and action.
@@ -85,7 +91,9 @@ The worker runs in the same persistent Node.js process as Fastify but in a separ
 
 | Job type          | Payload                                                  | Purpose                                                                                             |
 | ----------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `process-message` | `{ userId, channel, externalId, rawMessage, timestamp }` | Main pipeline job. Triggered on every incoming message.                                             |
+| `process-message` | `{ userId, channel, externalId, rawMessage, externalMessageId, receivedAt, callbackData? }` | Main pipeline job. Triggered on every incoming message. |
+| `incoming-message` | `{ messageType, chatId, timestamp, channel, externalMessageId, ... }` | FIFO ingress job. Strictly validated before normalization. |
+| `oauth-reminder` | `{ userId, externalId, channel }` | Delayed OAuth reminder. Requires identity binding validation. |
 | `fsm-timeout`     | `{ userId, expectedState, firedAt }`                     | Delayed job that transitions the user to `IDLE` if they are still in `expectedState` after the TTL. |
 | `scheduled-alert` | _(future)_                                               | Reserved for Release 2 periodic alerts and automated summaries. Not implemented in MVP.             |
 

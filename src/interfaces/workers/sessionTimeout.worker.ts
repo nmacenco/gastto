@@ -7,6 +7,11 @@ import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { HandleExpiredSessions } from '../../application/use-cases/conversation/HandleExpiredSessions';
+import {
+  SessionTimeoutJobDataSchema,
+  type SessionTimeoutJobData,
+} from '../../application/ports/SessionTimeoutJob';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 
 export interface SessionTimeoutWorkerOpts {
   redis: Redis;
@@ -15,16 +20,26 @@ export interface SessionTimeoutWorkerOpts {
 }
 
 export async function processSessionTimeoutJob(
-  _job: Job,
+  job: Job<SessionTimeoutJobData>,
   handleExpiredSessions: HandleExpiredSessions,
 ): Promise<void> {
+  const parsed = SessionTimeoutJobDataSchema.safeParse(job.data);
+  if (!parsed.success) {
+    throw new InvalidJobPayloadError(
+      'session-timeout',
+      parsed.error.issues.map((issue) => issue.path.join('.')),
+    );
+  }
   await handleExpiredSessions.execute();
 }
 
-export function createSessionTimeoutWorker(opts: SessionTimeoutWorkerOpts): Worker {
-  const worker = new Worker(
+export function createSessionTimeoutWorker(
+  opts: SessionTimeoutWorkerOpts,
+): Worker<SessionTimeoutJobData> {
+  const worker = new Worker<SessionTimeoutJobData>(
     'session-timeout',
-    async (job: Job) => processSessionTimeoutJob(job, opts.handleExpiredSessions),
+    async (job: Job<SessionTimeoutJobData>) =>
+      processSessionTimeoutJob(job, opts.handleExpiredSessions),
     {
       connection: opts.redis,
       concurrency: 1,
@@ -36,7 +51,9 @@ export function createSessionTimeoutWorker(opts: SessionTimeoutWorkerOpts): Work
     opts.logger.error({
       msg: 'Session timeout worker failed permanently',
       jobId: job?.id,
-      data: job?.data as unknown,
+      queue: 'session-timeout',
+      code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
+      ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
       error: err.message,
     });
   });

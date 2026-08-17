@@ -27,7 +27,11 @@ import type { IUserProcessingLock } from '../../application/ports/UserProcessing
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ExpenseSummaryPresenter } from '../../application/ports/output/expense-summary.presenter';
-import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
+import {
+  ProcessMessageJobDataSchema,
+  type ProcessMessageJobData,
+} from '../../application/ports/ProcessMessageJob';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import type { ExpenseReviewPayload } from '../../domain/value-objects/expense-review-payload';
 import type {
   IUserRepository,
@@ -118,7 +122,20 @@ export async function processMessageJob(
   job: Job<ProcessMessageJobData>,
   opts: MessageWorkerDeps,
 ): Promise<void> {
-  const { userId, channel, externalId } = job.data;
+  const parsed = ProcessMessageJobDataSchema.safeParse(job.data);
+  if (!parsed.success) {
+    throw new InvalidJobPayloadError(
+      'process-message',
+      parsed.error.issues.map((issue) => issue.path.join('.')),
+    );
+  }
+  const data = parsed.data;
+  const { userId, channel, externalId } = data;
+
+  const identity = await opts.userRepo.findByMessagingIdentity(channel, externalId);
+  if (identity?.userId !== userId) {
+    throw new Error('Messaging identity does not match job user');
+  }
 
   // Acquire per-user lock to serialize processing of concurrent
   // messages from the same user (ADR-011 gap). Must happen before
@@ -140,7 +157,7 @@ export async function processMessageJob(
     // unexpected throws so BullMQ does not retry side-effectful handlers and
     // re-send the same messages on every attempt (ADR-005).
     try {
-      await routeByState(currentState, job.data, conversationState, opts, messaging);
+      await routeByState(currentState, data, conversationState, opts, messaging);
     } catch (err) {
       opts.logger.error({
         msg: 'process-message handler threw unexpectedly',
@@ -712,7 +729,9 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
     opts.logger.error({
       msg: 'Job failed permanently',
       jobId: job?.id,
-      data: job?.data,
+      queue: 'process-message',
+      code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
+      ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
       error: err.message,
     });
   });

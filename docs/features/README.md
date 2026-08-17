@@ -13,7 +13,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference engine that detects header rows and proposes column mappings for Gastto fields.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation, natural-language correction, and guided manual correction on rejection using the detected header row, with Redis-backed transient state.
 - [`category-confirmation.md`](./category-confirmation.md) — Reads the existing category vocabulary from the spreadsheet and presents it for confirmation.
-- [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram webhook ingestion, payload parsing, and channel-agnostic routing.
+- [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation and channel-agnostic routing.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow for missing or ambiguous expense amount/currency data.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with confirm / correct / cancel options before saving.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Global safe cancellation of in-progress expense registrations.

@@ -101,6 +101,7 @@ export async function registerWorkers(
     const oauthReminderWorker = createOAuthReminderWorker({
       redis: deps.redis,
       logger: deps.rootLogger,
+      userRepo: deps.userRepo,
       sendOAuthReminder: deps.googleOAuth.sendOAuthReminder,
       redirectUri: env.GOOGLE_REDIRECT_URI,
     });

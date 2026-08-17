@@ -5,14 +5,24 @@
 // Timestamp is serialized as ISO string because BullMQ job data
 // must be JSON-serializable.
 
-export type IncomingMessageJobData = {
-  messageType: 'TEXT' | 'UNSUPPORTED' | 'MALFORMED' | 'CALLBACK';
-  chatId: string;
-  userId?: string | undefined;
-  text?: string | undefined;
-  callbackData?: { action: 'confirm' | 'correct' | 'cancel'; field?: string } | undefined;
-  timestamp: string;
-  channel: 'telegram' | 'whatsapp';
-  externalMessageId: string;
-  rawPayload?: unknown;
-};
+import { z } from 'zod';
+
+export const CallbackDataSchema = z
+  .object({ action: z.enum(['confirm', 'correct', 'cancel']), field: z.string().min(1).optional() })
+  .strict();
+
+export const IncomingMessageJobDataSchema = z
+  .object({
+    messageType: z.enum(['TEXT', 'UNSUPPORTED', 'MALFORMED', 'CALLBACK']),
+    chatId: z.string().min(1),
+    userId: z.string().min(1).optional(),
+    text: z.string().optional(),
+    callbackData: CallbackDataSchema.optional(),
+    timestamp: z.string().datetime({ offset: true }),
+    channel: z.enum(['telegram', 'whatsapp']),
+    externalMessageId: z.string().min(1),
+    rawPayload: z.unknown().optional(),
+  })
+  .strict();
+
+export type IncomingMessageJobData = z.infer<typeof IncomingMessageJobDataSchema>;

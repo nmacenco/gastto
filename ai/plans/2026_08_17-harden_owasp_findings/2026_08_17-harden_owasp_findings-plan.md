@@ -65,17 +65,17 @@ Turn BullMQ payload types into runtime trust boundaries. Every worker will parse
 
 #### To-do actions
 
-- [ ] Define strict Zod schemas beside the application-level incoming and process job contracts and infer their TypeScript types from those schemas.
-- [ ] Move the OAuth reminder job contract out of the interface implementation into an application port and add a strict schema; define an explicit empty schema for session-timeout jobs.
-- [ ] Parse `job.data` at the start of every worker processor and raise a controlled invalid-payload error containing validation metadata but no raw job data.
-- [ ] Verify `(channel, externalId) -> userId` before processing `process-message` and OAuth reminder jobs; reject missing or mismatched identities.
-- [ ] Wire the required identity dependency through `buildDependencies`, `registerWorkers`, `MessageWorkerDeps`, and `OAuthReminderWorkerDeps` without changing queue names or retry policy.
-- [ ] Ensure failed invalid jobs are logged only with job ID, queue, error code, and validation paths.
-- [ ] Extend all worker unit suites with malformed type, unknown field, invalid enum, invalid timestamp, mismatched identity, and zero-side-effect assertions.
-- [ ] Update `docs/architecture/async-pipeline.md` and `docs/features/incoming-message-routing.md` with the runtime validation and identity-binding guarantees; update `docs/features/README.md`.
-- [ ] Run the targeted worker and bootstrap Vitest suites.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Define strict Zod schemas beside the application-level incoming and process job contracts and infer their TypeScript types from those schemas.
+- [x] Move the OAuth reminder job contract out of the interface implementation into an application port and add a strict schema; define an explicit empty schema for session-timeout jobs.
+- [x] Parse `job.data` at the start of every worker processor and raise a controlled invalid-payload error containing validation metadata but no raw job data.
+- [x] Verify `(channel, externalId) -> userId` before processing `process-message` and OAuth reminder jobs; reject missing or mismatched identities.
+- [x] Wire the required identity dependency through `buildDependencies`, `registerWorkers`, `MessageWorkerDeps`, and `OAuthReminderWorkerDeps` without changing queue names or retry policy.
+- [x] Ensure failed invalid jobs are logged only with job ID, queue, error code, and validation paths.
+- [x] Extend all worker unit suites with malformed type, unknown field, invalid enum, invalid timestamp, mismatched identity, and zero-side-effect assertions.
+- [x] Update `docs/architecture/async-pipeline.md` and `docs/features/incoming-message-routing.md` with the runtime validation and identity-binding guarantees; update `docs/features/README.md`.
+- [x] Run the targeted worker and bootstrap Vitest suites.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Neutralize spreadsheet formula injection
 
@@ -156,4 +156,4 @@ Prevent financial messages, raw webhook bodies, job payloads, authorization mate
 
 ## Next step
 
-Review and commit Phase 1, then execute Phase 2 to validate BullMQ payloads and messaging identity bindings.
+Review and commit Phase 2, then execute Phase 3 to neutralize spreadsheet formula injection.
