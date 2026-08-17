@@ -76,7 +76,7 @@ function makeValidPayload(
     message: {
       message_id: 42,
       from: { id: 999, ...(overrides.username !== undefined && { username: overrides.username }) },
-      chat: { id: 123456789 },
+      chat: { id: 123456789, type: 'private' },
       text: 'text' in overrides ? overrides.text : 'Cafe con leche 850',
       date: Math.floor(Date.now() / 1000),
     },
@@ -121,10 +121,15 @@ describe('POST /webhook/telegram', () => {
     });
   });
 
-  it('returns HTTP 200 for unparseable payload and logs MALFORMED error without enqueueing', async () => {
+  it('returns HTTP 200 for malformed private payload and logs metadata without enqueueing', async () => {
     const { app } = buildApp();
 
-    const rawPayload = { invalid: 'data' };
+    const rawPayload = {
+      message: {
+        message_id: 42,
+        chat: { id: 123456789, type: 'private' },
+      },
+    };
     const response = await app.inject({
       method: 'POST',
       url: '/webhook/telegram',
@@ -141,7 +146,6 @@ describe('POST /webhook/telegram', () => {
     expect(mockLogError).toHaveBeenCalledWith({
       endpoint: '/webhook/telegram',
       code: 'MALFORMED_PAYLOAD',
-      rawPayload,
     });
 
     expect(mockQueueAdd).not.toHaveBeenCalled();
@@ -149,7 +153,7 @@ describe('POST /webhook/telegram', () => {
     expect(mockSendAckExecute).not.toHaveBeenCalled();
   });
 
-  it('returns HTTP 200 for payload without message and logs MALFORMED error without enqueueing', async () => {
+  it('acknowledges an update without a chat and performs no side effects', async () => {
     const { app } = buildApp();
 
     const rawPayload = makeValidPayload({ noMessage: true });
@@ -165,12 +169,7 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
 
-    expect(mockLogError).toHaveBeenCalledTimes(1);
-    expect(mockLogError).toHaveBeenCalledWith({
-      endpoint: '/webhook/telegram',
-      code: 'MALFORMED_PAYLOAD',
-      rawPayload,
-    });
+    expect(mockLogError).not.toHaveBeenCalled();
 
     expect(mockQueueAdd).not.toHaveBeenCalled();
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
@@ -197,6 +196,82 @@ describe('POST /webhook/telegram', () => {
     expect(jobData.messageType).toBe('UNSUPPORTED');
     expect(jobData.chatId).toBe('123456789');
     expect(jobData.externalMessageId).toBe('42');
+    expect(mockHandleStartExecute).not.toHaveBeenCalled();
+    expect(mockSendAckExecute).not.toHaveBeenCalled();
+  });
+
+  it.each(['group', 'supergroup', 'channel'])(
+    'acknowledges authenticated %s message updates without downstream side effects',
+    async (chatType) => {
+      const { app } = buildApp();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/webhook/telegram',
+        headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+        payload: {
+          update_id: 1,
+          message: {
+            message_id: 42,
+            from: { id: 999 },
+            chat: { id: -100123, type: chatType },
+            text: 'Cafe con leche 850',
+            date: 1716206400,
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload)).toEqual({ ok: true });
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(mockResolveIdentityExecute).not.toHaveBeenCalled();
+      expect(mockHandleStartExecute).not.toHaveBeenCalled();
+      expect(mockSendAckExecute).not.toHaveBeenCalled();
+      expect(mockLogError).not.toHaveBeenCalled();
+    },
+  );
+
+  it('acknowledges authenticated non-private callback queries without downstream side effects', async () => {
+    const { app } = buildApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: {
+        callback_query: {
+          id: 'callback-1',
+          from: { id: 999 },
+          message: {
+            message_id: 42,
+            chat: { id: -100123, type: 'supergroup' },
+            date: 1716206400,
+          },
+          data: JSON.stringify({ action: 'confirm' }),
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toEqual({ ok: true });
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockResolveIdentityExecute).not.toHaveBeenCalled();
+    expect(mockHandleStartExecute).not.toHaveBeenCalled();
+    expect(mockSendAckExecute).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid origin before route body validation', async () => {
+    const { app } = buildApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      payload: ['not a Telegram update'],
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockResolveIdentityExecute).not.toHaveBeenCalled();
     expect(mockHandleStartExecute).not.toHaveBeenCalled();
     expect(mockSendAckExecute).not.toHaveBeenCalled();
   });

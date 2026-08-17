@@ -3,9 +3,26 @@
 // Covers happy path, unsupported types, and malformed payloads.
 
 import { describe, it, expect } from 'vitest';
-import { parseTelegramPayload } from './TelegramPayloadParser';
+import { getTelegramChatScope, parseTelegramPayload } from './TelegramPayloadParser';
 
 describe('parseTelegramPayload', () => {
+  describe('Telegram chat scope', () => {
+    it.each([
+      ['private message', { message: { chat: { type: 'private' } } }, 'private'],
+      ['group message', { message: { chat: { type: 'group' } } }, 'non-private'],
+      ['supergroup message', { message: { chat: { type: 'supergroup' } } }, 'non-private'],
+      ['channel message', { message: { chat: { type: 'channel' } } }, 'non-private'],
+      [
+        'private callback query',
+        { callback_query: { message: { chat: { type: 'private' } } } },
+        'private',
+      ],
+      ['missing chat type', { message: { chat: { id: 123 } } }, 'unknown'],
+    ])('classifies %s as %s', (_label, payload, expected) => {
+      expect(getTelegramChatScope(payload)).toBe(expected);
+    });
+  });
+
   describe('TEXT messages', () => {
     it('extracts all fields from a standard Telegram text payload', () => {
       const payload = {
