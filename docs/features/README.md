@@ -18,7 +18,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with confirm / correct / cancel options before saving.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Global safe cancellation of in-progress expense registrations.
 - [`expense-correction.md`](./expense-correction.md) — Natural-language correction of amount, currency, category, or date before expense confirmation.
-- [`expense-confirmation.md`](./expense-confirmation.md) — Fixed-vocabulary text confirmation from expense review, with correction-safe precedence, save-location confirmation, and user-driven recovery after failed Google Sheets saves.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with correction-safe precedence, safe Google Sheets cell writes, save-location confirmation, and user-driven recovery.
 - [`undo-last-expense.md`](./undo-last-expense.md) — Safe one-record Google Sheets undo with immediate eligibility and delayed explicit confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM for multi-turn conversational flows with session timeout.

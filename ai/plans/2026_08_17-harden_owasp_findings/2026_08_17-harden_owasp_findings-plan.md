@@ -91,15 +91,15 @@ Preserve Google Sheets `USER_ENTERED` behavior for legitimate dates and numbers 
 
 #### To-do actions
 
-- [ ] Add a focused, deterministic cell sanitizer at the Google Sheets adapter boundary so every caller receives the same protection.
-- [ ] Sanitize string values immediately before serializing the append request body while preserving numbers, null values, ordinary text, and already-safe apostrophe-prefixed strings.
-- [ ] Keep `valueInputOption=USER_ENTERED` and `insertDataOption=INSERT_ROWS` unchanged to avoid altering existing spreadsheet behavior.
-- [ ] Add Google Sheets adapter tests for all dangerous prefixes, leading whitespace and control characters, safe text, negative numeric values, nulls, and the final serialized request body.
-- [ ] Add an expense-registration integration assertion that raw expense text beginning with a formula marker reaches the adapter as data and is persisted to Sheets in escaped form.
-- [ ] Update `docs/features/expense-confirmation.md` with the spreadsheet-cell safety rule and update `docs/features/README.md`.
-- [ ] Run the targeted Google Sheets and expense-registration Vitest suites.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add a focused, deterministic cell sanitizer at the Google Sheets adapter boundary so every caller receives the same protection.
+- [x] Sanitize string values immediately before serializing the append request body while preserving numbers, null values, ordinary text, and already-safe apostrophe-prefixed strings.
+- [x] Keep `valueInputOption=USER_ENTERED` and `insertDataOption=INSERT_ROWS` unchanged to avoid altering existing spreadsheet behavior.
+- [x] Add Google Sheets adapter tests for all dangerous prefixes, leading whitespace and control characters, safe text, negative numeric values, nulls, and the final serialized request body.
+- [x] Add an expense-registration integration assertion that raw expense text beginning with a formula marker reaches the adapter as data and is persisted to Sheets in escaped form.
+- [x] Update `docs/features/expense-confirmation.md` with the spreadsheet-cell safety rule and update `docs/features/README.md`.
+- [x] Run the targeted Google Sheets and expense-registration Vitest suites.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 4: Establish LLM prompt trust boundaries
 
@@ -156,4 +156,4 @@ Prevent financial messages, raw webhook bodies, job payloads, authorization mate
 
 ## Next step
 
-Review and commit Phase 2, then execute Phase 3 to neutralize spreadsheet formula injection.
+Review and commit Phase 3, then execute Phase 4 to establish LLM prompt trust boundaries.
