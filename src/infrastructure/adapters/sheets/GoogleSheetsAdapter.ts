@@ -56,18 +56,6 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.listSheets',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
       throw new SpreadsheetError(
         `Google Sheets API error during sheet listing: HTTP ${response.status}`,
       );
@@ -103,18 +91,6 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.getHeaders',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
       throw new SpreadsheetError(
         `Google Sheets API error during header retrieval: HTTP ${response.status}`,
       );
@@ -281,18 +257,6 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.getUniqueValues',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
       throw new SpreadsheetError(
         `Google Sheets API error during unique values retrieval: HTTP ${response.status}`,
       );

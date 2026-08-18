@@ -111,7 +111,6 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
           endpoint: 'GoogleDriveFileDiscovery',
           code: 'DRIVE_API_ERROR',
           status: 401,
-          errorBody: { error: 'unauthorized' },
         }),
       );
     });
@@ -236,7 +235,6 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
           endpoint: 'GoogleDriveFileDiscovery',
           code: 'DRIVE_API_ERROR',
           status: 500,
-          errorBody: { error: 'internal_error' },
         }),
       );
     });

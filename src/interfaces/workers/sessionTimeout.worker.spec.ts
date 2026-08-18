@@ -146,7 +146,6 @@ describe('createSessionTimeoutWorker', () => {
       jobId: 'job-99',
       queue: 'session-timeout',
       code: 'JOB_FAILED',
-      error: 'Redis connection lost',
     });
   });
 });

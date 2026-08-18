@@ -231,7 +231,6 @@ describe('createIncomingMessageWorker', () => {
       jobId: 'job-99',
       queue: 'incoming-message',
       code: 'JOB_FAILED',
-      error: 'Queue connection lost',
     });
   });
 });

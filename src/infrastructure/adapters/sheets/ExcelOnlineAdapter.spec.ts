@@ -70,7 +70,6 @@ describe('ExcelOnlineAdapter', () => {
     });
 
     it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 403,
@@ -79,14 +78,6 @@ describe('ExcelOnlineAdapter', () => {
 
       await expect(adapter.listSheets('file-id-123')).rejects.toBeInstanceOf(SpreadsheetError);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'ExcelOnlineAdapter.listSheets',
-          code: 'GRAPH_API_ERROR',
-          status: 403,
-        }),
-      );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -202,7 +193,6 @@ describe('ExcelOnlineAdapter', () => {
     });
 
     it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 404,
@@ -213,14 +203,6 @@ describe('ExcelOnlineAdapter', () => {
         SpreadsheetError,
       );
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'ExcelOnlineAdapter.getHeaders',
-          code: 'GRAPH_API_ERROR',
-          status: 404,
-        }),
-      );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {

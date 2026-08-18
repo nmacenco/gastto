@@ -54,7 +54,6 @@ export function createSessionTimeoutWorker(
       queue: 'session-timeout',
       code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
       ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
-      error: err.message,
     });
   });
 

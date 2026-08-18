@@ -80,7 +80,6 @@ describe('GoogleSheetsAdapter', () => {
     });
 
     it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 403,
@@ -89,15 +88,6 @@ describe('GoogleSheetsAdapter', () => {
 
       await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'GoogleSheetsAdapter.listSheets',
-          code: 'SHEETS_API_ERROR',
-          status: 403,
-          errorBody: { error: 'forbidden' },
-        }),
-      );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -271,7 +261,6 @@ describe('GoogleSheetsAdapter', () => {
     });
 
     it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 404,
@@ -282,15 +271,6 @@ describe('GoogleSheetsAdapter', () => {
         SpreadsheetError,
       );
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'GoogleSheetsAdapter.getHeaders',
-          code: 'SHEETS_API_ERROR',
-          status: 404,
-          errorBody: { error: 'notFound' },
-        }),
-      );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {

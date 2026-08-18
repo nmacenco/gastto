@@ -57,7 +57,7 @@ export async function processOAuthReminderJob(
         msg: 'OAuth reminder skipped: invalid state transition',
         jobId: job.id,
         userId,
-        error: err.message,
+        code: 'INVALID_STATE_TRANSITION',
       });
       return;
     }
@@ -85,7 +85,6 @@ export function createOAuthReminderWorker(
       queue: 'oauth-reminder',
       code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
       ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
-      error: err.message,
     });
   });
 

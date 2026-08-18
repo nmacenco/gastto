@@ -74,7 +74,6 @@ export function createIncomingMessageWorker(opts: {
       queue: 'incoming-message',
       code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
       ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
-      error: err.message,
     });
   });
 

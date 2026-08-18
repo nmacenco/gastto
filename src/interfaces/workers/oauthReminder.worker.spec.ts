@@ -78,7 +78,7 @@ describe('processOAuthReminderJob', () => {
       expect.objectContaining({
         msg: 'OAuth reminder skipped: invalid state transition',
         userId: 'user-123',
-        error: 'Invalid state transition from IDLE to ONBOARDING_DRIVE',
+        code: 'INVALID_STATE_TRANSITION',
       }),
     );
   });

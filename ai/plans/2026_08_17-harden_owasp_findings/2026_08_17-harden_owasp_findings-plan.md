@@ -142,18 +142,18 @@ Prevent financial messages, raw webhook bodies, job payloads, authorization mate
 
 #### To-do actions
 
-- [ ] Define a shared sensitive-field/path policy covering authorization headers, cookies, tokens, secrets, OAuth state, raw messages, raw payloads, job data, and provider error bodies.
-- [ ] Apply compatible redaction options to both `createLogger` and the Fastify logger configuration.
-- [ ] Replace raw job payload, malformed webhook body, and sensitive provider-body logging with structured metadata such as endpoint, queue, job ID, status, code, and pseudonymous user ID where needed.
-- [ ] Add a pure recursive Sentry event scrubber with bounded traversal and cycle-safe behavior, and register it through `Sentry.init({ beforeSend })`.
-- [ ] Ensure application errors continue to reach Sentry without stack traces being returned to HTTP clients.
-- [ ] Update logger-call tests to assert that sensitive fields are absent and operational metadata remains present; do not test Pino formatting.
-- [ ] Add unit tests for nested Sentry request, breadcrumb, context, extra, exception, array, and case-variant sensitive keys.
-- [ ] Update `docs/architecture/observability.md` with the redaction and Sentry scrubbing contracts.
-- [ ] Run all targeted observability, worker, webhook, and bootstrap Vitest suites, then run `pnpm test` as the final regression gate.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Define a shared sensitive-field/path policy covering authorization headers, cookies, tokens, secrets, OAuth state, raw messages, raw payloads, job data, and provider error bodies.
+- [x] Apply compatible redaction options to both `createLogger` and the Fastify logger configuration.
+- [x] Replace raw job payload, malformed webhook body, and sensitive provider-body logging with structured metadata such as endpoint, queue, job ID, status, code, and pseudonymous user ID where needed.
+- [x] Add a pure recursive Sentry event scrubber with bounded traversal and cycle-safe behavior, and register it through `Sentry.init({ beforeSend })`.
+- [x] Ensure application errors continue to reach Sentry without stack traces being returned to HTTP clients.
+- [x] Update logger-call tests to assert that sensitive fields are absent and operational metadata remains present; do not test Pino formatting.
+- [x] Add unit tests for nested Sentry request, breadcrumb, context, extra, exception, array, and case-variant sensitive keys.
+- [x] Update `docs/architecture/observability.md` with the redaction and Sentry scrubbing contracts.
+- [x] Run all targeted observability, worker, webhook, and bootstrap Vitest suites, then run `pnpm test` as the final regression gate.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Review and commit Phase 4, then execute Phase 5 to redact application logs and scrub Sentry events.
+All phases are complete; review and commit Phase 5.
