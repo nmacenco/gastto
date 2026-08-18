@@ -389,10 +389,19 @@ describe('NvidiaAdapter', () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve(buildNvidiaResponse(JSON.stringify({
-        monto: null, moneda: null, categoria_raw: null, fecha_raw: null,
-        medio_pago: null, confianza_categoria: 'nula',
-      }))),
+      json: () =>
+        Promise.resolve(
+          buildNvidiaResponse(
+            JSON.stringify({
+              monto: null,
+              moneda: null,
+              categoria_raw: null,
+              fecha_raw: null,
+              medio_pago: null,
+              confianza_categoria: 'nula',
+            }),
+          ),
+        ),
     });
 
     await new NvidiaAdapter(API_KEY).extractExpense('test', {
