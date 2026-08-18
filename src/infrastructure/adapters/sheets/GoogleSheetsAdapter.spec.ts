@@ -87,7 +87,6 @@ describe('GoogleSheetsAdapter', () => {
       });
 
       await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
-
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -270,7 +269,6 @@ describe('GoogleSheetsAdapter', () => {
       await expect(adapter.getHeaders('spreadsheet-123', 'Gastos')).rejects.toBeInstanceOf(
         SpreadsheetError,
       );
-
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {

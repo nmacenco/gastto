@@ -77,7 +77,6 @@ describe('ExcelOnlineAdapter', () => {
       });
 
       await expect(adapter.listSheets('file-id-123')).rejects.toBeInstanceOf(SpreadsheetError);
-
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -202,7 +201,6 @@ describe('ExcelOnlineAdapter', () => {
       await expect(adapter.getHeaders('file-id-123', 'Gastos')).rejects.toBeInstanceOf(
         SpreadsheetError,
       );
-
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {

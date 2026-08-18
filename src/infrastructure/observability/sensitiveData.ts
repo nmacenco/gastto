@@ -7,7 +7,8 @@ import type { LoggerOptions } from 'pino';
 
 export const REDACTED_VALUE = '[REDACTED]';
 
-const SENSITIVE_KEY = /(?:authorization|cookie|token|secret|password|api[_-]?key|oauth.*state|state|raw(?:message|payload)|job(?:data)?|payload|body|errorbody)/i;
+const SENSITIVE_KEY =
+  /(?:authorization|cookie|token|secret|password|api[_-]?key|oauth.*state|state|raw(?:message|payload)|job(?:data)?|payload|body|errorbody)/i;
 const MAX_DEPTH = 12;
 const MAX_ENTRIES = 200;
 
@@ -66,9 +67,7 @@ function scrubValue(value: unknown, seen: WeakSet<object>, depth: number): unkno
 
   const output: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value).slice(0, MAX_ENTRIES)) {
-    output[key] = isSensitiveField(key)
-      ? REDACTED_VALUE
-      : scrubValue(child, seen, depth + 1);
+    output[key] = isSensitiveField(key) ? REDACTED_VALUE : scrubValue(child, seen, depth + 1);
   }
   return output;
 }

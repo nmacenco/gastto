@@ -122,10 +122,10 @@ export class HandleOAuthCallback {
         err instanceof OAuthStateMismatchError
       ) {
         this.deps.logger.error({
-        endpoint: 'HandleOAuthCallback',
-        code: 'OAUTH_EXCHANGE_REJECTED',
-        provider: metadata.provider,
-        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+          endpoint: 'HandleOAuthCallback',
+          code: 'OAUTH_EXCHANGE_REJECTED',
+          provider: metadata.provider,
+          errorType: err instanceof Error ? err.constructor.name : 'unknown',
         });
         return {
           success: false,
