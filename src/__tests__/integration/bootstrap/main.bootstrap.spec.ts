@@ -209,5 +209,15 @@ describe('bootstrap', () => {
         environment: 'test',
       }),
     );
+
+    const sentryOptions = SentryInitMock.mock.calls[0]?.[0] as {
+      beforeSend: (event: { extra: Record<string, unknown> }) => { extra: Record<string, unknown> };
+    };
+    expect(
+      sentryOptions.beforeSend({ extra: { accessToken: 'secret', safe: 'value' } }).extra,
+    ).toEqual({
+      accessToken: '[REDACTED]',
+      safe: 'value',
+    });
   });
 });

@@ -3,7 +3,7 @@
 // Mocks the global fetch API so no real Google calls are made.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GoogleSheetsAdapter } from './GoogleSheetsAdapter';
+import { GoogleSheetsAdapter, sanitizeGoogleSheetsCellValue } from './GoogleSheetsAdapter';
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
 import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
@@ -80,7 +80,6 @@ describe('GoogleSheetsAdapter', () => {
     });
 
     it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 403,
@@ -88,16 +87,6 @@ describe('GoogleSheetsAdapter', () => {
       });
 
       await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'GoogleSheetsAdapter.listSheets',
-          code: 'SHEETS_API_ERROR',
-          status: 403,
-          errorBody: { error: 'forbidden' },
-        }),
-      );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -271,7 +260,6 @@ describe('GoogleSheetsAdapter', () => {
     });
 
     it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 404,
@@ -281,16 +269,6 @@ describe('GoogleSheetsAdapter', () => {
       await expect(adapter.getHeaders('spreadsheet-123', 'Gastos')).rejects.toBeInstanceOf(
         SpreadsheetError,
       );
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'GoogleSheetsAdapter.getHeaders',
-          code: 'SHEETS_API_ERROR',
-          status: 404,
-          errorBody: { error: 'notFound' },
-        }),
-      );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -399,6 +377,42 @@ describe('GoogleSheetsAdapter', () => {
   });
 
   describe('appendRow', () => {
+    it.each([
+      ['=SUM(A1:A2)', "'=SUM(A1:A2)"],
+      ['+SUM(A1:A2)', "'+SUM(A1:A2)"],
+      ['-SUM(A1:A2)', "'-SUM(A1:A2)"],
+      ['@SUM(A1:A2)', "'@SUM(A1:A2)"],
+      [' \t=SUM(A1:A2)', "' \t=SUM(A1:A2)"],
+      ['\u0000@SUM(A1:A2)', "'\u0000@SUM(A1:A2)"],
+    ])('escapes dangerous textual prefix %j', (value, expected) => {
+      expect(sanitizeGoogleSheetsCellValue(value)).toBe(expected);
+    });
+
+    it('preserves safe strings, apostrophe-prefixed strings, numbers, and null values', () => {
+      expect(sanitizeGoogleSheetsCellValue('Taxi')).toBe('Taxi');
+      expect(sanitizeGoogleSheetsCellValue("'=SUM(A1:A2)")).toBe("'=SUM(A1:A2)");
+      expect(sanitizeGoogleSheetsCellValue(-12)).toBe(-12);
+      expect(sanitizeGoogleSheetsCellValue(null)).toBeNull();
+    });
+
+    it('serializes escaped user-controlled text while preserving USER_ENTERED writes', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: { updatedRange: 'Gastos!A2:B2' } }),
+      });
+
+      await adapter.appendRow('spreadsheet-123', 'Gastos', [
+        '=IMPORTXML("https://example.com")',
+        -12,
+      ]);
+
+      const [, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(request.body).toBe(
+        JSON.stringify({ values: [['\'=IMPORTXML("https://example.com")', -12]] }),
+      );
+    });
+
     it('appends a row and returns the confirmed sheet and row', async () => {
       fetchMock.mockResolvedValue({
         ok: true,

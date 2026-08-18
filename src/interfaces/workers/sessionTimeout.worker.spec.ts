@@ -8,6 +8,8 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { HandleExpiredSessions } from '../../application/use-cases/conversation/HandleExpiredSessions';
 import { processSessionTimeoutJob, createSessionTimeoutWorker } from './sessionTimeout.worker';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import type { SessionTimeoutJobData } from '../../application/ports/SessionTimeoutJob';
 
 vi.mock('bullmq', () => ({
   Worker: vi.fn().mockImplementation(() => {
@@ -48,7 +50,7 @@ describe('processSessionTimeoutJob', () => {
   });
 
   it('delegates to HandleExpiredSessions.execute', async () => {
-    const mockJob = { id: 'job-1', data: {} } as Job;
+    const mockJob = { id: 'job-1', data: {} } as Job<SessionTimeoutJobData>;
     const handleExpiredSessions = buildMockHandleExpiredSessions();
 
     await processSessionTimeoutJob(mockJob, handleExpiredSessions);
@@ -59,12 +61,21 @@ describe('processSessionTimeoutJob', () => {
   it('propagates error so BullMQ can mark the job as failed', async () => {
     mockExecute.mockRejectedValue(new Error('Execution failed'));
 
-    const mockJob = { id: 'job-2', data: {} } as Job;
+    const mockJob = { id: 'job-2', data: {} } as Job<SessionTimeoutJobData>;
     const handleExpiredSessions = buildMockHandleExpiredSessions();
 
     await expect(processSessionTimeoutJob(mockJob, handleExpiredSessions)).rejects.toThrow(
       'Execution failed',
     );
+  });
+
+  it('rejects non-empty job data before executing', async () => {
+    const mockJob = { id: 'job-3', data: { unexpected: true } } as Job;
+
+    await expect(
+      processSessionTimeoutJob(mockJob as Job<never>, buildMockHandleExpiredSessions()),
+    ).rejects.toThrow(InvalidJobPayloadError);
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });
 
@@ -133,8 +144,8 @@ describe('createSessionTimeoutWorker', () => {
     expect(mockLoggerError).toHaveBeenCalledWith({
       msg: 'Session timeout worker failed permanently',
       jobId: 'job-99',
-      data: {},
-      error: 'Redis connection lost',
+      queue: 'session-timeout',
+      code: 'JOB_FAILED',
     });
   });
 });

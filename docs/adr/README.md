@@ -24,6 +24,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-016](./ADR-016-bootstrap-decomposition.md) | Decompose `src/main.ts` Bootstrap into Optional Feature Bundles  | Accepted |
 | [ADR-017](./ADR-017-undo-confirmation-fsm.md) | Require Confirmation for Delayed Expense Undo | Accepted |
 | [ADR-018](./ADR-018-user-initiated-save-retry.md) | Limit Unconfirmed Spreadsheet Save Retries to One User-Initiated Attempt | Accepted |
+| [ADR-019](./ADR-019-private-telegram-chats.md) | Restrict Telegram Ingestion to Private Chats | Accepted |
 
 ## Template
 

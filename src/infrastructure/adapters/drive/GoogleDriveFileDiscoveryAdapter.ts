@@ -88,17 +88,10 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
       return false;
     }
 
-    let errorBody: unknown;
-    try {
-      errorBody = await response.json();
-    } catch {
-      errorBody = 'Could not parse error body';
-    }
     this.logger.error({
       endpoint: 'GoogleDriveFileDiscovery',
       code: 'DRIVE_API_ERROR',
       status: response.status,
-      errorBody,
     });
     throw new FileDiscoveryError(
       `Google Drive API error during file access validation: HTTP ${response.status}`,
@@ -125,17 +118,10 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
       this.logger.error({
         endpoint: 'GoogleDriveFileDiscovery',
         code: 'DRIVE_API_ERROR',
         status: response.status,
-        errorBody,
       });
       throw new FileDiscoveryError(
         `Google Drive API error during file discovery: HTTP ${response.status}`,

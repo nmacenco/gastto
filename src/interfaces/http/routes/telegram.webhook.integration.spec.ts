@@ -90,7 +90,7 @@ function makeValidPayload(text: string) {
     message: {
       message_id: 42,
       from: { id: 999 },
-      chat: { id: 123456789 },
+      chat: { id: 123456789, type: 'private' },
       text,
       date: Math.floor(Date.now() / 1000),
     },
@@ -126,6 +126,36 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     });
     mockProcessedExists.mockResolvedValue(false);
     mockProcessedMarkAsProcessed.mockResolvedValue(undefined);
+  });
+
+  it('acknowledges an authenticated group update without identity, queue, or messaging side effects', async () => {
+    const { app, deps } = buildApp();
+    const incomingQueueAdd = (
+      deps.incomingMessageQueue as unknown as { add: ReturnType<typeof vi.fn> }
+    ).add;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: {
+        ...makeValidPayload('Pagué el almuerzo, 12 euros'),
+        message: {
+          ...makeValidPayload('Pagué el almuerzo, 12 euros').message,
+          chat: { id: -100123, type: 'group' },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toEqual({ ok: true });
+    expect(incomingQueueAdd).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockResolveIdentity).not.toHaveBeenCalled();
+    expect(mockHandleStartExecute).not.toHaveBeenCalled();
+    expect(mockProcessQueueAdd).not.toHaveBeenCalled();
+    expect(mockProcessedExists).not.toHaveBeenCalled();
+    expect(mockProcessedMarkAsProcessed).not.toHaveBeenCalled();
   });
 
   it('expense-like text: returns 200, enqueues process-message job, and sends ack', async () => {

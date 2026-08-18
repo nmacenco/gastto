@@ -21,6 +21,7 @@ import type { ModifyCategoryVocabulary } from '../../application/use-cases/sprea
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
@@ -32,6 +33,7 @@ const mockLoggerError = vi.fn();
 const mockTransitionStateExecute = vi.fn();
 const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
+const mockUserRepoFindByMessagingIdentity = vi.fn();
 const mockRegisterExpenseInterpret = vi.fn();
 const mockQueuePendingExpenseExecute = vi.fn();
 const mockClassifyFreeTextExpenseIntentExecute = vi.fn();
@@ -120,6 +122,7 @@ function buildMockDeps(): MessageWorkerDeps {
     } as unknown as MessageWorkerDeps['recoverCorruptedState'],
     userRepo: {
       findById: mockUserRepoFindById,
+      findByMessagingIdentity: mockUserRepoFindByMessagingIdentity,
     } as unknown as MessageWorkerDeps['userRepo'],
     messagingAdapters: {
       telegram: { sendMessage: mockSendMessage },
@@ -260,6 +263,7 @@ describe('processMessageJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
+    mockUserRepoFindByMessagingIdentity.mockResolvedValue({ userId: 'user-123' });
     mockResolveExpenseReviewReplyExecute.mockResolvedValue({
       status: 'action_handled',
       action: 'confirm',
@@ -290,6 +294,27 @@ describe('processMessageJob', () => {
         savedAt: new Date(),
       },
     });
+  });
+
+  it('rejects malformed payloads before identity lookup or lock acquisition', async () => {
+    const deps = buildMockDeps();
+    const invalidJob = buildJob({ ...baseJobData, receivedAt: 'not-a-timestamp' });
+
+    await expect(processMessageJob(invalidJob, deps)).rejects.toThrow(InvalidJobPayloadError);
+    expect(mockUserRepoFindByMessagingIdentity).not.toHaveBeenCalled();
+    expect(mockAcquireLock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a job whose messaging identity belongs to another user before side effects', async () => {
+    const deps = buildMockDeps();
+    mockUserRepoFindByMessagingIdentity.mockResolvedValue({ userId: 'other-user' });
+
+    await expect(processMessageJob(buildJob(baseJobData), deps)).rejects.toThrow(
+      'Messaging identity does not match job user',
+    );
+    expect(mockAcquireLock).not.toHaveBeenCalled();
+    expect(mockGetConversationStateExecute).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
@@ -2444,6 +2469,9 @@ describe('processMessageJob', () => {
     it('different users can both acquire the lock', async () => {
       mockAcquireLock.mockResolvedValueOnce(LOCK_TOKEN_A);
       mockAcquireLock.mockResolvedValueOnce(LOCK_TOKEN_B);
+      mockUserRepoFindByMessagingIdentity
+        .mockResolvedValueOnce({ userId: 'user-123' })
+        .mockResolvedValueOnce({ userId: 'user-456' });
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),

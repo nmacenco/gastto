@@ -117,6 +117,10 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 - **LLMColumnInferenceAdapter** - Implements `ColumnInferencePort` by asking an LLM to map headers to Gastto fields when rule-based inference is incomplete or low-confidence.
 - **DrizzleColumnMappingRepository** - Implements `IColumnMappingRepository` using Drizzle ORM to persist and update `column_mappings` records.
 
+## LLM Trust Boundary
+
+When the LLM fallback is used, its task rules and JSON-output schema remain trusted instructions. Spreadsheet headers, preview rows, and sample cells are JSON-serialized inside `<untrusted-data>` markers in user-role content. Provider adapters instruct the model to treat those markers as data only and never as instructions. The adapters reject malformed structured output and discard mappings whose column index is outside the supplied headers or whose claimed header does not match that column, returning the existing safe fallback result instead.
+
 ## API Contracts
 
 ### Application DTOs
@@ -236,6 +240,7 @@ interface IColumnMappingRepository {
 | Microsoft (`onedrive`) provider               | `comingSoon('OneDrive')` message sent; stays in `ONBOARDING_MAPPING`.    |
 | Inference adapter failure                     | Error propagated; no mappings persisted; no state transition is written. |
 | `columnMappingRepository.upsertMany` failure  | Error propagated; no message sent; state payload is not updated.         |
+| Malformed or invalid LLM mapping output       | Safe empty inference result; no mappings are persisted from that output. |
 
 ## QA Checklist
 

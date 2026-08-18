@@ -17,6 +17,7 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - An uninterpretable reply keeps the `EXPENSE_REVIEW` payload and FSM state unchanged and sends exactly: `¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?`.
 - Callback **Confirmar**, **Corregir**, and **Cancelar** actions remain on their existing action-resolver path.
 - A Google Sheets append is successful only after the provider confirms it. Only then does the system persist the expense record and send the E1-US-10 save confirmation.
+- Before a Google Sheets `USER_ENTERED` append, textual cell values whose first meaningful character is `=`, `+`, `-`, or `@` are prefixed with an apostrophe. This includes leading whitespace and control characters; numbers, null values, ordinary text, and already apostrophe-prefixed values are preserved.
 - A failed append creates an `EXPENSE_SAVE_FAILED` audit entry. It never creates an expense record or sends the successful-save confirmation.
 - Retryable network failures persist the confirmed review payload in `EXPENSE_SAVING_RETRY` for ten minutes. The recovery copy accepts `reintentar`; it causes exactly one user-initiated reattempt.
 - A successful reattempt uses the normal E1-US-10 confirmation once. A second failed attempt clears the retry state and sends a manual-copy fallback containing the concept and amount.
@@ -40,6 +41,7 @@ The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conve
 - `ResolveExpenseSummaryActionUseCase.spec.ts` covers the success confirmation with complete and omitted row metadata.
 - `expense.copies.spec.ts` covers the location-aware successful-save copy.
 - `expense-save-failure-recovery.integration.spec.ts` wires the real save orchestration with boundary mocks and proves an unconfirmed append emits recovery copy without persisting an expense or emitting E1-US-10 confirmation.
+- `GoogleSheetsAdapter.spec.ts` verifies formula-prefix escaping and the final serialized append request body.
 - A connected staging verification must measure the elapsed time from user confirmation to successful save confirmation against the normal-condition ≤3-second target. Unit tests intentionally do not assert that wall-clock threshold because they mock spreadsheet and messaging boundaries.
 
 ## Related User Stories

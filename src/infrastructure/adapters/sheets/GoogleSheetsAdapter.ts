@@ -16,6 +16,19 @@ import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 const GOOGLE_SHEETS_API_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
 const GOOGLE_DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
 
+/**
+ * Prevent USER_ENTERED from interpreting user-controlled text as a formula.
+ * Numbers remain numbers so existing date and numeric behavior is preserved.
+ */
+export function sanitizeGoogleSheetsCellValue(value: CellValue): CellValue {
+  if (typeof value !== 'string' || value.startsWith("'")) {
+    return value;
+  }
+
+  const firstMeaningfulCharacter = value.replace(/^[\s\u0000-\u001f]*/u, '').charAt(0);
+  return ['=', '+', '-', '@'].includes(firstMeaningfulCharacter) ? `'${value}` : value;
+}
+
 export class GoogleSheetsAdapter
   implements SpreadsheetPort, ValidateSpreadsheetAccessPort, ISpreadsheetColumnPort
 {
@@ -43,18 +56,6 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.listSheets',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
       throw new SpreadsheetError(
         `Google Sheets API error during sheet listing: HTTP ${response.status}`,
       );
@@ -90,18 +91,6 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.getHeaders',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
       throw new SpreadsheetError(
         `Google Sheets API error during header retrieval: HTTP ${response.status}`,
       );
@@ -144,7 +133,7 @@ export class GoogleSheetsAdapter
           Authorization: `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ values: [values] }),
+        body: JSON.stringify({ values: [values.map(sanitizeGoogleSheetsCellValue)] }),
       });
     } catch (err) {
       throw new SpreadsheetError(`Network error during row append: ${String(err)}`, {
@@ -268,18 +257,6 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.getUniqueValues',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
       throw new SpreadsheetError(
         `Google Sheets API error during unique values retrieval: HTTP ${response.status}`,
       );

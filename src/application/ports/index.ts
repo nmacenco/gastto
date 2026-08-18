@@ -8,3 +8,6 @@ export * from './output/categoryKeywordVocabularyRepository.port';
 export * from './IChatMessenger';
 export * from './IncomingMessageJob';
 export * from './ProcessMessageJob';
+export * from './OAuthReminderJob';
+export * from './SessionTimeoutJob';
+export * from './InvalidJobPayloadError';

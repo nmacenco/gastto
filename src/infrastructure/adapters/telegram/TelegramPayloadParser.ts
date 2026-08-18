@@ -6,11 +6,49 @@
 
 import type { NormalizedPayload } from '../../../domain/ports/messaging';
 
+export type TelegramChatScope = 'private' | 'non-private' | 'unknown' | 'not-applicable';
+
 /**
  * Validates whether a value is a non-null object.
  */
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Classifies the chat scope from an already authenticated Telegram update.
+ * This deliberately performs only structural inspection; payload normalization
+ * remains the responsibility of parseTelegramPayload.
+ */
+export function getTelegramChatScope(payload: unknown): TelegramChatScope {
+  if (!isObject(payload)) {
+    return 'not-applicable';
+  }
+
+  const message = isObject(payload.message) ? payload.message : undefined;
+  const callbackQuery = isObject(payload.callback_query) ? payload.callback_query : undefined;
+  const callbackMessage =
+    callbackQuery && isObject(callbackQuery.message) ? callbackQuery.message : undefined;
+  const candidate = message ?? callbackMessage;
+
+  if (candidate === undefined) {
+    return callbackQuery === undefined ? 'not-applicable' : 'unknown';
+  }
+
+  const chat = candidate.chat;
+  if (!isObject(chat) || typeof chat.type !== 'string') {
+    return 'unknown';
+  }
+
+  if (chat.type === 'private') {
+    return 'private';
+  }
+
+  if (chat.type === 'group' || chat.type === 'supergroup' || chat.type === 'channel') {
+    return 'non-private';
+  }
+
+  return 'unknown';
 }
 
 type TelegramMessageLike = {

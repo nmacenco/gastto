@@ -14,6 +14,7 @@ import type { Env } from '@config/env.schema';
 import { createLogger } from './infrastructure/logger';
 import type { CreateLoggerOptions } from './infrastructure/logger';
 import type { Logger } from 'pino';
+import { scrubSentryEvent } from './infrastructure/observability/sensitiveData';
 
 import { createFastify, buildDependencies, registerRoutes, registerWorkers } from './bootstrap';
 
@@ -41,6 +42,7 @@ export async function bootstrap(
     Sentry.init({
       dsn: env.SENTRY_DSN,
       environment: env.NODE_ENV,
+      beforeSend: scrubSentryEvent,
     });
   }
 

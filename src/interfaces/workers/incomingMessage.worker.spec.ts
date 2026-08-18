@@ -11,6 +11,7 @@ import type { RouteIncomingMessage } from '../../application/use-cases/conversat
 import type { IncomingMessageJobData } from '../../application/ports/IncomingMessageJob';
 import type { NormalizedPayload } from '../../domain/ports/messaging';
 import { processIncomingMessageJob, createIncomingMessageWorker } from './incomingMessage.worker';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 
 vi.mock('bullmq', () => ({
   Worker: vi.fn().mockImplementation(() => {
@@ -109,6 +110,7 @@ describe('processIncomingMessageJob', () => {
             text,
             timestamp: `2026-05-20T12:0${index}:00.000Z`,
             channel: 'telegram',
+            externalMessageId: `message-${index}`,
           },
         }) as Job<IncomingMessageJobData>,
     );
@@ -140,6 +142,17 @@ describe('processIncomingMessageJob', () => {
     await expect(
       processIncomingMessageJob(mockJob, buildMockRouteIncomingMessage()),
     ).rejects.toThrow('Routing failed');
+  });
+
+  it('rejects malformed and unknown job fields before routing', async () => {
+    const job = {
+      data: { messageType: 'INVALID', unexpected: true },
+    } as unknown as Job<IncomingMessageJobData>;
+
+    await expect(processIncomingMessageJob(job, buildMockRouteIncomingMessage())).rejects.toThrow(
+      InvalidJobPayloadError,
+    );
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });
 
@@ -216,8 +229,8 @@ describe('createIncomingMessageWorker', () => {
     expect(mockLoggerError).toHaveBeenCalledWith({
       msg: 'Incoming message worker failed permanently',
       jobId: 'job-99',
-      data: { messageType: 'TEXT' },
-      error: 'Queue connection lost',
+      queue: 'incoming-message',
+      code: 'JOB_FAILED',
     });
   });
 });

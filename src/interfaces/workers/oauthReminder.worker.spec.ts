@@ -12,14 +12,19 @@ import type { Job } from 'bullmq';
 import type { Logger } from 'pino';
 import type { SendOAuthReminder } from '../../application/use-cases/spreadsheet/SendOAuthReminder';
 import { InvalidStateTransitionError } from '../../domain/errors/InvalidStateTransitionError';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 
 const mockExecute = vi.fn();
 const mockLoggerWarn = vi.fn();
+const mockFindByMessagingIdentity = vi.fn();
 
 function buildMockDeps(): OAuthReminderWorkerDeps {
   return {
     redis: {} as unknown as OAuthReminderWorkerDeps['redis'],
     logger: { warn: mockLoggerWarn } as unknown as Logger,
+    userRepo: {
+      findByMessagingIdentity: mockFindByMessagingIdentity,
+    } as unknown as OAuthReminderWorkerDeps['userRepo'],
     sendOAuthReminder: { execute: mockExecute } as unknown as SendOAuthReminder,
     redirectUri: 'http://localhost:3000/auth/google/callback',
   };
@@ -38,6 +43,7 @@ function buildJob(): Job<{ userId: string; externalId: string; channel: 'telegra
 describe('processOAuthReminderJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFindByMessagingIdentity.mockResolvedValue({ userId: 'user-123' });
   });
 
   it('delegates to SendOAuthReminder with job data and default provider', async () => {
@@ -72,7 +78,7 @@ describe('processOAuthReminderJob', () => {
       expect.objectContaining({
         msg: 'OAuth reminder skipped: invalid state transition',
         userId: 'user-123',
-        error: 'Invalid state transition from IDLE to ONBOARDING_DRIVE',
+        code: 'INVALID_STATE_TRANSITION',
       }),
     );
   });
@@ -82,6 +88,26 @@ describe('processOAuthReminderJob', () => {
 
     const deps = buildMockDeps();
     await expect(processOAuthReminderJob(buildJob(), deps)).rejects.toThrow('Database down');
+  });
+
+  it('rejects malformed job data before sending a reminder', async () => {
+    const deps = buildMockDeps();
+    const job = { data: { userId: 'user-123', channel: 'invalid' } } as Job;
+
+    await expect(processOAuthReminderJob(job as Job<never>, deps)).rejects.toThrow(
+      InvalidJobPayloadError,
+    );
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('rejects mismatched messaging identity before sending a reminder', async () => {
+    const deps = buildMockDeps();
+    mockFindByMessagingIdentity.mockResolvedValue({ userId: 'other-user' });
+
+    await expect(processOAuthReminderJob(buildJob(), deps)).rejects.toThrow(
+      'Messaging identity does not match job user',
+    );
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });
 
