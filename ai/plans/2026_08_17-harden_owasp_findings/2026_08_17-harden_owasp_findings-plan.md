@@ -116,17 +116,17 @@ Keep provider and domain port signatures stable while ensuring that user message
 
 #### To-do actions
 
-- [ ] Split extraction and correction prompt builders into static trusted system instructions and JSON-serialized user content for Claude, OpenAI, and NVIDIA.
-- [ ] Wrap user messages, category vocabularies, default currency, and current extracted values in consistently named untrusted-data markers.
-- [ ] Add a static guard to each provider's `generateResponse` implementation and update header-detection and column-inference prompt builders to mark spreadsheet rows, headers, and samples as untrusted data.
-- [ ] Preserve the existing Zod response schemas and strengthen semantic checks where output values must reference supplied rows, columns, or allowed enums.
-- [ ] Ensure malformed or adversarial model output follows the current controlled fallback behavior and is never written directly to logs.
-- [ ] Extend all three provider adapter suites to assert role separation and prove that malicious category/current-summary strings never appear in the system role.
-- [ ] Extend header-detection and column-inference suites with instruction-like spreadsheet cells and out-of-range structured responses.
-- [ ] Update `docs/features/infer-and-propose-column-mapping.md` with the LLM trust-boundary behavior and update `docs/features/README.md`.
-- [ ] Run the targeted LLM, header-detection, and column-inference Vitest suites.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Split extraction and correction prompt builders into static trusted system instructions and JSON-serialized user content for Claude, OpenAI, and NVIDIA.
+- [x] Wrap user messages, category vocabularies, default currency, and current extracted values in consistently named untrusted-data markers.
+- [x] Add a static guard to each provider's `generateResponse` implementation and update header-detection and column-inference prompt builders to mark spreadsheet rows, headers, and samples as untrusted data.
+- [x] Preserve the existing Zod response schemas and strengthen semantic checks where output values must reference supplied rows, columns, or allowed enums.
+- [x] Ensure malformed or adversarial model output follows the current controlled fallback behavior and is never written directly to logs.
+- [x] Extend all three provider adapter suites to assert role separation and prove that malicious category/current-summary strings never appear in the system role.
+- [x] Extend header-detection and column-inference suites with instruction-like spreadsheet cells and out-of-range structured responses.
+- [x] Update `docs/features/infer-and-propose-column-mapping.md` with the LLM trust-boundary behavior and update `docs/features/README.md`.
+- [x] Run the targeted LLM, header-detection, and column-inference Vitest suites.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 5: Redact application logs and scrub Sentry events
 
@@ -156,4 +156,4 @@ Prevent financial messages, raw webhook bodies, job payloads, authorization mate
 
 ## Next step
 
-Review and commit Phase 3, then execute Phase 4 to establish LLM prompt trust boundaries.
+Review and commit Phase 4, then execute Phase 5 to redact application logs and scrub Sentry events.

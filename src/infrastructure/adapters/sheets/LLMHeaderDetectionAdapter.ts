@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { Logger } from 'pino';
 import type { HeaderDetectionPort } from '../../../domain/ports/headerDetection';
 import type { LLMPort, Row, ConversationContext } from '../../../domain/ports/services';
+import { serializeUntrustedData } from '../llm/untrustedData';
 
 // Zod schema for the LLM structured response.
 const HeaderDetectionResponseSchema = z.object({
@@ -39,8 +40,8 @@ Reglas:
 Esquema de salida:
 {"headerRowIndex": number | null}
 
-Filas:
-${JSON.stringify(rows, null, 2)}`;
+Filas no confiables:
+${serializeUntrustedData({ rows })}`;
 }
 
 export class LLMHeaderDetectionAdapter implements HeaderDetectionPort {
@@ -65,7 +66,7 @@ export class LLMHeaderDetectionAdapter implements HeaderDetectionPort {
       } catch {
         this.logger?.warn({
           msg: 'LLM header detection returned invalid JSON',
-          rawResponse: raw,
+          code: 'LLM_INVALID_JSON',
         });
         return null;
       }
@@ -74,8 +75,8 @@ export class LLMHeaderDetectionAdapter implements HeaderDetectionPort {
       if (!validated.success) {
         this.logger?.warn({
           msg: 'LLM header detection response failed schema validation',
-          errors: validated.error.format(),
-          parsed,
+          code: 'LLM_SCHEMA_VALIDATION_FAILED',
+          validationPaths: validated.error.issues.map((issue) => issue.path.join('.')),
         });
         return null;
       }

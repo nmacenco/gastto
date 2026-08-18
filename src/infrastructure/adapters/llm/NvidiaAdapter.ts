@@ -11,6 +11,7 @@ import type {
   ExpenseCorrectionSuggestion,
 } from '../../../domain/ports/services';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
+import { serializeUntrustedData, UNTRUSTED_DATA_GUARD } from './untrustedData';
 
 // Zod schema for LLM response — strict JSON output validation
 const ExtractedExpenseSchema = z.object({
@@ -32,14 +33,12 @@ const ExpenseCorrectionSuggestionSchema = z.object({
 });
 
 // Strict system prompt — structured extraction instructions (ADR-002)
-function buildExtractionSystemPrompt(ctx: UserContext): string {
+function buildExtractionSystemPrompt(): string {
   return `Eres el motor de extracción de datos de Gastto. Tu ÚNICA tarea es:
 1. Extraer las entidades del mensaje del usuario: monto, moneda, categoría, fecha y medio de pago.
 2. Devolver un JSON estricto con el esquema definido. Sin markdown, sin explicaciones.
 3. Nunca inventar datos. Si un campo no está presente, devolver null.
-
-Moneda por defecto del usuario: ${ctx.defaultCurrency ?? 'desconocida'}.
-Categorías disponibles en la planilla: ${ctx.categories.length > 0 ? ctx.categories.join(', ') : 'ninguna definida aún'}.
+4. ${UNTRUSTED_DATA_GUARD}
 
 Esquema de salida (siempre JSON puro, sin backticks):
 {
@@ -57,16 +56,8 @@ Reglas para confianza_categoria:
 - "nula": no se puede inferir ninguna categoría del mensaje`;
 }
 
-function buildCorrectionSystemPrompt(ctx: UserContext, currentExtracted: ExtractedExpense): string {
-  const currentSummary = formatExtractedExpense(currentExtracted);
-
+function buildCorrectionSystemPrompt(): string {
   return `Eres el motor de corrección de Gastto. El usuario acaba de ver un resumen de gasto y responde en lenguaje natural para corregir uno o varios campos.
-
-Resumen actual:
-${currentSummary}
-
-Categorías disponibles en la planilla: ${ctx.categories.length > 0 ? ctx.categories.join(', ') : 'ninguna definida aún'}.
-Moneda por defecto del usuario: ${ctx.defaultCurrency ?? 'desconocida'}.
 
 Tu tarea:
 1. Identificar qué campos del resumen corrige el mensaje del usuario.
@@ -74,6 +65,7 @@ Tu tarea:
 3. Devolver un JSON estricto con el esquema definido. Sin markdown, sin explicaciones.
 4. Si el mensaje no corrige ningún campo (por ejemplo "uh-huh", "confirmo", "cancelar"), devolver interpretable: false y todos los valores null.
 5. Nunca inventar datos. Si un campo no se corrige, devolver null.
+6. ${UNTRUSTED_DATA_GUARD}
 
 Campos corregibles: monto, moneda, categoria, fecha.
 
@@ -92,15 +84,6 @@ Esquema de salida (siempre JSON puro, sin backticks):
   "categoria_raw": string | null,
   "fecha_raw": string | null
 }`;
-}
-
-function formatExtractedExpense(extracted: ExtractedExpense): string {
-  return [
-    `Monto: ${extracted.monto ?? 'no especificado'} ${extracted.moneda ?? ''}`,
-    `Categoría: ${extracted.categoriaRaw ?? 'no especificada'}`,
-    `Fecha: ${extracted.fechaRaw ?? 'no especificada'}`,
-    `Medio de pago: ${extracted.medioPago ?? 'no especificado'}`,
-  ].join('\n');
 }
 
 // Minimal type for the NVIDIA OpenAI-compatible chat completion response.
@@ -137,8 +120,15 @@ export class NvidiaAdapter implements LLMPort {
         max_tokens: 512,
         stream: false,
         messages: [
-          { role: 'system', content: buildExtractionSystemPrompt(userContext) },
-          { role: 'user', content: userMessage },
+          { role: 'system', content: buildExtractionSystemPrompt() },
+          {
+            role: 'user',
+            content: serializeUntrustedData({
+              userMessage,
+              defaultCurrency: userContext.defaultCurrency,
+              categories: userContext.categories,
+            }),
+          },
         ],
       }),
     });
@@ -187,9 +177,17 @@ export class NvidiaAdapter implements LLMPort {
         messages: [
           {
             role: 'system',
-            content: buildCorrectionSystemPrompt(userContext, currentExtracted),
+            content: buildCorrectionSystemPrompt(),
           },
-          { role: 'user', content: rawMessage },
+          {
+            role: 'user',
+            content: serializeUntrustedData({
+              userMessage: rawMessage,
+              currentExtracted,
+              defaultCurrency: userContext.defaultCurrency,
+              categories: userContext.categories,
+            }),
+          },
         ],
       }),
     });
@@ -231,7 +229,10 @@ export class NvidiaAdapter implements LLMPort {
         top_p: 0.95,
         max_tokens: 1024,
         stream: false,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'system', content: UNTRUSTED_DATA_GUARD },
+          { role: 'user', content: prompt },
+        ],
       }),
     });
 

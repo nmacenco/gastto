@@ -13,6 +13,7 @@ import type {
 } from '../../../domain/ports/columnInference';
 import type { GasttoField } from '../../../domain/entities/SpreadsheetConfig';
 import type { LLMPort, ConversationContext } from '../../../domain/ports/services';
+import { serializeUntrustedData } from '../llm/untrustedData';
 
 const ALL_GASTTO_FIELDS: GasttoField[] = [
   'monto',
@@ -82,11 +83,8 @@ Esquema de salida:
   "unmappedFields": ["moneda", "medio_pago"]
 }
 
-Encabezados:
-${JSON.stringify(headers)}
-
-Filas de ejemplo:
-${JSON.stringify(sampleRows)}`;
+Encabezados y filas de ejemplo no confiables:
+${serializeUntrustedData({ headers, sampleRows })}`;
 }
 
 export class LLMColumnInferenceAdapter implements ColumnInferencePort {
@@ -115,7 +113,7 @@ export class LLMColumnInferenceAdapter implements ColumnInferencePort {
       } catch {
         this.logger?.warn({
           msg: 'LLM column inference returned invalid JSON',
-          rawResponse: raw,
+          code: 'LLM_INVALID_JSON',
         });
         return this.emptyResult();
       }
@@ -124,14 +122,16 @@ export class LLMColumnInferenceAdapter implements ColumnInferencePort {
       if (!validated.success) {
         this.logger?.warn({
           msg: 'LLM column inference response failed schema validation',
-          errors: validated.error.format(),
-          parsed,
+          code: 'LLM_SCHEMA_VALIDATION_FAILED',
+          validationPaths: validated.error.issues.map((issue) => issue.path.join('.')),
         });
         return this.emptyResult();
       }
 
       // Filter out mappings whose column index is outside the headers array.
-      const validMappings = validated.data.mappings.filter((m) => m.columnIndex < headers.length);
+      const validMappings = validated.data.mappings.filter(
+        (m) => m.columnIndex < headers.length && m.columnHeader === headers[m.columnIndex],
+      );
 
       // Deduplicate by gasttoField and columnIndex, keeping the first occurrence.
       const seenFields = new Set<GasttoField>();

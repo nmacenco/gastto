@@ -11,6 +11,7 @@ import type {
   ExpenseCorrectionSuggestion,
 } from '../../../domain/ports/services';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
+import { serializeUntrustedData, UNTRUSTED_DATA_GUARD } from './untrustedData';
 
 const ExtractedExpenseSchema = z.object({
   monto: z.number().nullable(),
@@ -30,14 +31,12 @@ const ExpenseCorrectionSuggestionSchema = z.object({
   fecha_raw: z.string().nullable(),
 });
 
-function buildExtractionSystemPrompt(ctx: UserContext): string {
+function buildExtractionSystemPrompt(): string {
   return `Eres el motor de extracción de datos de Gastto. Tu ÚNICA tarea es:
 1. Extraer del mensaje del usuario: monto, moneda, categoría, fecha y medio de pago.
 2. Devolver exclusivamente un JSON con el esquema definido. Sin markdown, sin texto adicional.
 3. Nunca inventar datos. Si un campo no está presente, devolver null.
-
-Moneda por defecto del usuario: ${ctx.defaultCurrency ?? 'desconocida'}.
-Categorías disponibles en la planilla: ${ctx.categories.length > 0 ? ctx.categories.join(', ') : 'ninguna definida aún'}.
+4. ${UNTRUSTED_DATA_GUARD}
 
 Esquema de salida (JSON puro, sin backticks ni comentarios):
 {
@@ -50,16 +49,8 @@ Esquema de salida (JSON puro, sin backticks ni comentarios):
 }`;
 }
 
-function buildCorrectionSystemPrompt(ctx: UserContext, currentExtracted: ExtractedExpense): string {
-  const currentSummary = formatExtractedExpense(currentExtracted);
-
+function buildCorrectionSystemPrompt(): string {
   return `Eres el motor de corrección de Gastto. El usuario acaba de ver un resumen de gasto y responde en lenguaje natural para corregir uno o varios campos.
-
-Resumen actual:
-${currentSummary}
-
-Categorías disponibles en la planilla: ${ctx.categories.length > 0 ? ctx.categories.join(', ') : 'ninguna definida aún'}.
-Moneda por defecto del usuario: ${ctx.defaultCurrency ?? 'desconocida'}.
 
 Tu tarea:
 1. Identificar qué campos del resumen corrige el mensaje del usuario.
@@ -67,6 +58,7 @@ Tu tarea:
 3. Devolver exclusivamente un JSON con el esquema definido. Sin markdown, sin texto adicional.
 4. Si el mensaje no corrige ningún campo (por ejemplo "uh-huh", "confirmo", "cancelar"), devolver interpretable: false y todos los valores null.
 5. Nunca inventar datos. Si un campo no se corrige, devolver null.
+6. ${UNTRUSTED_DATA_GUARD}
 
 Campos corregibles: monto, moneda, categoria, fecha.
 
@@ -87,15 +79,6 @@ Esquema de salida (JSON puro, sin backticks ni comentarios):
 }`;
 }
 
-function formatExtractedExpense(extracted: ExtractedExpense): string {
-  return [
-    `Monto: ${extracted.monto ?? 'no especificado'} ${extracted.moneda ?? ''}`,
-    `Categoría: ${extracted.categoriaRaw ?? 'no especificada'}`,
-    `Fecha: ${extracted.fechaRaw ?? 'no especificada'}`,
-    `Medio de pago: ${extracted.medioPago ?? 'no especificado'}`,
-  ].join('\n');
-}
-
 export class ClaudeAdapter implements LLMPort {
   private readonly client: Anthropic;
 
@@ -107,8 +90,17 @@ export class ClaudeAdapter implements LLMPort {
     const message = await this.client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 512,
-      system: buildExtractionSystemPrompt(userContext),
-      messages: [{ role: 'user', content: userMessage }],
+      system: buildExtractionSystemPrompt(),
+      messages: [
+        {
+          role: 'user',
+          content: serializeUntrustedData({
+            userMessage,
+            defaultCurrency: userContext.defaultCurrency,
+            categories: userContext.categories,
+          }),
+        },
+      ],
     });
 
     const block = message.content.find((b) => b.type === 'text');
@@ -137,8 +129,18 @@ export class ClaudeAdapter implements LLMPort {
     const message = await this.client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 512,
-      system: buildCorrectionSystemPrompt(userContext, currentExtracted),
-      messages: [{ role: 'user', content: rawMessage }],
+      system: buildCorrectionSystemPrompt(),
+      messages: [
+        {
+          role: 'user',
+          content: serializeUntrustedData({
+            userMessage: rawMessage,
+            currentExtracted,
+            defaultCurrency: userContext.defaultCurrency,
+            categories: userContext.categories,
+          }),
+        },
+      ],
     });
 
     const block = message.content.find((b) => b.type === 'text');
@@ -162,6 +164,7 @@ export class ClaudeAdapter implements LLMPort {
     const message = await this.client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
+      system: UNTRUSTED_DATA_GUARD,
       messages: [{ role: 'user', content: prompt }],
     });
 
