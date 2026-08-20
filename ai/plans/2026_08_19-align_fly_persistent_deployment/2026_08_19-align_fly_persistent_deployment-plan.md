@@ -17,7 +17,7 @@ Align the Fly.io deployment and shutdown lifecycle with the running BullMQ worke
 - [docs/adr/ADR-009-fastify-persistent.md](../../../docs/adr/ADR-009-fastify-persistent.md): Requires a persistent Node.js runtime for BullMQ workers.
 - [docs/adr/ADR-010-multi-environment-flyio.md](../../../docs/adr/ADR-010-multi-environment-flyio.md): Records the original temporary auto-stop configuration and requires disabling it once BullMQ workers are present; this merged ADR remains immutable.
 - [docs/adr/README.md](../../../docs/adr/README.md): ADR index to update if a new lifecycle ADR is added.
-- [docs/adr/template.md](../../../docs/adr/template.md): Template for the new ADR that records the persistent single-Machine lifecycle and its availability-versus-cost trade-off.
+- [docs/templates/adr.md](../../../docs/templates/adr.md): Template for the new ADR that records the persistent single-Machine lifecycle and its availability-versus-cost trade-off.
 - [docs/architecture/config-env.md](../../../docs/architecture/config-env.md): Defines environment configuration and the separation between Fly.io secrets and GitHub Actions deploy tokens.
 - [docs/testing/guidelines.md](../../../docs/testing/guidelines.md): Defines the required meaningful test coverage and project ship checks.
 
@@ -52,19 +52,19 @@ Update the versioned Fly and process-lifecycle configuration so both environment
 
 Document the completed lifecycle decision and verify the external GitHub and Fly.io state on which the merge-only and single-Machine contracts depend. Missing repository protection is a completion blocker, and any Machine scale-down requires explicit confirmation because it destroys capacity.
 
-- [ ] Add a new ADR from [docs/adr/template.md](../../../docs/adr/template.md) that records the persistent single-Machine Fly.io lifecycle, the cost-versus-availability trade-off, the 30-second graceful-shutdown policy, and the fact that it supersedes only the temporary lifecycle subsection of ADR-010 without editing the merged ADR.
-- [ ] Add the new ADR to [docs/adr/README.md](../../../docs/adr/README.md) with its final identifier, title, and status.
-- [ ] Update [docs/features/deployment.md](../../../docs/features/deployment.md) to state that deployment workflows are triggered only by pushes to protected `develop` and `main`; explicitly state that PR opening and `synchronize` do not deploy and that a push workflow alone cannot distinguish a merge from a direct push.
-- [ ] Correct the deployment guide's contradictory direct-push wording and document the required no-bypass, administrator enforcement, force-push restriction, PR requirement, and `quality` status check.
-- [ ] Update the same guide with the persistent BullMQ lifecycle, disabled autostop/autostart settings, removal of `min_machines_running`, graceful termination behavior, single-Machine recovery behavior, and staged rollout and rollback procedures.
-- [ ] Update the deployment entry in [docs/features/README.md](../../../docs/features/README.md) so the index mentions the persistent worker lifecycle and merge-protected deployment policy.
-- [ ] Verify the active GitHub branch protections or rulesets for `develop` and `main`: required pull requests, required `quality` check, administrator enforcement, disabled force-pushes, and no bypass actors. If any requirement is absent or cannot be inspected, report the exact gap and leave the phase blocked until the user configures it or explicitly authorizes an in-scope correction; do not claim merge-only deployment and do not weaken existing rules.
-- [ ] Inspect both Fly apps with `flyctl scale show --app <app-name>` and `flyctl machine list --app <app-name>` to resolve the `app` process group, region, Machine identifiers, status, and total count.
-- [ ] If either `app` process group has a count other than one, present the exact current and target state and obtain explicit user confirmation before running `flyctl scale count app=1 --app <app-name>`; do not modify unrelated process groups or Machines.
-- [ ] After any approved scale change, repeat `flyctl scale show` and `flyctl machine list` and confirm exactly one running `app` Machine remains in the intended region for each environment.
-- [ ] Run `pnpm test` and fix any failures.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add a new ADR from [docs/templates/adr.md](../../../docs/templates/adr.md) that records the persistent single-Machine Fly.io lifecycle, the cost-versus-availability trade-off, the 30-second graceful-shutdown policy, and the fact that it supersedes only the temporary lifecycle subsection of ADR-010 without editing the merged ADR.
+- [x] Add the new ADR to [docs/adr/README.md](../../../docs/adr/README.md) with its final identifier, title, and status.
+- [x] Update [docs/features/deployment.md](../../../docs/features/deployment.md) to state that deployment workflows are triggered only by pushes to protected `develop` and `main`; explicitly state that PR opening and `synchronize` do not deploy and that a push workflow alone cannot distinguish a merge from a direct push.
+- [x] Correct the deployment guide's contradictory direct-push wording and document the required no-bypass, administrator enforcement, force-push restriction, PR requirement, and `quality` status check.
+- [x] Update the same guide with the persistent BullMQ lifecycle, disabled autostop/autostart settings, removal of `min_machines_running`, graceful termination behavior, single-Machine recovery behavior, and staged rollout and rollback procedures.
+- [x] Update the deployment entry in [docs/features/README.md](../../../docs/features/README.md) so the index mentions the persistent worker lifecycle and merge-protected deployment policy.
+- [x] Verify the active GitHub branch protections or rulesets for `develop` and `main`: required pull requests, required `quality` check, administrator enforcement, disabled force-pushes, and no bypass actors. If any requirement is absent or cannot be inspected, report the exact gap and leave the phase blocked until the user configures it or explicitly authorizes an in-scope correction; do not claim merge-only deployment and do not weaken existing rules.
+- [x] Inspect both Fly apps with `flyctl scale show --app <app-name>` and `flyctl machine list --app <app-name>` to resolve the `app` process group, region, Machine identifiers, status, and total count.
+- [x] If either `app` process group has a count other than one, present the exact current and target state and obtain explicit user confirmation before running `flyctl scale count app=1 --app <app-name>`; do not modify unrelated process groups or Machines.
+- [x] After any approved scale change, repeat `flyctl scale show` and `flyctl machine list`; confirm exactly one `app` Machine remains in the intended region for each environment and record its current state. Running-state and idle-persistence verification follow the Phase 3 deployment because the live Machines still use the prior auto-stop configuration.
+- [x] Run `pnpm test` and fix any failures.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Phase 3: Roll out through protected branches and verify persistence
 
@@ -84,4 +84,4 @@ Roll out the same reviewed change to development first and production second, us
 
 # Next step
 
-Complete Phase 2 by synchronizing the canonical deployment documentation and verifying the external GitHub and Fly.io safeguards.
+Plan execution closed at the user's request after Phase 2; Phase 3 remains intentionally pending until the committed branch is merged through protected `develop` and `main` and the rollout can be verified.
