@@ -22,5 +22,5 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`undo-last-expense.md`](./undo-last-expense.md) — Safe one-record Google Sheets undo with immediate eligibility and delayed explicit confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM for multi-turn conversational flows with session timeout.
-- [`deployment.md`](./deployment.md) — Multi-environment Fly.io deployment, secrets management, and Telegram bot isolation.
+- [`deployment.md`](./deployment.md) — Merge-protected multi-environment Fly.io deployment with persistent BullMQ worker Machines, graceful shutdown, secrets management, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).
