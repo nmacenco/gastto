@@ -21,6 +21,47 @@ import { createFastify, buildDependencies, registerRoutes, registerWorkers } fro
 /** Logger factory injected into bootstrap for testability. */
 export type LoggerFactory = (opts?: CreateLoggerOptions) => Logger;
 
+type ShutdownSignal = 'SIGTERM' | 'SIGINT';
+type ShutdownTarget = Pick<FastifyInstance, 'close' | 'log'>;
+interface SignalSource {
+  once(signal: ShutdownSignal, listener: () => void): unknown;
+}
+
+/** Installs process signal handlers and returns the shared idempotent shutdown operation. */
+export function registerShutdownHandlers(
+  app: ShutdownTarget,
+  signalSource: SignalSource = process,
+): (signal: ShutdownSignal) => Promise<void> {
+  let shutdownPromise: Promise<void> | undefined;
+
+  const shutdown = (signal: ShutdownSignal): Promise<void> => {
+    if (shutdownPromise) {
+      return shutdownPromise;
+    }
+
+    app.log.info({ msg: 'Graceful shutdown started', signal });
+    shutdownPromise = app.close().catch((error: unknown) => {
+      app.log.error({
+        msg: 'Graceful shutdown failed',
+        endpoint: 'process',
+        code: 'GRACEFUL_SHUTDOWN_FAILED',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    return shutdownPromise;
+  };
+
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    signalSource.once(signal, () => {
+      void shutdown(signal);
+    });
+  }
+
+  return shutdown;
+}
+
+export type RegisterShutdownHandlers = typeof registerShutdownHandlers;
+
 /**
  * Bootstraps the Gastto server.
  *
@@ -52,10 +93,12 @@ export async function bootstrap(
   // -- Infraestructura condicional (solo cuando las env vars estan presentes) --
   let deps: ReturnType<typeof buildDependencies> | null = null;
   if (env.DATABASE_URL && env.REDIS_URL) {
+    let sql: ReturnType<typeof postgres> | null = null;
+    let redis: Redis | null = null;
     try {
-      const sql = postgres(env.DATABASE_URL);
+      sql = postgres(env.DATABASE_URL);
       const db = drizzle(sql);
-      const redis = new Redis(env.REDIS_URL, {
+      redis = new Redis(env.REDIS_URL, {
         maxRetriesPerRequest: null,
         // Fly.io Upstash Redis requiere TLS (rediss://). Si el URL usa redis:// sin TLS,
         // la conexion sera reseteada por el proxy de Fly.io (ECONNRESET).
@@ -73,7 +116,20 @@ export async function bootstrap(
 
       deps = buildDependencies(env, { db, redis, rootLogger });
       await registerWorkers(app, deps, env);
+
+      const runtimeSql = sql;
+      const runtimeRedis = redis;
+      app.addHook('onClose', async () => {
+        const results = await Promise.allSettled([runtimeRedis.quit(), runtimeSql.end()]);
+        const failure = results.find(
+          (result): result is PromiseRejectedResult => result.status === 'rejected',
+        );
+        if (failure) {
+          throw failure.reason;
+        }
+      });
     } catch (err) {
+      await Promise.allSettled([redis?.quit(), sql?.end()]);
       app.log.error({ msg: 'Failed to initialize infrastructure', error: err });
     }
   }
@@ -91,9 +147,13 @@ export async function bootstrap(
 // `bootstrap` without launching the server.
 const isMainModule = typeof require !== 'undefined' && require.main === module;
 if (isMainModule) {
-  bootstrap(env, createLogger).catch((err) => {
-    const logger = createLogger({ level: 'info', pretty: false });
-    logger.fatal(err, 'Fatal error during bootstrap');
-    process.exit(1);
-  });
+  bootstrap(env, createLogger)
+    .then((app) => {
+      registerShutdownHandlers(app);
+    })
+    .catch((err) => {
+      const logger = createLogger({ level: 'info', pretty: false });
+      logger.fatal(err, 'Fatal error during bootstrap');
+      process.exit(1);
+    });
 }

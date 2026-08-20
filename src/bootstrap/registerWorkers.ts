@@ -14,6 +14,25 @@ import { createSessionTimeoutWorker } from '../interfaces/workers/sessionTimeout
 import { createOAuthReminderWorker } from '../interfaces/workers/oauthReminder.worker';
 import { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
 
+interface CloseableBullMqResource {
+  close(): Promise<void>;
+}
+
+async function closeBullMqResources(
+  workers: CloseableBullMqResource[],
+  queues: CloseableBullMqResource[],
+): Promise<void> {
+  const workerResults = await Promise.allSettled(workers.map((worker) => worker.close()));
+  const queueResults = await Promise.allSettled(queues.map((queue) => queue.close()));
+  const failure = [...workerResults, ...queueResults].find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  );
+
+  if (failure) {
+    throw failure.reason;
+  }
+}
+
 /**
  * Starts all background workers and auto-registers the Telegram webhook.
  *
@@ -25,6 +44,22 @@ export async function registerWorkers(
   deps: Dependencies,
   env: Env,
 ): Promise<void> {
+  const workers: CloseableBullMqResource[] = [];
+  const queues: CloseableBullMqResource[] = [
+    deps.incomingMessageQueue,
+    deps.messageQueue,
+    deps.reminderQueue,
+  ];
+  let resourcesClosed = false;
+
+  app.addHook('onClose', async () => {
+    if (resourcesClosed) {
+      return;
+    }
+    resourcesClosed = true;
+    await closeBullMqResources(workers, queues);
+  });
+
   if (deps.telegram === null) {
     return;
   }
@@ -37,6 +72,7 @@ export async function registerWorkers(
     routeIncomingMessage,
     logger: deps.rootLogger,
   });
+  workers.push(incomingMessageWorker);
   app.log.info(
     `Started incoming-message worker (concurrency: ${incomingMessageWorker.opts.concurrency})`,
   );
@@ -79,6 +115,7 @@ export async function registerWorkers(
     detectCategories: deps.googleOAuth?.detectCategories ?? null,
     confirmCategories: deps.googleOAuth?.confirmCategories ?? null,
   });
+  workers.push(messageWorker);
   app.log.info(`Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`);
 
   // Auto-register Telegram webhook on startup so Telegram knows where to deliver updates.
@@ -105,6 +142,7 @@ export async function registerWorkers(
       sendOAuthReminder: deps.googleOAuth.sendOAuthReminder,
       redirectUri: env.GOOGLE_REDIRECT_URI,
     });
+    workers.push(oauthReminderWorker);
     app.log.info(
       `Started oauth-reminder worker (concurrency: ${oauthReminderWorker.opts.concurrency})`,
     );
@@ -115,6 +153,7 @@ export async function registerWorkers(
     const sessionTimeoutQueue = new Queue('session-timeout', {
       connection: deps.redis,
     });
+    queues.push(sessionTimeoutQueue);
     await sessionTimeoutQueue.add('session-timeout', {}, { repeat: { every: 120_000 } });
 
     const handleExpiredSessions = new HandleExpiredSessions(
@@ -129,11 +168,12 @@ export async function registerWorkers(
       deps.advancePendingExpense,
     );
 
-    createSessionTimeoutWorker({
+    const sessionTimeoutWorker = createSessionTimeoutWorker({
       redis: deps.redis,
       handleExpiredSessions,
       logger: deps.rootLogger,
     });
+    workers.push(sessionTimeoutWorker);
     app.log.info('Started session-timeout worker (repeat every 60s)');
   } catch (err) {
     app.log.error({ msg: 'Failed to start session-timeout worker', error: err });
