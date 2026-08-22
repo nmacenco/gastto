@@ -50,7 +50,7 @@ Deliver a testable BullMQ runtime that performs fewer empty-queue polls and conv
 #### To-do actions
 
 - [x] Introduce one shared BullMQ worker drain-delay value of 30 seconds and apply it to the `incoming-message`, `process-message`, `oauth-reminder`, and `session-timeout` Worker options without changing their current concurrency, retry, stall, or lock settings.
-- [ ] Capture comparable minimum ten-minute no-traffic command-rate baselines immediately before and after the `drainDelay` change on the same Upstash-backed development runtime. Require at least a 50% reduction, record the observation without secrets or user data, and investigate remaining command sources before Phase 2 if the threshold is not met.
+- [x] Capture comparable minimum ten-minute no-traffic command-rate baselines immediately before and after the `drainDelay` change on the same Upstash-backed development runtime. Require at least a 50% reduction, record the observation without secrets or user data, and investigate remaining command sources before Phase 2 if the threshold is not met.
 - [x] Add a small typed helper for registering BullMQ `error` listeners with the approved structured log fields, usable by both Worker and Queue resources without exposing job data or connection details.
 - [x] Register Worker error listeners immediately after construction in all four Worker factories, keeping the existing `failed` job listeners separate because processor failure and infrastructure connection failure are different events. Serialize only the sanitized error message and optional low-level `causeCode`, never the `Error` object or its stack.
 - [x] Register Queue error listeners immediately after construction for the three dependency Queues in `buildDependencies` and the `session-timeout` Queue in `registerWorkers`, including when optional Telegram or Google OAuth feature bundles are absent.
@@ -64,6 +64,13 @@ Deliver a testable BullMQ runtime that performs fewer empty-queue polls and conv
 - [x] Run `pnpm build` to verify the production bundle compiles. Fix issues if any.
 - [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
 - [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+
+#### Command-rate evidence
+
+- Measurement method: count Redis `MONITOR` events in memory from the running development Machine and emit only aggregate counts and UTC timestamps. Command arguments, keys, payloads, connection details, and credentials were neither printed nor stored.
+- Pre-deploy baseline: Machine `48e3e79c943478`, version 49, Upstash-backed `gastto-develop`, 2026-08-22 11:18:15 UTC to 11:28:15 UTC. The ten-minute no-traffic window recorded 3,747 commands, or 374.7 commands per minute.
+- Post-deploy measurement: the same Machine and provider, version 50, deployed from reviewed commit `8c6b46d`, 2026-08-22 11:30:53 UTC to 11:40:53 UTC. The ten-minute no-traffic window recorded 1,371 commands, or 137.1 commands per minute. This conservative window began shortly after deployment and therefore includes nearby startup activity.
+- Result: `(3,747 - 1,371) / 3,747 = 63.41%` fewer commands. Phase 1 exceeds the required 50% reduction threshold and may proceed to Phase 2.
 
 ### Phase 2: Replace metered development Redis while preserving the persistent runtime
 
@@ -102,4 +109,4 @@ Move only `gastto-develop` to an isolated Aiven Valkey Free service, validate al
 
 ## Next step
 
-Start and deploy the reviewed Phase 1 changes to `gastto-develop`, then capture the comparable Upstash no-traffic command-rate measurements required to complete Phase 1 before beginning Phase 2.
+Begin Phase 2 by provisioning and validating an isolated Aiven Valkey Free development service without changing production or exposing credentials.
