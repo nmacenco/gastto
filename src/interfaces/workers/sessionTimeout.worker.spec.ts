@@ -85,7 +85,7 @@ describe('createSessionTimeoutWorker', () => {
     mockExecute.mockResolvedValue(undefined);
   });
 
-  it('creates a Worker with concurrency: 1', () => {
+  it('creates a Worker with concurrency: 1 and drainDelay: 30', () => {
     createSessionTimeoutWorker({
       redis: buildMockRedis(),
       handleExpiredSessions: buildMockHandleExpiredSessions(),
@@ -97,9 +97,10 @@ describe('createSessionTimeoutWorker', () => {
     const [, , opts] = WorkerMock.mock.calls[0] as unknown as [
       unknown,
       unknown,
-      { concurrency: number },
+      { concurrency: number; drainDelay: number },
     ];
     expect(opts.concurrency).toBe(1);
+    expect(opts.drainDelay).toBe(30);
   });
 
   it('processor delegates to processSessionTimeoutJob', async () => {
@@ -146,6 +147,28 @@ describe('createSessionTimeoutWorker', () => {
       jobId: 'job-99',
       queue: 'session-timeout',
       code: 'JOB_FAILED',
+    });
+  });
+
+  it('logs a sanitized structured error once on worker error events', () => {
+    const worker = createSessionTimeoutWorker({
+      redis: buildMockRedis(),
+      handleExpiredSessions: buildMockHandleExpiredSessions(),
+      logger: buildMockLogger(),
+    });
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'error',
+      new Error('Connection lost'),
+    );
+
+    expect(mockLoggerError).toHaveBeenCalledOnce();
+    expect(mockLoggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ worker error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_WORKER_ERROR',
+      queue: 'session-timeout',
+      error: 'Connection lost',
     });
   });
 });

@@ -83,6 +83,7 @@ import type { ProcessMessageJobData } from '../application/ports/ProcessMessageJ
 import type { IncomingMessageJobData } from '../application/ports/IncomingMessageJob';
 import type { LLMPort } from '../domain/ports/services';
 import type { MessagingOutputPort } from '../application/ports/output/messaging.port';
+import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
 
 /** Core infrastructure required to build the dependency graph. */
 export interface BuildDependenciesInfra {
@@ -398,6 +399,11 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       removeOnFail: 500,
     },
   });
+  registerBullMqErrorListener(messageQueue, {
+    logger: infra.rootLogger,
+    queue: 'process-message',
+    resourceKind: 'queue',
+  });
 
   const incomingMessageQueue = new Queue<IncomingMessageJobData>('incoming-message', {
     connection: infra.redis,
@@ -408,6 +414,11 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       removeOnFail: 500,
     },
   });
+  registerBullMqErrorListener(incomingMessageQueue, {
+    logger: infra.rootLogger,
+    queue: 'incoming-message',
+    resourceKind: 'queue',
+  });
 
   const reminderQueue = new Queue('oauth-reminder', {
     connection: infra.redis,
@@ -417,6 +428,11 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       removeOnComplete: 100,
       removeOnFail: 500,
     },
+  });
+  registerBullMqErrorListener(reminderQueue, {
+    logger: infra.rootLogger,
+    queue: 'oauth-reminder',
+    resourceKind: 'queue',
   });
 
   const llmPort = createLLMPort(env);

@@ -12,6 +12,7 @@ import * as Sentry from '@sentry/node';
 import { env } from '@config/env';
 import type { Env } from '@config/env.schema';
 import { createLogger } from './infrastructure/logger';
+import { sanitizeRedisErrorMessage } from './interfaces/workers/bullMqRuntime';
 import type { CreateLoggerOptions } from './infrastructure/logger';
 import type { Logger } from 'pino';
 import { scrubSentryEvent } from './infrastructure/observability/sensitiveData';
@@ -107,10 +108,13 @@ export async function bootstrap(
 
       // Prevent Redis connection errors from crashing the process (ECONNRESET on Fly.io)
       redis.on('error', (err) => {
+        const causeCode = (err as NodeJS.ErrnoException).code;
         app.log.error({
           msg: 'Redis connection error',
-          error: err.message,
-          code: (err as NodeJS.ErrnoException).code,
+          endpoint: 'redis',
+          code: 'REDIS_CONNECTION_ERROR',
+          error: sanitizeRedisErrorMessage(err.message),
+          ...(causeCode === undefined ? {} : { causeCode }),
         });
       });
 

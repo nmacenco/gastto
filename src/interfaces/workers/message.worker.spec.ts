@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { processMessageJob, createMessageWorker, type MessageWorkerDeps } from './message.worker';
-import type { Job } from 'bullmq';
+import { Worker, type Job } from 'bullmq';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
@@ -64,6 +64,22 @@ const mockCancelExpenseRegistrationExecute = vi.fn();
 const mockUndoLastExpenseExecute = vi.fn();
 const mockRetryExpenseSaveExecute = vi.fn();
 const mockStartSpreadsheetReconfigurationExecute = vi.fn();
+
+vi.mock('bullmq', () => ({
+  Worker: vi.fn().mockImplementation(() => {
+    const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+    return {
+      opts: { concurrency: 2 },
+      on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+        if (!events[event]) events[event] = [];
+        events[event].push(handler);
+      }),
+      emit: vi.fn().mockImplementation((event: string, ...args: unknown[]) => {
+        (events[event] ?? []).forEach((handler) => handler(...args));
+      }),
+    };
+  }),
+}));
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -2820,23 +2836,38 @@ describe('processMessageJob', () => {
 });
 
 describe('createMessageWorker', () => {
-  const WorkerMock = vi.fn();
-
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(WorkerMock).mockImplementation(() => ({
-      on: vi.fn(),
-      opts: { concurrency: 2 },
-    }));
   });
 
-  // We cannot easily mock the bullmq Worker class import in vitest without
-  // hoisting issues, so we test the exported processor directly in processMessageJob
-  // and verify the factory signature here at the type level.
-  it('has the correct type signature', () => {
-    // This test is mostly a compile-time guard; if it compiles, the shape is correct.
+  it('creates a Worker with concurrency: 2 and drainDelay: 30', () => {
     const deps = buildMockDeps();
-    expect(typeof createMessageWorker).toBe('function');
-    expect(() => createMessageWorker(deps)).not.toThrow(TypeError);
+    createMessageWorker(deps);
+
+    const [, , opts] = vi.mocked(Worker).mock.calls[0] as unknown as [
+      unknown,
+      unknown,
+      { concurrency: number; drainDelay: number },
+    ];
+    expect(opts.concurrency).toBe(2);
+    expect(opts.drainDelay).toBe(30);
+  });
+
+  it('logs a sanitized structured error once on worker error events', () => {
+    const worker = createMessageWorker(buildMockDeps());
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'error',
+      new Error('Connection lost'),
+    );
+
+    expect(mockLoggerError).toHaveBeenCalledOnce();
+    expect(mockLoggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ worker error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_WORKER_ERROR',
+      queue: 'process-message',
+      error: 'Connection lost',
+    });
   });
 });

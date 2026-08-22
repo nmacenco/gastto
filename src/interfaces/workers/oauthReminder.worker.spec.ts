@@ -8,7 +8,7 @@ import {
   createOAuthReminderWorker,
   type OAuthReminderWorkerDeps,
 } from './oauthReminder.worker';
-import type { Job } from 'bullmq';
+import { Worker, type Job } from 'bullmq';
 import type { Logger } from 'pino';
 import type { SendOAuthReminder } from '../../application/use-cases/spreadsheet/SendOAuthReminder';
 import { InvalidStateTransitionError } from '../../domain/errors/InvalidStateTransitionError';
@@ -16,12 +16,29 @@ import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloa
 
 const mockExecute = vi.fn();
 const mockLoggerWarn = vi.fn();
+const mockLoggerError = vi.fn();
 const mockFindByMessagingIdentity = vi.fn();
+
+vi.mock('bullmq', () => ({
+  Worker: vi.fn().mockImplementation(() => {
+    const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+    return {
+      opts: { concurrency: 2 },
+      on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+        if (!events[event]) events[event] = [];
+        events[event].push(handler);
+      }),
+      emit: vi.fn().mockImplementation((event: string, ...args: unknown[]) => {
+        (events[event] ?? []).forEach((handler) => handler(...args));
+      }),
+    };
+  }),
+}));
 
 function buildMockDeps(): OAuthReminderWorkerDeps {
   return {
     redis: {} as unknown as OAuthReminderWorkerDeps['redis'],
-    logger: { warn: mockLoggerWarn } as unknown as Logger,
+    logger: { warn: mockLoggerWarn, error: mockLoggerError } as unknown as Logger,
     userRepo: {
       findByMessagingIdentity: mockFindByMessagingIdentity,
     } as unknown as OAuthReminderWorkerDeps['userRepo'],
@@ -112,19 +129,38 @@ describe('processOAuthReminderJob', () => {
 });
 
 describe('createOAuthReminderWorker', () => {
-  const WorkerMock = vi.fn();
-
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(WorkerMock).mockImplementation(() => ({
-      on: vi.fn(),
-      opts: { concurrency: 2 },
-    }));
   });
 
-  it('has the correct type signature', () => {
+  it('creates a Worker with concurrency: 2 and drainDelay: 30', () => {
     const deps = buildMockDeps();
-    expect(typeof createOAuthReminderWorker).toBe('function');
-    expect(() => createOAuthReminderWorker(deps)).not.toThrow(TypeError);
+    createOAuthReminderWorker(deps);
+
+    const [, , opts] = vi.mocked(Worker).mock.calls[0] as unknown as [
+      unknown,
+      unknown,
+      { concurrency: number; drainDelay: number },
+    ];
+    expect(opts.concurrency).toBe(2);
+    expect(opts.drainDelay).toBe(30);
+  });
+
+  it('logs a sanitized structured error once on worker error events', () => {
+    const worker = createOAuthReminderWorker(buildMockDeps());
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'error',
+      new Error('Connection lost'),
+    );
+
+    expect(mockLoggerError).toHaveBeenCalledOnce();
+    expect(mockLoggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ worker error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_WORKER_ERROR',
+      queue: 'oauth-reminder',
+      error: 'Connection lost',
+    });
   });
 });

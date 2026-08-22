@@ -138,6 +138,18 @@ Each job generates multiple Redis commands: `enqueue`, `lock`, `acknowledge`, `c
 ### Mitigations
 
 - Keep worker concurrency conservative: **maximum 2–3 simultaneous jobs**.
+- Every active Worker uses `drainDelay: 30`, so an empty queue holds its blocking poll for up to 30 seconds instead of renewing BullMQ's default five-second poll. A newly enqueued job wakes the blocking command immediately; the setting reduces empty-runtime command churn without adding a fixed 30-second processing delay.
+- Keep `stalledInterval: 120_000` on all Workers. The `process-message` Worker also retains its longer lock duration and renewal interval; the drain-delay mitigation does not change concurrency, retry, stalled-job, or lock semantics.
 - Cache identity resolution in Redis with a 24-hour TTL to avoid repeated PostgreSQL lookups in the handler.
 - Cache `MappingConfig` in Redis with a 1-hour TTL.
 - Monitor command count daily; if approaching 6,000, consider upgrading the Upstash tier.
+
+### Broker connection errors
+
+BullMQ resource errors are infrastructure events and are handled separately from processor failures:
+
+- A Worker's `failed` event means a job processor failed and follows the queue's retry and dead-letter behavior.
+- A Worker or Queue `error` event reports a BullMQ or broker connection problem. Every resource registers one listener that logs `endpoint: 'bullmq'`, a stable Worker or Queue error code, the queue name, a sanitized error message, and an optional low-level `causeCode`.
+- The shared root ioredis client logs the same incident independently with `endpoint: 'redis'` and `code: 'REDIS_CONNECTION_ERROR'`.
+
+One shared-client incident can therefore produce one log for each affected BullMQ resource plus the root Redis client. This fan-out is expected and makes the affected resources visible; registering more than one `error` listener on the same resource is not. Listeners consume and report recoverable events without closing the resource or replacing ioredis and BullMQ reconnection behavior. Logs never include Redis URLs, credentials, stacks, job payloads, or user identifiers.

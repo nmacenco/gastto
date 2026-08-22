@@ -15,6 +15,7 @@ import {
 } from '../../application/ports/IncomingMessageJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import type { NormalizedPayload } from '../../domain/ports/messaging';
+import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 
 export async function processIncomingMessageJob(
   job: Job<IncomingMessageJobData>,
@@ -61,10 +62,17 @@ export function createIncomingMessageWorker(opts: {
     {
       connection: opts.redis,
       concurrency: 1, // strict FIFO per user (ADR-011)
+      drainDelay: BULLMQ_WORKER_DRAIN_DELAY_SECONDS,
       stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
       // Retry policy is set on Queue, not Worker
     },
   );
+
+  registerBullMqErrorListener(worker, {
+    logger: opts.logger,
+    queue: 'incoming-message',
+    resourceKind: 'worker',
+  });
 
   // Structured error logging so the worker does not crash on processor errors
   worker.on('failed', (job, err) => {

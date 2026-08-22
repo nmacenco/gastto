@@ -49,21 +49,21 @@ Deliver a testable BullMQ runtime that performs fewer empty-queue polls and conv
 
 #### To-do actions
 
-- [ ] Introduce one shared BullMQ worker drain-delay value of 30 seconds and apply it to the `incoming-message`, `process-message`, `oauth-reminder`, and `session-timeout` Worker options without changing their current concurrency, retry, stall, or lock settings.
+- [x] Introduce one shared BullMQ worker drain-delay value of 30 seconds and apply it to the `incoming-message`, `process-message`, `oauth-reminder`, and `session-timeout` Worker options without changing their current concurrency, retry, stall, or lock settings.
 - [ ] Capture comparable minimum ten-minute no-traffic command-rate baselines immediately before and after the `drainDelay` change on the same Upstash-backed development runtime. Require at least a 50% reduction, record the observation without secrets or user data, and investigate remaining command sources before Phase 2 if the threshold is not met.
-- [ ] Add a small typed helper for registering BullMQ `error` listeners with the approved structured log fields, usable by both Worker and Queue resources without exposing job data or connection details.
-- [ ] Register Worker error listeners immediately after construction in all four Worker factories, keeping the existing `failed` job listeners separate because processor failure and infrastructure connection failure are different events. Serialize only the sanitized error message and optional low-level `causeCode`, never the `Error` object or its stack.
-- [ ] Register Queue error listeners immediately after construction for the three dependency Queues in `buildDependencies` and the `session-timeout` Queue in `registerWorkers`, including when optional Telegram or Google OAuth feature bundles are absent.
-- [ ] Align the root Redis client's existing error log in `main.ts` with the structured logging requirements while preserving ioredis automatic reconnection behavior.
-- [ ] Extend `incomingMessage.worker.spec.ts`, `message.worker.spec.ts`, `oauthReminder.worker.spec.ts`, and `sessionTimeout.worker.spec.ts` to assert `drainDelay: 30` and verify that emitted Worker `error` events are logged once with the correct queue name and stable code.
-- [ ] Extend `buildDependencies.spec.ts`, `registerWorkers.spec.ts`, and the bootstrap integration test as appropriate to assert that every Queue and the root Redis client register an `error` listener and produce redacted structured logs when that listener is invoked.
-- [ ] Preserve and re-run the existing shutdown tests to prove Workers still close before Queues and listener registration does not change graceful shutdown ordering.
-- [ ] Verify that one shared-client broker incident can produce one log per affected BullMQ resource plus the root client. Ensure each resource logs the event only once, document the expected fan-out, and prevent accidental duplicate listener registration or unbounded log amplification.
-- [ ] Run the focused Vitest suites for bootstrap and all four Worker factories, then run `pnpm test`. Fix issues if any.
-- [ ] Update [`docs/architecture/async-pipeline.md`](../../../docs/architecture/async-pipeline.md) with the active-runtime polling mitigation and the distinction between job processor failures and broker connection errors.
-- [ ] Run `pnpm build` to verify the production bundle compiles. Fix issues if any.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add a small typed helper for registering BullMQ `error` listeners with the approved structured log fields, usable by both Worker and Queue resources without exposing job data or connection details.
+- [x] Register Worker error listeners immediately after construction in all four Worker factories, keeping the existing `failed` job listeners separate because processor failure and infrastructure connection failure are different events. Serialize only the sanitized error message and optional low-level `causeCode`, never the `Error` object or its stack.
+- [x] Register Queue error listeners immediately after construction for the three dependency Queues in `buildDependencies` and the `session-timeout` Queue in `registerWorkers`, including when optional Telegram or Google OAuth feature bundles are absent.
+- [x] Align the root Redis client's existing error log in `main.ts` with the structured logging requirements while preserving ioredis automatic reconnection behavior.
+- [x] Extend `incomingMessage.worker.spec.ts`, `message.worker.spec.ts`, `oauthReminder.worker.spec.ts`, and `sessionTimeout.worker.spec.ts` to assert `drainDelay: 30` and verify that emitted Worker `error` events are logged once with the correct queue name and stable code.
+- [x] Extend `buildDependencies.spec.ts`, `registerWorkers.spec.ts`, and the bootstrap integration test as appropriate to assert that every Queue and the root Redis client register an `error` listener and produce redacted structured logs when that listener is invoked.
+- [x] Preserve and re-run the existing shutdown tests to prove Workers still close before Queues and listener registration does not change graceful shutdown ordering.
+- [x] Verify that one shared-client broker incident can produce one log per affected BullMQ resource plus the root client. Ensure each resource logs the event only once, document the expected fan-out, and prevent accidental duplicate listener registration or unbounded log amplification.
+- [x] Run the focused Vitest suites for bootstrap and all four Worker factories, then run `pnpm test`. Fix issues if any.
+- [x] Update [`docs/architecture/async-pipeline.md`](../../../docs/architecture/async-pipeline.md) with the active-runtime polling mitigation and the distinction between job processor failures and broker connection errors.
+- [x] Run `pnpm build` to verify the production bundle compiles. Fix issues if any.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 2: Replace metered development Redis while preserving the persistent runtime
 
@@ -102,4 +102,4 @@ Move only `gastto-develop` to an isolated Aiven Valkey Free service, validate al
 
 ## Next step
 
-Implement Phase 1 to establish the lower-polling, connection-safe BullMQ runtime before changing the development Redis provider.
+Start and deploy the reviewed Phase 1 changes to `gastto-develop`, then capture the comparable Upstash no-traffic command-rate measurements required to complete Phase 1 before beginning Phase 2.

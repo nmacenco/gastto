@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Redis } from 'ioredis';
 import { Queue } from 'bullmq';
+import type { Logger } from 'pino';
 
 import { buildDependencies } from './buildDependencies';
 import { createLogger } from '../infrastructure/logger';
@@ -39,26 +40,33 @@ const baseEnv: Env = {
   GOOGLE_REDIRECT_URI: 'http://localhost:3000/auth/google/callback',
 };
 
-function buildInfra() {
+function buildInfra(rootLogger: Logger = createLogger({ level: 'silent' })) {
   return {
     db: {} as DrizzleDatabase,
     redis: {
       on: vi.fn(),
       quit: vi.fn().mockResolvedValue(undefined),
     } as unknown as Redis,
-    rootLogger: createLogger({ level: 'silent' }),
+    rootLogger,
   };
 }
 
 describe('buildDependencies', () => {
   beforeEach(() => {
-    vi.mocked(Queue).mockImplementation(
-      () =>
-        ({
-          add: vi.fn().mockResolvedValue(undefined),
-          close: vi.fn().mockResolvedValue(undefined),
-        }) as unknown as Queue,
-    );
+    vi.mocked(Queue).mockImplementation(() => {
+      const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+      return {
+        add: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+          if (!events[event]) events[event] = [];
+          events[event].push(handler);
+        }),
+        emit: vi.fn().mockImplementation((event: string, ...args: unknown[]) => {
+          (events[event] ?? []).forEach((handler) => handler(...args));
+        }),
+      } as unknown as Queue;
+    });
   });
 
   afterEach(() => {
@@ -90,6 +98,46 @@ describe('buildDependencies', () => {
     expect(queueNames).toContain('process-message');
     expect(queueNames).toContain('incoming-message');
     expect(queueNames).toContain('oauth-reminder');
+  });
+
+  it('registers one sanitized error listener on every queue without optional features', () => {
+    const loggerError = vi.fn();
+    const logger = { error: loggerError } as unknown as Logger;
+    const env: Env = {
+      ...baseEnv,
+      TELEGRAM_BOT_TOKEN: '',
+      TELEGRAM_WEBHOOK_SECRET: '',
+      GOOGLE_CLIENT_ID: '',
+      GOOGLE_CLIENT_SECRET: '',
+      GOOGLE_REDIRECT_URI: '',
+    };
+
+    buildDependencies(env, buildInfra(logger));
+
+    const queues = vi.mocked(Queue).mock.results.map(({ value }) => value as Queue);
+    expect(queues).toHaveLength(3);
+    for (const queue of queues) {
+      const mockQueue = queue as unknown as {
+        on: ReturnType<typeof vi.fn>;
+        emit: (event: string, error: Error) => void;
+      };
+      expect(mockQueue.on.mock.calls.filter(([event]) => event === 'error')).toHaveLength(1);
+      mockQueue.emit('error', new Error('Connection lost'));
+    }
+
+    expect(loggerError).toHaveBeenCalledTimes(3);
+    expect(loggerError).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ code: 'BULLMQ_QUEUE_ERROR', queue: 'process-message' }),
+    );
+    expect(loggerError).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ code: 'BULLMQ_QUEUE_ERROR', queue: 'incoming-message' }),
+    );
+    expect(loggerError).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ code: 'BULLMQ_QUEUE_ERROR', queue: 'oauth-reminder' }),
+    );
   });
 
   it('creates the Telegram feature when Telegram is configured', () => {

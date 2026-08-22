@@ -162,7 +162,7 @@ describe('createIncomingMessageWorker', () => {
     mockExecute.mockResolvedValue(undefined);
   });
 
-  it('creates a Worker with concurrency: 1', () => {
+  it('creates a Worker with concurrency: 1 and drainDelay: 30', () => {
     createIncomingMessageWorker({
       redis: buildMockRedis(),
       routeIncomingMessage: buildMockRouteIncomingMessage(),
@@ -174,9 +174,10 @@ describe('createIncomingMessageWorker', () => {
     const [, , opts] = WorkerMock.mock.calls[0] as unknown as [
       unknown,
       unknown,
-      { concurrency: number },
+      { concurrency: number; drainDelay: number },
     ];
     expect(opts.concurrency).toBe(1);
+    expect(opts.drainDelay).toBe(30);
   });
 
   it('processor delegates to processIncomingMessageJob', async () => {
@@ -231,6 +232,30 @@ describe('createIncomingMessageWorker', () => {
       jobId: 'job-99',
       queue: 'incoming-message',
       code: 'JOB_FAILED',
+    });
+  });
+
+  it('logs a sanitized structured error once on worker error events', () => {
+    const worker = createIncomingMessageWorker({
+      redis: buildMockRedis(),
+      routeIncomingMessage: buildMockRouteIncomingMessage(),
+      logger: buildMockLogger(),
+    });
+    const error = Object.assign(new Error('Connection lost'), { code: 'ECONNRESET' });
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'error',
+      error,
+    );
+
+    expect(mockLoggerError).toHaveBeenCalledOnce();
+    expect(mockLoggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ worker error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_WORKER_ERROR',
+      queue: 'incoming-message',
+      error: 'Connection lost',
+      causeCode: 'ECONNRESET',
     });
   });
 });
