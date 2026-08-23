@@ -13,13 +13,13 @@
 | State                          | Description                                    | Valid outgoing transitions                                                          | Timeout |
 | ------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------- | ------- |
 | `IDLE`                         | No active flow                                 | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`                                         | —       |
-| `ONBOARDING_START`             | First contact, no spreadsheet linked           | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE`                      | 30 min  |
-| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                   | → `ONBOARDING_FILE`                                                                 | 30 min  |
-| `ONBOARDING_FILE`              | Waiting for file selection                     | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET`               | 30 min  |
-| `ONBOARDING_SHEET`             | Waiting for sheet selection                    | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` | 30 min  |
-| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START`                  | 30 min  |
-| `ONBOARDING_MAPPING`           | Waiting for column-mapping confirmation        | → `ONBOARDING_CATEGORIES`                                                           | 30 min  |
-| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation              | → `IDLE`                                                                            | 30 min  |
+| `ONBOARDING_START`             | First contact, no spreadsheet linked           | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` \| `IDLE`             | 30 min  |
+| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                   | → `ONBOARDING_DRIVE` \| `ONBOARDING_FILE` \| `IDLE`                                 | 30 min  |
+| `ONBOARDING_FILE`              | Waiting for file selection                     | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` \| `IDLE`      | 30 min  |
+| `ONBOARDING_SHEET`             | Waiting for sheet selection                    | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` \| `IDLE` | 30 min  |
+| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` \| `IDLE`         | 30 min  |
+| `ONBOARDING_MAPPING`           | Waiting for column-mapping confirmation        | → `ONBOARDING_MAPPING` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START` \| `IDLE`    | 30 min  |
+| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation              | → `IDLE` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START`                           | 30 min  |
 | `EXPENSE_RECEIVING`            | Message received, processing NLP               | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW` \| `IDLE`                                | —       |
 | `EXPENSE_CLARIFYING`           | Waiting for user clarification                 | → `EXPENSE_REVIEW` \| `IDLE`                                                        | 10 min  |
 | `EXPENSE_REVIEW`               | Summary sent, waiting for confirmation         | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`                                | 10 min  |
@@ -69,6 +69,15 @@ flowchart TD
     ONBOARDING_VALIDATING_ACCESS -->|persistent error| ONBOARDING_START
     ONBOARDING_MAPPING -->|mapping confirmed| ONBOARDING_CATEGORIES
     ONBOARDING_CATEGORIES -->|categories confirmed| IDLE
+    ONBOARDING_CATEGORIES -->|spreadsheet configuration missing| ONBOARDING_START
+
+    ONBOARDING_START -->|session expired| IDLE
+    ONBOARDING_DRIVE -->|session expired| IDLE
+    ONBOARDING_FILE -->|session expired| IDLE
+    ONBOARDING_SHEET -->|session expired| IDLE
+    ONBOARDING_VALIDATING_ACCESS -->|session expired| IDLE
+    ONBOARDING_MAPPING -->|session expired| IDLE
+    ONBOARDING_CATEGORIES -->|session expired| IDLE
 
     EXPENSE_RECEIVING -->|needs clarification| EXPENSE_CLARIFYING
     EXPENSE_RECEIVING -->|complete| EXPENSE_REVIEW
@@ -122,6 +131,8 @@ The `state_payload` column in the `conversation_states` table is a `JSONB` blob 
 ### How timeouts are implemented
 
 Timeouts are **BullMQ jobs with a `delay`**, never cron jobs.
+
+Every `ONBOARDING_*` state has an explicit transition to `IDLE`. Generic onboarding expiration uses the strict `TransitionConversationState` validator, clears `state_payload` and `expires_at`, and sends the existing timeout notification.
 
 1. When entering a state that has a timeout, the FSM enqueues a BullMQ job of type `fsm-timeout` with `delay` equal to the state's TTL.
 2. The job payload contains the `userId` and the `expectedState` at the time of enqueueing.

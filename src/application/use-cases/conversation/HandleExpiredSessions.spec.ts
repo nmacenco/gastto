@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HandleExpiredSessions } from './HandleExpiredSessions';
-import { type TransitionConversationState } from './TransitionConversationState';
+import { TransitionConversationState } from './TransitionConversationState';
 import type {
   IConversationStateRepository,
   IUserRepository,
@@ -214,6 +214,59 @@ describe('HandleExpiredSessions', () => {
     );
     expect(mockShowTimeoutWarning).not.toHaveBeenCalled();
     expect(mockNotifyCancellation).not.toHaveBeenCalled();
+  });
+
+  it('expires onboarding through the real transition validator and clears session data', async () => {
+    let persistedState = buildConversationState({
+      userId: 'user-1',
+      currentState: 'ONBOARDING_MAPPING',
+      statePayload: { mapping: { amount: 'B' } },
+      expiresAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    const repositoryTransition = vi.fn(
+      (
+        userId: string,
+        targetState: ConversationState['currentState'],
+        statePayload: Record<string, unknown> | null,
+        expiresAt: Date | null,
+      ) => {
+        persistedState = {
+          ...persistedState,
+          userId,
+          currentState: targetState,
+          statePayload,
+          expiresAt,
+        };
+        return Promise.resolve(persistedState);
+      },
+    );
+    const conversationRepo = buildMockConversationRepo({
+      findByUserId: vi.fn(() => Promise.resolve(persistedState)),
+      transition: repositoryTransition,
+    });
+    const userRepo = buildMockUserRepo();
+    const messagingPort = buildMockMessagingPort();
+    const transitionState = new TransitionConversationState(conversationRepo);
+
+    mockFindExpired.mockResolvedValue([persistedState]);
+    mockFindMessagingIdentities.mockResolvedValue([buildMessagingIdentity({ userId: 'user-1' })]);
+
+    const useCase = buildUseCase(conversationRepo, userRepo, transitionState, messagingPort);
+    await useCase.execute();
+
+    expect(repositoryTransition).toHaveBeenCalledWith('user-1', 'IDLE', null, null);
+    expect(persistedState).toEqual(
+      expect.objectContaining({
+        currentState: 'IDLE',
+        statePayload: null,
+        expiresAt: null,
+      }),
+    );
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '123456789',
+      'Tu sesion expiro. Queres continuar o empezar de nuevo?',
+    );
+    expect(mockLoggerError).not.toHaveBeenCalled();
   });
 
   it('does nothing when no expired states exist', async () => {

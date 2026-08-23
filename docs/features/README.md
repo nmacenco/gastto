@@ -21,6 +21,6 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with correction-safe precedence, safe Google Sheets cell writes, save-location confirmation, and contextual save-failure recovery including Google reauthorization.
 - [`undo-last-expense.md`](./undo-last-expense.md) — Safe one-record Google Sheets undo with immediate eligibility and delayed explicit confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
-- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM for multi-turn conversational flows, session timeout, and authorization-recovery transitions.
+- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM with complete onboarding timeout exits and contextual spreadsheet-reconnection transitions.
 - [`deployment.md`](./deployment.md) — Merge-protected multi-environment Fly.io deployment with provider-independent Redis-compatible brokers, persistent BullMQ worker Machines, secure cutover and rollback, graceful shutdown, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).
