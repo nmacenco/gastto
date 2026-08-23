@@ -21,7 +21,7 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - A failed append creates an `EXPENSE_SAVE_FAILED` audit entry. It never creates an expense record or sends the successful-save confirmation.
 - Retryable network failures persist the confirmed review payload in `EXPENSE_SAVING_RETRY` for ten minutes. The recovery copy accepts `reintentar`; it causes exactly one user-initiated reattempt.
 - A successful reattempt uses the normal E1-US-10 confirmation once. A second failed attempt clears the retry state and sends a manual-copy fallback containing the concept and amount.
-- Authorization failures direct the user to `empezar` to start a fresh Google authorization flow. Structure failures direct the user to `reconfigurar`, which restarts access validation and column inference for the active Google spreadsheet.
+- Authorization failures transition to contextual `ONBOARDING_START` with `promptShown: true` and direct the user to `empezar`; that next reply starts a fresh Google authorization flow without generic expense guidance or automatic replay of the failed expense. Structure failures direct the user to `reconfigurar`, which restarts access validation and column inference for the active Google spreadsheet.
 - Retry state that is expired or malformed is cleared and receives the restart/manual-resolution response. The commands `reintentar` and `reconfigurar` are only active in `EXPENSE_SAVING_RETRY`.
 - When pending expenses exist, a successful save is delivered first, then the queue notice, then the next review. The final queued confirmation sends the batch closing copy only after the save returns the FSM to `IDLE`.
 
@@ -39,6 +39,7 @@ The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conve
 - `ResolveExpenseReviewReplyUseCase.spec.ts` covers confirmation, cancellation, correction routing, and uninterpretable replies.
 - `message.worker.spec.ts` covers delegation, orientation copy, callback regression, zero-amount confirmation, correction cycle limits, and high-amount review behavior.
 - `ResolveExpenseSummaryActionUseCase.spec.ts` covers the success confirmation with complete and omitted row metadata.
+- `RouteIncomingMessage.spec.ts` and `message.worker.spec.ts` cover the contextual `AUTH_ERROR → empezar → OAuth` recovery route while retaining ordinary `IDLE` guidance behavior.
 - `expense.copies.spec.ts` covers the location-aware successful-save copy.
 - `expense-save-failure-recovery.integration.spec.ts` wires the real save orchestration with boundary mocks and proves an unconfirmed append emits recovery copy without persisting an expense or emitting E1-US-10 confirmation.
 - `GoogleSheetsAdapter.spec.ts` verifies formula-prefix escaping and the final serialized append request body.

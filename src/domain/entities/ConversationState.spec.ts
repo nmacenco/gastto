@@ -59,6 +59,7 @@ describe('ConversationState FSM', () => {
       ['EXPENSE_CORRECTING', 'IDLE'],
       ['EXPENSE_SAVING', 'IDLE'],
       ['EXPENSE_SAVING', 'EXPENSE_SAVING_RETRY'],
+      ['EXPENSE_SAVING', 'ONBOARDING_START'],
       ['EXPENSE_SAVING_RETRY', 'IDLE'],
       ['EXPENSE_SAVING_RETRY', 'ONBOARDING_VALIDATING_ACCESS'],
       ['EXPENSE_UNDO_CONFIRMING', 'IDLE'],
@@ -70,6 +71,7 @@ describe('ConversationState FSM', () => {
       ['IDLE', 'EXPENSE_SAVING'],
       ['IDLE', 'ONBOARDING_MAPPING'],
       ['EXPENSE_SAVING', 'EXPENSE_RECEIVING'],
+      ['EXPENSE_SAVING', 'ONBOARDING_DRIVE'],
     ] as const)('rejects %s → %s', (from, to) => {
       expect(canTransition(from, to)).toBe(false);
     });

@@ -24,7 +24,7 @@
 | `EXPENSE_CLARIFYING`           | Waiting for user clarification                 | → `EXPENSE_REVIEW` \| `IDLE`                                                        | 10 min  |
 | `EXPENSE_REVIEW`               | Summary sent, waiting for confirmation         | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`                                | 10 min  |
 | `EXPENSE_CORRECTING`           | Applying user correction                       | → `EXPENSE_REVIEW` \| `IDLE`                                                        | —       |
-| `EXPENSE_SAVING`               | Writing to the spreadsheet                     | → `IDLE` \| `EXPENSE_SAVING_RETRY`                                                  | —       |
+| `EXPENSE_SAVING`               | Writing to the spreadsheet                     | → `IDLE` \| `EXPENSE_SAVING_RETRY` \| `ONBOARDING_START`                           | —       |
 | `EXPENSE_SAVING_RETRY`         | Waiting for a user decision after a retryable failed save | → `IDLE` \| `ONBOARDING_VALIDATING_ACCESS`                              | 10 min  |
 
 ---
@@ -45,6 +45,8 @@ Current and planned eager-advance transitions:
 - `EXPENSE_SAVING_RETRY` → `ONBOARDING_VALIDATING_ACCESS`: `reconfigurar` restarts validation and eager column inference for the active Google spreadsheet.
 
 Transitions that present a list or require explicit confirmation (e.g., `ONBOARDING_FILE` self-transition, `ONBOARDING_MAPPING` self-transition) do **not** use eager advance.
+
+An authorization failure during `EXPENSE_SAVING` transitions to `ONBOARDING_START` with `promptShown: true`. The recovery copy has already instructed the user to reply `empezar`, so that next message is consumed immediately as the existing Google provider-selection alias and starts OAuth. The failed expense is not retained or replayed automatically.
 
 ---
 
@@ -84,6 +86,7 @@ flowchart TD
 
     EXPENSE_SAVING -->|success| IDLE
     EXPENSE_SAVING -->|failure| EXPENSE_SAVING_RETRY
+    EXPENSE_SAVING -->|authorization failure| ONBOARDING_START
 
     EXPENSE_SAVING_RETRY -->|successful retry, fallback, or expiry| IDLE
     EXPENSE_SAVING_RETRY -->|reconfigurar| ONBOARDING_VALIDATING_ACCESS
@@ -98,7 +101,7 @@ The `state_payload` column in the `conversation_states` table is a `JSONB` blob 
 | State                          | Relevant `state_payload` fields                                                                                                                                               | Meaning                                                                                                                        |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `IDLE`                         | _(empty or `{}`)_                                                                                                                                                             | Nothing to persist                                                                                                             |
-| `ONBOARDING_START`             | `promptShown: boolean`, `provider?: 'google' \| 'microsoft'`                                                                                                                  | `promptShown` tracks whether the welcome/provider prompt has been displayed; `provider` may be present transiently             |
+| `ONBOARDING_START`             | `promptShown: boolean`, `provider?: 'google' \| 'microsoft'`                                                                                                                  | `promptShown` tracks whether the welcome/provider prompt has been displayed; authorization recovery sets it to `true` because the recovery copy already prompts for `empezar`; `provider` may be present transiently |
 | `ONBOARDING_DRIVE`             | `oauth_state: string`                                                                                                                                                         | PKCE / OAuth state token for CSRF protection                                                                                   |
 | `ONBOARDING_FILE`              | `drive_folder_id?: string`, `files: Array<{id, name}>`                                                                                                                        | List of candidate files to show the user                                                                                       |
 | `ONBOARDING_SHEET`             | `file_id: string`, `sheets: Array<{name, id}>`                                                                                                                                | Selected file and its internal sheets                                                                                          |

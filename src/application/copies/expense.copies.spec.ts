@@ -8,7 +8,9 @@ describe('expenseCopies', () => {
   describe('save recovery copies', () => {
     it('provides distinct network, authorization, and structure recovery instructions', () => {
       expect(expenseCopies.saveNetworkFailure()).toContain('reintentar');
-      expect(expenseCopies.saveAuthorizationFailure()).toContain('empezar');
+      expect(expenseCopies.saveAuthorizationFailure()).toBe(
+        'No pude acceder a tu planilla. Respondé *empezar* para volver a conectar tu cuenta.',
+      );
       expect(expenseCopies.saveStructureFailure()).toContain('reconfigurar');
       expect(expenseCopies.saveRetryExpired()).toContain('venció');
     });

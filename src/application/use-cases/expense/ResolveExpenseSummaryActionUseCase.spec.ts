@@ -211,10 +211,43 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     expect(advancePendingExpense).not.toHaveBeenCalled();
   });
 
-  it('returns to IDLE and sends authorization recovery copy for an auth failure', async () => {
+  it('starts contextual onboarding and sends authorization recovery copy for an auth failure', async () => {
     const save = vi
       .fn<RegisterExpenseUseCase['save']>()
       .mockRejectedValue(new SpreadsheetError('Access token expired', { code: 'AUTH_ERROR' }));
+    const { useCase, sendMessageMock, transitionMock, advancePendingExpense } = buildUseCase({
+      save,
+    });
+
+    await useCase.execute({
+      userId: 'user-123',
+      action: 'confirm',
+      payload: buildPayload(),
+      chatId: '123456789',
+    });
+
+    expect(transitionMock).toHaveBeenLastCalledWith({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
+    });
+    const recoveryTransition = transitionMock.mock.calls[transitionMock.mock.calls.length - 1]?.[0];
+    expect(recoveryTransition?.payload).not.toHaveProperty('expense');
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      '123456789',
+      expenseCopies.saveAuthorizationFailure(),
+    );
+    expect(sendMessageMock).not.toHaveBeenCalledWith(
+      '123456789',
+      expect.stringContaining('Gasto guardado'),
+    );
+    expect(advancePendingExpense).not.toHaveBeenCalled();
+  });
+
+  it('keeps structure failures terminal in IDLE', async () => {
+    const save = vi
+      .fn<RegisterExpenseUseCase['save']>()
+      .mockRejectedValue(new SpreadsheetError('Sheet changed', { code: 'STRUCTURE_ERROR' }));
     const { useCase, sendMessageMock, transitionMock } = buildUseCase({ save });
 
     await useCase.execute({
@@ -227,11 +260,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     expect(transitionMock).toHaveBeenLastCalledWith({ userId: 'user-123', targetState: 'IDLE' });
     expect(sendMessageMock).toHaveBeenLastCalledWith(
       '123456789',
-      expenseCopies.saveAuthorizationFailure(),
-    );
-    expect(sendMessageMock).not.toHaveBeenCalledWith(
-      '123456789',
-      expect.stringContaining('Gasto guardado'),
+      expenseCopies.saveStructureFailure(),
     );
   });
 

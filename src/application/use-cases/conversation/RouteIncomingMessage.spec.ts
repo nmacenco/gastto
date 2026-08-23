@@ -151,6 +151,46 @@ describe('RouteIncomingMessage', () => {
       expect(mockAdd).not.toHaveBeenCalled();
     });
 
+    it('keeps empezar non-financial in an ordinary IDLE conversation', async () => {
+      mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
+      const router = new RouteIncomingMessage(
+        buildMockDeps() as unknown as RouteIncomingMessageDeps,
+      );
+
+      await router.execute(buildTextPayload({ text: 'empezar' }));
+
+      expect(mockClassifyExecute).toHaveBeenCalledWith('empezar');
+      expect(mockSendGuidanceExecute).toHaveBeenCalledWith('123456789');
+      expect(mockAdd).not.toHaveBeenCalled();
+    });
+
+    it('routes empezar without guidance from the contextual ONBOARDING_START state', async () => {
+      mockGetConversationStateExecute.mockResolvedValue({
+        userId: 'user-123',
+        currentState: 'ONBOARDING_START',
+        statePayload: { promptShown: true },
+        enteredAt: new Date('2026-05-20T12:00:00Z'),
+        expiresAt: null,
+        updatedAt: new Date('2026-05-20T12:00:00Z'),
+      });
+      const router = new RouteIncomingMessage(
+        buildMockDeps() as unknown as RouteIncomingMessageDeps,
+      );
+
+      await router.execute(buildTextPayload({ text: 'empezar' }));
+
+      expect(mockClassifyExecute).not.toHaveBeenCalled();
+      expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
+      expect(mockAdd).toHaveBeenCalledWith(
+        'process-message',
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'empezar',
+          externalId: '123456789',
+        }),
+      );
+    });
+
     it.each(['no', 'cancelar', 'cancela', 'no registres', 'para', 'stop', 'salir'])(
       'enqueues global cancellation command %s from IDLE',
       async (text) => {

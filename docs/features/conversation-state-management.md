@@ -12,6 +12,7 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 - `HandleStartCommand` ensures every new user has a valid conversation state. If missing, it creates `IDLE`.
 - `TransitionConversationState` validates transitions against `FSM_TRANSITIONS`. Invalid transitions throw `InvalidStateTransitionError`.
 - `GetConversationState` reads the current state for a user, returning `null` only if the user has never interacted with the system.
+- A terminal spreadsheet `AUTH_ERROR` while saving transitions directly from `EXPENSE_SAVING` to `ONBOARDING_START` with `promptShown: true`. The next contextual `empezar` message starts the existing Google OAuth flow without replaying the failed expense.
 - **Session timeout:** `conversation_states.expires_at` stores an absolute expiration timestamp. `HandleExpiredSessions` (run by a periodic worker) finds all expired states via the partial index `idx_conversation_states_expires`, transitions them back to `IDLE`, and notifies the user via their messaging identities with the copy: `"Tu sesion expiro. Queres continuar o empezar de nuevo?"`.
 - **Corrupted-state recovery:** `RecoverCorruptedState` detects an invalid state string (outside the 13 known states), logs an anomaly to `operation_logs` with `error_type = 'CORRUPTED_STATE'`, and resets the user to `IDLE`.
 - Clean Architecture boundary is enforced: HTTP routes and BullMQ workers delegate to use cases; use cases own the FSM logic and call repository ports. No infrastructure adapter is accessed directly from the interface layer.
@@ -78,7 +79,7 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 | `EXPENSE_CLARIFYING`    | Waiting for user clarification          | `EXPENSE_REVIEW`, `IDLE`                           |
 | `EXPENSE_REVIEW`        | Summary sent, awaiting confirmation     | `EXPENSE_SAVING`, `EXPENSE_CORRECTING`, `IDLE`     |
 | `EXPENSE_CORRECTING`    | Applying user correction                | `EXPENSE_REVIEW`, `IDLE`                           |
-| `EXPENSE_SAVING`        | Writing to spreadsheet                  | `IDLE`, `EXPENSE_SAVING_RETRY`                     |
+| `EXPENSE_SAVING`        | Writing to spreadsheet                  | `IDLE`, `EXPENSE_SAVING_RETRY`, `ONBOARDING_START` |
 | `EXPENSE_SAVING_RETRY`  | Retry failed save (TTL: 10 min)         | `IDLE`                                             |
 | `EXPENSE_UNDO_CONFIRMING` | Waiting for explicit delayed-undo confirmation (short TTL) | `IDLE` |
 
