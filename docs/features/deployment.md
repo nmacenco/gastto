@@ -2,7 +2,8 @@
 
 This document describes the multi-environment Fly.io infrastructure, including
 merge-protected deployment, persistent BullMQ worker Machines, graceful shutdown,
-secrets management, and Telegram bot isolation.
+environment-isolated Redis-compatible brokers, secrets management, and Telegram
+bot isolation.
 
 ## Apps
 
@@ -31,16 +32,16 @@ All environment-specific configuration (sensitive and non-sensitive) lives in Fl
 
 Set the following secrets on **each** app. Values should differ between production and development.
 
-| Secret                    | Description                                               |
-| ------------------------- | --------------------------------------------------------- |
-| `DATABASE_URL`            | PostgreSQL connection string                              |
-| `REDIS_URL`               | Redis connection string (BullMQ / cache)                  |
-| `TELEGRAM_BOT_TOKEN`      | Telegram Bot API token                                    |
-| `TELEGRAM_WEBHOOK_SECRET` | Random string used to validate Telegram webhook origin    |
-| `OPENAI_API_KEY`          | OpenAI API key for LLM extraction                         |
-| `ANTHROPIC_API_KEY`       | Anthropic API key (optional)                              |
-| `SENTRY_DSN`              | Sentry DSN for error tracking (optional)                  |
-| `ENCRYPTION_KEY`          | AES-256-GCM key for OAuth token encryption (64 hex chars) |
+| Secret                    | Description                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| `DATABASE_URL`            | PostgreSQL connection string                                                      |
+| `REDIS_URL`               | Redis-compatible broker URI for BullMQ and cache; hosted environments require TLS |
+| `TELEGRAM_BOT_TOKEN`      | Telegram Bot API token                                                            |
+| `TELEGRAM_WEBHOOK_SECRET` | Random string used to validate Telegram webhook origin                            |
+| `OPENAI_API_KEY`          | OpenAI API key for LLM extraction                                                 |
+| `ANTHROPIC_API_KEY`       | Anthropic API key (optional)                                                      |
+| `SENTRY_DSN`              | Sentry DSN for error tracking (optional)                                          |
+| `ENCRYPTION_KEY`          | AES-256-GCM key for OAuth token encryption (64 hex chars)                         |
 
 ### Setting secrets on production
 
@@ -124,6 +125,63 @@ single-Machine capacity policy.
 - **Fly.io config files (`fly.toml`, `fly.develop.toml`)**: Non-sensitive, static infrastructure settings (port, memory, region, `NODE_ENV`).
 
 This separation ensures that rotating a third-party API key or database credential requires a single `flyctl secrets set` command, with no GitHub interaction needed.
+
+## Redis-Compatible Broker Isolation
+
+`REDIS_URL` is a provider-independent runtime contract. BullMQ and application
+caches use ioredis and do not depend on provider-specific APIs.
+
+| Environment | Broker policy                | Current decision                                                                     |
+| ----------- | ---------------------------- | ------------------------------------------------------------------------------------ |
+| Development | Isolated managed TLS service | Aiven for Valkey Free, dedicated to `gastto-develop`                                 |
+| Production  | Isolated managed TLS service | Existing provider remains unchanged; ADR-021 does not authorize production migration |
+| Local       | Local disposable service     | Docker Redis over `redis://localhost:6379`                                           |
+
+Hosted URIs must use the ioredis-compatible `rediss://` scheme. If a provider
+labels an equivalent URI with another TLS scheme, normalize only the scheme in the
+secret-management workflow. Never print, log, screenshot, commit, or place a real
+URI, username, password, host, or port in shell history. Fly secret inspection must
+be limited to secret names and digests; operators recover previous values from
+their password manager or provider console.
+
+The Aiven development service is intentionally not shared with production. The
+Free plan is single-node with 1 CPU and 1 GB VM RAM, is outside Aiven's 99.99% SLA,
+has no integrations, and may be powered off for inactivity. Aiven assigns its
+cloud and region. Runtime `maxmemory`, rather than advertised VM RAM, is the
+capacity boundary: the accepted target reported 313,524,224 bytes with
+`noeviction`. Monitor `used_memory / maxmemory` in Aiven and warn at 80%, or
+250,819,379 bytes (approximately 239 MiB). Re-evaluate the threshold after any
+provider-initiated plan, region, or configuration change.
+
+### Development broker rotation and cutover
+
+1. Provision a target used only by `gastto-develop`; never place production keys
+   or jobs in a Free development service.
+2. Confirm the previous broker URI is recoverable without reading the current Fly
+   secret value.
+3. Inventory aggregate queue states and transient-key categories without emitting
+   keys, values, payloads, user data, or credentials. Abort on waiting, active, or
+   failed business jobs, processing locks, OAuth state, or mapping-correction
+   state.
+4. Select a migration method compatible with the source version. Aiven managed
+   Redis migration requires a source at Redis 7.2 or lower; do not configure it
+   against a newer source.
+5. For an approved no-copy maintenance cutover, treat completed BullMQ history and
+   reconstructable caches as disposable. Application startup recreates the
+   `session-timeout` repeatable scheduler.
+6. Through an authorized operator workflow, replace only `gastto-develop`'s
+   `REDIS_URL`. Do not change either Fly configuration or production secrets.
+7. Verify one running development Machine, `/health`, TLS, Fly-to-provider latency,
+   actual `maxmemory`, all queue roles, delayed and repeatable jobs, retries,
+   locks, TTL state, reconnection, idle recovery, and a safe Telegram canary.
+8. Scan aggregate logs for Redis/BullMQ errors and URI-like patterns without
+   displaying raw secret-bearing lines.
+
+Connection errors are recoverable only after processing resumes. A log event by
+itself is not acceptance evidence. After a controlled provider recycle or safe
+equivalent, require a `ready` signal and successful canary consumption for every
+logical queue role within two minutes. Keep the Node.js process alive and confirm
+that logs contain only the redacted metadata defined by the BullMQ runtime.
 
 ## Continuous Integration
 
@@ -282,3 +340,20 @@ If rollout fails, revert the relevant merge commit with
 protected-branch workflow. Do not force-push, edit migration history, or re-enable
 automatic stopping while BullMQ workers remain in the runtime. Keeping autostop
 disabled preserves queue consumption while the application rollback is reviewed.
+
+For a development broker rollback within ADR-021's 24-hour window:
+
+1. Pause or drain new development writes.
+2. Inventory Aiven-only waiting, active, delayed, and failed jobs without exposing
+   job payloads or user data.
+3. Preserve or explicitly accept every Aiven-only pending or delayed business job;
+   the recovery point objective is zero data loss for these jobs. Completed job
+   history and reconstructable caches may be discarded.
+4. Restore the securely retained previous `gastto-develop` `REDIS_URL` through the
+   authorized Fly secret workflow, then restart or redeploy the existing Machine.
+5. Re-run health, topology, queue, scheduler, Telegram, and sanitized-log checks.
+
+Upstash remains unchanged during the rollback window but does not receive writes
+made only to Aiven. Rollback requires neither Machine scaling nor deletion of
+either broker. Do not flush, downgrade, disconnect, or delete a provider as part
+of rollback.
