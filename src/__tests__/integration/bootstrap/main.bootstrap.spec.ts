@@ -72,6 +72,7 @@ const fetchMock = vi.fn();
 function buildMocks(): void {
   QueueMock.mockImplementation(() => ({
     add: vi.fn().mockResolvedValue(undefined),
+    on: vi.fn(),
     close: vi.fn().mockResolvedValue(undefined),
   }));
 
@@ -267,6 +268,34 @@ describe('bootstrap', () => {
     ).toEqual({
       accessToken: '[REDACTED]',
       safe: 'value',
+    });
+  });
+
+  it('registers and invokes the root Redis error listener with redacted metadata', async () => {
+    const app = await bootstrap(buildEnv(), silentLoggerFactory);
+    apps.push(app);
+    const redis = RedisMock.mock.results[0]?.value as {
+      on: ReturnType<typeof vi.fn>;
+    };
+    const errorHandler = redis.on.mock.calls.find(([event]) => event === 'error')?.[1] as
+      | ((error: Error) => void)
+      | undefined;
+    const loggerError = vi.spyOn(app.log, 'error');
+    const error = Object.assign(
+      new Error('Connection reset at rediss://default:do-not-log@redis.example:6379'),
+      { code: 'ECONNRESET' },
+    );
+
+    expect(errorHandler).toBeDefined();
+    errorHandler?.(error);
+
+    expect(loggerError).toHaveBeenCalledOnce();
+    expect(loggerError).toHaveBeenCalledWith({
+      msg: 'Redis connection error',
+      endpoint: 'redis',
+      code: 'REDIS_CONNECTION_ERROR',
+      error: 'Connection reset at [REDACTED]',
+      causeCode: 'ECONNRESET',
     });
   });
 });

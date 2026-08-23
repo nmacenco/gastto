@@ -26,6 +26,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-018](./ADR-018-user-initiated-save-retry.md)                 | Limit Unconfirmed Spreadsheet Save Retries to One User-Initiated Attempt | Accepted |
 | [ADR-019](./ADR-019-private-telegram-chats.md)                    | Restrict Telegram Ingestion to Private Chats                             | Accepted |
 | [ADR-020](./ADR-020-persistent-fly-worker-lifecycle.md)           | Keep Fly Worker Machines Persistent                                      | Accepted |
+| [ADR-021](./ADR-021-use-aiven-valkey-for-development-bullmq.md)   | Use Aiven Valkey for Development BullMQ                                  | Accepted |
 
 ## Template
 

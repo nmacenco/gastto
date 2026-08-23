@@ -13,6 +13,7 @@ import {
   type OAuthReminderJobData,
 } from '../../application/ports/OAuthReminderJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 
 export type { OAuthReminderJobData } from '../../application/ports/OAuthReminderJob';
 
@@ -74,9 +75,16 @@ export function createOAuthReminderWorker(
     {
       connection: deps.redis,
       concurrency: 2,
+      drainDelay: BULLMQ_WORKER_DRAIN_DELAY_SECONDS,
       stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
     },
   );
+
+  registerBullMqErrorListener(worker, {
+    logger: deps.logger,
+    queue: 'oauth-reminder',
+    resourceKind: 'worker',
+  });
 
   worker.on('failed', (job, err) => {
     deps.logger.error({

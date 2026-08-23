@@ -32,6 +32,7 @@ import {
   type ProcessMessageJobData,
 } from '../../application/ports/ProcessMessageJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 import type { ExpenseReviewPayload } from '../../domain/value-objects/expense-review-payload';
 import type {
   IUserRepository,
@@ -707,6 +708,7 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
     {
       connection: opts.redis,
       concurrency: 2, // max 2 simultaneous jobs to not saturate LLM API (ADR-005)
+      drainDelay: BULLMQ_WORKER_DRAIN_DELAY_SECONDS,
       stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
       lockDuration: 120_000, // 2 min (default 30s) — LLM jobs can run >30s
       lockRenewTime: 60_000, // 1 min (default 15s) — fewer lock renewals
@@ -723,6 +725,12 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
       },
     },
   );
+
+  registerBullMqErrorListener(worker, {
+    logger: opts.logger,
+    queue: 'process-message',
+    resourceKind: 'worker',
+  });
 
   // Dead letter: jobs que agotan reintentos → log estructurado (ADR-005)
   worker.on('failed', (job, err) => {

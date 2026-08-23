@@ -13,6 +13,7 @@ import { createMessageWorker } from '../interfaces/workers/message.worker';
 import { createSessionTimeoutWorker } from '../interfaces/workers/sessionTimeout.worker';
 import { createOAuthReminderWorker } from '../interfaces/workers/oauthReminder.worker';
 import { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
+import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
 
 interface CloseableBullMqResource {
   close(): Promise<void>;
@@ -152,6 +153,11 @@ export async function registerWorkers(
   try {
     const sessionTimeoutQueue = new Queue('session-timeout', {
       connection: deps.redis,
+    });
+    registerBullMqErrorListener(sessionTimeoutQueue, {
+      logger: deps.rootLogger,
+      queue: 'session-timeout',
+      resourceKind: 'queue',
     });
     queues.push(sessionTimeoutQueue);
     await sessionTimeoutQueue.add('session-timeout', {}, { repeat: { every: 120_000 } });

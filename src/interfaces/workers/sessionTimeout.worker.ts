@@ -12,6 +12,7 @@ import {
   type SessionTimeoutJobData,
 } from '../../application/ports/SessionTimeoutJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 
 export interface SessionTimeoutWorkerOpts {
   redis: Redis;
@@ -43,9 +44,16 @@ export function createSessionTimeoutWorker(
     {
       connection: opts.redis,
       concurrency: 1,
+      drainDelay: BULLMQ_WORKER_DRAIN_DELAY_SECONDS,
       stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
     },
   );
+
+  registerBullMqErrorListener(worker, {
+    logger: opts.logger,
+    queue: 'session-timeout',
+    resourceKind: 'worker',
+  });
 
   worker.on('failed', (job, err) => {
     opts.logger.error({

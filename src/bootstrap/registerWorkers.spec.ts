@@ -151,9 +151,17 @@ describe('registerWorkers', () => {
     });
     vi.mocked(Queue).mockImplementation(() => {
       const close = vi.fn().mockResolvedValue(undefined);
+      const events: Record<string, Array<(...args: unknown[]) => void>> = {};
       createdQueueCloseMocks.push(close);
       return {
         add: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+          if (!events[event]) events[event] = [];
+          events[event].push(handler);
+        }),
+        emit: vi.fn().mockImplementation((event: string, ...args: unknown[]) => {
+          (events[event] ?? []).forEach((handler) => handler(...args));
+        }),
         close,
       } as unknown as Queue;
     });
@@ -254,6 +262,38 @@ describe('registerWorkers', () => {
 
     const names = vi.mocked(Worker).mock.calls.map(([name]) => name);
     expect(names).toContain('session-timeout');
+  });
+
+  it('registers one sanitized error listener on the session-timeout queue', async () => {
+    const loggerError = vi.fn();
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      rootLogger: { error: loggerError } as unknown as Dependencies['rootLogger'],
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    const queueResultIndex = vi
+      .mocked(Queue)
+      .mock.calls.findIndex(([name]) => name === 'session-timeout');
+    const queue = vi.mocked(Queue).mock.results[queueResultIndex]?.value as Queue;
+    const mockQueue = queue as unknown as {
+      on: ReturnType<typeof vi.fn>;
+      emit: (event: string, error: Error) => void;
+    };
+    expect(mockQueue.on.mock.calls.filter(([event]) => event === 'error')).toHaveLength(1);
+
+    mockQueue.emit('error', new Error('Connection lost'));
+
+    expect(loggerError).toHaveBeenCalledOnce();
+    expect(loggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ queue error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_QUEUE_ERROR',
+      queue: 'session-timeout',
+      error: 'Connection lost',
+    });
   });
 
   it('closes every worker before closing every queue', async () => {
