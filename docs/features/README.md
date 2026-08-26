@@ -18,9 +18,9 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with confirm / correct / cancel options before saving.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Global safe cancellation of in-progress expense registrations.
 - [`expense-correction.md`](./expense-correction.md) — Natural-language correction of amount, currency, category, or date before expense confirmation.
-- [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with correction-safe precedence, safe Google Sheets cell writes, save-location confirmation, and user-driven recovery.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with correction-safe precedence, safe Google Sheets cell writes, save-location confirmation, and contextual save-failure recovery including Google reauthorization.
 - [`undo-last-expense.md`](./undo-last-expense.md) — Safe one-record Google Sheets undo with immediate eligibility and delayed explicit confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
-- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM for multi-turn conversational flows with session timeout.
+- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM with complete onboarding timeout exits and contextual spreadsheet-reconnection transitions.
 - [`deployment.md`](./deployment.md) — Merge-protected multi-environment Fly.io deployment with provider-independent Redis-compatible brokers, persistent BullMQ worker Machines, secure cutover and rollback, graceful shutdown, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).

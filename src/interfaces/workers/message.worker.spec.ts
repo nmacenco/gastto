@@ -1447,7 +1447,7 @@ describe('processMessageJob', () => {
   });
 
   describe('ONBOARDING states', () => {
-    it('delegates ONBOARDING_START to InitiateCloudConnection when prompt was already shown', async () => {
+    it('delegates recovery empezar to InitiateCloudConnection without expense interpretation', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
@@ -1460,14 +1460,17 @@ describe('processMessageJob', () => {
         message: 'Auth link sent.',
       });
 
-      await processMessageJob(buildJob(baseJobData), deps);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'empezar' }), deps);
 
       expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
-        rawMessage: 'Cafe 850',
+        rawMessage: 'empezar',
         externalId: '123456789',
         channel: 'telegram',
       });
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledTimes(1);
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockClassifyFreeTextExpenseIntentExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
 

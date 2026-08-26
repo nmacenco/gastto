@@ -20,6 +20,7 @@ describe('ClassifyFreeTextExpenseIntent', () => {
   it('classifies a non-financial greeting as non-financial', () => {
     expect(classifier.execute('Hola')).toEqual({ kind: 'non-financial' });
     expect(classifier.execute('👋')).toEqual({ kind: 'non-financial' });
+    expect(classifier.execute('empezar')).toEqual({ kind: 'non-financial' });
   });
 
   it('classifies a message longer than 500 characters as too-long', () => {

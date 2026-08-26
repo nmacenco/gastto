@@ -136,7 +136,15 @@ export class ResolveExpenseSummaryActionUseCase {
       return;
     }
 
-    await this.deps.transitionState.execute({ userId: input.userId, targetState: 'IDLE' });
+    if (spreadsheetError.code === 'AUTH_ERROR') {
+      await this.deps.transitionState.execute({
+        userId: input.userId,
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+    } else {
+      await this.deps.transitionState.execute({ userId: input.userId, targetState: 'IDLE' });
+    }
     const copy =
       spreadsheetError.code === 'AUTH_ERROR'
         ? expenseCopies.saveAuthorizationFailure()
