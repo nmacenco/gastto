@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  # Keep required checks independent from deployment branch filters.
   pull_request:
   push:
     branches:
