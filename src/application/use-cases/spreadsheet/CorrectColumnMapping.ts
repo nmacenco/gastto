@@ -24,7 +24,10 @@ import type {
   SpreadsheetConfig,
 } from '../../../domain/entities/SpreadsheetConfig';
 import { ColumnMappingCorrectionState } from '../../../domain/value-objects/ColumnMappingCorrectionState';
-import type { ColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
+import {
+  MULTIPLE_FIELDS_CORRECTION_REASON,
+  type ColumnMappingCorrectionParser,
+} from '../../services/ColumnMappingCorrectionParser';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { isRejectMappingIntent } from '../../utils/intents';
 import type { HeaderDetectionPort } from '../../../domain/ports/headerDetection';
@@ -194,6 +197,12 @@ export class CorrectColumnMapping {
 
     const parseResult = this.deps.correctionParser.parse(rawMessage);
     if (parseResult.kind === 'failure') {
+      if (parseResult.reason === MULTIPLE_FIELDS_CORRECTION_REASON) {
+        const message = onboardingCopies.multipleMappingCorrectionsPrompt();
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
+      }
+
       if (isRejectMappingIntent(rawMessage)) {
         return this.handleRejection(input, config);
       }

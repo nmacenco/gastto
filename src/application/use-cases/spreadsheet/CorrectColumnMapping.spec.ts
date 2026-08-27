@@ -352,6 +352,33 @@ describe('CorrectColumnMapping', () => {
     expect(mockTransitionExecute).not.toHaveBeenCalled();
   });
 
+  it('rejects multiple corrections without applying a partial mapping', async () => {
+    const deps = buildMockDeps({
+      correctionParser: new RuleBasedColumnMappingCorrectionParser(),
+    });
+    const useCase = new CorrectColumnMapping(deps);
+
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'A Medio de pago. B Fecha. C Categoría. E Importe. F Concepto.',
+    });
+
+    expect(result).toEqual({
+      kind: 'parse-failure',
+      nextState: 'ONBOARDING_MAPPING',
+      message: onboardingCopies.multipleMappingCorrectionsPrompt(),
+    });
+    expect(mockFindByUserAndProvider).not.toHaveBeenCalled();
+    expect(mockListAvailableColumns).not.toHaveBeenCalled();
+    expect(mockLoadCorrectionState).not.toHaveBeenCalled();
+    expect(mockSaveCorrectionState).not.toHaveBeenCalled();
+    expect(mockTransitionExecute).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      onboardingCopies.multipleMappingCorrectionsPrompt(),
+    );
+  });
+
   it('guides the user to manual correction when they reject the proposal', async () => {
     mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
 

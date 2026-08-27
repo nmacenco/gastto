@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Confirm or Correct Column Mapping feature lets the user review the column mapping proposed by Gastto and either accept it with a single confirmation or correct it field by field using natural language. Corrections are accumulated in a transient Redis-backed state with a 30-minute TTL, so the user can resume an abandoned correction session. Once the mapping is accepted, the FSM advances to `ONBOARDING_CATEGORIES`.
+The Confirm or Correct Column Mapping feature lets the user review the column mapping proposed by Gastto and either accept it with a single confirmation or correct it one field per message using natural language. Corrections are accumulated in a transient Redis-backed state with a 30-minute TTL, so the user can resume an abandoned correction session. Messages containing several fields are rejected without applying a partial correction. Once the mapping is accepted, the FSM advances to `ONBOARDING_CATEGORIES`.
 
 This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Confirm or correct column mapping`](../user-stories/01-mvp/01-Vinculación%20de%20planilla%20%C2%B7%20Release%201%20MVP/HU-4.06-confirm-or-correct-column-mapping/HU-4.06%20%E2%80%94%20Confirm%20or%20correct%20column%20mapping.md).
 
@@ -11,6 +11,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 - **In scope:**
   - Single confirmation ("yes", "ok", "correct") that finalizes the mapping and advances to `ONBOARDING_CATEGORIES`.
   - Natural-language correction parsing for per-field mapping changes.
+  - Explicit one-field-per-message guidance and rejection of multi-field messages without changing correction state.
   - LLM re-inference when the user rejects the whole proposal without giving a specific correction (e.g., "no", "incorrecto", "wrong").
   - Column validation against the actual spreadsheet headers.
   - Accumulation of multiple corrections and re-display of the updated mapping after each one.
@@ -53,9 +54,17 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 ### Scenario 3: User corrects several fields
 
 1. The user corrects a first field as in Scenario 2.
-2. The correction snapshot is loaded from Redis on the next correction.
-3. Each new correction is accumulated; corrections for the same field replace the previous one.
-4. After each correction the full updated mapping is displayed again for confirmation.
+2. The user sends each additional field correction in a separate message.
+3. The correction snapshot is loaded from Redis on the next correction.
+4. Each new correction is accumulated; corrections for the same field replace the previous one.
+5. After each correction the full updated mapping is displayed again for confirmation.
+
+### Scenario 3a: User sends several fields in one message
+
+1. The parser detects more than one distinct Gastto field in the message.
+2. The system asks the user to send one correction per message.
+3. No OAuth token, spreadsheet columns, or transient correction state are loaded.
+4. No correction is applied and the FSM stays in `ONBOARDING_MAPPING`.
 
 ### Scenario 4: User indicates a column that does not exist
 
@@ -245,6 +254,7 @@ interface MappingCorrectionStateSnapshot {
 | Missing `SpreadsheetConfig`             | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
 | No proposed mappings                    | `noMappingToConfirm` message sent; stays in `ONBOARDING_MAPPING`.        |
 | Unparseable correction message          | `correctionParseFailurePrompt` sent; stays in `ONBOARDING_MAPPING`.      |
+| Several fields in one correction message | `multipleMappingCorrectionsPrompt` sent; no correction is applied and the FSM stays in `ONBOARDING_MAPPING`. |
 | Invalid column reference                | `invalidColumnPrompt` sent with available columns; stays in `ONBOARDING_MAPPING`. |
 | Redis save failure                      | Error propagated; no confirmation message sent; no state transition.     |
 | Transition failure after valid correction | Updated mapping message already sent; error propagated.                  |
@@ -256,6 +266,7 @@ interface MappingCorrectionStateSnapshot {
 - [x] Recognizes Spanish field synonyms (`categoría`, `monto`, `fecha`, `concepto`, `moneda`, `medio de pago`).
 - [x] Recognizes English field synonyms (`category`, `amount`, `date`, `description`, `currency`, `payment method`).
 - [x] Extracts column references as letters (`E`), numbers (`5`), or header names (`"Descripción"`).
+- [x] Rejects messages containing several distinct Gastto fields.
 - [x] Returns explicit failure for confirmation messages like "sí" or unrelated text.
 
 ### CorrectColumnMapping use case
@@ -265,6 +276,7 @@ interface MappingCorrectionStateSnapshot {
 - [x] New correction for the same field replaces the previous correction.
 - [x] Invalid column reference returns available columns without persisting state.
 - [x] Parse failure leaves state unchanged and returns a helpful copy.
+- [x] Multi-field messages leave state unchanged and request one correction per message.
 - [x] Rejection intent clears correction state and lists available columns (from the detected header row) and Gastto fields for manual correction.
 - [x] Missing spreadsheet config triggers reconnect flow.
 - [x] Missing proposed mappings returns appropriate message without transition.
