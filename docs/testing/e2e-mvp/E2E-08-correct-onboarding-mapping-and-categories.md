@@ -14,14 +14,17 @@ Prove that a user can correct a proposed spreadsheet mapping, modify the detecte
 ## Steps
 
 1. Complete Google authorization, file selection, and sheet selection.
-2. When the column mapping proposal appears, reply `la categoría está en la columna E`.
-3. Confirm the updated mapping.
-4. When categories are presented, reply `Meals se llama Food`.
-5. Confirm the revised category list.
-6. Send `Pagué 10 EUR por almuerzo`, confirm it, and inspect the saved row.
+2. When the column mapping proposal appears, reply `A medio de pago, B fecha, C categoría, E monto, F concepto`.
+3. Verify that the bot asks for one correction per message and does not display a partially updated mapping.
+4. Reply `la categoría está en la columna E`.
+5. Confirm the updated mapping.
+6. When categories are presented, reply `Meals se llama Food`.
+7. Confirm the revised category list.
+8. Send `Pagué 10 EUR por almuerzo`, confirm it, and inspect the saved row.
 
 ## Expected Results
 
+- A message containing several field assignments is rejected with one-field-per-message guidance and does not apply any assignment.
 - The mapping is re-displayed after the correction and assigns the category field to column E.
 - Confirmation advances to category setup without restarting onboarding.
 - The category-vocabulary change is shown before the final confirmation.

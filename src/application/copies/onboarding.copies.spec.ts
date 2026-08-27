@@ -277,7 +277,7 @@ describe('onboardingCopies', () => {
       expect(result).toContain('Fecha');
       expect(result).toContain('Monto');
       expect(result).toContain('Categoría');
-      expect(result).toContain('Indicame dónde está cada campo');
+      expect(result).toContain('Indicame un solo campo por mensaje');
       expect(result).toContain('la categoría está en la columna E');
     });
 
@@ -295,6 +295,17 @@ describe('onboardingCopies', () => {
       expect(result).toContain('A - (vacía)');
       expect(result).toContain('B - Para añadir o cambiar categorías, modifi…');
       expect(result).not.toContain('tablas de la hoja Resumen');
+    });
+  });
+
+  describe('multipleMappingCorrectionsPrompt', () => {
+    it('rejects batch corrections and asks for one field per message', () => {
+      const result = onboardingCopies.multipleMappingCorrectionsPrompt();
+
+      expect(result).toContain('varios campos');
+      expect(result).toContain('evitar cambios parciales');
+      expect(result).toContain('una sola corrección por mensaje');
+      expect(result).toContain('medio de pago en A');
     });
   });
 });

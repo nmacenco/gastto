@@ -172,11 +172,14 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
       return `${columnIndexToLetter(c.index)} - ${label}`;
     });
     const fieldLines = ALL_GASTTO_FIELDS.map((f) => `• ${GASTTO_FIELD_LABELS[f]}`);
-    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}\n\nIndicame dónde está cada campo. Por ejemplo: "la categoría está en la columna E".`;
+    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}\n\nIndicame un solo campo por mensaje. Por ejemplo: "la categoría está en la columna E".`;
   },
 
   correctionParseFailurePrompt: () =>
-    `No entendí la corrección. Podés escribir algo como: "la categoría está en la columna E" o "el monto va en B".`,
+    `No entendí la corrección. Enviá una sola corrección por mensaje, por ejemplo: "la categoría está en la columna E" o "el monto va en B".`,
+
+  multipleMappingCorrectionsPrompt: () =>
+    `Detecté varios campos en el mismo mensaje. Para evitar cambios parciales, enviá una sola corrección por mensaje. Por ejemplo: "medio de pago en A".`,
 
   onboardingComplete: () =>
     '¡Todo listo! Ya podés empezar a registrar gastos. Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
