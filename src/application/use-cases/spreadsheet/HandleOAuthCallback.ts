@@ -64,7 +64,7 @@ export class HandleOAuthCallback {
       this.deps.logger.error({
         endpoint: 'HandleOAuthCallback',
         code: 'OAUTH_STATE_MISSING',
-        state,
+        hasState: false,
       });
       return {
         success: false,
@@ -81,8 +81,8 @@ export class HandleOAuthCallback {
       this.deps.logger.error({
         endpoint: 'HandleOAuthCallback',
         code: 'OAUTH_STATE_INVALID',
-        state,
-        error: String(err),
+        hasState: true,
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
       });
       return {
         success: false,
@@ -124,10 +124,8 @@ export class HandleOAuthCallback {
         this.deps.logger.error({
           endpoint: 'HandleOAuthCallback',
           code: 'OAUTH_EXCHANGE_REJECTED',
-          state,
           provider: metadata.provider,
           errorType: err instanceof Error ? err.constructor.name : 'unknown',
-          error: err instanceof Error ? err.message : String(err),
         });
         return {
           success: false,
@@ -140,10 +138,8 @@ export class HandleOAuthCallback {
       this.deps.logger.error({
         endpoint: 'HandleOAuthCallback',
         code: 'OAUTH_EXCHANGE_UNEXPECTED_ERROR',
-        state,
         provider: metadata.provider,
         errorType: err instanceof Error ? err.constructor.name : 'unknown',
-        error: err instanceof Error ? err.message : String(err),
       });
       return {
         success: false,

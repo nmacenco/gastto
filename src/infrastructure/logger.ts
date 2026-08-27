@@ -12,6 +12,7 @@
 // (docs/testing/guidelines.md line 113).
 
 import pino, { type Logger } from 'pino';
+import { pinoRedaction } from './observability/sensitiveData';
 
 export interface CreateLoggerOptions {
   level?: string;
@@ -24,6 +25,7 @@ export function createLogger(opts?: CreateLoggerOptions): Logger {
 
   return pino({
     level,
+    redact: pinoRedaction,
     ...(pretty && {
       transport: { target: 'pino-pretty', options: { colorize: true } },
     }),

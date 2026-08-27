@@ -71,6 +71,33 @@ describe('TransitionConversationState', () => {
     );
   });
 
+  it('allows category-stage reconnection through the strict transition boundary', async () => {
+    const currentState = buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' });
+    const nextState = buildConversationState({
+      currentState: 'ONBOARDING_START',
+      statePayload: { promptShown: true },
+    });
+    mockFindByUserId.mockResolvedValue(currentState);
+    mockTransition.mockResolvedValue(nextState);
+
+    const repo = buildMockRepo();
+    const useCase = new TransitionConversationState(repo);
+
+    const result = await useCase.execute({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
+    });
+
+    expect(result).toBe(nextState);
+    expect(mockTransition).toHaveBeenCalledWith(
+      'user-123',
+      'ONBOARDING_START',
+      { promptShown: true },
+      null,
+    );
+  });
+
   it('throws InvalidStateTransitionError for invalid transition', async () => {
     const currentState = buildConversationState({ currentState: 'IDLE' });
     mockFindByUserId.mockResolvedValue(currentState);

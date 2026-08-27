@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import type { Env } from '../../../config/env.schema';
 import type { FastifyInstance } from 'fastify';
 import { createLogger } from '../../../infrastructure/logger';
-import type { LoggerFactory } from '../../../main';
+import type { LoggerFactory, RegisterShutdownHandlers } from '../../../main';
 
 const baseEnv: Env = {
   NODE_ENV: 'test',
@@ -72,6 +72,7 @@ const fetchMock = vi.fn();
 function buildMocks(): void {
   QueueMock.mockImplementation(() => ({
     add: vi.fn().mockResolvedValue(undefined),
+    on: vi.fn(),
     close: vi.fn().mockResolvedValue(undefined),
   }));
 
@@ -106,11 +107,19 @@ const silentLoggerFactory: LoggerFactory = () => createLogger({ level: 'silent',
 
 describe('bootstrap', () => {
   let bootstrap: (env: Env, loggerFactory: LoggerFactory) => Promise<FastifyInstance>;
+  let registerShutdownHandlers: RegisterShutdownHandlers;
+  let signalRegistrationsOnImport: string[] = [];
   let apps: FastifyInstance[] = [];
 
   beforeAll(async () => {
+    const processOnceSpy = vi.spyOn(process, 'once');
     const main = await import('../../../main.js');
     bootstrap = main.bootstrap;
+    registerShutdownHandlers = main.registerShutdownHandlers;
+    signalRegistrationsOnImport = processOnceSpy.mock.calls
+      .map(([event]) => String(event))
+      .filter((event) => event === 'SIGTERM' || event === 'SIGINT');
+    processOnceSpy.mockRestore();
   });
 
   beforeEach(() => {
@@ -140,6 +149,47 @@ describe('bootstrap', () => {
     const body = JSON.parse(response.payload) as { status: string; ts: string };
     expect(body.status).toBe('ok');
     expect(body.ts).toBeDefined();
+  });
+
+  it('does not install production signal handlers when imported by tests', () => {
+    expect(signalRegistrationsOnImport).toEqual([]);
+  });
+
+  it('registers SIGTERM and SIGINT handlers with one shared shutdown operation', async () => {
+    const app = await bootstrap(buildEnv(), silentLoggerFactory);
+    apps.push(app);
+    const closeSpy = vi.spyOn(app, 'close');
+    const once = vi.fn<(signal: 'SIGTERM' | 'SIGINT', listener: () => void) => unknown>();
+    const shutdown = registerShutdownHandlers(app, { once });
+
+    expect(once.mock.calls.map(([signal]) => signal)).toEqual(['SIGTERM', 'SIGINT']);
+
+    await Promise.all([shutdown('SIGTERM'), shutdown('SIGINT')]);
+
+    expect(closeSpy).toHaveBeenCalledOnce();
+  });
+
+  it('logs a structured error when graceful shutdown fails', async () => {
+    const errorLogger = vi.fn();
+    const shutdown = registerShutdownHandlers(
+      {
+        close: vi.fn().mockRejectedValue(new Error('close failed')),
+        log: {
+          info: vi.fn(),
+          error: errorLogger,
+        },
+      } as unknown as Pick<FastifyInstance, 'close' | 'log'>,
+      { once: vi.fn() },
+    );
+
+    await shutdown('SIGTERM');
+
+    expect(errorLogger).toHaveBeenCalledWith({
+      msg: 'Graceful shutdown failed',
+      endpoint: 'process',
+      code: 'GRACEFUL_SHUTDOWN_FAILED',
+      error: 'close failed',
+    });
   });
 
   it('does not initialize DB/Redis/workers when DATABASE_URL and REDIS_URL are empty', async () => {
@@ -209,5 +259,43 @@ describe('bootstrap', () => {
         environment: 'test',
       }),
     );
+
+    const sentryOptions = SentryInitMock.mock.calls[0]?.[0] as {
+      beforeSend: (event: { extra: Record<string, unknown> }) => { extra: Record<string, unknown> };
+    };
+    expect(
+      sentryOptions.beforeSend({ extra: { accessToken: 'secret', safe: 'value' } }).extra,
+    ).toEqual({
+      accessToken: '[REDACTED]',
+      safe: 'value',
+    });
+  });
+
+  it('registers and invokes the root Redis error listener with redacted metadata', async () => {
+    const app = await bootstrap(buildEnv(), silentLoggerFactory);
+    apps.push(app);
+    const redis = RedisMock.mock.results[0]?.value as {
+      on: ReturnType<typeof vi.fn>;
+    };
+    const errorHandler = redis.on.mock.calls.find(([event]) => event === 'error')?.[1] as
+      | ((error: Error) => void)
+      | undefined;
+    const loggerError = vi.spyOn(app.log, 'error');
+    const error = Object.assign(
+      new Error('Connection reset at rediss://default:do-not-log@redis.example:6379'),
+      { code: 'ECONNRESET' },
+    );
+
+    expect(errorHandler).toBeDefined();
+    errorHandler?.(error);
+
+    expect(loggerError).toHaveBeenCalledOnce();
+    expect(loggerError).toHaveBeenCalledWith({
+      msg: 'Redis connection error',
+      endpoint: 'redis',
+      code: 'REDIS_CONNECTION_ERROR',
+      error: 'Connection reset at [REDACTED]',
+      causeCode: 'ECONNRESET',
+    });
   });
 });

@@ -9,21 +9,38 @@ import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { RouteIncomingMessage } from '../../application/use-cases/conversation/RouteIncomingMessage';
-import type { IncomingMessageJobData } from '../../application/ports/IncomingMessageJob';
+import {
+  IncomingMessageJobDataSchema,
+  type IncomingMessageJobData,
+} from '../../application/ports/IncomingMessageJob';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import type { NormalizedPayload } from '../../domain/ports/messaging';
+import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 
 export async function processIncomingMessageJob(
   job: Job<IncomingMessageJobData>,
   routeIncomingMessage: RouteIncomingMessage,
 ): Promise<void> {
-  const data = job.data;
+  const parsed = IncomingMessageJobDataSchema.safeParse(job.data);
+  if (!parsed.success) {
+    throw new InvalidJobPayloadError(
+      'incoming-message',
+      parsed.error.issues.map((issue) => issue.path.join('.')),
+    );
+  }
+  const data = parsed.data;
 
   const payload: NormalizedPayload = {
     messageType: data.messageType,
     chatId: data.chatId,
     userId: data.userId,
     text: data.text,
-    callbackData: data.callbackData,
+    callbackData:
+      data.callbackData === undefined
+        ? undefined
+        : data.callbackData.field === undefined
+          ? { action: data.callbackData.action }
+          : { action: data.callbackData.action, field: data.callbackData.field },
     timestamp: new Date(data.timestamp),
     channel: data.channel,
     externalMessageId: data.externalMessageId,
@@ -45,18 +62,26 @@ export function createIncomingMessageWorker(opts: {
     {
       connection: opts.redis,
       concurrency: 1, // strict FIFO per user (ADR-011)
+      drainDelay: BULLMQ_WORKER_DRAIN_DELAY_SECONDS,
       stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
       // Retry policy is set on Queue, not Worker
     },
   );
+
+  registerBullMqErrorListener(worker, {
+    logger: opts.logger,
+    queue: 'incoming-message',
+    resourceKind: 'worker',
+  });
 
   // Structured error logging so the worker does not crash on processor errors
   worker.on('failed', (job, err) => {
     opts.logger.error({
       msg: 'Incoming message worker failed permanently',
       jobId: job?.id,
-      data: job?.data,
-      error: err.message,
+      queue: 'incoming-message',
+      code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
+      ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
     });
   });
 

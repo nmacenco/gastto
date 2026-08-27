@@ -15,7 +15,10 @@ import type { HandleStartCommand } from '../../../application/use-cases/conversa
 import type { SendImmediateAcknowledgement } from '../../../application/use-cases/conversation/SendImmediateAcknowledgement';
 import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
-import { parseTelegramPayload } from '../../../infrastructure/adapters/telegram/TelegramPayloadParser';
+import {
+  getTelegramChatScope,
+  parseTelegramPayload,
+} from '../../../infrastructure/adapters/telegram/TelegramPayloadParser';
 import { validateTelegramOrigin } from '../middleware/telegramAuth';
 
 export interface TelegramWebhookHandlerDeps {
@@ -34,6 +37,12 @@ export async function handleTelegramWebhook(
   reply: FastifyReply,
   deps: TelegramWebhookHandlerDeps,
 ): Promise<void> {
+  // Telegram group and channel updates are acknowledged after origin validation,
+  // but must never create an identity or trigger downstream side effects.
+  if (getTelegramChatScope(req.body) !== 'private') {
+    return reply.status(200).send({ ok: true });
+  }
+
   const payload = parseTelegramPayload(req.body);
 
   // Malformed payload short-circuit (owned by route layer since ADR-011)
@@ -41,7 +50,6 @@ export async function handleTelegramWebhook(
     req.log.error({
       endpoint: '/webhook/telegram',
       code: 'MALFORMED_PAYLOAD',
-      rawPayload: req.body,
     });
     return reply.status(200).send({ ok: true });
   }
@@ -142,7 +150,7 @@ export function registerTelegramWebhook(app: FastifyInstance, opts: TelegramWebh
         200: z.object({ ok: z.literal(true) }),
       },
     },
-    preHandler: [validateTelegramOrigin(opts.webhookSecret)],
+    onRequest: [validateTelegramOrigin(opts.webhookSecret)],
     handler: async (req: FastifyRequest, reply: FastifyReply) => {
       await handleTelegramWebhook(req, reply, opts);
     },

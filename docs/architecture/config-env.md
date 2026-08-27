@@ -1,6 +1,6 @@
 ---
 title: 'Configuration & Environment'
-last_updated: '2026-05-17'
+last_updated: '2026-08-23'
 source_of_truth: ['src/config/env.schema.ts']
 tags: ['architecture', 'config', 'env']
 ---
@@ -11,21 +11,21 @@ This document describes the configuration and environment setup for this project
 
 ## Environment variables
 
-| Variable                  | Scope  | Required | Description                                                                                                               |
-| ------------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                | Server | No       | Runtime environment: `development`, `production`, or `test`. Defaults to `development`.                                   |
-| `PORT`                    | Server | No       | HTTP server port. Defaults to `3000`.                                                                                     |
-| `LOG_LEVEL`               | Server | No       | Pino log level. Defaults to `info`.                                                                                       |
-| `DATABASE_URL`            | Server | No       | PostgreSQL connection string. Required once persistence is wired.                                                         |
-| `REDIS_URL`               | Server | No       | Redis connection string. Required once BullMQ workers are wired.                                                          |
-| `OPENAI_API_KEY`          | Server | No       | OpenAI API key. Optional; at least one LLM provider key is required.                                                      |
-| `ANTHROPIC_API_KEY`       | Server | No       | Anthropic API key. Optional.                                                                                              |
-| `NVIDIA_API_KEY`          | Server | No       | NVIDIA API key for the `integrate.api.nvidia.com` OpenAI-compatible endpoint. Optional.                                   |
-| `TELEGRAM_WEBHOOK_SECRET` | Server | No       | Secret token for Telegram webhook origin validation. Required once webhook is wired.                                      |
-| `TELEGRAM_BOT_TOKEN`      | Server | No       | Telegram Bot API token. Required once the bot sends messages.                                                             |
-| `SENTRY_DSN`              | Server | No       | Sentry error tracking DSN. Optional.                                                                                      |
-| `CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD` | Server | No       | Minimum confidence for keyword-based category classification (E1-US-04). Range: [0, 1]. Default: `0.6`.                  |
-| `ENCRYPTION_KEY`          | Server | No       | AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars). Currently commented out in schema. |
+| Variable                                       | Scope  | Required | Description                                                                                                               |
+| ---------------------------------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                     | Server | No       | Runtime environment: `development`, `production`, or `test`. Defaults to `development`.                                   |
+| `PORT`                                         | Server | No       | HTTP server port. Defaults to `3000`.                                                                                     |
+| `LOG_LEVEL`                                    | Server | No       | Pino log level. Defaults to `info`.                                                                                       |
+| `DATABASE_URL`                                 | Server | No       | PostgreSQL connection string. Required once persistence is wired.                                                         |
+| `REDIS_URL`                                    | Server | No       | Provider-independent Redis-compatible broker URI for BullMQ and caches. Hosted environments require TLS via `rediss://`.  |
+| `OPENAI_API_KEY`                               | Server | No       | OpenAI API key. Optional; at least one LLM provider key is required.                                                      |
+| `ANTHROPIC_API_KEY`                            | Server | No       | Anthropic API key. Optional.                                                                                              |
+| `NVIDIA_API_KEY`                               | Server | No       | NVIDIA API key for the `integrate.api.nvidia.com` OpenAI-compatible endpoint. Optional.                                   |
+| `TELEGRAM_WEBHOOK_SECRET`                      | Server | No       | Secret token for Telegram webhook origin validation. Required once webhook is wired.                                      |
+| `TELEGRAM_BOT_TOKEN`                           | Server | No       | Telegram Bot API token. Required once the bot sends messages.                                                             |
+| `SENTRY_DSN`                                   | Server | No       | Sentry error tracking DSN. Optional.                                                                                      |
+| `CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD` | Server | No       | Minimum confidence for keyword-based category classification (E1-US-04). Range: [0, 1]. Default: `0.6`.                   |
+| `ENCRYPTION_KEY`                               | Server | No       | AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars). Currently commented out in schema. |
 
 **Security note**: All secrets are server-side only. No env var is exposed to the client.
 
@@ -47,14 +47,23 @@ See [`docs/development/local-setup.md`](../development/local-setup.md) for the f
 | -------------- | --------------------------------------------------------------------- |
 | Supabase (dev) | `postgresql://postgres:password@db.project.supabase.co:5432/postgres` |
 
-### Redis
+### Redis-compatible broker
 
-| Source                       | Example `REDIS_URL`                              |
-| ---------------------------- | ------------------------------------------------ |
-| Docker Compose (recommended) | `redis://localhost:6379`                         |
-| Upstash (dev)                | `rediss://default:password@host.upstash.io:6379` |
+| Source                               | Example `REDIS_URL`                                |
+| ------------------------------------ | -------------------------------------------------- |
+| Docker Compose (recommended locally) | `redis://localhost:6379`                           |
+| Managed TLS provider                 | `rediss://username:password@provider.example:6379` |
 
-> **Why Docker Compose is recommended for Redis:** Upstash free tier limits to 10,000 commands/day. BullMQ generates ~10–20 Redis commands per job. Local development with repeated restarts and tests quickly exhausts the free tier.
+Use Docker Compose locally so restarts and tests cannot consume shared development
+capacity or mutate deployed BullMQ state. The deployed development app uses an
+isolated Aiven for Valkey service under ADR-021; production retains its separate
+existing provider. Never reuse hosted credentials in local `.env` files.
+
+The runtime accepts standard Redis-compatible commands through ioredis. Provider
+URIs are secrets: store them only in the environment's secret manager, never in
+repository files, logs, screenshots, or command history. A provider-branded TLS
+scheme must be normalized to the ioredis-compatible `rediss://` scheme before it
+is stored.
 
 ### Google OAuth Redirect URI
 
@@ -75,13 +84,19 @@ ngrok http 3000
 
 The app auto-detects `localhost` and skips webhook registration, so ngrok is required to receive messages.
 
-## Production secrets (Fly.io)
+## Hosted environment secrets (Fly.io)
 
-Set secrets via the Fly.io CLI. Never commit production credentials to source control.
+Set secrets independently for each Fly app. Never commit development or production
+credentials to source control, and never copy one environment's broker URI into
+the other environment.
 
 ```bash
-flyctl secrets set TELEGRAM_BOT_TOKEN=<token> TELEGRAM_WEBHOOK_SECRET=<secret>
+flyctl secrets set --app <fly-app> REDIS_URL=<tls-uri>
 ```
+
+Prefer the Fly dashboard or another workflow that does not retain the URI in shell
+history. Fly does not expose a secret's value after it is set, so retain the
+previous provider URI in an approved password manager for rollback.
 
 ## Framework / build config
 

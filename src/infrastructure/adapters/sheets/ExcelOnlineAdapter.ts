@@ -34,18 +34,6 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'ExcelOnlineAdapter.listSheets',
-        code: 'GRAPH_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
       throw new SpreadsheetError(`Graph API error during sheet listing: HTTP ${response.status}`);
     }
 
@@ -73,18 +61,6 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'ExcelOnlineAdapter.getHeaders',
-        code: 'GRAPH_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
       throw new SpreadsheetError(
         `Graph API error during header retrieval: HTTP ${response.status}`,
       );
@@ -128,18 +104,6 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     }
 
     if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'ExcelOnlineAdapter.getUniqueValues',
-        code: 'GRAPH_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
       throw new SpreadsheetError(
         `Graph API error during unique values retrieval: HTTP ${response.status}`,
       );

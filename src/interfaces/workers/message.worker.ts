@@ -27,7 +27,12 @@ import type { IUserProcessingLock } from '../../application/ports/UserProcessing
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ExpenseSummaryPresenter } from '../../application/ports/output/expense-summary.presenter';
-import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
+import {
+  ProcessMessageJobDataSchema,
+  type ProcessMessageJobData,
+} from '../../application/ports/ProcessMessageJob';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 import type { ExpenseReviewPayload } from '../../domain/value-objects/expense-review-payload';
 import type {
   IUserRepository,
@@ -118,7 +123,20 @@ export async function processMessageJob(
   job: Job<ProcessMessageJobData>,
   opts: MessageWorkerDeps,
 ): Promise<void> {
-  const { userId, channel, externalId } = job.data;
+  const parsed = ProcessMessageJobDataSchema.safeParse(job.data);
+  if (!parsed.success) {
+    throw new InvalidJobPayloadError(
+      'process-message',
+      parsed.error.issues.map((issue) => issue.path.join('.')),
+    );
+  }
+  const data = parsed.data;
+  const { userId, channel, externalId } = data;
+
+  const identity = await opts.userRepo.findByMessagingIdentity(channel, externalId);
+  if (identity?.userId !== userId) {
+    throw new Error('Messaging identity does not match job user');
+  }
 
   // Acquire per-user lock to serialize processing of concurrent
   // messages from the same user (ADR-011 gap). Must happen before
@@ -140,7 +158,7 @@ export async function processMessageJob(
     // unexpected throws so BullMQ does not retry side-effectful handlers and
     // re-send the same messages on every attempt (ADR-005).
     try {
-      await routeByState(currentState, job.data, conversationState, opts, messaging);
+      await routeByState(currentState, data, conversationState, opts, messaging);
     } catch (err) {
       opts.logger.error({
         msg: 'process-message handler threw unexpectedly',
@@ -690,6 +708,7 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
     {
       connection: opts.redis,
       concurrency: 2, // max 2 simultaneous jobs to not saturate LLM API (ADR-005)
+      drainDelay: BULLMQ_WORKER_DRAIN_DELAY_SECONDS,
       stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
       lockDuration: 120_000, // 2 min (default 30s) — LLM jobs can run >30s
       lockRenewTime: 60_000, // 1 min (default 15s) — fewer lock renewals
@@ -707,12 +726,20 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
     },
   );
 
+  registerBullMqErrorListener(worker, {
+    logger: opts.logger,
+    queue: 'process-message',
+    resourceKind: 'worker',
+  });
+
   // Dead letter: jobs que agotan reintentos → log estructurado (ADR-005)
   worker.on('failed', (job, err) => {
     opts.logger.error({
       msg: 'Job failed permanently',
       jobId: job?.id,
-      data: job?.data,
+      queue: 'process-message',
+      code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
+      ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
       error: err.message,
     });
   });

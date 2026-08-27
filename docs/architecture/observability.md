@@ -15,6 +15,12 @@ const rootLogger = createLogger({
 
 The factory lives at `src/infrastructure/logger.ts`. It creates a Pino logger instance configured with the given log level and optional pretty-print transport.
 
+## Sensitive-data redaction
+
+`src/infrastructure/observability/sensitiveData.ts` defines the shared sensitive-field policy used by both the root Pino logger and Fastify's request logger. Authorization headers, cookies, tokens, secrets, OAuth state, raw messages and webhook payloads, job data, and provider error bodies are replaced with `[REDACTED]` before logging. Error logs retain safe operational metadata such as endpoint, queue, job ID, HTTP status, and error code.
+
+Sentry is initialized with the same module's `beforeSend` scrubber. It creates a bounded, cycle-safe copy of the event and redacts matching keys in request data, breadcrumbs, contexts, extras, tags, and exception metadata before transmission. The scrubber never throws, so error reporting cannot disrupt application error handling.
+
 ## Logger lifecycle
 
 - **Bootstrap (`main.ts`)**: A single root logger is created via `createLogger()` at the top of `bootstrap()`. It is injected into all downstream components (workers, use cases, adapters) via constructor dependency injection.

@@ -3,12 +3,19 @@
 // Lives in the Application layer because both the route (Interfaces)
 // and the router use case (Application) depend on its shape.
 
-export type ProcessMessageJobData = {
-  userId: string;
-  rawMessage: string;
-  channel: 'telegram' | 'whatsapp';
-  externalId: string;
-  externalMessageId: string;
-  receivedAt: string;
-  callbackData?: { action: 'confirm' | 'correct' | 'cancel'; field?: string } | undefined;
-};
+import { z } from 'zod';
+import { CallbackDataSchema } from './IncomingMessageJob';
+
+export const ProcessMessageJobDataSchema = z
+  .object({
+    userId: z.string().min(1),
+    rawMessage: z.string(),
+    channel: z.enum(['telegram', 'whatsapp']),
+    externalId: z.string().min(1),
+    externalMessageId: z.string().min(1),
+    receivedAt: z.string().datetime({ offset: true }),
+    callbackData: CallbackDataSchema.optional(),
+  })
+  .strict();
+
+export type ProcessMessageJobData = z.infer<typeof ProcessMessageJobDataSchema>;

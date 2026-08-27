@@ -16,6 +16,7 @@ import * as Sentry from '@sentry/node';
 import type { Logger } from 'pino';
 
 import type { Env } from '../config/env.schema';
+import { pinoRedaction } from '../infrastructure/observability/sensitiveData';
 
 /**
  * Creates and configures a Fastify instance with the standard plugin stack.
@@ -27,6 +28,7 @@ export async function createFastify(env: Env, rootLogger: Logger): Promise<Fasti
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
+      redact: pinoRedaction,
       // pino-pretty in development; structured JSON in production (Fly.io)
       ...(env.NODE_ENV !== 'production' && {
         transport: { target: 'pino-pretty', options: { colorize: true } },

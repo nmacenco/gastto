@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { processMessageJob, createMessageWorker, type MessageWorkerDeps } from './message.worker';
-import type { Job } from 'bullmq';
+import { Worker, type Job } from 'bullmq';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
@@ -21,6 +21,7 @@ import type { ModifyCategoryVocabulary } from '../../application/use-cases/sprea
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
@@ -32,6 +33,7 @@ const mockLoggerError = vi.fn();
 const mockTransitionStateExecute = vi.fn();
 const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
+const mockUserRepoFindByMessagingIdentity = vi.fn();
 const mockRegisterExpenseInterpret = vi.fn();
 const mockQueuePendingExpenseExecute = vi.fn();
 const mockClassifyFreeTextExpenseIntentExecute = vi.fn();
@@ -62,6 +64,22 @@ const mockCancelExpenseRegistrationExecute = vi.fn();
 const mockUndoLastExpenseExecute = vi.fn();
 const mockRetryExpenseSaveExecute = vi.fn();
 const mockStartSpreadsheetReconfigurationExecute = vi.fn();
+
+vi.mock('bullmq', () => ({
+  Worker: vi.fn().mockImplementation(() => {
+    const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+    return {
+      opts: { concurrency: 2 },
+      on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+        if (!events[event]) events[event] = [];
+        events[event].push(handler);
+      }),
+      emit: vi.fn().mockImplementation((event: string, ...args: unknown[]) => {
+        (events[event] ?? []).forEach((handler) => handler(...args));
+      }),
+    };
+  }),
+}));
 
 function buildMockDeps(): MessageWorkerDeps {
   return {
@@ -120,6 +138,7 @@ function buildMockDeps(): MessageWorkerDeps {
     } as unknown as MessageWorkerDeps['recoverCorruptedState'],
     userRepo: {
       findById: mockUserRepoFindById,
+      findByMessagingIdentity: mockUserRepoFindByMessagingIdentity,
     } as unknown as MessageWorkerDeps['userRepo'],
     messagingAdapters: {
       telegram: { sendMessage: mockSendMessage },
@@ -260,6 +279,7 @@ describe('processMessageJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
+    mockUserRepoFindByMessagingIdentity.mockResolvedValue({ userId: 'user-123' });
     mockResolveExpenseReviewReplyExecute.mockResolvedValue({
       status: 'action_handled',
       action: 'confirm',
@@ -290,6 +310,27 @@ describe('processMessageJob', () => {
         savedAt: new Date(),
       },
     });
+  });
+
+  it('rejects malformed payloads before identity lookup or lock acquisition', async () => {
+    const deps = buildMockDeps();
+    const invalidJob = buildJob({ ...baseJobData, receivedAt: 'not-a-timestamp' });
+
+    await expect(processMessageJob(invalidJob, deps)).rejects.toThrow(InvalidJobPayloadError);
+    expect(mockUserRepoFindByMessagingIdentity).not.toHaveBeenCalled();
+    expect(mockAcquireLock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a job whose messaging identity belongs to another user before side effects', async () => {
+    const deps = buildMockDeps();
+    mockUserRepoFindByMessagingIdentity.mockResolvedValue({ userId: 'other-user' });
+
+    await expect(processMessageJob(buildJob(baseJobData), deps)).rejects.toThrow(
+      'Messaging identity does not match job user',
+    );
+    expect(mockAcquireLock).not.toHaveBeenCalled();
+    expect(mockGetConversationStateExecute).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
@@ -1406,7 +1447,7 @@ describe('processMessageJob', () => {
   });
 
   describe('ONBOARDING states', () => {
-    it('delegates ONBOARDING_START to InitiateCloudConnection when prompt was already shown', async () => {
+    it('delegates recovery empezar to InitiateCloudConnection without expense interpretation', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
@@ -1419,14 +1460,17 @@ describe('processMessageJob', () => {
         message: 'Auth link sent.',
       });
 
-      await processMessageJob(buildJob(baseJobData), deps);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'empezar' }), deps);
 
       expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
-        rawMessage: 'Cafe 850',
+        rawMessage: 'empezar',
         externalId: '123456789',
         channel: 'telegram',
       });
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledTimes(1);
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockClassifyFreeTextExpenseIntentExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
 
@@ -2444,6 +2488,9 @@ describe('processMessageJob', () => {
     it('different users can both acquire the lock', async () => {
       mockAcquireLock.mockResolvedValueOnce(LOCK_TOKEN_A);
       mockAcquireLock.mockResolvedValueOnce(LOCK_TOKEN_B);
+      mockUserRepoFindByMessagingIdentity
+        .mockResolvedValueOnce({ userId: 'user-123' })
+        .mockResolvedValueOnce({ userId: 'user-456' });
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({ currentState: 'ONBOARDING_CATEGORIES' }),
@@ -2792,23 +2839,38 @@ describe('processMessageJob', () => {
 });
 
 describe('createMessageWorker', () => {
-  const WorkerMock = vi.fn();
-
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(WorkerMock).mockImplementation(() => ({
-      on: vi.fn(),
-      opts: { concurrency: 2 },
-    }));
   });
 
-  // We cannot easily mock the bullmq Worker class import in vitest without
-  // hoisting issues, so we test the exported processor directly in processMessageJob
-  // and verify the factory signature here at the type level.
-  it('has the correct type signature', () => {
-    // This test is mostly a compile-time guard; if it compiles, the shape is correct.
+  it('creates a Worker with concurrency: 2 and drainDelay: 30', () => {
     const deps = buildMockDeps();
-    expect(typeof createMessageWorker).toBe('function');
-    expect(() => createMessageWorker(deps)).not.toThrow(TypeError);
+    createMessageWorker(deps);
+
+    const [, , opts] = vi.mocked(Worker).mock.calls[0] as unknown as [
+      unknown,
+      unknown,
+      { concurrency: number; drainDelay: number },
+    ];
+    expect(opts.concurrency).toBe(2);
+    expect(opts.drainDelay).toBe(30);
+  });
+
+  it('logs a sanitized structured error once on worker error events', () => {
+    const worker = createMessageWorker(buildMockDeps());
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'error',
+      new Error('Connection lost'),
+    );
+
+    expect(mockLoggerError).toHaveBeenCalledOnce();
+    expect(mockLoggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ worker error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_WORKER_ERROR',
+      queue: 'process-message',
+      error: 'Connection lost',
+    });
   });
 });

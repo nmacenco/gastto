@@ -12,7 +12,10 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 - `HandleStartCommand` ensures every new user has a valid conversation state. If missing, it creates `IDLE`.
 - `TransitionConversationState` validates transitions against `FSM_TRANSITIONS`. Invalid transitions throw `InvalidStateTransitionError`.
 - `GetConversationState` reads the current state for a user, returning `null` only if the user has never interacted with the system.
+- A terminal spreadsheet `AUTH_ERROR` while saving transitions directly from `EXPENSE_SAVING` to `ONBOARDING_START` with `promptShown: true`. The next contextual `empezar` message starts the existing Google OAuth flow without replaying the failed expense.
+- Category confirmation and category modification recover from missing spreadsheet configuration by transitioning from `ONBOARDING_CATEGORIES` to `ONBOARDING_START` with `promptShown: true`, preserving strict transition validation while reconnecting the user contextually.
 - **Session timeout:** `conversation_states.expires_at` stores an absolute expiration timestamp. `HandleExpiredSessions` (run by a periodic worker) finds all expired states via the partial index `idx_conversation_states_expires`, transitions them back to `IDLE`, and notifies the user via their messaging identities with the copy: `"Tu sesion expiro. Queres continuar o empezar de nuevo?"`.
+- Every onboarding state (`ONBOARDING_START`, `ONBOARDING_DRIVE`, `ONBOARDING_FILE`, `ONBOARDING_SHEET`, `ONBOARDING_VALIDATING_ACCESS`, `ONBOARDING_MAPPING`, and `ONBOARDING_CATEGORIES`) explicitly permits that timeout transition to `IDLE`; the generic handler clears `statePayload` and `expiresAt` through the strict validator before notifying the user.
 - **Corrupted-state recovery:** `RecoverCorruptedState` detects an invalid state string (outside the 13 known states), logs an anomaly to `operation_logs` with `error_type = 'CORRUPTED_STATE'`, and resets the user to `IDLE`.
 - Clean Architecture boundary is enforced: HTTP routes and BullMQ workers delegate to use cases; use cases own the FSM logic and call repository ports. No infrastructure adapter is accessed directly from the interface layer.
 
@@ -68,17 +71,18 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 | State                   | Description                             | Valid Transitions                                  |
 | ----------------------- | --------------------------------------- | -------------------------------------------------- |
 | `IDLE`                  | No active flow                          | `ONBOARDING_START`, `EXPENSE_RECEIVING`            |
-| `ONBOARDING_START`      | First contact, no spreadsheet linked    | `ONBOARDING_DRIVE`                                 |
-| `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | `ONBOARDING_FILE`                                  |
-| `ONBOARDING_FILE`       | Waiting for file selection              | `ONBOARDING_SHEET`, `ONBOARDING_START`             |
-| `ONBOARDING_SHEET`      | Waiting for sheet selection             | `ONBOARDING_VALIDATING_ACCESS`, `ONBOARDING_START` |
-| `ONBOARDING_MAPPING`    | Waiting for column mapping confirmation | `ONBOARDING_CATEGORIES`, `ONBOARDING_START`        |
-| `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | `IDLE`                                             |
+| `ONBOARDING_START`      | First contact, no spreadsheet linked    | `ONBOARDING_START`, `ONBOARDING_DRIVE`, `IDLE`     |
+| `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | `ONBOARDING_DRIVE`, `ONBOARDING_FILE`, `IDLE`      |
+| `ONBOARDING_FILE`       | Waiting for file selection              | `ONBOARDING_FILE`, `ONBOARDING_SHEET`, `ONBOARDING_START`, `IDLE` |
+| `ONBOARDING_SHEET`      | Waiting for sheet selection             | `ONBOARDING_SHEET`, `ONBOARDING_VALIDATING_ACCESS`, `ONBOARDING_START`, `IDLE` |
+| `ONBOARDING_VALIDATING_ACCESS` | Validating spreadsheet access   | `ONBOARDING_MAPPING`, `ONBOARDING_SHEET`, `ONBOARDING_START`, `IDLE` |
+| `ONBOARDING_MAPPING`    | Waiting for column mapping confirmation | `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `ONBOARDING_START`, `IDLE` |
+| `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | `IDLE`, `ONBOARDING_CATEGORIES`, `ONBOARDING_START` |
 | `EXPENSE_RECEIVING`     | Message received, NLP processing        | `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `IDLE`     |
 | `EXPENSE_CLARIFYING`    | Waiting for user clarification          | `EXPENSE_REVIEW`, `IDLE`                           |
 | `EXPENSE_REVIEW`        | Summary sent, awaiting confirmation     | `EXPENSE_SAVING`, `EXPENSE_CORRECTING`, `IDLE`     |
 | `EXPENSE_CORRECTING`    | Applying user correction                | `EXPENSE_REVIEW`, `IDLE`                           |
-| `EXPENSE_SAVING`        | Writing to spreadsheet                  | `IDLE`, `EXPENSE_SAVING_RETRY`                     |
+| `EXPENSE_SAVING`        | Writing to spreadsheet                  | `IDLE`, `EXPENSE_SAVING_RETRY`, `ONBOARDING_START` |
 | `EXPENSE_SAVING_RETRY`  | Retry failed save (TTL: 10 min)         | `IDLE`                                             |
 | `EXPENSE_UNDO_CONFIRMING` | Waiting for explicit delayed-undo confirmation (short TTL) | `IDLE` |
 

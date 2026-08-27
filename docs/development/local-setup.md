@@ -1,6 +1,6 @@
 ---
 title: 'Local Development Setup'
-last_updated: '2026-06-10'
+last_updated: '2026-08-23'
 source_of_truth: ['.env.example', 'docker-compose.yml', 'src/main.ts']
 tags: ['development', 'local', 'setup', 'docker']
 ---
@@ -63,9 +63,11 @@ docker-compose down -v
 | ------- | ----------- | ------ | ------------ |
 | Redis   | `localhost` | `6379` | `redis_data` |
 
-**Why local Redis instead of Upstash?**
+**Why local Redis instead of a managed development broker?**
 
-The Upstash free tier limits to **10,000 commands/day**. BullMQ generates ~10–20 Redis commands per job (enqueue, lock, heartbeat, cleanup). Local development with repeated restarts and tests quickly exhausts the free tier.
+Local Docker Redis keeps tests, restarts, and experimental queue data isolated
+from the deployed development environment. `gastto-develop` uses Aiven for Valkey
+under ADR-021, but its credentials and BullMQ state must not be reused locally.
 
 ### PostgreSQL (Supabase)
 
@@ -109,7 +111,9 @@ DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT.supabase.co:543
 REDIS_URL=redis://localhost:6379
 ```
 
-**Note:** Redis does not require TLS locally. The production config adds `maxRetriesPerRequest: null` because Upstash over TLS can reset connections. Locally, plain `redis://` works fine.
+**Note:** Redis does not require TLS locally, so plain `redis://` is correct here.
+Hosted Redis-compatible providers require `rediss://`. The shared runtime uses
+`maxRetriesPerRequest: null` so BullMQ controls retry behavior across providers.
 
 ### 3.4 LLM
 
@@ -340,11 +344,15 @@ Tests use Vitest + Testcontainers to spin up real PostgreSQL and Redis container
 - Usually means `DATABASE_URL` or `REDIS_URL` is missing or invalid.
 - The app catches this and starts the HTTP server without workers, so health check still responds.
 
-### Upstash Redis: "Daily command limit exceeded"
+### Managed broker quota or capacity warning
 
-- Switch to local Docker Redis: `REDIS_URL=redis://localhost:6379`.
+- Confirm local development is not using a hosted `REDIS_URL`.
+- Switch local work to Docker Redis: `REDIS_URL=redis://localhost:6379`.
 - Run `docker-compose up -d`.
-- See [ADR-005](../adr/adr.md#adr-005--latencia-pipeline-asíncrono-con-bullmq-sobre-redis) for limits discussion.
+- Do not copy Aiven or production credentials into `.env`.
+- See [ADR-021](../adr/ADR-021-use-aiven-valkey-for-development-bullmq.md)
+  and the [Deployment Operations Guide](../features/deployment.md) for deployed
+  capacity thresholds and provider rotation.
 
 ---
 

@@ -8,6 +8,8 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { HandleExpiredSessions } from '../../application/use-cases/conversation/HandleExpiredSessions';
 import { processSessionTimeoutJob, createSessionTimeoutWorker } from './sessionTimeout.worker';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import type { SessionTimeoutJobData } from '../../application/ports/SessionTimeoutJob';
 
 vi.mock('bullmq', () => ({
   Worker: vi.fn().mockImplementation(() => {
@@ -48,7 +50,7 @@ describe('processSessionTimeoutJob', () => {
   });
 
   it('delegates to HandleExpiredSessions.execute', async () => {
-    const mockJob = { id: 'job-1', data: {} } as Job;
+    const mockJob = { id: 'job-1', data: {} } as Job<SessionTimeoutJobData>;
     const handleExpiredSessions = buildMockHandleExpiredSessions();
 
     await processSessionTimeoutJob(mockJob, handleExpiredSessions);
@@ -59,12 +61,21 @@ describe('processSessionTimeoutJob', () => {
   it('propagates error so BullMQ can mark the job as failed', async () => {
     mockExecute.mockRejectedValue(new Error('Execution failed'));
 
-    const mockJob = { id: 'job-2', data: {} } as Job;
+    const mockJob = { id: 'job-2', data: {} } as Job<SessionTimeoutJobData>;
     const handleExpiredSessions = buildMockHandleExpiredSessions();
 
     await expect(processSessionTimeoutJob(mockJob, handleExpiredSessions)).rejects.toThrow(
       'Execution failed',
     );
+  });
+
+  it('rejects non-empty job data before executing', async () => {
+    const mockJob = { id: 'job-3', data: { unexpected: true } } as Job;
+
+    await expect(
+      processSessionTimeoutJob(mockJob as Job<never>, buildMockHandleExpiredSessions()),
+    ).rejects.toThrow(InvalidJobPayloadError);
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });
 
@@ -74,7 +85,7 @@ describe('createSessionTimeoutWorker', () => {
     mockExecute.mockResolvedValue(undefined);
   });
 
-  it('creates a Worker with concurrency: 1', () => {
+  it('creates a Worker with concurrency: 1 and drainDelay: 30', () => {
     createSessionTimeoutWorker({
       redis: buildMockRedis(),
       handleExpiredSessions: buildMockHandleExpiredSessions(),
@@ -86,9 +97,10 @@ describe('createSessionTimeoutWorker', () => {
     const [, , opts] = WorkerMock.mock.calls[0] as unknown as [
       unknown,
       unknown,
-      { concurrency: number },
+      { concurrency: number; drainDelay: number },
     ];
     expect(opts.concurrency).toBe(1);
+    expect(opts.drainDelay).toBe(30);
   });
 
   it('processor delegates to processSessionTimeoutJob', async () => {
@@ -133,8 +145,30 @@ describe('createSessionTimeoutWorker', () => {
     expect(mockLoggerError).toHaveBeenCalledWith({
       msg: 'Session timeout worker failed permanently',
       jobId: 'job-99',
-      data: {},
-      error: 'Redis connection lost',
+      queue: 'session-timeout',
+      code: 'JOB_FAILED',
+    });
+  });
+
+  it('logs a sanitized structured error once on worker error events', () => {
+    const worker = createSessionTimeoutWorker({
+      redis: buildMockRedis(),
+      handleExpiredSessions: buildMockHandleExpiredSessions(),
+      logger: buildMockLogger(),
+    });
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'error',
+      new Error('Connection lost'),
+    );
+
+    expect(mockLoggerError).toHaveBeenCalledOnce();
+    expect(mockLoggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ worker error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_WORKER_ERROR',
+      queue: 'session-timeout',
+      error: 'Connection lost',
     });
   });
 });

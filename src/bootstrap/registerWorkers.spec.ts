@@ -38,6 +38,16 @@ vi.mock('bullmq', () => ({
   Worker: vi.fn(),
 }));
 
+const dependencyQueueCloseMocks: Array<ReturnType<typeof vi.fn>> = [];
+const workerCloseMocks: Array<ReturnType<typeof vi.fn>> = [];
+const createdQueueCloseMocks: Array<ReturnType<typeof vi.fn>> = [];
+
+function buildQueueDependency<T>(): T {
+  const close = vi.fn().mockResolvedValue(undefined);
+  dependencyQueueCloseMocks.push(close);
+  return { close } as T;
+}
+
 function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
   return {
     db: {} as Dependencies['db'],
@@ -58,9 +68,9 @@ function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
     getConversationState: {} as Dependencies['getConversationState'],
     transitionState: {} as Dependencies['transitionState'],
     recoverCorruptedState: {} as Dependencies['recoverCorruptedState'],
-    messageQueue: {} as Dependencies['messageQueue'],
-    incomingMessageQueue: {} as Dependencies['incomingMessageQueue'],
-    reminderQueue: {} as Dependencies['reminderQueue'],
+    messageQueue: buildQueueDependency<Dependencies['messageQueue']>(),
+    incomingMessageQueue: buildQueueDependency<Dependencies['incomingMessageQueue']>(),
+    reminderQueue: buildQueueDependency<Dependencies['reminderQueue']>(),
     llmPort: {} as Dependencies['llmPort'],
     llmHeaderDetectionAdapter: {} as Dependencies['llmHeaderDetectionAdapter'],
     llmColumnInferenceAdapter: {} as Dependencies['llmColumnInferenceAdapter'],
@@ -127,21 +137,34 @@ describe('registerWorkers', () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
-    vi.mocked(Worker).mockImplementation(
-      () =>
-        ({
-          opts: { concurrency: 1 },
-          on: vi.fn(),
-          close: vi.fn().mockResolvedValue(undefined),
-        }) as unknown as Worker,
-    );
-    vi.mocked(Queue).mockImplementation(
-      () =>
-        ({
-          add: vi.fn().mockResolvedValue(undefined),
-          close: vi.fn().mockResolvedValue(undefined),
-        }) as unknown as Queue,
-    );
+    dependencyQueueCloseMocks.length = 0;
+    workerCloseMocks.length = 0;
+    createdQueueCloseMocks.length = 0;
+    vi.mocked(Worker).mockImplementation(() => {
+      const close = vi.fn().mockResolvedValue(undefined);
+      workerCloseMocks.push(close);
+      return {
+        opts: { concurrency: 1 },
+        on: vi.fn(),
+        close,
+      } as unknown as Worker;
+    });
+    vi.mocked(Queue).mockImplementation(() => {
+      const close = vi.fn().mockResolvedValue(undefined);
+      const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+      createdQueueCloseMocks.push(close);
+      return {
+        add: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+          if (!events[event]) events[event] = [];
+          events[event].push(handler);
+        }),
+        emit: vi.fn().mockImplementation((event: string, ...args: unknown[]) => {
+          (events[event] ?? []).forEach((handler) => handler(...args));
+        }),
+        close,
+      } as unknown as Queue;
+    });
     fetchMock.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue({ ok: true }),
@@ -241,13 +264,73 @@ describe('registerWorkers', () => {
     expect(names).toContain('session-timeout');
   });
 
-  it('does not create any worker when Telegram is not configured', async () => {
+  it('registers one sanitized error listener on the session-timeout queue', async () => {
+    const loggerError = vi.fn();
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      rootLogger: { error: loggerError } as unknown as Dependencies['rootLogger'],
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    const queueResultIndex = vi
+      .mocked(Queue)
+      .mock.calls.findIndex(([name]) => name === 'session-timeout');
+    const queue = vi.mocked(Queue).mock.results[queueResultIndex]?.value as Queue;
+    const mockQueue = queue as unknown as {
+      on: ReturnType<typeof vi.fn>;
+      emit: (event: string, error: Error) => void;
+    };
+    expect(mockQueue.on.mock.calls.filter(([event]) => event === 'error')).toHaveLength(1);
+
+    mockQueue.emit('error', new Error('Connection lost'));
+
+    expect(loggerError).toHaveBeenCalledOnce();
+    expect(loggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ queue error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_QUEUE_ERROR',
+      queue: 'session-timeout',
+      error: 'Connection lost',
+    });
+  });
+
+  it('closes every worker before closing every queue', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      googleOAuth: buildGoogleOAuthFeature(),
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+    await app.close();
+
+    const queueCloseMocks = [...dependencyQueueCloseMocks, ...createdQueueCloseMocks];
+
+    expect(workerCloseMocks).toHaveLength(4);
+    expect(queueCloseMocks).toHaveLength(4);
+    workerCloseMocks.forEach((close) => expect(close).toHaveBeenCalledOnce());
+    queueCloseMocks.forEach((close) => expect(close).toHaveBeenCalledOnce());
+
+    const lastWorkerClose = Math.max(
+      ...workerCloseMocks.map((close) => close.mock.invocationCallOrder[0] ?? 0),
+    );
+    const firstQueueClose = Math.min(
+      ...queueCloseMocks.map((close) => close.mock.invocationCallOrder[0] ?? Infinity),
+    );
+    expect(lastWorkerClose).toBeLessThan(firstQueueClose);
+  });
+
+  it('closes dependency queues even when Telegram is not configured', async () => {
     app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
     const deps = buildMockDeps({ telegram: null, googleOAuth: buildGoogleOAuthFeature() });
 
     await registerWorkers(app, deps, baseEnv);
+    await app.close();
 
     expect(Worker).not.toHaveBeenCalled();
+    dependencyQueueCloseMocks.forEach((close) => expect(close).toHaveBeenCalledOnce());
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

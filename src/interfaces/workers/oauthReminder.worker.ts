@@ -7,18 +7,22 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { SendOAuthReminder } from '../../application/use-cases/spreadsheet/SendOAuthReminder';
 import { InvalidStateTransitionError } from '../../domain/errors/InvalidStateTransitionError';
+import type { IUserRepository } from '../../domain/ports/repositories';
+import {
+  OAuthReminderJobDataSchema,
+  type OAuthReminderJobData,
+} from '../../application/ports/OAuthReminderJob';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 
-export interface OAuthReminderJobData {
-  userId: string;
-  externalId: string;
-  channel: 'telegram' | 'whatsapp';
-}
+export type { OAuthReminderJobData } from '../../application/ports/OAuthReminderJob';
 
 export interface OAuthReminderWorkerDeps {
   redis: Redis;
   sendOAuthReminder: SendOAuthReminder;
   redirectUri: string;
   logger: Logger;
+  userRepo: IUserRepository;
   provider?: 'google' | 'microsoft';
 }
 
@@ -26,7 +30,18 @@ export async function processOAuthReminderJob(
   job: Job<OAuthReminderJobData>,
   deps: OAuthReminderWorkerDeps,
 ): Promise<void> {
-  const { userId, externalId, channel } = job.data;
+  const parsed = OAuthReminderJobDataSchema.safeParse(job.data);
+  if (!parsed.success) {
+    throw new InvalidJobPayloadError(
+      'oauth-reminder',
+      parsed.error.issues.map((issue) => issue.path.join('.')),
+    );
+  }
+  const { userId, externalId, channel } = parsed.data;
+  const identity = await deps.userRepo.findByMessagingIdentity(channel, externalId);
+  if (identity?.userId !== userId) {
+    throw new Error('Messaging identity does not match job user');
+  }
   const provider = deps.provider ?? 'google';
 
   try {
@@ -43,7 +58,7 @@ export async function processOAuthReminderJob(
         msg: 'OAuth reminder skipped: invalid state transition',
         jobId: job.id,
         userId,
-        error: err.message,
+        code: 'INVALID_STATE_TRANSITION',
       });
       return;
     }
@@ -60,16 +75,24 @@ export function createOAuthReminderWorker(
     {
       connection: deps.redis,
       concurrency: 2,
+      drainDelay: BULLMQ_WORKER_DRAIN_DELAY_SECONDS,
       stalledInterval: 120_000, // 2 min (default 30s) — reduce Redis evalsha calls
     },
   );
+
+  registerBullMqErrorListener(worker, {
+    logger: deps.logger,
+    queue: 'oauth-reminder',
+    resourceKind: 'worker',
+  });
 
   worker.on('failed', (job, err) => {
     deps.logger.error({
       msg: 'OAuth reminder worker failed permanently',
       jobId: job?.id,
-      data: job?.data,
-      error: err.message,
+      queue: 'oauth-reminder',
+      code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
+      ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
     });
   });
 

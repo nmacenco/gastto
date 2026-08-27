@@ -7,6 +7,8 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
 ## Behavior (Implemented)
 
 - The system receives raw JSON payloads from Telegram webhooks at `POST /webhook/telegram`.
+- Telegram origin authentication runs in Fastify's `onRequest` lifecycle hook, before body parsing and validation. Requests without the configured secret return HTTP 403.
+- Only authenticated private chats are processed. Authenticated `group`, `supergroup`, `channel`, and unclassified chat updates return HTTP 200 with `{ ok: true }` without payload normalization, identity resolution, queueing, acknowledgement, or conversation-state changes.
 - A thin Infrastructure parser (`TelegramPayloadParser`) maps the raw payload to the domain `NormalizedPayload` contract without throwing.
 - The parser distinguishes three message types:
   - `TEXT`: a message containing non-empty text.
@@ -14,10 +16,12 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
   - `MALFORMED`: anything that does not match the expected Telegram schema.
 - Every valid payload carries a stable `externalMessageId` extracted from `message.message_id` (Telegram) and propagated as a string through all job data types to avoid precision loss.
 - The Fastify route handler (`telegram.webhook.ts`) short-circuits `MALFORMED` payloads at the route layer:
-  - Logs a structured error via `req.log.error({ endpoint: '/webhook/telegram', code: 'MALFORMED_PAYLOAD', rawPayload: req.body })`.
+  - For malformed updates identified as private, logs structured operational metadata via `req.log.error({ endpoint: '/webhook/telegram', code: 'MALFORMED_PAYLOAD' })`.
   - Returns HTTP 200 immediately to prevent Telegram retry loops.
 - For all other payloads, the route enqueues an `IncomingMessageJobData` to the `incoming-message` BullMQ queue and returns HTTP 200.
 - A thin FIFO worker (`incomingMessage.worker.ts`, `concurrency: 1`) consumes `incoming-message` jobs, deserializes `timestamp` back to `Date`, rebuilds `NormalizedPayload`, and delegates to `RouteIncomingMessage.execute()`.
+- BullMQ job payloads are runtime trust boundaries: the incoming-message and process-message workers parse strict Zod schemas before any side effect. Unknown fields, invalid values, and invalid timestamps fail the job with metadata-only logging.
+- Before processing a `process-message` job, the worker verifies that its `(channel, externalId)` resolves to its declared `userId`. A mismatch is rejected before the per-user lock, state lookup, messaging, or FSM handling.
 - `RouteIncomingMessage` routes `TEXT` and `UNSUPPORTED`:
   - `TEXT` → resolves user identity, loads the current conversation state, and decides based on the FSM state:
     - `IDLE` / `EXPENSE_RECEIVING` → classifies the text with `ClassifyFreeTextExpenseIntent`. Expense-like or very-long messages are enqueued to `process-message` and acknowledged; non-financial messages receive guidance and are not enqueued.
@@ -36,7 +40,13 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
 Telegram Webhook
       │
       ▼
-Fastify Handler ── MALFORMED? ──► req.log.error + 200 OK
+onRequest origin authentication ── invalid? ──► 403
+      │
+      ▼
+Private chat guard ── non-private/unknown? ──► 200 OK, no side effects
+      │
+      ▼
+Fastify Handler ── private MALFORMED? ──► req.log.error + 200 OK
       │
       ▼
 /start? ──► HandleStartCommand (sync)
@@ -67,7 +77,7 @@ RouteIncomingMessage.execute()
 
 ## API / Interface
 
-- `POST /webhook/telegram` — Receives Telegram Update JSON. Origin-validated by `telegramAuth` middleware. Always returns `{ ok: true }` with HTTP 200.
+- `POST /webhook/telegram` — Receives Telegram Update JSON. Origin validation happens before request-body parsing; unauthenticated requests return HTTP 403. Authenticated updates return `{ ok: true }` with HTTP 200, but only private chats are processed.
 
 ## Data Model
 
@@ -86,16 +96,16 @@ No database schema changes yet. The feature operates on transient domain value o
 
 ## Tests
 
-- [x] `TelegramPayloadParser.spec.ts` — happy path, unsupported types (photo, audio, sticker), empty text, malformed payloads, null payloads, `externalMessageId` extraction.
+- [x] `TelegramPayloadParser.spec.ts` — private and non-private chat-scope classification, happy path, unsupported types (photo, audio, sticker), empty text, malformed payloads, null payloads, `externalMessageId` extraction.
 - [x] `messaging.spec.ts` — `NormalizedPayload` contract, including optional `externalMessageId`.
 - [x] `RouteIncomingMessage.spec.ts` — TEXT routing (identity, enqueue, ack, ack-failure logging), UNSUPPORTED delegation.
 - [x] `HandleUnsupportedMessage.spec.ts` — exact copy sent, no-throw on send failure.
 - [x] `SendImmediateAcknowledgement.spec.ts` — success path, port-level failure, exception handling, optional `userId` and `whatsapp` channel acceptance.
 - [x] `ProcessedMessageKey.spec.ts` — construction, channel validation, empty ID validation, equality.
 - [x] `ProcessedMessageRepository.spec.ts` — contract test for `exists` and `markAsProcessed`.
-- [x] `telegram.webhook.spec.ts` — 200 for valid text + enqueue, 200 for unparseable + MALFORMED log, 200 for unsupported + enqueue, `/start` short-circuit, 3 rapid messages FIFO enqueue.
+- [x] `telegram.webhook.spec.ts` — origin authentication before body validation, private-chat routing, metadata-only malformed logging, non-private zero-side-effect acknowledgment, unsupported messages, `/start` short-circuit, and FIFO enqueue.
 - [x] `telegram.webhook.integration.spec.ts` — end-to-end scenarios including non-financial replies during active onboarding states that must be enqueued to `process-message` instead of receiving guidance.
-- [x] `incomingMessage.worker.spec.ts` — job deserialization, FIFO processing, worker construction (`concurrency: 1`), failed-event structured logging.
+- [x] `incomingMessage.worker.spec.ts` — strict payload validation, job deserialization, FIFO processing, worker construction (`concurrency: 1`), and metadata-only failed-event logging.
 
 ## Related User Stories
 
