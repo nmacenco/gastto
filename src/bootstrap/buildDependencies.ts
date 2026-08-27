@@ -283,14 +283,15 @@ function buildGoogleOAuthFeature(
     handleSpreadsheetFileSelection,
   });
 
+  const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
+
   const confirmColumnMapping = new ConfirmColumnMapping({
     columnMappingRepository: core.columnMappingRepo,
+    correctionStateRepository: mappingCorrectionStateRepository,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     messagingPort,
     transitionState: core.transitionState,
   });
-
-  const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
 
   const correctColumnMapping = new CorrectColumnMapping({
     columnMappingRepository: core.columnMappingRepo,

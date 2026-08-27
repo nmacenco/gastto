@@ -169,7 +169,9 @@ function restoreSnapshot(snapshot: MappingCorrectionStateSnapshot): ColumnMappin
   return state;
 }
 
-function toDisplayMapping(mapping: ColumnMapping) {
+function toDisplayMapping(
+  mapping: Pick<ColumnMapping, 'GasttoField' | 'columnIndex' | 'columnHeader'>,
+) {
   return {
     gasttoField: mapping.GasttoField,
     columnIndex: mapping.columnIndex,
@@ -264,7 +266,10 @@ export class CorrectColumnMapping {
     );
 
     const currentMappings = updatedState.getCurrentMapping();
-    const unmappedFields: GasttoField[] = []; // Corrections do not introduce unmapped fields.
+    const mappedFields = new Set(currentMappings.map((mapping) => mapping.GasttoField));
+    const unmappedFields = this.resolveUnmappedFields(input.statePayload).filter(
+      (field) => !mappedFields.has(field),
+    );
 
     const message = onboardingCopies.mappingUpdatedConfirmation(
       currentMappings.map(toDisplayMapping),
@@ -335,6 +340,24 @@ export class CorrectColumnMapping {
   private resolveHeaderRowIndex(statePayload: Record<string, unknown> | null): number | undefined {
     const value = statePayload?.headerRowIndex;
     return typeof value === 'number' && value >= 1 ? value : undefined;
+  }
+
+  private resolveUnmappedFields(statePayload: Record<string, unknown> | null): GasttoField[] {
+    const value = statePayload?.unmappedFields;
+    if (!Array.isArray(value)) return [];
+
+    const validFields: GasttoField[] = [
+      'monto',
+      'moneda',
+      'categoria',
+      'fecha',
+      'concepto',
+      'medio_pago',
+    ];
+    return value.filter(
+      (field): field is GasttoField =>
+        typeof field === 'string' && validFields.includes(field as GasttoField),
+    );
   }
 
   private async handleReconnect(

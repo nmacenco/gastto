@@ -12,6 +12,8 @@ export interface MappingCorrection {
   columnHeader: string;
 }
 
+export type CurrentColumnMapping = Omit<ColumnMapping, 'id'> & { readonly id?: string };
+
 export class ColumnMappingCorrectionState {
   private constructor(
     public readonly originalMapping: readonly ColumnMapping[],
@@ -35,8 +37,8 @@ export class ColumnMappingCorrectionState {
     return new ColumnMappingCorrectionState(this.originalMapping, this.corrections, 'confirmed');
   }
 
-  getCurrentMapping(): ColumnMapping[] {
-    return this.originalMapping.map((mapping) => {
+  getCurrentMapping(): CurrentColumnMapping[] {
+    const correctedMappings = this.originalMapping.map((mapping) => {
       const correction = this.corrections.find((c) => c.field === mapping.GasttoField);
       if (!correction) return mapping;
 
@@ -44,7 +46,28 @@ export class ColumnMappingCorrectionState {
         ...mapping,
         columnIndex: correction.columnIndex,
         columnHeader: correction.columnHeader,
+        inferred: false,
       };
     });
+
+    const originalFields = new Set(this.originalMapping.map((mapping) => mapping.GasttoField));
+    const spreadsheetId = this.originalMapping[0]?.spreadsheetId;
+
+    if (!spreadsheetId) return correctedMappings;
+
+    const newlyMappedFields = this.corrections
+      .filter((correction) => !originalFields.has(correction.field))
+      .map(
+        (correction): CurrentColumnMapping => ({
+          spreadsheetId,
+          GasttoField: correction.field,
+          columnIndex: correction.columnIndex,
+          columnHeader: correction.columnHeader,
+          inferred: false,
+          confirmedAt: null,
+        }),
+      );
+
+    return [...correctedMappings, ...newlyMappedFields];
   }
 }

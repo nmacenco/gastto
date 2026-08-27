@@ -5,6 +5,7 @@
 
 import type {
   IColumnMappingRepository,
+  IMappingCorrectionStateRepository,
   ISpreadsheetConfigRepository,
 } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
@@ -27,6 +28,7 @@ export interface ConfirmColumnMappingOutput {
 
 export interface ConfirmColumnMappingDeps {
   columnMappingRepository: IColumnMappingRepository;
+  correctionStateRepository: IMappingCorrectionStateRepository;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   messagingPort: MessagingOutputPort;
   transitionState: TransitionConversationState;
@@ -50,7 +52,22 @@ export class ConfirmColumnMapping {
       return { nextState: 'ONBOARDING_MAPPING', message };
     }
 
+    const correctionSnapshot = await this.deps.correctionStateRepository.load(userId);
+    if (correctionSnapshot && correctionSnapshot.corrections.length > 0) {
+      await this.deps.columnMappingRepository.upsertMany(
+        correctionSnapshot.corrections.map((correction) => ({
+          spreadsheetId: config.id,
+          GasttoField: correction.field,
+          columnIndex: correction.columnIndex,
+          columnHeader: correction.columnHeader,
+          inferred: false,
+          confirmedAt: null,
+        })),
+      );
+    }
+
     await this.deps.columnMappingRepository.confirmBySpreadsheetId(config.id);
+    await this.deps.correctionStateRepository.clear(userId);
 
     const message = onboardingCopies.mappingConfirmedNextStep();
     await this.deps.messagingPort.sendMessage(externalId, message);

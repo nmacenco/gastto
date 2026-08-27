@@ -76,6 +76,27 @@ describe('ColumnMappingCorrectionState', () => {
     expect(state.getCurrentMapping()[1]!.columnIndex).toBe(2);
   });
 
+  it('adds a correction for a field missing from the original proposal', () => {
+    const original = [
+      buildMapping({ GasttoField: 'medio_pago', columnIndex: 0, columnHeader: '' }),
+    ];
+    const state = ColumnMappingCorrectionState.create(original).applyCorrection({
+      field: 'categoria',
+      columnIndex: 2,
+      columnHeader: '',
+    });
+
+    expect(state.getCurrentMapping()).toEqual([
+      original[0],
+      expect.objectContaining({
+        GasttoField: 'categoria',
+        columnIndex: 2,
+        columnHeader: '',
+        inferred: false,
+      }),
+    ]);
+  });
+
   it('confirms the state without losing corrections', () => {
     const original = [
       buildMapping({ GasttoField: 'concepto', columnIndex: 3, columnHeader: 'Desc' }),
