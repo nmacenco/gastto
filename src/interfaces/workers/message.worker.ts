@@ -1023,7 +1023,9 @@ function restoreCorrectionSnapshot(snapshot: {
   return state;
 }
 
-function toDisplayMapping(mapping: ColumnMapping) {
+function toDisplayMapping(
+  mapping: Pick<ColumnMapping, 'GasttoField' | 'columnIndex' | 'columnHeader'>,
+) {
   return {
     gasttoField: mapping.GasttoField,
     columnIndex: mapping.columnIndex,

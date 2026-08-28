@@ -11,6 +11,7 @@ import {
 } from './ConfirmColumnMapping';
 import type {
   IColumnMappingRepository,
+  IMappingCorrectionStateRepository,
   ISpreadsheetConfigRepository,
 } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
@@ -20,6 +21,9 @@ const mockFindByUserId = vi.fn();
 const mockFindBySpreadsheetId = vi.fn();
 const mockConfirmBySpreadsheetId = vi.fn();
 const mockUpdateCorrected = vi.fn();
+const mockUpsertMany = vi.fn();
+const mockLoadCorrectionState = vi.fn();
+const mockClearCorrectionState = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockTransitionExecute = vi.fn();
 
@@ -31,7 +35,12 @@ function buildMockDeps(
       findBySpreadsheetId: mockFindBySpreadsheetId,
       confirmBySpreadsheetId: mockConfirmBySpreadsheetId,
       updateCorrected: mockUpdateCorrected,
+      upsertMany: mockUpsertMany,
     } as unknown as IColumnMappingRepository,
+    correctionStateRepository: {
+      load: mockLoadCorrectionState,
+      clear: mockClearCorrectionState,
+    } as unknown as IMappingCorrectionStateRepository,
     spreadsheetConfigRepository: {
       findByUserId: mockFindByUserId,
     } as unknown as ISpreadsheetConfigRepository,
@@ -92,6 +101,9 @@ beforeEach(() => {
   mockFindByUserId.mockResolvedValue(mockConfig);
   mockFindBySpreadsheetId.mockResolvedValue(mockMappings);
   mockConfirmBySpreadsheetId.mockResolvedValue(undefined);
+  mockUpsertMany.mockResolvedValue(undefined);
+  mockLoadCorrectionState.mockResolvedValue(null);
+  mockClearCorrectionState.mockResolvedValue(undefined);
   mockTransitionExecute.mockResolvedValue({
     userId: 'user-123',
     currentState: 'ONBOARDING_CATEGORIES',
@@ -110,6 +122,7 @@ describe('ConfirmColumnMapping', () => {
     const result = await useCase.execute(baseInput);
 
     expect(mockConfirmBySpreadsheetId).toHaveBeenCalledWith('config-1');
+    expect(mockClearCorrectionState).toHaveBeenCalledWith('user-123');
     expect(mockTransitionExecute).toHaveBeenCalledWith({
       userId: 'user-123',
       targetState: 'ONBOARDING_CATEGORIES',
@@ -125,6 +138,42 @@ describe('ConfirmColumnMapping', () => {
     );
     expect(result.nextState).toBe('ONBOARDING_CATEGORIES');
     expect(result.message).toBe(onboardingCopies.mappingConfirmedNextStep());
+  });
+
+  it('persists accumulated corrections, including newly mapped fields, before confirming', async () => {
+    mockLoadCorrectionState.mockResolvedValue({
+      originalMapping: mockMappings,
+      corrections: [
+        { field: 'fecha', columnIndex: 3, columnHeader: 'Día' },
+        { field: 'categoria', columnIndex: 2, columnHeader: '' },
+      ],
+      status: 'correcting',
+    });
+
+    const useCase = new ConfirmColumnMapping(buildMockDeps());
+    await useCase.execute(baseInput);
+
+    expect(mockUpsertMany).toHaveBeenCalledWith([
+      {
+        spreadsheetId: 'config-1',
+        GasttoField: 'fecha',
+        columnIndex: 3,
+        columnHeader: 'Día',
+        inferred: false,
+        confirmedAt: null,
+      },
+      {
+        spreadsheetId: 'config-1',
+        GasttoField: 'categoria',
+        columnIndex: 2,
+        columnHeader: '',
+        inferred: false,
+        confirmedAt: null,
+      },
+    ]);
+    expect(mockUpsertMany.mock.invocationCallOrder[0]).toBeLessThan(
+      mockConfirmBySpreadsheetId.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('sends reconnect message when spreadsheet config is missing', async () => {

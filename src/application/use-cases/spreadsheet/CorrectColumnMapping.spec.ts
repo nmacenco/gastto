@@ -312,6 +312,50 @@ describe('CorrectColumnMapping', () => {
     });
   });
 
+  it('adds a correction for a previously unmapped field and displays it', async () => {
+    mockFindBySpreadsheetId.mockResolvedValue([
+      buildMockMapping({
+        GasttoField: 'medio_pago',
+        columnIndex: 0,
+        columnHeader: '',
+      }),
+    ]);
+    mockListAvailableColumns.mockResolvedValue([
+      { index: 0, columnHeader: '' },
+      { index: 1, columnHeader: '' },
+      { index: 2, columnHeader: '' },
+      { index: 7, columnHeader: 'Ganancias' },
+    ]);
+
+    const useCase = new CorrectColumnMapping(
+      buildMockDeps({ correctionParser: new RuleBasedColumnMappingCorrectionParser() }),
+    );
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'Categoría columna C',
+      statePayload: {
+        ...baseInput.statePayload,
+        unmappedFields: ['monto', 'moneda', 'categoria', 'fecha', 'concepto'],
+      },
+    });
+
+    expect(result.kind).toBe('updated');
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      expect.stringContaining('Categoría → columna C'),
+    );
+    expect(mockTransitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          mappings: expect.arrayContaining([
+            expect.objectContaining({ gasttoField: 'categoria', columnIndex: 2 }),
+          ]) as unknown[],
+          unmappedFields: ['monto', 'moneda', 'fecha', 'concepto'],
+        }) as Record<string, unknown>,
+      }),
+    );
+  });
+
   it('returns invalid-column when the referenced column does not exist', async () => {
     mockParse.mockReturnValue({ kind: 'success', field: 'categoria', columnRef: 'Z' });
 

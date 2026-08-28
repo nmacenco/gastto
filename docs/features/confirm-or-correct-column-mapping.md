@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Confirm or Correct Column Mapping feature lets the user review the column mapping proposed by Gastto and either accept it with a single confirmation or correct it one field per message using natural language. Corrections are accumulated in a transient Redis-backed state with a 30-minute TTL, so the user can resume an abandoned correction session. Messages containing several fields are rejected without applying a partial correction. Once the mapping is accepted, the FSM advances to `ONBOARDING_CATEGORIES`.
+The Confirm or Correct Column Mapping feature lets the user review the column mapping proposed by Gastto and either accept it with a single confirmation or correct it one field per message using natural language. Corrections can replace an inferred mapping or add a field that the original proposal left unmapped. They are accumulated in a transient Redis-backed state with a 30-minute TTL, so the user can resume an abandoned correction session. Messages containing several fields are rejected without applying a partial correction. Once the mapping is accepted, the accumulated corrections are persisted and the FSM advances to `ONBOARDING_CATEGORIES`.
 
 This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Confirm or correct column mapping`](../user-stories/01-mvp/01-Vinculación%20de%20planilla%20%C2%B7%20Release%201%20MVP/HU-4.06-confirm-or-correct-column-mapping/HU-4.06%20%E2%80%94%20Confirm%20or%20correct%20column%20mapping.md).
 
@@ -15,6 +15,8 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
   - LLM re-inference when the user rejects the whole proposal without giving a specific correction (e.g., "no", "incorrecto", "wrong").
   - Column validation against the actual spreadsheet headers.
   - Accumulation of multiple corrections and re-display of the updated mapping after each one.
+  - Assignment of previously unmapped Gastto fields to valid spreadsheet columns.
+  - Persistence of accumulated corrections when the user confirms the final mapping.
   - Redis-backed transient correction state with configurable TTL (default 30 minutes).
   - Resume behavior after abandonment via the persisted correction state.
   - Error handling for missing config, missing mappings, missing or expired tokens, invalid columns, unparseable messages, and missing preview during re-inference.
@@ -48,8 +50,8 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 4. `ColumnMappingCorrectionParser.parse(rawMessage)` extracts the target `GasttoField` and a column reference.
 5. The OAuth token is retrieved, decrypted, and `ISpreadsheetColumnPort.listAvailableColumns()` returns the available columns.
 6. The column reference is resolved against letters, numbers, or header names.
-7. If the column exists, the correction is applied through `ColumnMappingCorrectionState`, the updated snapshot is saved to Redis via `IMappingCorrectionStateRepository.save()`, and the updated mapping is sent back for re-confirmation.
-8. The FSM self-transitions to `ONBOARDING_MAPPING` with the updated `mappings` payload.
+7. If the column exists, the correction is applied through `ColumnMappingCorrectionState`, the updated snapshot is saved to Redis via `IMappingCorrectionStateRepository.save()`, and the updated mapping is sent back for re-confirmation. A field absent from the original proposal is added to the displayed mapping and removed from `unmappedFields`.
+8. The FSM self-transitions to `ONBOARDING_MAPPING` with the updated `mappings` and `unmappedFields` payload.
 
 ### Scenario 3: User corrects several fields
 
@@ -58,6 +60,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 3. The correction snapshot is loaded from Redis on the next correction.
 4. Each new correction is accumulated; corrections for the same field replace the previous one.
 5. After each correction the full updated mapping is displayed again for confirmation.
+6. When the user confirms, `ConfirmColumnMapping` upserts every accumulated correction with `inferred: false`, confirms all spreadsheet mappings, and clears the transient correction snapshot.
 
 ### Scenario 3a: User sends several fields in one message
 
@@ -258,6 +261,7 @@ interface MappingCorrectionStateSnapshot {
 | Invalid column reference                | `invalidColumnPrompt` sent with available columns; stays in `ONBOARDING_MAPPING`. |
 | Redis save failure                      | Error propagated; no confirmation message sent; no state transition.     |
 | Transition failure after valid correction | Updated mapping message already sent; error propagated.                  |
+| Persisting corrections on confirmation fails | The mapping is not confirmed and the confirmation message is not sent. |
 
 ## QA Checklist
 
@@ -274,6 +278,7 @@ interface MappingCorrectionStateSnapshot {
 - [x] Valid single-field correction returns updated mapping and persists correction state.
 - [x] Cumulative corrections for different fields are accumulated.
 - [x] New correction for the same field replaces the previous correction.
+- [x] A correction adds a field missing from the inferred proposal and removes it from `unmappedFields`.
 - [x] Invalid column reference returns available columns without persisting state.
 - [x] Parse failure leaves state unchanged and returns a helpful copy.
 - [x] Multi-field messages leave state unchanged and request one correction per message.
@@ -287,6 +292,8 @@ interface MappingCorrectionStateSnapshot {
 ### ConfirmColumnMapping use case
 
 - [x] Confirms all mappings and transitions to `ONBOARDING_CATEGORIES`.
+- [x] Persists accumulated replacements and newly mapped fields before confirmation.
+- [x] Clears transient correction state after successful persistence and confirmation.
 - [x] Missing config triggers reconnect flow.
 - [x] No mappings returns appropriate message.
 - [x] Repository failure prevents confirmation message.
@@ -312,6 +319,6 @@ interface MappingCorrectionStateSnapshot {
 ## Notes
 
 - The transient correction state intentionally lives in Redis while the conversation FSM remains in PostgreSQL, following ADR-003.
-- `ColumnMappingCorrectionState` is immutable; each correction returns a new value object.
+- `ColumnMappingCorrectionState` is immutable; each correction returns a new value object and its current mapping includes corrected fields that were absent from the original proposal.
 - The parser is deterministic and dependency-free so it can be replaced by an LLM-based adapter later without changing the use case.
 - `MAPPING_CORRECTION_TTL_SECONDS` is configurable via environment variables; the default is 1800 seconds (30 minutes).

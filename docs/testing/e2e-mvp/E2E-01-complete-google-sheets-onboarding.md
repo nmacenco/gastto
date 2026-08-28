@@ -1,6 +1,6 @@
 # E2E-01: Complete Google Sheets Onboarding
 
-- [ ] Passed.
+- [x] Passed.
 
 ## Objective
 
@@ -33,8 +33,8 @@ Prove that a new Telegram user can link Google Drive, select a spreadsheet and s
 
 ## Result
 
-- Date:
-- Tester:
-- Environment:
+- Date: 2026-08-27
+- Tester: Niko
+- Environment: develop
 - Evidence:
-- Notes:
+- Notes: The bug discovered during testing was fixed and committed in `71e561e`.
