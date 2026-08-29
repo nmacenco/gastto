@@ -109,9 +109,18 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 3. `InferColumnMapping` sends `onboardingCopies.noHeaderPrompt()` and transitions to `ONBOARDING_MAPPING` with `step: 'no-header'`.
 4. Alternatively, if the rule-based or LLM detector incorrectly picks row 1 and the inference maps only one Gastto field (or none), `InferColumnMapping` treats it as a missing header row and sends the same prompt instead of proposing a partial mapping.
 
+### Scenario 8: Summary rows appear before the headers
+
+1. The preview contains title or summary rows before the real headers, such as a payment-method label next to a localized amount.
+2. The rule-based detector preserves the first label-like row as its generic fallback but continues scanning the complete preview.
+3. When a later row contains at least two distinct Gastto fields from the shared column vocabulary, that recognized row takes precedence over the generic fallback.
+4. Candidate strength is based first on the number of distinct recognized fields and then on the number of label-like cells; ties keep the earlier row.
+5. Signed localized amounts such as `-$2.787,56` are treated as data, not labels.
+6. The selected header row and all later rows are passed to column inference through the existing flow.
+
 ## Adapters
 
-- **RuleBasedHeaderDetectionAdapter** - Implements `HeaderDetectionPort` by scanning preview rows and returning the first row that has at least two non-empty cells and whose values look like labels rather than data. This prevents a single-cell sheet title from being mistaken for the header row.
+- **RuleBasedHeaderDetectionAdapter** - Implements `HeaderDetectionPort` by scanning all preview rows. It preserves the first generic label-like row as a compatibility fallback while preferring a later row with at least two distinct fields from the shared Gastto header vocabulary. This prevents title and summary rows from hiding stronger headers below them.
 - **LLMHeaderDetectionAdapter** - Implements `HeaderDetectionPort` by asking an LLM to locate the header row when rule-based detection is uncertain.
 - **RuleBasedColumnInferenceAdapter** - Implements `ColumnInferencePort` using header normalization, multi-language synonym dictionaries, Levenshtein fuzzy matching, and content-type heuristics.
 - **LLMColumnInferenceAdapter** - Implements `ColumnInferencePort` by asking an LLM to map headers to Gastto fields when rule-based inference is incomplete or low-confidence.
@@ -277,6 +286,7 @@ interface IColumnMappingRepository {
 - [x] Header-row detection works for headers beyond row 1.
 - [x] LLM header detection fallback runs when rule-based detection is uncertain.
 - [x] Rule-based detection skips rows with a single non-empty value (sheet titles).
+- [x] Rule-based detection prefers a recognized header row below title and summary rows, including summaries with signed localized amounts.
 - [x] No-header detection: self-transition to `ONBOARDING_MAPPING` with `step: 'no-header'`, message asks which row data starts at.
 - [x] A partial mapping on row 1 (≤1 field) falls back to the no-header prompt instead of proposing a misleading mapping.
 - [x] No-header reply: valid row number is converted to `headerRowIndex` and inference re-runs; invalid reply re-prompts with `invalidDataStartRowPrompt`.

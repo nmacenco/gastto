@@ -6,7 +6,8 @@ After the user confirms the column mapping, Gastto reads the values already pres
 
 ## Behavior (Implemented)
 
-- When the FSM enters `ONBOARDING_CATEGORIES`, the worker delegates to `DetectCategories`.
+- When a successful mapping confirmation enters `ONBOARDING_CATEGORIES`, the worker immediately delegates to `DetectCategories` in the same job; no additional user message is required to start detection.
+- If a conversation is already in `ONBOARDING_CATEGORIES` without categories in its payload (for example, recovery from an interrupted execution), the next worker pass also delegates to `DetectCategories`.
 - `DetectCategories` loads the active spreadsheet config and the decrypted OAuth token.
 - It finds the column mapping for the `categoria` Gastto field.
 - It reads unique values from that column starting at row 2 (skipping the header) through `SpreadsheetCategoryReader`.
@@ -18,7 +19,8 @@ After the user confirms the column mapping, Gastto reads the values already pres
 
 ## Behavior (Implemented)
 
-- Natural-language commands to add a missing category (e.g. "falta Salud").
+- Natural-language commands to add a missing category (e.g. "agregar cine" or "falta Salud").
+- Natural-language commands to remove a category (e.g. "quitar ocio"), persisted as a soft-delete.
 - Natural-language commands to rename a category (e.g. "Ocio se llama Entretenimiento").
 - Handle re-onboarding by merging previously persisted categories with newly detected ones.
 
@@ -32,13 +34,13 @@ No HTTP endpoints. The feature is triggered by the `ONBOARDING_CATEGORIES` FSM s
 
 - `DetectCategories.execute(input: DetectCategoriesInput): Promise<DetectCategoriesOutput>` — orchestrates token retrieval, column lookup, category reading, vocabulary persistence, and user messaging.
 - `ConfirmCategories.execute(input: ConfirmCategoriesInput): Promise<ConfirmCategoriesOutput>` — marks vocabulary confirmed, activates user, transitions FSM to `IDLE`, and sends welcome message.
-- `ModifyCategoryVocabulary.execute(input: ModifyCategoryVocabularyInput): Promise<ModifyCategoryVocabularyOutput>` — parses natural-language add/rename instructions, updates the persisted vocabulary, and returns the updated list for re-confirmation.
+- `ModifyCategoryVocabulary.execute(input: ModifyCategoryVocabularyInput): Promise<ModifyCategoryVocabularyOutput>` — parses natural-language add/remove/rename instructions, updates the persisted vocabulary, and returns the updated list for re-confirmation.
 
 ### Infrastructure
 
 - `SpreadsheetCategoryReader.readCategories(fileId, columnIndex, sheetName): Promise<string[]>` — reads and normalizes category values from a spreadsheet column.
 - `SpreadsheetPort.getUniqueValues(fileId, columnIndex, sheetName): Promise<string[]>` — adapter-level method that returns deduplicated non-empty values from a column, skipping the header row.
-- `RegexCategoryModificationParser.parse(input: string): Promise<CategoryModificationIntent>` — lightweight rule-based parser supporting Spanish and English add/rename patterns.
+- `RegexCategoryModificationParser.parse(input: string): Promise<CategoryModificationIntent>` — lightweight rule-based parser supporting Spanish and English add/remove/rename patterns.
 - `DrizzleCategoryVocabularyRepository` — persists `CategoryVocabulary` aggregates to `user_categories` with soft-delete of removed categories and upsert of new ones.
 
 ## Data Model
@@ -52,8 +54,8 @@ No HTTP endpoints. The feature is triggered by the `ONBOARDING_CATEGORIES` FSM s
 
 - `src/application/use-cases/spreadsheet/DetectCategories.spec.ts` — covers detection, default fallback, missing-config path, and vocabulary persistence.
 - `src/application/use-cases/spreadsheet/ConfirmCategories.spec.ts` — covers happy path, idempotent re-confirmation, and missing-config fallback.
-- `src/application/use-cases/spreadsheet/ModifyCategoryVocabulary.spec.ts` — covers add, rename, unknown intent, duplicate rejection, missing config, and missing rename target.
-- `src/infrastructure/adapters/RegexCategoryModificationParser.spec.ts` — covers Spanish and English add/rename/unknown patterns with normalization.
+- `src/application/use-cases/spreadsheet/ModifyCategoryVocabulary.spec.ts` — covers add, remove, rename, unknown intent, duplicate rejection, missing config, and missing targets.
+- `src/infrastructure/adapters/RegexCategoryModificationParser.spec.ts` — covers Spanish and English add/remove/rename/unknown patterns with normalization.
 - `src/infrastructure/adapters/sheets/SpreadsheetCategoryReader.spec.ts` — covers normalization, deduplication, and empty filtering.
 - `src/infrastructure/adapters/sheets/GoogleSheetsAdapter.spec.ts` — covers `getUniqueValues` header skip and error handling.
 - `src/infrastructure/adapters/sheets/ExcelOnlineAdapter.spec.ts` — covers `getUniqueValues` header skip and error handling.

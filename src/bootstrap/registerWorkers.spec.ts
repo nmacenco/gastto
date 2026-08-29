@@ -129,6 +129,7 @@ function buildGoogleOAuthFeature(): GoogleOAuthFeature {
     correctColumnMapping: {} as GoogleOAuthFeature['correctColumnMapping'],
     detectCategories: {} as GoogleOAuthFeature['detectCategories'],
     confirmCategories: {} as GoogleOAuthFeature['confirmCategories'],
+    modifyCategoryVocabulary: {} as GoogleOAuthFeature['modifyCategoryVocabulary'],
   };
 }
 

@@ -1772,6 +1772,11 @@ describe('processMessageJob', () => {
         mockConfirmColumnMappingExecute.mockResolvedValue({
           nextState: 'ONBOARDING_CATEGORIES',
           message: onboardingCopies.mappingConfirmedNextStep(),
+          payload: {
+            provider: 'google',
+            fileId: 'f1',
+            sheetName: 'Gastos',
+          },
         });
 
         await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
@@ -1784,6 +1789,19 @@ describe('processMessageJob', () => {
         });
         expect(mockCorrectColumnMappingExecute).not.toHaveBeenCalled();
         expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockDetectCategoriesExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: {
+            provider: 'google',
+            fileId: 'f1',
+            sheetName: 'Gastos',
+          },
+        });
+        expect(mockConfirmColumnMappingExecute.mock.invocationCallOrder[0]).toBeLessThan(
+          mockDetectCategoriesExecute.mock.invocationCallOrder[0]!,
+        );
         expect(mockSendMessage).not.toHaveBeenCalled();
       });
 
@@ -1802,6 +1820,11 @@ describe('processMessageJob', () => {
         mockConfirmColumnMappingExecute.mockResolvedValue({
           nextState: 'ONBOARDING_CATEGORIES',
           message: onboardingCopies.mappingConfirmedNextStep(),
+          payload: {
+            provider: 'google',
+            fileId: 'f1',
+            sheetName: 'Gastos',
+          },
         });
 
         await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
@@ -1813,10 +1836,30 @@ describe('processMessageJob', () => {
           statePayload: staleNoHeaderPayload,
         });
         expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockDetectCategoriesExecute).toHaveBeenCalledOnce();
         expect(mockSendMessage).not.toHaveBeenCalledWith(
           '123456789',
           onboardingCopies.invalidDataStartRowPrompt(),
         );
+      });
+
+      it('does not detect categories when mapping confirmation does not advance the FSM', async () => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: mappingPayload,
+          }),
+        );
+        mockConfirmColumnMappingExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_MAPPING',
+          message: onboardingCopies.noMappingToConfirm(),
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+        expect(mockConfirmColumnMappingExecute).toHaveBeenCalledOnce();
+        expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
       });
 
       it('delegates to CorrectColumnMapping on correction message with an existing proposal', async () => {

@@ -8,6 +8,17 @@ import { CloudFile } from '../../domain/entities/CloudFile';
 import { SheetInfo } from '../../domain/entities/SheetInfo';
 
 describe('onboardingCopies', () => {
+  describe('categoryNotFoundForRemoval', () => {
+    it('identifies the missing category and lists the current vocabulary', () => {
+      const result = onboardingCopies.categoryNotFoundForRemoval('ocio', ['comida', 'transporte']);
+
+      expect(result).toContain('"ocio"');
+      expect(result).toContain('• comida');
+      expect(result).toContain('• transporte');
+      expect(result).toContain('querés quitar');
+    });
+  });
+
   describe('welcomePrompt', () => {
     it('returns a welcome message with provider options', () => {
       const result = onboardingCopies.welcomePrompt();

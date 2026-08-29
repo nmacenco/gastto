@@ -10,9 +10,9 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, search, and selection for spreadsheet records.
 - [`select-sheet.md`](./select-sheet.md) — Sheet selection within the chosen spreadsheet file.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive validation of read/write permissions before expense recording.
-- [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference engine with untrusted spreadsheet-data boundaries that detects header rows and proposes column mappings for Gastto fields.
-- [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message natural-language correction, including previously unmapped fields, final correction persistence, multi-field rejection, and Redis-backed transient state.
-- [`category-confirmation.md`](./category-confirmation.md) — Reads the existing category vocabulary from the spreadsheet and presents it for confirmation.
+- [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference engine with untrusted spreadsheet-data boundaries that ranks recognized header rows below titles or summaries and proposes column mappings for Gastto fields.
+- [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message natural-language correction, including previously unmapped fields, final correction persistence, multi-field rejection, Redis-backed transient state, and immediate progression to category detection.
+- [`category-confirmation.md`](./category-confirmation.md) — Immediately reads the category vocabulary after mapping confirmation and supports persisted add, remove, and rename commands without requiring an extra trigger message.
 - [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation and channel-agnostic routing.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow for missing or ambiguous expense amount/currency data.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with confirm / correct / cancel options before saving.

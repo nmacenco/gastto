@@ -155,6 +155,7 @@ describe('buildDependencies', () => {
     expect(deps.googleOAuth?.adapter).toBeDefined();
     expect(deps.googleOAuth?.handleOAuthCallback).toBeDefined();
     expect(deps.googleOAuth?.inferColumnMapping).toBeDefined();
+    expect(deps.googleOAuth?.modifyCategoryVocabulary).toBeDefined();
   });
 
   it('returns null Telegram feature when Telegram is not configured', () => {

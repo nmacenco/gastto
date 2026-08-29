@@ -194,6 +194,11 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     return `No encontré la categoría "${from}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés cambiar.`;
   },
 
+  categoryNotFoundForRemoval: (name: string, categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `No encontré la categoría "${name}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés quitar.`;
+  },
+
   categoryUpdateError: (_errorMessage: string, categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');
     return `No pude actualizar la categoría. Las categorías actuales son:\n${list}\n\n¿Están bien? Respondé *sí* o intentá de nuevo.`;

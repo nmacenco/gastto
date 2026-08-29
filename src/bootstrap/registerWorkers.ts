@@ -115,6 +115,7 @@ export async function registerWorkers(
     correctColumnMapping: deps.googleOAuth?.correctColumnMapping ?? null,
     detectCategories: deps.googleOAuth?.detectCategories ?? null,
     confirmCategories: deps.googleOAuth?.confirmCategories ?? null,
+    modifyCategoryVocabulary: deps.googleOAuth?.modifyCategoryVocabulary ?? null,
   });
   workers.push(messageWorker);
   app.log.info(`Started process-message worker (concurrency: ${messageWorker.opts.concurrency})`);

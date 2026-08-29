@@ -1,6 +1,6 @@
 // LAYER: Infrastructure
 // Lightweight rule-based parser for category modification intents.
-// Supports Spanish and English add/rename patterns without LLM overhead.
+// Supports Spanish and English add/remove/rename patterns without LLM overhead.
 // Swappable with an LLM-based parser via the CategoryModificationParserPort.
 
 import {
@@ -35,6 +35,21 @@ function extractAddName(normalized: string): string | null {
       const name = match[3]?.trim();
       if (name && name.length > 0) return name;
     }
+  }
+
+  return null;
+}
+
+function extractRemoveName(normalized: string): string | null {
+  const removePatterns = [
+    /^(?:quitar|quita|eliminar|elimina|borrar|borra)\s+(?:la\s+)?(?:categoria\s+)?(.+)$/,
+    /^(?:remove|delete)\s+(?:the\s+)?(?:category\s+)?(.+)$/,
+  ];
+
+  for (const pattern of removePatterns) {
+    const match = normalized.match(pattern);
+    const name = match?.[1]?.trim();
+    if (name) return name;
   }
 
   return null;
@@ -80,6 +95,11 @@ export class RegexCategoryModificationParser implements CategoryModificationPars
         from: renameParts.from,
         to: renameParts.to,
       });
+    }
+
+    const removeName = extractRemoveName(normalized);
+    if (removeName) {
+      return Promise.resolve({ kind: 'remove', name: removeName });
     }
 
     // Try add

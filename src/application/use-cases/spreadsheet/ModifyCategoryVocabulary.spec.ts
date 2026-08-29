@@ -126,6 +126,46 @@ describe('ModifyCategoryVocabulary', () => {
     );
   });
 
+  it('removes a category and returns the updated list', async () => {
+    mockParse.mockResolvedValue({ kind: 'remove', name: 'ocio' });
+    const vocab = new CategoryVocabulary('config-1');
+    vocab.addCategory('comida');
+    vocab.addCategory('ocio');
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(vocab);
+
+    const useCase = new ModifyCategoryVocabulary(buildMockDeps());
+    const result = await useCase.execute({ ...baseInput, rawMessage: 'quitar ocio' });
+
+    expect(mockSaveVocabulary).toHaveBeenCalledTimes(1);
+    expect(result.categories).toEqual(['comida']);
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      expect.not.stringContaining('• ocio'),
+    );
+    expect(mockTransitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_CATEGORIES',
+      payload: { categories: ['comida'] },
+    });
+  });
+
+  it('does not persist when the category to remove does not exist', async () => {
+    mockParse.mockResolvedValue({ kind: 'remove', name: 'inexistente' });
+    const vocab = new CategoryVocabulary('config-1');
+    vocab.addCategory('comida');
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(vocab);
+
+    const useCase = new ModifyCategoryVocabulary(buildMockDeps());
+    const result = await useCase.execute({ ...baseInput, rawMessage: 'quitar inexistente' });
+
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(result.categories).toEqual(['comida']);
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      expect.stringContaining('inexistente'),
+    );
+  });
+
   it('returns current categories with unknown intent and does not persist', async () => {
     mockParse.mockResolvedValue({ kind: 'unknown' });
     const vocab = new CategoryVocabulary('config-1');
