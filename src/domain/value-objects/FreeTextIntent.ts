@@ -20,19 +20,22 @@ const TOO_LONG_THRESHOLD = 500;
 
 const CURRENCY_SYMBOLS = /[\$€£]/;
 
-const CURRENCY_WORDS = /\b(euros?|dólares?|pesos?|dollars?|euro?|yen?|yuan?|rublo?s?)\b/i;
+const CURRENCY_WORDS = /\b(euros?|dolares?|pesos?|dollars?|euro?|yen?|yuan?|rublo?s?)\b/i;
 
 const EXPENSE_VERBS =
-  /pagado|pagué|gasté|gasto|compré|compra|compró|paid|spent|spend|bought|buy|ate|eat|drank|drink/i;
+  /pagado|pague|gaste|gasto|compre|compra|compro|paid|spent|spend|bought|buy|ate|eat|drank|drink/i;
 
 const NUMERIC_AMOUNT = /\d+/;
+const COMBINING_DIACRITICS = /[\u0300-\u036f]/g;
 
 function looksLikeExpense(text: string): boolean {
+  const normalizedText = text.normalize('NFD').replace(COMBINING_DIACRITICS, '');
+
   return (
-    NUMERIC_AMOUNT.test(text) ||
-    CURRENCY_SYMBOLS.test(text) ||
-    CURRENCY_WORDS.test(text) ||
-    EXPENSE_VERBS.test(text)
+    NUMERIC_AMOUNT.test(normalizedText) ||
+    CURRENCY_SYMBOLS.test(normalizedText) ||
+    CURRENCY_WORDS.test(normalizedText) ||
+    EXPENSE_VERBS.test(normalizedText)
   );
 }
 

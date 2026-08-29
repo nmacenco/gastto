@@ -17,6 +17,11 @@ describe('ClassifyFreeTextExpenseIntent', () => {
     expect(intent).toEqual({ kind: 'expense-like' });
   });
 
+  it('classifies an unaccented purchase without amount as expense-like', () => {
+    const intent = classifier.execute('Compre cafe');
+    expect(intent).toEqual({ kind: 'expense-like' });
+  });
+
   it('classifies a non-financial greeting as non-financial', () => {
     expect(classifier.execute('Hola')).toEqual({ kind: 'non-financial' });
     expect(classifier.execute('👋')).toEqual({ kind: 'non-financial' });
