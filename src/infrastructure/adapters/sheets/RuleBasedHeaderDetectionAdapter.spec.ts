@@ -46,10 +46,44 @@ describe('RuleBasedHeaderDetectionAdapter', () => {
     expect(result).toBe(3);
   });
 
+  it('prefers recognized headers below title and summary rows', async () => {
+    const rows = [
+      {
+        index: 1,
+        values: [
+          '',
+          'Para añadir o cambiar categorías, modifica las tablas Ingresos y Gastos de la hoja Resumen.',
+        ],
+      },
+      { index: 2, values: ['', 'Gastos'] },
+      { index: 3, values: ['', '', '', 'Sin Tarjeta', '$0,00'] },
+      { index: 4, values: ['', '', '', 'Con tarjeta', '$0,00', '-$2.787,56'] },
+      {
+        index: 5,
+        values: ['', 'Fecha', 'Categoría', 'Subcategoría', 'Importe', 'Descripción'],
+      },
+    ];
+
+    const result = await adapter.detectHeaderRow(rows);
+
+    expect(result).toBe(5);
+  });
+
+  it('counts distinct Gastto fields when ranking recognized candidates', async () => {
+    const rows = [
+      { index: 1, values: ['Total', '$0,00', 'Importe'] },
+      { index: 2, values: ['Fecha', 'Monto'] },
+    ];
+
+    const result = await adapter.detectHeaderRow(rows);
+
+    expect(result).toBe(2);
+  });
+
   it('returns null when all rows contain only data-like values', async () => {
     const rows = [
       { index: 1, values: ['01/01/2026', '100.50', 'USD'] },
-      { index: 2, values: ['02/01/2026', '200.75', 'ARS'] },
+      { index: 2, values: ['02/01/2026', '-$2.787,56', 'ARS'] },
     ];
 
     const result = await adapter.detectHeaderRow(rows);

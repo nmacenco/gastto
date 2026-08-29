@@ -154,6 +154,19 @@ describe('RuleBasedColumnInferenceAdapter', () => {
   });
 
   describe('Content-type validation', () => {
+    it('accepts signed localized currency amounts', async () => {
+      const result = await adapter.infer(['Importe'], [['-$2.787,56']]);
+
+      expect(result.mappings).toEqual([
+        {
+          gasttoField: 'monto',
+          columnIndex: 0,
+          columnHeader: 'Importe',
+          confidence: 'alta',
+        },
+      ]);
+    });
+
     it('reduces confidence to baja when content-type does not match', async () => {
       const headers = ['Fecha', 'Monto'];
       const sampleRows = [

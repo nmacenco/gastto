@@ -27,6 +27,7 @@ import { GoogleSheetsAdapterFactory } from '../infrastructure/adapters/sheets/Go
 import { SpreadsheetAccessAdapterFactory } from '../infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import { GoogleSheetsAdapter } from '../infrastructure/adapters/sheets/GoogleSheetsAdapter';
 import { SpreadsheetCategoryReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryReaderFactory';
+import { RegexCategoryModificationParser } from '../infrastructure/adapters/RegexCategoryModificationParser';
 import { RuleBasedColumnInferenceAdapter } from '../infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
 import { RuleBasedHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
 import { LLMHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/LLMHeaderDetectionAdapter';
@@ -67,6 +68,7 @@ import { ConfirmColumnMapping } from '../application/use-cases/spreadsheet/Confi
 import { CorrectColumnMapping } from '../application/use-cases/spreadsheet/CorrectColumnMapping';
 import { DetectCategories } from '../application/use-cases/spreadsheet/DetectCategories';
 import { ConfirmCategories } from '../application/use-cases/spreadsheet/ConfirmCategories';
+import { ModifyCategoryVocabulary } from '../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import { HandleStartCommand } from '../application/use-cases/conversation/HandleStartCommand';
 import { HandleUnsupportedMessage } from '../application/use-cases/conversation/HandleUnsupportedMessage';
 import { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
@@ -327,6 +329,14 @@ function buildGoogleOAuthFeature(
     transitionState: core.transitionState,
   });
 
+  const modifyCategoryVocabulary = new ModifyCategoryVocabulary({
+    categoryModificationParser: new RegexCategoryModificationParser(),
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    categoryVocabularyRepository: core.categoryVocabularyRepo,
+    messagingPort,
+    transitionState: core.transitionState,
+  });
+
   return {
     adapter,
     initiateCloudConnection,
@@ -345,6 +355,7 @@ function buildGoogleOAuthFeature(
     correctColumnMapping,
     detectCategories,
     confirmCategories,
+    modifyCategoryVocabulary,
   };
 }
 

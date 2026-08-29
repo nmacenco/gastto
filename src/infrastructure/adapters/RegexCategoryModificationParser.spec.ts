@@ -1,6 +1,6 @@
 // LAYER: Infrastructure / Tests
 // Unit tests for RegexCategoryModificationParser.
-// Covers Spanish and English add/rename patterns with normalization.
+// Covers Spanish and English add/remove/rename patterns with normalization.
 
 import { describe, it, expect } from 'vitest';
 import { RegexCategoryModificationParser } from './RegexCategoryModificationParser';
@@ -19,6 +19,11 @@ describe('RegexCategoryModificationParser', () => {
       expect(result).toEqual({ kind: 'add', name: 'viajes' });
     });
 
+    it('parses the reported Spanish "agregar cine" command', async () => {
+      const result = await parser.parse('agregar cine');
+      expect(result).toEqual({ kind: 'add', name: 'cine' });
+    });
+
     it('parses English "add" pattern', async () => {
       const result = await parser.parse('add Education');
       expect(result).toEqual({ kind: 'add', name: 'education' });
@@ -33,6 +38,25 @@ describe('RegexCategoryModificationParser', () => {
       const result = await parser.parse('¡Falta Educación!');
       expect(result).toEqual({ kind: 'add', name: 'educacion' });
     });
+  });
+
+  describe('remove category intent', () => {
+    it.each(['quitar ocio', 'elimina la categoría ocio', 'borrar ocio'])(
+      'parses Spanish command "%s"',
+      async (command) => {
+        await expect(parser.parse(command)).resolves.toEqual({ kind: 'remove', name: 'ocio' });
+      },
+    );
+
+    it.each(['remove leisure', 'delete the category leisure'])(
+      'parses English command "%s"',
+      async (command) => {
+        await expect(parser.parse(command)).resolves.toEqual({
+          kind: 'remove',
+          name: 'leisure',
+        });
+      },
+    );
   });
 
   describe('rename category intent', () => {

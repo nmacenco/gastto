@@ -1,5 +1,5 @@
 // LAYER: Application
-// Use case: interpret natural-language instructions to add or rename
+// Use case: interpret natural-language instructions to add, remove, or rename
 // categories in the user's vocabulary. Returns the updated list for
 // re-confirmation so the user can review changes before finalizing.
 
@@ -84,6 +84,22 @@ export class ModifyCategoryVocabulary {
     try {
       if (intent.kind === 'add') {
         vocabulary.addCategory(intent.name);
+      } else if (intent.kind === 'remove') {
+        const target = vocabulary
+          .getCategories()
+          .find((category) => category.normalizedName === intent.name.toLowerCase().trim());
+        if (!target) {
+          const categories = this.toNameList(vocabulary);
+          const message = onboardingCopies.categoryNotFoundForRemoval(intent.name, categories);
+          await this.deps.messagingPort.sendMessage(externalId, message);
+          await this.deps.transitionState.execute({
+            userId,
+            targetState: 'ONBOARDING_CATEGORIES',
+            payload: { ...statePayload, categories },
+          });
+          return { categories, message };
+        }
+        vocabulary.removeCategory(target.id);
       } else if (intent.kind === 'rename') {
         const fromNormalized = intent.from.toLowerCase().trim();
         const target = vocabulary.getCategories().find((c) => c.normalizedName === fromNormalized);

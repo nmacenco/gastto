@@ -41,6 +41,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 2. The message worker detects a confirmation intent and delegates to `ConfirmColumnMapping.execute()`.
 3. The use case loads the `SpreadsheetConfig`, finds the proposed `ColumnMapping` records, and marks them as confirmed via `IColumnMappingRepository.confirmBySpreadsheetId()`.
 4. A confirmation message is sent and the FSM transitions to `ONBOARDING_CATEGORIES`.
+5. In the same worker execution, the orchestrator invokes `DetectCategories` with the new state payload, so the category confirmation prompt is sent without waiting for another user message.
 
 ### Scenario 2: User corrects one field in natural language
 
@@ -308,6 +309,7 @@ interface MappingCorrectionStateSnapshot {
 ### Message worker
 
 - [x] `ONBOARDING_MAPPING` routes confirmation intent to `ConfirmColumnMapping`.
+- [x] A successful mapping confirmation immediately invokes `DetectCategories` in the same job.
 - [x] `ONBOARDING_MAPPING` routes correction intent to `CorrectColumnMapping`.
 - [x] `ONBOARDING_MAPPING` routes first entry (no `mappings` payload) to `InferColumnMapping`.
 

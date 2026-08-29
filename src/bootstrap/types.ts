@@ -55,6 +55,7 @@ import type { ConfirmColumnMapping } from '../application/use-cases/spreadsheet/
 import type { CorrectColumnMapping } from '../application/use-cases/spreadsheet/CorrectColumnMapping';
 import type { DetectCategories } from '../application/use-cases/spreadsheet/DetectCategories';
 import type { ConfirmCategories } from '../application/use-cases/spreadsheet/ConfirmCategories';
+import type { ModifyCategoryVocabulary } from '../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { HandleStartCommand } from '../application/use-cases/conversation/HandleStartCommand';
 import type { HandleUnsupportedMessage } from '../application/use-cases/conversation/HandleUnsupportedMessage';
 import type { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
@@ -128,6 +129,8 @@ export interface GoogleOAuthFeature {
   detectCategories: DetectCategories;
   /** Confirms the detected category list. */
   confirmCategories: ConfirmCategories;
+  /** Applies add, remove, and rename commands to the category vocabulary. */
+  modifyCategoryVocabulary: ModifyCategoryVocabulary;
 }
 
 /** Structured dependency graph assembled at bootstrap time. */

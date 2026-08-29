@@ -521,16 +521,14 @@ async function routeByState(
         (categoryPayload.categories as string[]).length > 0;
 
       if (!hasCategories) {
-        if (opts.detectCategories) {
-          await opts.detectCategories.execute({
-            userId,
-            externalId,
-            channel,
-            statePayload: categoryPayload,
-          });
-        } else {
-          await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
-        }
+        await enterOnboardingCategories(
+          userId,
+          externalId,
+          channel,
+          categoryPayload,
+          opts,
+          messaging,
+        );
       } else if (isConfirmIntent(rawMessage)) {
         if (opts.confirmCategories) {
           await opts.confirmCategories.execute({
@@ -976,12 +974,23 @@ async function handleMappingConfirmation(
 ): Promise<void> {
   if (isConfirmIntent(rawMessage)) {
     if (opts.confirmColumnMapping) {
-      await opts.confirmColumnMapping.execute({
+      const result = await opts.confirmColumnMapping.execute({
         userId,
         externalId,
         channel,
         statePayload,
       });
+
+      if (result.nextState === 'ONBOARDING_CATEGORIES') {
+        await enterOnboardingCategories(
+          userId,
+          externalId,
+          channel,
+          result.payload ?? null,
+          opts,
+          messaging,
+        );
+      }
     } else {
       await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
     }
@@ -1010,6 +1019,27 @@ async function handleMappingConfirmation(
   } else {
     await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
   }
+}
+
+async function enterOnboardingCategories(
+  userId: string,
+  externalId: string,
+  channel: 'telegram' | 'whatsapp',
+  statePayload: Record<string, unknown> | null,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  if (opts.detectCategories) {
+    await opts.detectCategories.execute({
+      userId,
+      externalId,
+      channel,
+      statePayload,
+    });
+    return;
+  }
+
+  await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
 }
 
 function restoreCorrectionSnapshot(snapshot: {
