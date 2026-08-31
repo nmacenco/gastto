@@ -42,23 +42,23 @@ export class ConfirmCategories {
       return this.handleReconnect(externalId, userId);
     }
 
-    // Idempotent: if already confirmed, still return success
-    if (config.categoriesConfirmedAt) {
-      const message = onboardingCopies.onboardingComplete();
-      await this.deps.messagingPort.sendMessage(externalId, message);
-      return { nextState: 'IDLE', message };
+    // Re-confirmation skips only the redundant timestamp write. The final user
+    // and conversation invariants must always be restored before reporting
+    // onboarding completion.
+    if (!config.categoriesConfirmedAt) {
+      await this.deps.spreadsheetConfigRepository.updateCategoriesConfirmed(config.id);
     }
 
-    await this.deps.spreadsheetConfigRepository.updateCategoriesConfirmed(config.id);
     await this.deps.userRepository.updateStatus(userId, 'active');
-
-    const message = onboardingCopies.onboardingComplete();
-    await this.deps.messagingPort.sendMessage(externalId, message);
-
     await this.deps.transitionState.execute({
       userId,
       targetState: 'IDLE',
+      payload: null,
+      expiresAt: null,
     });
+
+    const message = onboardingCopies.onboardingComplete();
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     return { nextState: 'IDLE', message };
   }

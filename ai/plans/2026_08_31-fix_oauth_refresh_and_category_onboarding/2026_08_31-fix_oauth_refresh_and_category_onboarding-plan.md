@@ -63,17 +63,17 @@ Fix the category confirmation vertical slice for users whose spreadsheet configu
 
 ### To-do actions
 
-- [ ] Refactor `ConfirmCategories.execute` so both first confirmation and repeated confirmation converge on the same finalization path: ensure user status is `active`, transition the persisted FSM to `IDLE` with cleared payload/expiration, and send `onboardingComplete()`.
-- [ ] Preserve idempotency by skipping only the redundant `categoriesConfirmedAt` write when it already exists. Do not skip user activation or the FSM transition.
-- [ ] Order finalization so the success message is never sent while the persisted FSM is still `ONBOARDING_CATEGORIES`.
-- [ ] Keep the missing-spreadsheet recovery path unchanged: send the reconnection copy and transition to `ONBOARDING_START` with `{ promptShown: true }`.
-- [ ] Update `ConfirmCategories.spec.ts` to assert the real `IDLE` transition and user activation for both new and already-confirmed configurations, including cleared payload/expiration semantics.
-- [ ] Add a worker regression covering `ONBOARDING_CATEGORIES + categoriesConfirmedAt already set + "sí"`, followed by `cafe 12 euros`, and prove the second message invokes expense interpretation rather than `ModifyCategoryVocabulary` or `DetectCategories`.
-- [ ] Add negative assertions that category confirmation does not re-read the spreadsheet, recreate categories, restart OAuth, or replay column mapping.
-- [ ] Update [`category-confirmation.md`](../../../docs/features/category-confirmation.md) and [`conversation-state-management.md`](../../../docs/features/conversation-state-management.md) to define repeated confirmation as a persisted idempotent finalization, then update [`docs/features/README.md`](../../../docs/features/README.md).
-- [ ] Run the focused category-confirmation and message-worker Vitest suites, then run the complete `pnpm test` suite. Fix failures without weakening assertions.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Refactor `ConfirmCategories.execute` so both first confirmation and repeated confirmation converge on the same finalization path: ensure user status is `active`, transition the persisted FSM to `IDLE` with cleared payload/expiration, and send `onboardingComplete()`.
+- [x] Preserve idempotency by skipping only the redundant `categoriesConfirmedAt` write when it already exists. Do not skip user activation or the FSM transition.
+- [x] Order finalization so the success message is never sent while the persisted FSM is still `ONBOARDING_CATEGORIES`.
+- [x] Keep the missing-spreadsheet recovery path unchanged: send the reconnection copy and transition to `ONBOARDING_START` with `{ promptShown: true }`.
+- [x] Update `ConfirmCategories.spec.ts` to assert the real `IDLE` transition and user activation for both new and already-confirmed configurations, including cleared payload/expiration semantics.
+- [x] Add a worker regression covering `ONBOARDING_CATEGORIES + categoriesConfirmedAt already set + "sí"`, followed by `cafe 12 euros`, and prove the second message invokes expense interpretation rather than `ModifyCategoryVocabulary` or `DetectCategories`.
+- [x] Add negative assertions that category confirmation does not re-read the spreadsheet, recreate categories, restart OAuth, or replay column mapping.
+- [x] Update [`category-confirmation.md`](../../../docs/features/category-confirmation.md) and [`conversation-state-management.md`](../../../docs/features/conversation-state-management.md) to define repeated confirmation as a persisted idempotent finalization, then update [`docs/features/README.md`](../../../docs/features/README.md).
+- [x] Run the focused category-confirmation and message-worker Vitest suites, then run the complete `pnpm test` suite. Fix failures without weakening assertions.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Public contracts
 
@@ -113,4 +113,4 @@ Carry the detected spreadsheet header position through mapping confirmation and 
 
 ## Next step
 
-Execute Phase 2 to make repeated category confirmation persist the final `IDLE` FSM state.
+Execute Phase 3 to start category extraction below the detected header row.

@@ -16,7 +16,10 @@ import type { InferColumnMapping } from '../../application/use-cases/spreadsheet
 import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
 import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
-import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/ConfirmCategories';
+import {
+  ConfirmCategories,
+  type ConfirmCategoriesDeps,
+} from '../../application/use-cases/spreadsheet/ConfirmCategories';
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
@@ -2350,6 +2353,76 @@ describe('processMessageJob', () => {
           statePayload: { categories: ['comida', 'transporte'] },
         });
         expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('routes the next message to expense interpretation after repeated category confirmation', async () => {
+        const deps = buildMockDeps();
+        const findSpreadsheetConfig = vi.fn().mockResolvedValue({
+          id: 'config-1',
+          categoriesConfirmedAt: new Date('2026-08-30T10:00:00Z'),
+        });
+        const updateCategoriesConfirmed = vi.fn();
+        const updateUserStatus = vi.fn().mockResolvedValue(undefined);
+
+        deps.confirmCategories = new ConfirmCategories({
+          spreadsheetConfigRepository: {
+            findByUserId: findSpreadsheetConfig,
+            updateCategoriesConfirmed,
+          } as unknown as ConfirmCategoriesDeps['spreadsheetConfigRepository'],
+          userRepository: {
+            updateStatus: updateUserStatus,
+          } as unknown as ConfirmCategoriesDeps['userRepository'],
+          messagingPort: { sendMessage: mockSendMessage },
+          transitionState: {
+            execute: mockTransitionStateExecute,
+          } as unknown as ConfirmCategoriesDeps['transitionState'],
+        });
+        mockGetConversationStateExecute
+          .mockResolvedValueOnce(
+            buildConversationState({
+              currentState: 'ONBOARDING_CATEGORIES',
+              statePayload: { categories: ['comida', 'transporte'] },
+              expiresAt: new Date('2026-08-31T12:00:00Z'),
+            }),
+          )
+          .mockResolvedValueOnce(buildConversationState({ currentState: 'IDLE' }));
+        mockRegisterExpenseInterpret.mockResolvedValue({
+          status: 'success',
+          payload: {
+            rawMessage: 'cafe 12 euros',
+            extracted: { monto: 12, moneda: 'EUR', confianzaCategoria: 'alta' },
+            resolvedDate: '2026-08-31',
+            resolvedCategory: 'comida',
+            categoryStatus: 'confirmed',
+          },
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+        await processMessageJob(
+          buildJob({ ...baseJobData, rawMessage: 'cafe 12 euros', externalMessageId: 'msg-43' }),
+          deps,
+        );
+
+        expect(findSpreadsheetConfig).toHaveBeenCalledOnce();
+        expect(updateCategoriesConfirmed).not.toHaveBeenCalled();
+        expect(updateUserStatus).toHaveBeenCalledWith('user-123', 'active');
+        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          targetState: 'IDLE',
+          payload: null,
+          expiresAt: null,
+        });
+        expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
+          userId: 'user-123',
+          rawMessage: 'cafe 12 euros',
+          channel: 'telegram',
+        });
+        expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockModifyCategoryVocabularyExecute).not.toHaveBeenCalled();
+        expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockConfirmColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockCorrectColumnMappingExecute).not.toHaveBeenCalled();
       });
 
       it('falls back to placeholder on confirm reply when ConfirmCategories is not wired', async () => {

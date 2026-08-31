@@ -14,8 +14,9 @@ After the user confirms the column mapping, Gastto reads the values already pres
 - Values are normalized (trimmed and lowercased), deduplicated, and empty cells are filtered out.
 - If no categories are found, a default set is used: `Alimentacion`, `Transporte`, `Servicios`, `Ocio`, `Salud`, `Otros`.
 - A confirmation prompt is sent to the user and the FSM payload stores the detected/default categories.
-- When the user replies with a confirmation intent ("sí", "yes", etc.), `ConfirmCategories` marks the vocabulary as confirmed in `spreadsheet_configs.categories_confirmed_at`, transitions the user status to `active`, moves the FSM to `IDLE`, and sends the final welcome message.
-- Re-confirmation is idempotent: if `categories_confirmed_at` is already set, the use case returns success without error.
+- When the user replies with a confirmation intent ("sí", "yes", etc.), `ConfirmCategories` marks the vocabulary as confirmed in `spreadsheet_configs.categories_confirmed_at` when needed, transitions the user status to `active`, and persists the FSM as `IDLE` with `statePayload` and `expiresAt` cleared.
+- The final welcome message is sent only after user activation and the `IDLE` transition succeed, so a reported completion always reflects persisted finalization.
+- Re-confirmation is idempotent: an existing `categories_confirmed_at` skips only the redundant timestamp update. User activation and the cleared `IDLE` transition still run, allowing interrupted re-onboarding and reconnection flows to restore all final-state invariants.
 
 ## Behavior (Implemented)
 

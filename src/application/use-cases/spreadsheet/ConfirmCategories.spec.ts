@@ -86,6 +86,8 @@ describe('ConfirmCategories', () => {
     expect(mockTransitionExecute).toHaveBeenCalledWith({
       userId: 'user-123',
       targetState: 'IDLE',
+      payload: null,
+      expiresAt: null,
     });
     expect(mockSendMessage).toHaveBeenCalledWith(
       '987654321',
@@ -93,9 +95,15 @@ describe('ConfirmCategories', () => {
     );
     expect(result.nextState).toBe('IDLE');
     expect(result.message).toBe(onboardingCopies.onboardingComplete());
+    expect(mockUpdateStatus.mock.invocationCallOrder[0]).toBeLessThan(
+      mockTransitionExecute.mock.invocationCallOrder[0]!,
+    );
+    expect(mockTransitionExecute.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSendMessage.mock.invocationCallOrder[0]!,
+    );
   });
 
-  it('is idempotent when categories are already confirmed', async () => {
+  it('re-establishes active IDLE finalization when categories are already confirmed', async () => {
     mockFindByUserId.mockResolvedValue({
       ...mockConfig,
       categoriesConfirmedAt: new Date('2026-01-01T00:00:00Z'),
@@ -106,13 +114,21 @@ describe('ConfirmCategories', () => {
     const result = await useCase.execute(baseInput);
 
     expect(mockUpdateCategoriesConfirmed).not.toHaveBeenCalled();
-    expect(mockUpdateStatus).not.toHaveBeenCalled();
-    expect(mockTransitionExecute).not.toHaveBeenCalled();
+    expect(mockUpdateStatus).toHaveBeenCalledWith('user-123', 'active');
+    expect(mockTransitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'IDLE',
+      payload: null,
+      expiresAt: null,
+    });
     expect(mockSendMessage).toHaveBeenCalledWith(
       '987654321',
       onboardingCopies.onboardingComplete(),
     );
     expect(result.nextState).toBe('IDLE');
+    expect(mockTransitionExecute.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSendMessage.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('sends reconnect message when spreadsheet config is missing', async () => {
@@ -131,5 +147,17 @@ describe('ConfirmCategories', () => {
     });
     expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
     expect(result.nextState).toBe('ONBOARDING_START');
+  });
+
+  it('does not report completion when the IDLE transition fails', async () => {
+    const transitionError = new Error('transition failed');
+    mockTransitionExecute.mockRejectedValue(transitionError);
+    const useCase = new ConfirmCategories(buildMockDeps());
+
+    await expect(useCase.execute(baseInput)).rejects.toThrow(transitionError);
+
+    expect(mockUpdateCategoriesConfirmed).toHaveBeenCalledOnce();
+    expect(mockUpdateStatus).toHaveBeenCalledOnce();
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 });
