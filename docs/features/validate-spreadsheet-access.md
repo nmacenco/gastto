@@ -9,7 +9,7 @@ Before the user can start recording expenses, the system must verify that it has
 - **Read and write access confirmed (success):** The adapter reads the first 10 rows of the selected sheet and verifies write permissions via the provider's API. For Google, the use case first verifies that the stored OAuth token includes the `https://www.googleapis.com/auth/spreadsheets` scope; if it does not, the user is asked to reconnect. If both succeed, the flow continues transparently to column mapping (HU-4.05) without notifying the user. The `SpreadsheetPreview` is serialized and stored in the FSM state payload so that `InferColumnMapping` can extract headers and sample rows without re-reading the sheet. Per ADR-014, after transitioning to `ONBOARDING_MAPPING` the use case **eagerly invokes `InferColumnMapping`** with the persisted payload, so the user receives the column-mapping proposal without sending another message. The eager-advance call is wrapped in an isolated `try/catch` (log code `POST_VALIDATING_ACCESS_MAPPING_FAILED`) and does not change the success outcome.
 - **Read-only access (read-only):** The adapter successfully reads the sheet but detects that write permissions are missing. Returns a structured result with a preview and a `read-only` kind. The use case sends a message explaining how to fix permissions in Google Drive or OneDrive, and stays in `ONBOARDING_VALIDATING_ACCESS` so the user can retry.
 - **Empty sheet (empty-sheet):** The adapter detects that the selected sheet contains no data. Returns a structured result with an `empty-sheet` kind. The use case asks the user to confirm the sheet or choose another, transitioning to `ONBOARDING_SHEET` with `step: 'empty-sheet-confirm'`. If the user confirms, an out-of-MVP message is sent. If they choose another sheet, the selection flow is re-invoked.
-- **Access error (access-error):** The adapter encounters a network failure, expired token, or permission error while attempting to read or verify permissions. Returns a structured result with an `access-error` kind, an error type (`network-error`, `token-expired`, `permission-denied`, or `unknown`), and a `retryable` flag. The use case automatically retries once for `retryable: true` errors. If the retry fails, or if the error is non-retryable, a reconnect-account message is sent and the FSM transitions to `ONBOARDING_START`.
+- **Access error (access-error):** The adapter classifies network failures separately from authorization failures. For `token-expired` or `permission-denied`, the use case forces one OAuth refresh and replays the external access check once. If that recovery fails, it sends the reconnect-account message and transitions to `ONBOARDING_START`. Network and unknown errors keep `ONBOARDING_VALIDATING_ACCESS` and send the sheet-discovery failure message without restarting OAuth.
 - **Token errors:** Missing, expired, revoked, or undecryptable tokens trigger the reconnect-account message and transition to `ONBOARDING_START`.
 
 ## API / Interface
@@ -26,10 +26,11 @@ export class ValidateSpreadsheetAccess {
 ```
 
 The use case:
+
 1. Resolves the provider and retrieves/decrypts the OAuth token.
 2. Creates the appropriate port via `ValidateSpreadsheetAccessPortFactory`.
 3. Calls `validateSpreadsheetAccess(fileId, sheetName)`.
-4. On `access-error` with `retryable: true`, retries once automatically.
+4. On a provider authorization `access-error`, forces one token refresh and replays the access check once.
 5. Translates the result into the appropriate FSM transition and user-facing message.
 
 ### Domain Port
@@ -37,10 +38,7 @@ The use case:
 ```typescript
 // src/domain/ports/spreadsheetAccess.ts
 export interface ValidateSpreadsheetAccessPort {
-  validateSpreadsheetAccess(
-    fileId: string,
-    sheetName: string,
-  ): Promise<SpreadsheetAccessResult>;
+  validateSpreadsheetAccess(fileId: string, sheetName: string): Promise<SpreadsheetAccessResult>;
 }
 ```
 
@@ -143,9 +141,9 @@ The validation updates the `spreadsheet_configs.access_verified_at` field upon s
 - [x] Sends read-only warning and stays in `ONBOARDING_VALIDATING_ACCESS` on read-only
 - [x] Sends empty-sheet confirm, transitions to `ONBOARDING_SHEET` with step and sheetList on empty-sheet
 - [x] Omits sheetList from payload when not present in statePayload on empty-sheet
-- [x] Retries once automatically when retryable and succeeds on retry
-- [x] Sends reconnect message and transitions to `ONBOARDING_START` when retry also fails
-- [x] Does not retry when error is not retryable
+- [x] Forces one OAuth refresh and replays access validation when the provider returns an authorization error
+- [x] Sends reconnect message and transitions to `ONBOARDING_START` when the replay still has an authorization error
+- [x] Does not restart OAuth for network or unknown access errors
 - [x] Sends reconnect message and transitions to `ONBOARDING_START` when token is missing
 - [x] Sends reconnect message and transitions to `ONBOARDING_START` when token is expired
 - [x] Sends reconnect message and transitions to `ONBOARDING_START` when token is revoked
@@ -185,4 +183,4 @@ The validation updates the `spreadsheet_configs.access_verified_at` field upon s
 - The validation is transparent to the user when successful — no message is sent.
 - The `SpreadsheetPreview` includes the first 10 rows, which may be used by the column mapping use case (HU-4.05) to infer column roles.
 - Both adapters use direct `fetch` calls rather than SDK dependencies (`googleapis`, `@microsoft/microsoft-graph-client`) to keep the dependency surface minimal.
-- The `retryable` flag in `access-error` results is always `true` for network and token errors, allowing the use case to implement automatic retry logic.
+- The `retryable` flag communicates provider retryability, but transparent replay is reserved for authorization recovery to prevent duplicate or unbounded external operations.

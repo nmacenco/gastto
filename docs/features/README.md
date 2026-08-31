@@ -9,7 +9,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, encrypted token lifecycle, and transparent Google access-token refresh (MVP), with OneDrive planned for the future.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, search, and selection for spreadsheet records.
 - [`select-sheet.md`](./select-sheet.md) — Sheet selection within the chosen spreadsheet file.
-- [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive validation of read/write permissions before expense recording.
+- [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation before expense recording, with one transparent OAuth refresh/replay for provider authorization failures.
 - [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference engine with untrusted spreadsheet-data boundaries that ranks recognized header rows below titles or summaries and proposes column mappings for Gastto fields.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message natural-language correction, including preservation of the detected header row for immediate category detection.
 - [`category-confirmation.md`](./category-confirmation.md) — Immediately reads the category vocabulary below the detected header, supports persisted add/remove/rename commands, and idempotently finalizes repeated confirmation as an active user in `IDLE`.
