@@ -6,11 +6,7 @@
 // and applies business rules for the four HU-4.04 scenarios.
 
 import type { ValidateSpreadsheetAccessPortFactory } from '../../../domain/ports/spreadsheetAccess';
-import type {
-  IOAuthTokenRepository,
-  ISpreadsheetConfigRepository,
-} from '../../../domain/ports/repositories';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
+import type { ISpreadsheetConfigRepository } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
@@ -19,6 +15,8 @@ import type { SpreadsheetAccessResult } from '../../../domain/value-objects/Spre
 import type { InferColumnMapping } from './InferColumnMapping';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import type { Logger } from 'pino';
+import type { OAuthAccessTokenProvider } from '../../services/OAuthAccessTokenService';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 const GOOGLE_SHEETS_WRITE_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -37,17 +35,12 @@ export interface ValidateSpreadsheetAccessOutput {
 
 export interface ValidateSpreadsheetAccessDeps {
   validateSpreadsheetAccessPortFactory: ValidateSpreadsheetAccessPortFactory;
-  tokenRepository: IOAuthTokenRepository;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
-  tokenEncryption: TokenEncryptionPort;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   inferColumnMapping: InferColumnMapping;
   logger: Logger;
-}
-
-function isExpiredToken(expiresAt: Date): boolean {
-  return expiresAt.getTime() <= Date.now();
 }
 
 export class ValidateSpreadsheetAccess {
@@ -63,24 +56,20 @@ export class ValidateSpreadsheetAccess {
       return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message };
     }
 
-    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
-    if (!token) {
-      return this.handleReconnect(externalId, userId);
-    }
-
-    if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      return this.handleReconnect(externalId, userId);
-    }
-
-    if (provider === 'google' && !token.scope.includes(GOOGLE_SHEETS_WRITE_SCOPE)) {
-      return this.handleReconnect(externalId, userId);
-    }
-
     let accessToken: string;
     try {
-      accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      return this.handleReconnect(externalId, userId);
+      accessToken = (
+        await this.deps.oauthAccessTokenService.getValidAccessToken({
+          userId,
+          provider,
+          requiredScopes: provider === 'google' ? [GOOGLE_SHEETS_WRITE_SCOPE] : [],
+        })
+      ).accessToken;
+    } catch (error) {
+      if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId);
+      }
+      throw error;
     }
 
     const fileId = statePayload?.selectedFileId as string;
@@ -90,11 +79,27 @@ export class ValidateSpreadsheetAccess {
       return this.handleReconnect(externalId, userId);
     }
 
-    const port = this.deps.validateSpreadsheetAccessPortFactory.create(provider, accessToken);
+    let port = this.deps.validateSpreadsheetAccessPortFactory.create(provider, accessToken);
     let result = await port.validateSpreadsheetAccess(fileId, sheetName);
 
-    if (result.kind === 'access-error' && result.retryable) {
-      result = await port.validateSpreadsheetAccess(fileId, sheetName);
+    if (result.kind === 'access-error' && this.isAuthorizationError(result)) {
+      try {
+        const refreshed = await this.deps.oauthAccessTokenService.forceRefreshAccessToken({
+          userId,
+          provider,
+          requiredScopes: provider === 'google' ? [GOOGLE_SHEETS_WRITE_SCOPE] : [],
+        });
+        port = this.deps.validateSpreadsheetAccessPortFactory.create(
+          provider,
+          refreshed.accessToken,
+        );
+        result = await port.validateSpreadsheetAccess(fileId, sheetName);
+      } catch (error) {
+        if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
+          return this.handleReconnect(externalId, userId);
+        }
+        throw error;
+      }
     }
 
     return this.handleResult(result, input, provider, fileId, sheetName);
@@ -178,7 +183,13 @@ export class ValidateSpreadsheetAccess {
       }
 
       case 'access-error': {
-        return this.handleReconnect(externalId, userId);
+        if (this.isAuthorizationError(result)) {
+          return this.handleReconnect(externalId, userId);
+        }
+
+        const message = onboardingCopies.sheetDiscoveryFailed();
+        await this.deps.messagingPort.sendMessage(externalId, message);
+        return { nextState: 'ONBOARDING_VALIDATING_ACCESS', message };
       }
     }
   }
@@ -227,5 +238,11 @@ export class ValidateSpreadsheetAccess {
     const p = statePayload?.provider;
     if (p === 'microsoft') return 'microsoft';
     return 'google';
+  }
+
+  private isAuthorizationError(
+    result: Extract<SpreadsheetAccessResult, { kind: 'access-error' }>,
+  ): boolean {
+    return result.errorType === 'token-expired' || result.errorType === 'permission-denied';
   }
 }

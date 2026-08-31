@@ -77,15 +77,24 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
     } catch (err) {
-      throw new FileDiscoveryError(`Network error during file access validation: ${String(err)}`);
+      throw new FileDiscoveryError(`Network error during file access validation: ${String(err)}`, {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
     }
 
     if (response.status === 200) {
       return true;
     }
 
-    if (response.status === 403 || response.status === 404) {
+    if (response.status === 404) {
       return false;
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      throw new FileDiscoveryError('Google Drive authorization failed during file validation', {
+        code: 'AUTH_ERROR',
+      });
     }
 
     this.logger.error({
@@ -95,6 +104,10 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
     });
     throw new FileDiscoveryError(
       `Google Drive API error during file access validation: HTTP ${response.status}`,
+      {
+        code: response.status >= 500 ? 'NETWORK_ERROR' : 'UNKNOWN',
+        retryable: response.status >= 500,
+      },
     );
   }
 
@@ -105,7 +118,10 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
     } catch (err) {
-      throw new FileDiscoveryError(`Network error during file discovery: ${String(err)}`);
+      throw new FileDiscoveryError(`Network error during file discovery: ${String(err)}`, {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
     }
 
     let data: unknown;
@@ -123,8 +139,17 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
         code: 'DRIVE_API_ERROR',
         status: response.status,
       });
+      if (response.status === 401 || response.status === 403) {
+        throw new FileDiscoveryError('Google Drive authorization failed during file discovery', {
+          code: 'AUTH_ERROR',
+        });
+      }
       throw new FileDiscoveryError(
         `Google Drive API error during file discovery: HTTP ${response.status}`,
+        {
+          code: response.status >= 500 ? 'NETWORK_ERROR' : 'UNKNOWN',
+          retryable: response.status >= 500,
+        },
       );
     }
 

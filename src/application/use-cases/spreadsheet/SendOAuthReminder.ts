@@ -9,13 +9,14 @@ import { randomBytes } from 'crypto';
 import type { Redis } from 'ioredis';
 import type { Queue } from 'bullmq';
 import type { OAuthServicePort } from '../../../domain/ports/oauth';
-import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
 import type { IConversationStateRepository } from '../../../domain/ports/repositories';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import type { OAuthAccessTokenProvider } from '../../services/OAuthAccessTokenService';
 
 export interface SendOAuthReminderInput {
   userId: string;
@@ -33,7 +34,7 @@ export interface SendOAuthReminderOutput {
 export interface SendOAuthReminderDeps {
   redis: Redis;
   oauthService: OAuthServicePort;
-  tokenRepository: IOAuthTokenRepository;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
   conversationRepo: IConversationStateRepository;
   reminderQueue: Queue;
   transitionState: TransitionConversationState;
@@ -47,9 +48,11 @@ export class SendOAuthReminder {
   async execute(input: SendOAuthReminderInput): Promise<SendOAuthReminderOutput> {
     const { userId, externalId, channel, provider, redirectUri } = input;
 
-    const existingToken = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
-    if (existingToken) {
+    try {
+      await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
       return { message: '', nextState: 'ONBOARDING_DRIVE' };
+    } catch (error) {
+      if (!(error instanceof SpreadsheetError) || error.code !== 'AUTH_ERROR') throw error;
     }
 
     const currentState = await this.deps.conversationRepo.findByUserId(userId);

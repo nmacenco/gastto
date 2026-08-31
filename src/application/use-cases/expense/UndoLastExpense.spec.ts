@@ -2,18 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UndoLastExpenseUseCase } from './UndoLastExpense';
 import type {
   IExpenseRecordRepository,
-  IOAuthTokenRepository,
   ISpreadsheetConfigRepository,
 } from '../../../domain/ports/repositories';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 const findLatest = vi.fn();
 const softDeleteWithAudit = vi.fn();
 const findConfig = vi.fn();
 const logCreate = vi.fn();
-const findToken = vi.fn();
-const decrypt = vi.fn();
+const getValidAccessToken = vi.fn();
+const forceRefreshAccessToken = vi.fn();
 const deleteRow = vi.fn();
 const createPort = vi.fn();
 
@@ -23,13 +21,22 @@ function buildUseCase() {
     { findLatestByUserId: findLatest, softDeleteWithAudit } as unknown as IExpenseRecordRepository,
     { findByUserId: findConfig } as unknown as ISpreadsheetConfigRepository,
     { create: logCreate },
-    { findByUserAndProvider: findToken } as unknown as IOAuthTokenRepository,
-    { decrypt } as unknown as TokenEncryptionPort,
+    { getValidAccessToken, forceRefreshAccessToken },
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  getValidAccessToken.mockResolvedValue({
+    accessToken: 'access-token',
+    expiresAt: new Date(Date.now() + 60_000),
+    refreshed: false,
+  });
+  forceRefreshAccessToken.mockResolvedValue({
+    accessToken: 'refreshed-access-token',
+    expiresAt: new Date(Date.now() + 60_000),
+    refreshed: true,
+  });
   findLatest.mockResolvedValue({
     id: 'expense-1',
     concepto: 'Café',
@@ -40,13 +47,6 @@ beforeEach(() => {
     savedAt: new Date('2026-08-02T10:00:00Z'),
   });
   findConfig.mockResolvedValue({ provider: 'google', fileId: 'file-1' });
-  findToken.mockResolvedValue({
-    accessTokenEnc: Buffer.from('token'),
-    iv: Buffer.from('iv'),
-    revokedAt: null,
-    accessTokenExpiresAt: new Date(Date.now() + 60_000),
-  });
-  decrypt.mockReturnValue('access-token');
   createPort.mockReturnValue({ deleteRow });
   deleteRow.mockResolvedValue(undefined);
   softDeleteWithAudit.mockResolvedValue(undefined);
@@ -77,7 +77,9 @@ describe('UndoLastExpenseUseCase', () => {
 
   it('does not mutate local state or emit a deletion audit when Sheets rejects the deletion', async () => {
     deleteRow.mockRejectedValue(
-      new SpreadsheetError('Google Sheets API error during row deletion: HTTP 403'),
+      new SpreadsheetError('Google Sheets API error during row deletion: HTTP 403', {
+        code: 'AUTH_ERROR',
+      }),
     );
 
     await expect(
@@ -99,5 +101,37 @@ describe('UndoLastExpenseUseCase', () => {
     ).resolves.toMatchObject({ status: 'confirmation_required', expense: { id: 'expense-1' } });
     expect(createPort).not.toHaveBeenCalled();
     expect(deleteRow).not.toHaveBeenCalled();
+  });
+
+  it('deletes once with a proactively refreshed expired token', async () => {
+    getValidAccessToken.mockResolvedValue({
+      accessToken: 'refreshed-access-token',
+      expiresAt: new Date(Date.now() + 60_000),
+      refreshed: true,
+    });
+
+    await expect(
+      buildUseCase().execute({ userId: 'user-1', action: 'request', immediateEligible: true }),
+    ).resolves.toMatchObject({ status: 'deleted' });
+
+    expect(createPort).toHaveBeenCalledWith('refreshed-access-token');
+    expect(deleteRow).toHaveBeenCalledTimes(1);
+    expect(forceRefreshAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('forces one refresh and retries deletion at most once after AUTH_ERROR', async () => {
+    deleteRow
+      .mockRejectedValueOnce(new SpreadsheetError('expired', { code: 'AUTH_ERROR' }))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      buildUseCase().execute({ userId: 'user-1', action: 'request', immediateEligible: true }),
+    ).resolves.toMatchObject({ status: 'deleted' });
+
+    expect(forceRefreshAccessToken).toHaveBeenCalledTimes(1);
+    expect(createPort).toHaveBeenNthCalledWith(1, 'access-token');
+    expect(createPort).toHaveBeenNthCalledWith(2, 'refreshed-access-token');
+    expect(deleteRow).toHaveBeenCalledTimes(2);
+    expect(softDeleteWithAudit).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,7 @@
 // LAYER: Application / Tests
 // Unit tests for ValidateSpreadsheetAccess use case.
-// Mocks ValidateSpreadsheetAccessPortFactory, IOAuthTokenRepository,
-// TransitionConversationState, MessagingOutputPort, TokenEncryptionPort,
+// Mocks ValidateSpreadsheetAccessPortFactory, OAuthAccessTokenProvider,
+// TransitionConversationState, MessagingOutputPort,
 // and ISpreadsheetConfigRepository.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -10,17 +10,16 @@ import {
   type ValidateSpreadsheetAccessDeps,
   type ValidateSpreadsheetAccessInput,
 } from './ValidateSpreadsheetAccess';
-import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 const mockValidateAccess = vi.fn();
-const mockFindToken = vi.fn();
 const mockTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
-const mockEncrypt = vi.fn();
-const mockDecrypt = vi.fn();
+const mockGetValidAccessToken = vi.fn();
+const mockForceRefreshAccessToken = vi.fn();
 const mockFindByUserId = vi.fn();
 const mockUpdateAccessVerified = vi.fn();
 const mockCreatePort = vi.fn().mockReturnValue({
@@ -39,17 +38,14 @@ function buildMockDeps(
     validateSpreadsheetAccessPortFactory: {
       create: mockCreatePort,
     },
-    tokenRepository: {
-      findByUserAndProvider: mockFindToken,
-    } as unknown as IOAuthTokenRepository,
+    oauthAccessTokenService: {
+      getValidAccessToken: mockGetValidAccessToken,
+      forceRefreshAccessToken: mockForceRefreshAccessToken,
+    },
     transitionState: {
       execute: mockTransitionExecute,
     } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
-    tokenEncryption: {
-      encrypt: mockEncrypt,
-      decrypt: mockDecrypt,
-    },
     spreadsheetConfigRepository: {
       findByUserId: mockFindByUserId,
       updateAccessVerified: mockUpdateAccessVerified,
@@ -69,24 +65,6 @@ const baseInput: ValidateSpreadsheetAccessInput = {
   statePayload: null,
 };
 
-const mockToken = {
-  id: 'token-1',
-  userId: 'user-123',
-  provider: 'google' as const,
-  accessTokenEnc: Buffer.from('enc'),
-  refreshTokenEnc: Buffer.from('ref'),
-  iv: Buffer.from('iv'),
-  refreshIv: Buffer.from('refresh-iv'),
-  accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-  scope: [
-    'https://www.googleapis.com/auth/drive.readonly',
-    'https://www.googleapis.com/auth/spreadsheets',
-  ],
-  grantedAt: new Date(),
-  lastRefreshedAt: null,
-  revokedAt: null,
-};
-
 const mockPreview = new SpreadsheetPreview({
   provider: 'google',
   fileId: 'file-123',
@@ -103,8 +81,16 @@ const mockStatePayload = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDecrypt.mockReturnValue('decrypted-access-token');
-  mockFindToken.mockResolvedValue(mockToken);
+  mockGetValidAccessToken.mockResolvedValue({
+    accessToken: 'decrypted-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: false,
+  });
+  mockForceRefreshAccessToken.mockResolvedValue({
+    accessToken: 'refreshed-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: true,
+  });
   mockFindByUserId.mockResolvedValue({
     id: 'config-1',
     userId: 'user-123',
@@ -233,14 +219,12 @@ describe('ValidateSpreadsheetAccess', () => {
   });
 
   describe('access-error branch', () => {
-    it('retries once automatically when retryable and succeeds on retry', async () => {
-      mockValidateAccess
-        .mockResolvedValueOnce({
-          kind: 'access-error',
-          errorType: 'network-error',
-          retryable: true,
-        })
-        .mockResolvedValueOnce({ kind: 'success', preview: mockPreview });
+    it('keeps onboarding state on a retryable network error without reconnecting', async () => {
+      mockValidateAccess.mockResolvedValue({
+        kind: 'access-error',
+        errorType: 'network-error',
+        retryable: true,
+      });
 
       const deps = buildMockDeps();
       const useCase = new ValidateSpreadsheetAccess(deps);
@@ -249,25 +233,27 @@ describe('ValidateSpreadsheetAccess', () => {
         statePayload: mockStatePayload,
       });
 
-      expect(mockValidateAccess).toHaveBeenCalledTimes(2);
-      expect(mockValidateAccess).toHaveBeenNthCalledWith(1, 'file-123', 'Gastos');
-      expect(mockValidateAccess).toHaveBeenNthCalledWith(2, 'file-123', 'Gastos');
-      expect(mockUpdateAccessVerified).toHaveBeenCalledWith('config-1');
-      expect(result.nextState).toBe('ONBOARDING_MAPPING');
-      expect(mockSendMessage).not.toHaveBeenCalled();
+      expect(mockValidateAccess).toHaveBeenCalledTimes(1);
+      expect(mockUpdateAccessVerified).not.toHaveBeenCalled();
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.sheetDiscoveryFailed(),
+      );
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
     });
 
-    it('sends reconnect message and transitions to ONBOARDING_START when retry also fails', async () => {
+    it('forces one refresh for authorization failure and reconnects if the replay also fails', async () => {
       mockValidateAccess
         .mockResolvedValueOnce({
           kind: 'access-error',
-          errorType: 'network-error',
-          retryable: true,
+          errorType: 'permission-denied',
+          retryable: false,
         })
         .mockResolvedValueOnce({
           kind: 'access-error',
-          errorType: 'network-error',
-          retryable: true,
+          errorType: 'permission-denied',
+          retryable: false,
         });
 
       const deps = buildMockDeps();
@@ -278,6 +264,7 @@ describe('ValidateSpreadsheetAccess', () => {
       });
 
       expect(mockValidateAccess).toHaveBeenCalledTimes(2);
+      expect(mockForceRefreshAccessToken).toHaveBeenCalledTimes(1);
       expect(mockSendMessage).toHaveBeenCalledWith(
         '987654321',
         onboardingCopies.reconnectAccount(),
@@ -290,10 +277,10 @@ describe('ValidateSpreadsheetAccess', () => {
       expect(result.nextState).toBe('ONBOARDING_START');
     });
 
-    it('does not retry when error is not retryable', async () => {
+    it('does not reconnect for a non-authorization access error', async () => {
       mockValidateAccess.mockResolvedValue({
         kind: 'access-error',
-        errorType: 'permission-denied',
+        errorType: 'unknown',
         retryable: false,
       });
 
@@ -307,20 +294,18 @@ describe('ValidateSpreadsheetAccess', () => {
       expect(mockValidateAccess).toHaveBeenCalledTimes(1);
       expect(mockSendMessage).toHaveBeenCalledWith(
         '987654321',
-        onboardingCopies.reconnectAccount(),
+        onboardingCopies.sheetDiscoveryFailed(),
       );
-      expect(mockTransitionExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'ONBOARDING_START',
-        payload: { promptShown: true },
-      });
-      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
     });
   });
 
   describe('token errors', () => {
     it('sends reconnect message and transitions to ONBOARDING_START when token is missing', async () => {
-      mockFindToken.mockResolvedValue(null);
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new ValidateSpreadsheetAccess(deps);
@@ -343,10 +328,9 @@ describe('ValidateSpreadsheetAccess', () => {
     });
 
     it('sends reconnect message when the google token lacks the spreadsheets write scope', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        scope: ['https://www.googleapis.com/auth/drive.readonly'],
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Missing scope', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new ValidateSpreadsheetAccess(deps);
@@ -366,14 +350,15 @@ describe('ValidateSpreadsheetAccess', () => {
       });
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(mockValidateAccess).not.toHaveBeenCalled();
-      expect(mockDecrypt).not.toHaveBeenCalled();
     });
 
-    it('sends reconnect message and transitions to ONBOARDING_START when token is expired', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        accessTokenExpiresAt: new Date(Date.now() - 3600_000),
+    it('continues access validation when an expired token refreshes', async () => {
+      mockGetValidAccessToken.mockResolvedValue({
+        accessToken: 'refreshed-access-token',
+        expiresAt: new Date(Date.now() + 3600_000),
+        refreshed: true,
       });
+      mockValidateAccess.mockResolvedValue({ kind: 'success', preview: mockPreview });
 
       const deps = buildMockDeps();
       const useCase = new ValidateSpreadsheetAccess(deps);
@@ -382,24 +367,19 @@ describe('ValidateSpreadsheetAccess', () => {
         statePayload: mockStatePayload,
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockCreatePort).toHaveBeenCalledWith('google', 'refreshed-access-token');
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(mockValidateAccess).toHaveBeenCalledTimes(1);
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
         '987654321',
         onboardingCopies.reconnectAccount(),
       );
-      expect(mockTransitionExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'ONBOARDING_START',
-        payload: { promptShown: true },
-      });
-      expect(result.nextState).toBe('ONBOARDING_START');
-      expect(mockValidateAccess).not.toHaveBeenCalled();
     });
 
     it('sends reconnect message and transitions to ONBOARDING_START when token is revoked', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        revokedAt: new Date(),
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Revoked token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new ValidateSpreadsheetAccess(deps);
@@ -422,9 +402,9 @@ describe('ValidateSpreadsheetAccess', () => {
     });
 
     it('sends reconnect message and transitions to ONBOARDING_START when decryption fails', async () => {
-      mockDecrypt.mockImplementation(() => {
-        throw new Error('decryption failed');
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Stored token cannot be decrypted', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new ValidateSpreadsheetAccess(deps);
@@ -593,7 +573,9 @@ describe('ValidateSpreadsheetAccess', () => {
     });
 
     it('does not invoke InferColumnMapping when token is missing', async () => {
-      mockFindToken.mockResolvedValue(null);
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new ValidateSpreadsheetAccess(deps);

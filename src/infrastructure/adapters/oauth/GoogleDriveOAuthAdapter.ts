@@ -107,11 +107,18 @@ export class GoogleDriveOAuthAdapter implements OAuthServicePort {
     };
   }
 
-  async refreshToken(refreshToken: string): Promise<{
+  async refreshAccessToken(
+    provider: SpreadsheetProvider,
+    refreshToken: string,
+  ): Promise<{
     accessToken: string;
     expiresAt: Date;
     scope: string[];
   }> {
+    if (provider !== 'google') {
+      throw new InvalidProviderError(provider);
+    }
+
     const body = new URLSearchParams({
       refresh_token: refreshToken,
       client_id: this.config.clientId,
@@ -141,6 +148,9 @@ export class GoogleDriveOAuthAdapter implements OAuthServicePort {
 
     if (!response.ok) {
       const errorCode = extractGoogleErrorCode(data);
+      if (errorCode === 'invalid_grant') {
+        throw new OAuthDeniedError('Google OAuth refresh credential was rejected');
+      }
       throw new OAuthNetworkError(
         `Google OAuth refresh error (${errorCode}): HTTP ${response.status}`,
       );

@@ -1,10 +1,15 @@
 // LAYER: Domain
-// Error thrown when a file discovery operation fails (e.g., API error,
-// network failure, or unexpected response from the cloud storage provider).
+// Error thrown when a file discovery operation fails. It participates in the
+// shared spreadsheet error taxonomy so OAuth refresh can react to AUTH_ERROR.
 
-export class FileDiscoveryError extends Error {
-  constructor(message: string = 'Failed to discover files in cloud storage') {
-    super(message);
+import { SpreadsheetError, type SpreadsheetErrorOptions } from './SpreadsheetError';
+
+export class FileDiscoveryError extends SpreadsheetError {
+  constructor(
+    message: string = 'Failed to discover files in cloud storage',
+    options: SpreadsheetErrorOptions = {},
+  ) {
+    super(message, options);
     this.name = 'FileDiscoveryError';
   }
 }

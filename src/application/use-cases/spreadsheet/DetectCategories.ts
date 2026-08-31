@@ -3,17 +3,20 @@
 // Used when entering the ONBOARDING_CATEGORIES state after column mapping is confirmed.
 
 import type {
-  IOAuthTokenRepository,
   ISpreadsheetConfigRepository,
   IColumnMappingRepository,
   ICategoryVocabularyRepository,
 } from '../../../domain/ports/repositories';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { ICategoryReaderPortFactory } from '../../../domain/ports/categoryReader';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import {
+  executeWithOAuthAccessToken,
+  type OAuthAccessTokenProvider,
+} from '../../services/OAuthAccessTokenService';
 
 export interface DetectCategoriesInput {
   userId: string;
@@ -29,8 +32,7 @@ export interface DetectCategoriesOutput {
 
 export interface DetectCategoriesDeps {
   categoryReaderPortFactory: ICategoryReaderPortFactory;
-  tokenRepository: IOAuthTokenRepository;
-  tokenEncryption: TokenEncryptionPort;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   columnMappingRepository: IColumnMappingRepository;
   messagingPort: MessagingOutputPort;
@@ -39,10 +41,6 @@ export interface DetectCategoriesDeps {
 }
 
 const DEFAULT_CATEGORIES = ['Alimentacion', 'Transporte', 'Servicios', 'Ocio', 'Salud', 'Otros'];
-
-function isExpiredToken(expiresAt: Date): boolean {
-  return expiresAt.getTime() <= Date.now();
-}
 
 export class DetectCategories {
   constructor(private readonly deps: DetectCategoriesDeps) {}
@@ -55,35 +53,27 @@ export class DetectCategories {
       return this.sendPlaceholder(externalId, userId, statePayload);
     }
 
-    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, config.provider);
-    if (!token || token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      return this.sendPlaceholder(externalId, userId, statePayload);
-    }
-
-    let accessToken: string;
-    try {
-      accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      return this.sendPlaceholder(externalId, userId, statePayload);
-    }
-
     const mappings = await this.deps.columnMappingRepository.findBySpreadsheetId(config.id);
     const categoryMapping = mappings.find((m) => m.GasttoField === 'categoria');
     if (!categoryMapping) {
       return this.sendPlaceholder(externalId, userId, statePayload);
     }
 
-    const categoryReader = this.deps.categoryReaderPortFactory.create(accessToken);
-
     let categories: string[];
     try {
-      categories = await categoryReader.readCategories(
-        config.fileId,
-        categoryMapping.columnIndex,
-        config.sheetName,
+      categories = await executeWithOAuthAccessToken(
+        this.deps.oauthAccessTokenService,
+        { userId, provider: config.provider },
+        (accessToken) =>
+          this.deps.categoryReaderPortFactory
+            .create(accessToken)
+            .readCategories(config.fileId, categoryMapping.columnIndex, config.sheetName),
       );
-    } catch {
-      categories = [];
+    } catch (error) {
+      if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
+        return this.sendReconnect(externalId, userId);
+      }
+      throw error;
     }
 
     if (categories.length === 0) {
@@ -124,5 +114,16 @@ export class DetectCategories {
       payload: { ...statePayload, categories },
     });
     return { categories, message: onboardingCopies.onboardingPlaceholder() };
+  }
+
+  private async sendReconnect(externalId: string, userId: string): Promise<DetectCategoriesOutput> {
+    const message = onboardingCopies.reconnectAccount();
+    await this.deps.messagingPort.sendMessage(externalId, message);
+    await this.deps.transitionState.execute({
+      userId,
+      targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
+    });
+    return { categories: [], message };
   }
 }

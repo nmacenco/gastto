@@ -11,10 +11,8 @@ import type {
   IUserCategoryRepository,
   IOperationLogRepository,
   IConversationStateRepository,
-  IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
 import type { IUserProfilePort } from '../../../domain/ports/IUserProfilePort';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
@@ -33,6 +31,10 @@ import {
 import type { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import {
+  executeWithOAuthAccessToken,
+  type OAuthAccessTokenProvider,
+} from '../../services/OAuthAccessTokenService';
 
 export interface RegisterExpenseInput {
   userId: string;
@@ -56,8 +58,7 @@ export class RegisterExpenseUseCase {
     private readonly logRepo: IOperationLogRepository,
     private readonly userProfilePort: IUserProfilePort,
     private readonly classifier: ICategoryClassifier,
-    private readonly tokenRepository: IOAuthTokenRepository,
-    private readonly tokenEncryption: TokenEncryptionPort,
+    private readonly oauthAccessTokenService: OAuthAccessTokenProvider,
     private readonly reviewTimeoutMinutes: number = 10,
   ) {}
 
@@ -237,27 +238,16 @@ export class RegisterExpenseUseCase {
       );
     }
 
-    const token = await this.tokenRepository.findByUserAndProvider(userId, config.provider);
-    if (!token || token.revokedAt || token.accessTokenExpiresAt.getTime() <= Date.now()) {
-      throw new SpreadsheetError('No active spreadsheet access token is available', {
-        code: 'AUTH_ERROR',
-      });
-    }
-
-    let accessToken: string;
-    try {
-      accessToken = this.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      throw new SpreadsheetError('Could not decrypt spreadsheet access token', {
-        code: 'AUTH_ERROR',
-      });
-    }
-
     const mappings = await this.columnMappingRepo.findBySpreadsheetId(config.id);
     const row = this.buildRow(payload, mappings);
-
-    const spreadsheetPort = this.spreadsheetPortFactory.create(accessToken);
-    const result = await spreadsheetPort.appendRow(config.fileId, config.sheetName, row);
+    const result = await executeWithOAuthAccessToken(
+      this.oauthAccessTokenService,
+      { userId, provider: config.provider },
+      (accessToken) =>
+        this.spreadsheetPortFactory
+          .create(accessToken)
+          .appendRow(config.fileId, config.sheetName, row),
+    );
 
     // Persists internally for auditing and for E1-US-11 (undo)
     const savedExpense = await this.expenseRepo.create({

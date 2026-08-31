@@ -64,6 +64,7 @@ function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
     expenseRecordRepo: {} as Dependencies['expenseRecordRepo'],
     expenseQueueRepo: {} as Dependencies['expenseQueueRepo'],
     tokenEncryption: {} as Dependencies['tokenEncryption'],
+    oauthAccessTokenService: {} as Dependencies['oauthAccessTokenService'],
     resolveIdentity: {} as Dependencies['resolveIdentity'],
     getConversationState: {} as Dependencies['getConversationState'],
     transitionState: {} as Dependencies['transitionState'],

@@ -79,14 +79,17 @@ describe('GoogleSheetsAdapter', () => {
       expect(result).toEqual([]);
     });
 
-    it('throws SpreadsheetError on non-2xx HTTP', async () => {
+    it('classifies authorization failures', async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 403,
         json: () => Promise.resolve({ error: 'forbidden' }),
       });
 
-      await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toMatchObject({
+        code: 'AUTH_ERROR',
+        retryable: false,
+      });
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -102,7 +105,19 @@ describe('GoogleSheetsAdapter', () => {
     it('throws SpreadsheetError on network failure', async () => {
       fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
 
-      await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
+    });
+
+    it('classifies provider 5xx responses as retryable network failures', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 503 });
+
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
     });
 
     it('throws SpreadsheetError on unexpected response format', async () => {
@@ -476,6 +491,12 @@ describe('GoogleSheetsAdapter', () => {
         code: 'NETWORK_ERROR',
         retryable: true,
       });
+
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
     });
   });
 
@@ -532,6 +553,25 @@ describe('GoogleSheetsAdapter', () => {
         })
         .mockResolvedValueOnce({ ok: false, status: 403 });
       await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toBeInstanceOf(SpreadsheetError);
+    });
+
+    it('classifies authorization and 5xx failures during row deletion', async () => {
+      const metadata = {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 1 } }] }),
+      };
+      fetchMock.mockResolvedValueOnce(metadata).mockResolvedValueOnce({ ok: false, status: 401 });
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toMatchObject({
+        code: 'AUTH_ERROR',
+        retryable: false,
+      });
+
+      fetchMock.mockResolvedValueOnce(metadata).mockResolvedValueOnce({ ok: false, status: 503 });
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
     });
   });
 
@@ -679,8 +719,7 @@ describe('GoogleSheetsAdapter', () => {
       }
     });
 
-    it('returns access-error with unknown on other HTTP errors from Sheets API', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('returns access-error with network-error on 5xx from Sheets API', async () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 500,
@@ -691,10 +730,9 @@ describe('GoogleSheetsAdapter', () => {
 
       expect(result.kind).toBe('access-error');
       if (result.kind === 'access-error') {
-        expect(result.errorType).toBe('unknown');
+        expect(result.errorType).toBe('network-error');
         expect(result.retryable).toBe(true);
       }
-      consoleErrorSpy.mockRestore();
     });
 
     it('returns access-error with network-error on fetch failure during capability check', async () => {
@@ -768,8 +806,7 @@ describe('GoogleSheetsAdapter', () => {
       }
     });
 
-    it('returns access-error with unknown on other HTTP errors from Drive API', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('returns access-error with network-error on 5xx from Drive API', async () => {
       fetchMock
         .mockResolvedValueOnce({
           ok: true,
@@ -789,10 +826,9 @@ describe('GoogleSheetsAdapter', () => {
 
       expect(result.kind).toBe('access-error');
       if (result.kind === 'access-error') {
-        expect(result.errorType).toBe('unknown');
+        expect(result.errorType).toBe('network-error');
         expect(result.retryable).toBe(true);
       }
-      consoleErrorSpy.mockRestore();
     });
 
     it('returns read-only when capabilities.canEdit is missing', async () => {

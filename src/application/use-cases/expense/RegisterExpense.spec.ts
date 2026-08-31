@@ -19,9 +19,7 @@ import type {
   IUserCategoryRepository,
   IConversationStateRepository,
   IOperationLogRepository,
-  IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
 import { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
@@ -38,8 +36,8 @@ const mockExpenseRecordCreate = vi.fn();
 const mockOperationLogCreate = vi.fn();
 const mockAppendRow = vi.fn();
 const mockSpreadsheetPortFactoryCreate = vi.fn();
-const mockTokenFindByUserAndProvider = vi.fn();
-const mockTokenDecrypt = vi.fn();
+const mockGetValidAccessToken = vi.fn();
+const mockForceRefreshAccessToken = vi.fn();
 const mockFindLatestByUserId = vi.fn();
 const mockSoftDelete = vi.fn();
 const mockFindBySpreadsheetId = vi.fn();
@@ -123,12 +121,10 @@ function buildMockDependencies() {
     } as unknown as IOperationLogRepository,
     userProfilePort: buildMockUserProfilePort(),
     classifier: buildMockClassifier(),
-    tokenRepository: {
-      findByUserAndProvider: mockTokenFindByUserAndProvider,
-    } as unknown as IOAuthTokenRepository,
-    tokenEncryption: {
-      decrypt: mockTokenDecrypt,
-    } as unknown as TokenEncryptionPort,
+    oauthAccessTokenService: {
+      getValidAccessToken: mockGetValidAccessToken,
+      forceRefreshAccessToken: mockForceRefreshAccessToken,
+    },
   };
 }
 
@@ -146,8 +142,7 @@ function buildUseCase(overrides: Partial<ReturnType<typeof buildMockDependencies
       overrides.logRepo ?? deps.logRepo,
       overrides.userProfilePort ?? deps.userProfilePort,
       overrides.classifier ?? deps.classifier,
-      overrides.tokenRepository ?? deps.tokenRepository,
-      overrides.tokenEncryption ?? deps.tokenEncryption,
+      overrides.oauthAccessTokenService ?? deps.oauthAccessTokenService,
     ),
     deps: { ...deps, ...overrides },
   };
@@ -176,6 +171,16 @@ function buildInput(overrides: Partial<RegisterExpenseInput> = {}): RegisterExpe
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetValidAccessToken.mockResolvedValue({
+    accessToken: 'access-token',
+    expiresAt: new Date(Date.now() + 60_000),
+    refreshed: false,
+  });
+  mockForceRefreshAccessToken.mockResolvedValue({
+    accessToken: 'refreshed-access-token',
+    expiresAt: new Date(Date.now() + 60_000),
+    refreshed: true,
+  });
   mockUserProfileGetDefaultCurrency.mockResolvedValue(null);
   mockSpreadsheetConfigFindByUserId.mockResolvedValue({
     id: 'config-1',
@@ -193,21 +198,6 @@ beforeEach(() => {
   mockConversationTransition.mockResolvedValue(null);
   mockAppendRow.mockResolvedValue({ sheet: 'Hoja 1', row: 2 });
   mockSpreadsheetPortFactoryCreate.mockReturnValue(buildMockSpreadsheetPort());
-  mockTokenFindByUserAndProvider.mockResolvedValue({
-    id: 'token-1',
-    userId: 'user-123',
-    provider: 'google',
-    accessTokenEnc: Buffer.from('encrypted-access-token'),
-    refreshTokenEnc: Buffer.from('encrypted-refresh-token'),
-    iv: Buffer.from('iv'),
-    refreshIv: Buffer.from('refresh-iv'),
-    accessTokenExpiresAt: new Date(Date.now() + 3_600_000),
-    scope: [],
-    grantedAt: new Date(),
-    lastRefreshedAt: null,
-    revokedAt: null,
-  });
-  mockTokenDecrypt.mockReturnValue('access-token-123');
   mockClassifierExecute.mockResolvedValue(ClassificationResult.noMatch());
 });
 
@@ -245,7 +235,7 @@ describe('RegisterExpenseUseCase', () => {
       mockOperationLogCreate.mockResolvedValue({});
     });
 
-    it('uses a decrypted token to append and persists the confirmed location', async () => {
+    it('uses the access-token service to append and persists the confirmed location', async () => {
       const { useCase } = buildUseCase();
 
       await expect(useCase.save('user-123', payload, '')).resolves.toEqual({
@@ -253,12 +243,46 @@ describe('RegisterExpenseUseCase', () => {
         rowIndex: 2,
       });
 
-      expect(mockTokenFindByUserAndProvider).toHaveBeenCalledWith('user-123', 'google');
-      expect(mockTokenDecrypt).toHaveBeenCalledOnce();
-      expect(mockSpreadsheetPortFactoryCreate).toHaveBeenCalledWith('access-token-123');
+      expect(mockGetValidAccessToken).toHaveBeenCalledWith({
+        userId: 'user-123',
+        provider: 'google',
+      });
+      expect(mockSpreadsheetPortFactoryCreate).toHaveBeenCalledWith('access-token');
       expect(mockAppendRow).toHaveBeenCalledWith('file-1', 'Hoja 1', [100]);
       expect(mockExpenseRecordCreate).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Hoja 1', rowIndex: 2 }),
+      );
+    });
+
+    it('saves once with a proactively refreshed expired token without replaying NLP or onboarding', async () => {
+      mockGetValidAccessToken.mockResolvedValue({
+        accessToken: 'refreshed-access-token',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        refreshed: true,
+      });
+      const { useCase } = buildUseCase();
+
+      await expect(useCase.save('user-123', payload, '')).resolves.toEqual({
+        sheetName: 'Hoja 1',
+        rowIndex: 2,
+      });
+
+      expect(mockSpreadsheetPortFactoryCreate).toHaveBeenCalledWith('refreshed-access-token');
+      expect(mockAppendRow).toHaveBeenCalledTimes(1);
+      expect(mockLLMExtractExpense).not.toHaveBeenCalled();
+      expect(mockForceRefreshAccessToken).not.toHaveBeenCalled();
+      expect(mockConversationTransition).toHaveBeenCalledTimes(1);
+      expect(mockConversationTransition).toHaveBeenCalledWith(
+        'user-123',
+        'IDLE',
+        { immediateUndoExpenseId: undefined },
+        null,
+      );
+      expect(mockConversationTransition).not.toHaveBeenCalledWith(
+        'user-123',
+        'ONBOARDING_START',
+        expect.anything(),
+        expect.anything(),
       );
     });
 
@@ -287,6 +311,30 @@ describe('RegisterExpenseUseCase', () => {
       expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
       expect(mockOperationLogCreate).not.toHaveBeenCalled();
       expect(mockConversationTransition).not.toHaveBeenCalled();
+    });
+
+    it('forces one refresh after AUTH_ERROR and records only the single successful append', async () => {
+      mockAppendRow
+        .mockRejectedValueOnce(new SpreadsheetError('expired', { code: 'AUTH_ERROR' }))
+        .mockResolvedValueOnce({ sheet: 'Hoja 1', row: 2 });
+      const { useCase } = buildUseCase();
+
+      await expect(useCase.save('user-123', payload, '')).resolves.toMatchObject({
+        sheetName: 'Hoja 1',
+        rowIndex: 2,
+      });
+
+      expect(mockForceRefreshAccessToken).toHaveBeenCalledTimes(1);
+      expect(mockAppendRow).toHaveBeenCalledTimes(2);
+      expect(mockExpenseRecordCreate).toHaveBeenCalledTimes(1);
+      expect(mockOperationLogCreate).toHaveBeenCalledTimes(1);
+      expect(mockLLMExtractExpense).not.toHaveBeenCalled();
+      expect(mockConversationTransition).not.toHaveBeenCalledWith(
+        'user-123',
+        'ONBOARDING_START',
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('classifies missing column mappings as a structure failure before appending', async () => {

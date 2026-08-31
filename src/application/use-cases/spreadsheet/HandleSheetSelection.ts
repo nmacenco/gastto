@@ -13,11 +13,7 @@
 
 import type { Logger } from 'pino';
 import type { SpreadsheetPort, SpreadsheetPortFactory } from '../../../domain/ports/services';
-import type {
-  IOAuthTokenRepository,
-  ISpreadsheetConfigRepository,
-} from '../../../domain/ports/repositories';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
+import type { ISpreadsheetConfigRepository } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
@@ -27,6 +23,10 @@ import type { ValidateSpreadsheetAccess } from './ValidateSpreadsheetAccess';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { isConfirmIntent, isIdkVariant } from '../../utils/intents';
+import {
+  executeWithOAuthAccessToken,
+  type OAuthAccessTokenProvider,
+} from '../../services/OAuthAccessTokenService';
 
 export interface HandleSheetSelectionInput {
   userId: string;
@@ -44,10 +44,9 @@ export interface HandleSheetSelectionOutput {
 
 export interface HandleSheetSelectionDeps {
   spreadsheetPortFactory: SpreadsheetPortFactory;
-  tokenRepository: IOAuthTokenRepository;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
-  tokenEncryption: TokenEncryptionPort;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   validateSpreadsheetAccess: ValidateSpreadsheetAccess;
   logger: Logger;
@@ -62,10 +61,6 @@ function normalizeForComparison(raw: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ');
-}
-
-function isExpiredToken(expiresAt: Date): boolean {
-  return expiresAt.getTime() <= Date.now();
 }
 
 // ── Use case ─────────────────────────────────────────────────────────────────
@@ -94,25 +89,14 @@ export class HandleSheetSelection {
       );
     }
 
-    // 1. Retrieve and decrypt OAuth token
-    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
-    if (!token) {
-      return this.handleReconnect(externalId, userId, 'TOKEN_MISSING');
-    }
-
-    if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      return this.handleReconnect(externalId, userId, 'TOKEN_EXPIRED_OR_REVOKED');
-    }
-
-    let accessToken: string;
     try {
-      accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
+      await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
-      return this.handleReconnect(externalId, userId, 'TOKEN_DECRYPTION_FAILED', err);
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
+      }
+      throw err;
     }
-
-    // 2. Create SpreadsheetPort
-    const spreadsheetPort = this.deps.spreadsheetPortFactory.create(accessToken);
 
     const fileId = statePayload?.selectedFileId as string;
     const fileName = statePayload?.selectedFileName as string;
@@ -140,20 +124,11 @@ export class HandleSheetSelection {
         provider,
         rawMessage,
         sheetList,
-        spreadsheetPort,
       );
     }
 
     // 4. First time: list sheets
-    return this.handleInitialListing(
-      userId,
-      externalId,
-      channel,
-      fileId,
-      fileName,
-      provider,
-      spreadsheetPort,
-    );
+    return this.handleInitialListing(userId, externalId, channel, fileId, fileName, provider);
   }
 
   private resolveProvider(statePayload: Record<string, unknown> | null): SpreadsheetProvider {
@@ -193,19 +168,14 @@ export class HandleSheetSelection {
       return { nextState: 'ONBOARDING_SHEET', message };
     }
 
-    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
-    if (!token || token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      return this.handleReconnect(externalId, userId, 'TOKEN_INVALID_ON_EMPTY_SHEET_CONFIRM');
-    }
-
-    let accessToken: string;
     try {
-      accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
+      await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
-      return this.handleReconnect(externalId, userId, 'TOKEN_DECRYPTION_FAILED', err);
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
+      }
+      throw err;
     }
-
-    const spreadsheetPort = this.deps.spreadsheetPortFactory.create(accessToken);
 
     return this.handleSelection(
       userId,
@@ -216,7 +186,6 @@ export class HandleSheetSelection {
       provider,
       trimmed,
       sheetList,
-      spreadsheetPort,
     );
   }
 
@@ -227,10 +196,11 @@ export class HandleSheetSelection {
     fileId: string,
     fileName: string,
     provider: SpreadsheetProvider,
-    spreadsheetPort: SpreadsheetPort,
   ): Promise<HandleSheetSelectionOutput> {
     try {
-      const sheets = await spreadsheetPort.listSheets(fileId);
+      const sheets = await this.executeWithSpreadsheetPort(userId, provider, (port) =>
+        port.listSheets(fileId),
+      );
 
       if (sheets.length === 0) {
         const message = 'El archivo no tiene hojas. Probá con otro archivo.';
@@ -270,6 +240,9 @@ export class HandleSheetSelection {
       return { nextState: 'ONBOARDING_SHEET', message, payload };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'SHEET_LIST_AUTH_ERROR', err);
+      }
       if (err instanceof SpreadsheetError) {
         this.deps.logger.error({
           endpoint: 'HandleSheetSelection',
@@ -306,13 +279,12 @@ export class HandleSheetSelection {
     provider: SpreadsheetProvider,
     rawMessage: string,
     sheetList: SheetInfo[],
-    spreadsheetPort: SpreadsheetPort,
   ): Promise<HandleSheetSelectionOutput> {
     const trimmed = rawMessage.trim();
 
     // Scenario 3: "I don't know" variant
     if (isIdkVariant(trimmed)) {
-      return this.handleIdk(userId, externalId, channel, fileId, sheetList, spreadsheetPort);
+      return this.handleIdk(userId, externalId, channel, fileId, provider, sheetList);
     }
 
     // Scenario 2: Selection by number
@@ -357,13 +329,15 @@ export class HandleSheetSelection {
     externalId: string,
     channel: 'telegram' | 'whatsapp',
     fileId: string,
+    provider: SpreadsheetProvider,
     sheetList: SheetInfo[],
-    spreadsheetPort: SpreadsheetPort,
   ): Promise<HandleSheetSelectionOutput> {
     try {
       const descriptions: string[] = [];
       for (const sheet of sheetList) {
-        const headers = await spreadsheetPort.getHeaders(fileId, sheet.name);
+        const headers = await this.executeWithSpreadsheetPort(userId, provider, (port) =>
+          port.getHeaders(fileId, sheet.name),
+        );
         descriptions.push(onboardingCopies.sheetHeadersDescription(sheet.name, headers));
       }
 
@@ -384,6 +358,9 @@ export class HandleSheetSelection {
       return { nextState: 'ONBOARDING_SHEET', message, payload };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'SHEET_HEADERS_AUTH_ERROR', err);
+      }
       if (err instanceof SpreadsheetError) {
         this.deps.logger.error({
           endpoint: 'HandleSheetSelection',
@@ -409,6 +386,18 @@ export class HandleSheetSelection {
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }
+  }
+
+  private executeWithSpreadsheetPort<T>(
+    userId: string,
+    provider: SpreadsheetProvider,
+    operation: (port: SpreadsheetPort) => Promise<T>,
+  ): Promise<T> {
+    return executeWithOAuthAccessToken(
+      this.deps.oauthAccessTokenService,
+      { userId, provider },
+      (accessToken) => operation(this.deps.spreadsheetPortFactory.create(accessToken)),
+    );
   }
 
   private async confirmSheet(

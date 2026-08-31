@@ -182,7 +182,7 @@ describe('GoogleDriveOAuthAdapter', () => {
     });
   });
 
-  describe('refreshToken', () => {
+  describe('refreshAccessToken', () => {
     it('returns new access token on successful refresh', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
@@ -197,7 +197,7 @@ describe('GoogleDriveOAuthAdapter', () => {
       });
 
       const adapter = new GoogleDriveOAuthAdapter(CONFIG);
-      const result = await adapter.refreshToken('refresh-456');
+      const result = await adapter.refreshAccessToken('google', 'refresh-456');
 
       expect(result.accessToken).toBe('new-access-789');
       expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
@@ -213,7 +213,7 @@ describe('GoogleDriveOAuthAdapter', () => {
       expect(body.get('grant_type')).toBe('refresh_token');
     });
 
-    it('throws OAuthNetworkError on refresh failure', async () => {
+    it('throws OAuthDeniedError when the refresh credential is rejected', async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 400,
@@ -221,7 +221,29 @@ describe('GoogleDriveOAuthAdapter', () => {
       });
 
       const adapter = new GoogleDriveOAuthAdapter(CONFIG);
-      await expect(adapter.refreshToken('bad-refresh')).rejects.toBeInstanceOf(OAuthNetworkError);
+      await expect(adapter.refreshAccessToken('google', 'bad-refresh')).rejects.toBeInstanceOf(
+        OAuthDeniedError,
+      );
+    });
+
+    it('throws OAuthNetworkError on transient refresh failure', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: () => Promise.resolve({ error: 'temporarily_unavailable' }),
+      });
+
+      const adapter = new GoogleDriveOAuthAdapter(CONFIG);
+      await expect(adapter.refreshAccessToken('google', 'refresh-456')).rejects.toBeInstanceOf(
+        OAuthNetworkError,
+      );
+    });
+
+    it('rejects non-google refresh requests', async () => {
+      const adapter = new GoogleDriveOAuthAdapter(CONFIG);
+      await expect(adapter.refreshAccessToken('microsoft', 'refresh-456')).rejects.toBeInstanceOf(
+        InvalidProviderError,
+      );
     });
   });
 });

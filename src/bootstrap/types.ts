@@ -69,6 +69,7 @@ import type { LLMPort } from '../domain/ports/services';
 import type { ProcessMessageJobData } from '../application/ports/ProcessMessageJob';
 import type { IncomingMessageJobData } from '../application/ports/IncomingMessageJob';
 import type { MessagingOutputPort } from '../application/ports/output/messaging.port';
+import type { OAuthAccessTokenProvider } from '../application/services/OAuthAccessTokenService';
 
 /** Drizzle database handle produced by `drizzle(sql)`. */
 export type DrizzleDatabase = ReturnType<typeof drizzle>;
@@ -156,6 +157,7 @@ export interface Dependencies {
 
   // Security
   tokenEncryption: TokenEncryptionAdapter;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
 
   // Conversation use cases (always created when DB/Redis are present)
   resolveIdentity: ResolveUserIdentityUseCase;

@@ -8,13 +8,11 @@ import type {
   ISpreadsheetConfigRepository,
   IMappingCorrectionStateRepository,
   MappingCorrectionStateSnapshot,
-  IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
 import type {
   ISpreadsheetColumnPort,
   AvailableColumn,
 } from '../../../domain/ports/spreadsheetColumns';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
@@ -32,6 +30,11 @@ import { onboardingCopies } from '../../copies/onboarding.copies';
 import { isRejectMappingIntent } from '../../utils/intents';
 import type { HeaderDetectionPort } from '../../../domain/ports/headerDetection';
 import type { ColumnInferencePort } from '../../../domain/ports/columnInference';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import {
+  executeWithOAuthAccessToken,
+  type OAuthAccessTokenProvider,
+} from '../../services/OAuthAccessTokenService';
 
 export interface CorrectColumnMappingInput {
   userId: string;
@@ -90,8 +93,7 @@ export type CorrectColumnMappingOutput =
 export interface CorrectColumnMappingDeps {
   columnMappingRepository: IColumnMappingRepository;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
-  tokenRepository: IOAuthTokenRepository;
-  tokenEncryption: TokenEncryptionPort;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
   spreadsheetColumnPort: ISpreadsheetColumnPort;
   correctionParser: ColumnMappingCorrectionParser;
   correctionStateRepository: IMappingCorrectionStateRepository;
@@ -101,10 +103,6 @@ export interface CorrectColumnMappingDeps {
   messagingPort: MessagingOutputPort;
   transitionState: TransitionConversationState;
   stateTtlSeconds: number;
-}
-
-function isExpiredToken(expiresAt: Date): boolean {
-  return expiresAt.getTime() <= Date.now();
 }
 
 function columnLetterToIndex(letters: string): number | null {
@@ -214,27 +212,17 @@ export class CorrectColumnMapping {
       return { kind: 'parse-failure', nextState: 'ONBOARDING_MAPPING', message };
     }
 
-    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, config.provider);
-    if (!token || token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      return this.handleReconnect(externalId, userId);
-    }
-
-    let accessToken: string;
-    try {
-      accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      return this.handleReconnect(externalId, userId);
-    }
-
     const headerRowIndex = this.resolveHeaderRowIndex(input.statePayload);
 
-    const availableColumns = await this.deps.spreadsheetColumnPort.listAvailableColumns({
-      provider: config.provider,
-      fileId: config.fileId,
-      sheetName: config.sheetName,
-      accessToken,
-      headerRowIndex,
-    });
+    let availableColumns: AvailableColumn[];
+    try {
+      availableColumns = await this.listAvailableColumns(userId, config, headerRowIndex);
+    } catch (error) {
+      if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId);
+      }
+      throw error;
+    }
 
     const matchedColumn = resolveColumnRef(parseResult.columnRef, availableColumns);
     if (!matchedColumn) {
@@ -300,27 +288,17 @@ export class CorrectColumnMapping {
   ): Promise<CorrectColumnMappingOutput> {
     const { userId, externalId } = input;
 
-    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, config.provider);
-    if (!token || token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      return this.handleReconnect(externalId, userId);
-    }
-
-    let accessToken: string;
-    try {
-      accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      return this.handleReconnect(externalId, userId);
-    }
-
     const headerRowIndex = this.resolveHeaderRowIndex(input.statePayload);
 
-    const availableColumns = await this.deps.spreadsheetColumnPort.listAvailableColumns({
-      provider: config.provider,
-      fileId: config.fileId,
-      sheetName: config.sheetName,
-      accessToken,
-      headerRowIndex,
-    });
+    let availableColumns: AvailableColumn[];
+    try {
+      availableColumns = await this.listAvailableColumns(userId, config, headerRowIndex);
+    } catch (error) {
+      if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId);
+      }
+      throw error;
+    }
 
     await this.deps.correctionStateRepository.clear(userId);
 
@@ -335,6 +313,25 @@ export class CorrectColumnMapping {
     });
 
     return { kind: 'rejected', nextState: 'ONBOARDING_MAPPING', message };
+  }
+
+  private listAvailableColumns(
+    userId: string,
+    config: SpreadsheetConfig,
+    headerRowIndex: number | undefined,
+  ): Promise<AvailableColumn[]> {
+    return executeWithOAuthAccessToken(
+      this.deps.oauthAccessTokenService,
+      { userId, provider: config.provider },
+      (accessToken) =>
+        this.deps.spreadsheetColumnPort.listAvailableColumns({
+          provider: config.provider,
+          fileId: config.fileId,
+          sheetName: config.sheetName,
+          accessToken,
+          headerRowIndex,
+        }),
+    );
   }
 
   private resolveHeaderRowIndex(statePayload: Record<string, unknown> | null): number | undefined {
