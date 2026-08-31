@@ -60,6 +60,7 @@ export class DetectCategories {
     }
 
     let categories: string[];
+    const dataStartRow = resolveDataStartRow(statePayload);
     try {
       categories = await executeWithOAuthAccessToken(
         this.deps.oauthAccessTokenService,
@@ -67,7 +68,12 @@ export class DetectCategories {
         (accessToken) =>
           this.deps.categoryReaderPortFactory
             .create(accessToken)
-            .readCategories(config.fileId, categoryMapping.columnIndex, config.sheetName),
+            .readCategories(
+              config.fileId,
+              categoryMapping.columnIndex,
+              config.sheetName,
+              dataStartRow,
+            ),
       );
     } catch (error) {
       if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
@@ -126,4 +132,17 @@ export class DetectCategories {
     });
     return { categories: [], message };
   }
+}
+
+function resolveDataStartRow(statePayload: Record<string, unknown> | null): number | undefined {
+  const headerRowIndex = statePayload?.headerRowIndex;
+  if (
+    typeof headerRowIndex !== 'number' ||
+    !Number.isInteger(headerRowIndex) ||
+    headerRowIndex < 1
+  ) {
+    return undefined;
+  }
+
+  return headerRowIndex + 1;
 }

@@ -378,6 +378,35 @@ describe('GoogleSheetsAdapter', () => {
       expect(result).toEqual([]);
     });
 
+    it('starts at the supplied data row instead of including a later header row', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: [['Comida'], ['Transporte']] }),
+      });
+
+      const result = await adapter.getUniqueValues('spreadsheet-123', 2, 'Gastos', 3);
+
+      expect(result).toEqual(['Comida', 'Transporte']);
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!C3:C',
+      );
+    });
+
+    it.each([0, -1, 2.5])(
+      'rejects invalid data start row %s before making a request',
+      async (row) => {
+        await expect(
+          adapter.getUniqueValues('spreadsheet-123', 2, 'Gastos', row),
+        ).rejects.toMatchObject({
+          code: 'STRUCTURE_ERROR',
+        });
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
     it('throws SpreadsheetError on API error', async () => {
       fetchMock.mockResolvedValue({
         ok: false,

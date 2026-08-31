@@ -90,18 +90,18 @@ Carry the detected spreadsheet header position through mapping confirmation and 
 
 ### To-do actions
 
-- [ ] Preserve the validated 1-based `headerRowIndex` from the mapping FSM payload when `ConfirmColumnMapping` transitions to `ONBOARDING_CATEGORIES`.
-- [ ] Extend the category-reader and spreadsheet-port contracts with a 1-based `dataStartRow`, calculated as `headerRowIndex + 1`; retain row 2 as the backward-compatible default when no header index is available.
-- [ ] Update Google Sheets range generation and Excel Online range generation to begin at `dataStartRow` instead of hard-coded row 2, validating that the row number is a positive integer.
-- [ ] Pass the preserved header position from `DetectCategories` through `SpreadsheetCategoryReader` to the selected spreadsheet adapter without persisting it in a new database column.
-- [ ] Ensure default-category fallback still occurs only when there are no non-empty data values below the header. A header label by itself must no longer prevent fallback.
-- [ ] Update mapping confirmation tests to prove `headerRowIndex` survives the transition and category detection tests to prove a header on row 2 reads from row 3.
-- [ ] Update Google Sheets, Excel Online, and `SpreadsheetCategoryReader` tests for the default row-2 range, dynamic row-3-or-later ranges, invalid row input, normalization, deduplication, and header exclusion.
-- [ ] Add an end-to-end worker-level regression for a sheet with a title on row 1, headers on row 2, and categories below it. Assert that the prompt contains the data categories and does not contain the header as a bullet item.
-- [ ] Update [`confirm-or-correct-column-mapping.md`](../../../docs/features/confirm-or-correct-column-mapping.md) and [`category-confirmation.md`](../../../docs/features/category-confirmation.md) with the dynamic data-start-row contract, then update [`docs/features/README.md`](../../../docs/features/README.md).
-- [ ] Run the focused mapping, category, Google Sheets, Excel Online, and message-worker Vitest suites, then run the complete `pnpm test` suite. Fix failures without weakening assertions.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Preserve the validated 1-based `headerRowIndex` from the mapping FSM payload when `ConfirmColumnMapping` transitions to `ONBOARDING_CATEGORIES`.
+- [x] Extend the category-reader and spreadsheet-port contracts with a 1-based `dataStartRow`, calculated as `headerRowIndex + 1`; retain row 2 as the backward-compatible default when no header index is available.
+- [x] Update Google Sheets range generation and Excel Online range generation to begin at `dataStartRow` instead of hard-coded row 2, validating that the row number is a positive integer.
+- [x] Pass the preserved header position from `DetectCategories` through `SpreadsheetCategoryReader` to the selected spreadsheet adapter without persisting it in a new database column.
+- [x] Ensure default-category fallback still occurs only when there are no non-empty data values below the header. A header label by itself must no longer prevent fallback.
+- [x] Update mapping confirmation tests to prove `headerRowIndex` survives the transition and category detection tests to prove a header on row 2 reads from row 3.
+- [x] Update Google Sheets, Excel Online, and `SpreadsheetCategoryReader` tests for the default row-2 range, dynamic row-3-or-later ranges, invalid row input, normalization, deduplication, and header exclusion.
+- [x] Add an end-to-end worker-level regression for a sheet with a title on row 1, headers on row 2, and categories below it. Assert that the prompt contains the data categories and does not contain the header as a bullet item.
+- [x] Update [`confirm-or-correct-column-mapping.md`](../../../docs/features/confirm-or-correct-column-mapping.md) and [`category-confirmation.md`](../../../docs/features/category-confirmation.md) with the dynamic data-start-row contract, then update [`docs/features/README.md`](../../../docs/features/README.md).
+- [x] Run the focused mapping, category, Google Sheets, Excel Online, and message-worker Vitest suites, then run the complete `pnpm test` suite. Fix failures without weakening assertions.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Public contracts
 
@@ -113,4 +113,4 @@ Carry the detected spreadsheet header position through mapping confirmation and 
 
 ## Next step
 
-Execute Phase 3 to start category extraction below the detected header row.
+All phases are complete; review the changes and export the implementation conversation alongside this plan.

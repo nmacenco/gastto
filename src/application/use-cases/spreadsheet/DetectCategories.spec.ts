@@ -108,6 +108,27 @@ describe('DetectCategories', () => {
     expect(result.message).toContain('comida');
   });
 
+  it('starts reading below the detected header row', async () => {
+    const readCategories = vi.fn().mockResolvedValue(['comida', 'transporte']);
+    const { deps, sendMessage } = buildDeps({
+      categoryReaderPortFactory: {
+        create: vi.fn().mockReturnValue({ readCategories }),
+      },
+    });
+
+    const result = await new DetectCategories(deps).execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: { headerRowIndex: 2 },
+    });
+
+    expect(readCategories).toHaveBeenCalledWith('file-123', 2, 'Gastos', 3);
+    expect(result.categories).toEqual(['comida', 'transporte']);
+    expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('comida'));
+    expect(sendMessage).not.toHaveBeenCalledWith('123456789', expect.stringContaining('categoria'));
+  });
+
   it('falls back to default categories when the column is empty and persists them', async () => {
     const emptyReader: ICategoryReaderPort = {
       readCategories: vi.fn().mockResolvedValue([]),

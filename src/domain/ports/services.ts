@@ -74,7 +74,12 @@ export interface SpreadsheetPort {
   deleteRow(fileId: string, sheetName: string, rowIndex: number): Promise<void>;
 
   // Gets unique values from a column (for inferring categories during onboarding)
-  getUniqueValues(fileId: string, columnIndex: number, sheetName: string): Promise<string[]>;
+  getUniqueValues(
+    fileId: string,
+    columnIndex: number,
+    sheetName: string,
+    dataStartRow?: number,
+  ): Promise<string[]>;
 
   // Obtiene encabezados de la primera fila de una hoja
   getHeaders(fileId: string, sheetName: string): Promise<string[]>;

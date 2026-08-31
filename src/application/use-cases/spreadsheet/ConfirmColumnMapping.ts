@@ -77,6 +77,14 @@ export class ConfirmColumnMapping {
       fileId: config.fileId,
       sheetName: config.sheetName,
     };
+    const headerRowIndex = input.statePayload?.headerRowIndex;
+    if (
+      typeof headerRowIndex === 'number' &&
+      Number.isInteger(headerRowIndex) &&
+      headerRowIndex > 0
+    ) {
+      payload.headerRowIndex = headerRowIndex;
+    }
 
     await this.deps.transitionState.execute({
       userId,

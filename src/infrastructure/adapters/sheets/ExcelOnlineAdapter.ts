@@ -81,11 +81,17 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     return Promise.reject(new SpreadsheetError('deleteRow not yet implemented'));
   }
 
-  async getUniqueValues(fileId: string, columnIndex: number, sheetName: string): Promise<string[]> {
+  async getUniqueValues(
+    fileId: string,
+    columnIndex: number,
+    sheetName: string,
+    dataStartRow: number = 2,
+  ): Promise<string[]> {
+    assertPositiveRow(dataStartRow);
     const columnLetter = columnIndexToLetter(columnIndex);
     const encodedSheetName = encodeURIComponent(sheetName);
     const maxExcelRows = 1_048_576;
-    const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets/${encodedSheetName}/range(address='${columnLetter}2:${columnLetter}${maxExcelRows}')`;
+    const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets/${encodedSheetName}/range(address='${columnLetter}${dataStartRow}:${columnLetter}${maxExcelRows}')`;
 
     let response: Response;
     try {
@@ -333,6 +339,12 @@ function columnIndexToLetter(index: number): string {
     n = Math.floor(n / 26) - 1;
   } while (n >= 0);
   return result;
+}
+
+function assertPositiveRow(row: number): void {
+  if (!Number.isInteger(row) || row < 1) {
+    throw new SpreadsheetError('Data start row must be a positive integer');
+  }
 }
 
 function parseUniqueValuesResponse(data: unknown): string[] {

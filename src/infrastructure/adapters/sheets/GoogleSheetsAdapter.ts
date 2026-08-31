@@ -243,10 +243,16 @@ export class GoogleSheetsAdapter
     }
   }
 
-  async getUniqueValues(fileId: string, columnIndex: number, sheetName: string): Promise<string[]> {
+  async getUniqueValues(
+    fileId: string,
+    columnIndex: number,
+    sheetName: string,
+    dataStartRow: number = 2,
+  ): Promise<string[]> {
+    assertPositiveRow(dataStartRow);
     const columnLetter = columnIndexToLetter(columnIndex);
     const encodedSheetName = encodeURIComponent(sheetName);
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!${columnLetter}2:${columnLetter}`;
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!${columnLetter}${dataStartRow}:${columnLetter}`;
 
     let response: Response;
     try {
@@ -565,6 +571,14 @@ function columnIndexToLetter(index: number): string {
     n = Math.floor(n / 26) - 1;
   } while (n >= 0);
   return result;
+}
+
+function assertPositiveRow(row: number): void {
+  if (!Number.isInteger(row) || row < 1) {
+    throw new SpreadsheetError('Data start row must be a positive integer', {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
 }
 
 function parseUniqueValuesResponse(data: unknown): string[] {
