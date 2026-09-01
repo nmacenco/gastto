@@ -577,14 +577,6 @@ async function routeByState(
   }
 }
 
-function isActiveExpenseQueueState(currentState: string): boolean {
-  return (
-    currentState === 'EXPENSE_REVIEW' ||
-    currentState === 'EXPENSE_CLARIFYING' ||
-    currentState === 'EXPENSE_CORRECTING'
-  );
-}
-
 function shouldQueueAdditionalExpense(
   currentState: string,
   statePayload: Record<string, unknown> | null,
@@ -592,28 +584,20 @@ function shouldQueueAdditionalExpense(
   classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent,
 ): boolean {
   if (
-    !isActiveExpenseQueueState(currentState) ||
+    currentState !== 'EXPENSE_CLARIFYING' ||
     !isExpenseLikeIntent(classifyFreeTextExpenseIntent.execute(rawMessage))
   ) {
     return false;
   }
 
-  if (currentState === 'EXPENSE_CLARIFYING') {
-    try {
-      return isNewExpenseDuringClarification(
-        rawMessage,
-        ExpenseClarificationState.fromPayload(statePayload).missingField,
-      );
-    } catch {
-      return false;
-    }
+  try {
+    return isNewExpenseDuringClarification(
+      rawMessage,
+      ExpenseClarificationState.fromPayload(statePayload).missingField,
+    );
+  } catch {
+    return false;
   }
-
-  return !isLikelyExpenseCorrection(rawMessage);
-}
-
-function isLikelyExpenseCorrection(rawMessage: string): boolean {
-  return /^(?:no\b|correg|fueron\b|pon(?:elo|lo)\b|cambi)/i.test(rawMessage.trim());
 }
 
 async function handleExpenseSavingRetry(
@@ -1163,6 +1147,14 @@ async function handleExpenseCorrection(
     channel,
   });
 
+  if (outcome.status === 'new_expense') {
+    const queueOutcome = await opts.queuePendingExpense.execute({ userId, rawMessage, channel });
+    if (queueOutcome.status === 'full') {
+      await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
+    }
+    return;
+  }
+
   await renderExpenseReviewReplyOutcome(outcome, userId, messaging, externalId, opts);
 }
 
@@ -1175,6 +1167,12 @@ async function renderExpenseReviewReplyOutcome(
 ): Promise<void> {
   switch (outcome.status) {
     case 'action_handled':
+    case 'expense_queued':
+      return;
+    case 'queue_full':
+      await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
+      return;
+    case 'new_expense':
       return;
     case 'not_interpretable':
       await messaging.sendMessage(

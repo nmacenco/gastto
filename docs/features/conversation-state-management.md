@@ -108,4 +108,5 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 - [`undo-last-expense.md`](./undo-last-expense.md) defines one-message immediate undo eligibility and the confirmation-safe `EXPENSE_UNDO_CONFIRMING` state.
 - Redis is used only for identity caching (ADR-008) and BullMQ broker (ADR-005). The conversation state itself is never stored in Redis.
 - When an `EXPENSE_REVIEW` has pending rows in `expense_queue`, the first expiry keeps the review active for one further timeout and includes the pending count in its reminder. The second expiry removes only the active draft, then advances the oldest queued expense through the normal interpretation and review flow.
+- All queue-aware user feedback is emitted in Spanish, including capacity rejection, pending-count notices, unrelated-reply reminders, expiration advances, and final batch summaries. Count-aware copies use singular and plural forms as appropriate.
 - The timeout prompt copy (`"Tu sesion expiro. Queres continuar o empezar de nuevo?"`) is owned by the Application layer (`HandleExpiredSessions`), not by the Telegram adapter.

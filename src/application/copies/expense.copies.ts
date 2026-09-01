@@ -34,15 +34,15 @@ export const expenseCopies = {
   cancelled: () => 'Registro cancelado. No se guardó nada.',
   noActiveExpenseToCancel: () => 'No hay ningún registro pendiente para cancelar.',
   expenseQueueFull: () =>
-    'You already have 3 expenses in progress. Confirm or cancel the current one before adding more.',
+    'Ya tenés 3 gastos en curso. Confirmá o cancelá el actual antes de agregar otro.',
   expenseQueueNotice: (pendingCount: 1 | 2) =>
-    `You have ${pendingCount} pending expense${pendingCount === 1 ? '' : 's'}. Let's do the next one:`,
+    `Tenés ${pendingCount} gasto${pendingCount === 1 ? '' : 's'} pendiente${pendingCount === 1 ? '' : 's'}. Vamos con el siguiente:`,
   expenseQueueNonFinancialReminder: (pendingCount: number) =>
-    `You still have one expense awaiting confirmation and ${pendingCount} more in the queue. Shall we confirm, correct, or cancel the current one?`,
+    `Todavía tenés un gasto pendiente de confirmación y ${pendingCount} más en la cola. ¿Querés confirmar, corregir o cancelar el actual?`,
   expenseQueueExpirationAdvance: () =>
-    "The previous registration expired without confirmation and was cancelled. Let's do the next pending expense:",
+    'El registro anterior venció sin confirmación y fue cancelado. Vamos con el siguiente gasto pendiente:',
   expenseQueueClosingSummary: (registeredCount: number) =>
-    `All set! I registered the ${registeredCount} expenses. You have no more pending expenses.`,
+    `¡Listo! Registré ${registeredCount} gasto${registeredCount === 1 ? '' : 's'}. Ya no tenés gastos pendientes.`,
   ambiguousResponse: () => '¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?',
   fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
   expenseRegistrationUnavailable: () =>

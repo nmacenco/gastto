@@ -22,14 +22,34 @@ const ExtractedExpenseSchema = z.object({
   confianza_categoria: z.enum(['alta', 'baja', 'nula']),
 });
 
-const ExpenseCorrectionSuggestionSchema = z.object({
-  interpretable: z.boolean(),
-  changed_fields: z.array(z.enum(['monto', 'moneda', 'categoria', 'fecha'])),
-  monto: z.number().nullable(),
-  moneda: z.enum(['ARS', 'EUR', 'USD', 'MXN', 'GBP', 'BRL']).nullable(),
-  categoria_raw: z.string().nullable(),
-  fecha_raw: z.string().nullable(),
-});
+const ExpenseCorrectionSuggestionSchema = z
+  .object({
+    intent: z.enum(['correction', 'new_expense', 'unrelated']),
+    changed_fields: z.array(z.enum(['monto', 'moneda', 'categoria', 'fecha'])),
+    monto: z.number().nullable(),
+    moneda: z.enum(['ARS', 'EUR', 'USD', 'MXN', 'GBP', 'BRL']).nullable(),
+    categoria_raw: z.string().nullable(),
+    fecha_raw: z.string().nullable(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const hasCorrectionData =
+      value.changed_fields.length > 0 ||
+      value.monto !== null ||
+      value.moneda !== null ||
+      value.categoria_raw !== null ||
+      value.fecha_raw !== null;
+    if (value.intent === 'correction' && value.changed_fields.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['changed_fields'],
+        message: 'Correction requires fields',
+      });
+    }
+    if (value.intent !== 'correction' && hasCorrectionData) {
+      ctx.addIssue({ code: 'custom', message: 'Non-correction intent cannot contain changes' });
+    }
+  });
 
 function buildExtractionSystemPrompt(): string {
   return `Eres el motor de extracción de datos de Gastto. Tu ÚNICA tarea es:
@@ -53,24 +73,28 @@ function buildCorrectionSystemPrompt(): string {
   return `Eres el motor de corrección de Gastto. El usuario acaba de ver un resumen de gasto y responde en lenguaje natural para corregir uno o varios campos.
 
 Tu tarea:
-1. Identificar qué campos del resumen corrige el mensaje del usuario.
-2. Extraer los nuevos valores solo para esos campos.
+1. Clasificar la respuesta como correction, new_expense o unrelated usando el resumen actual como contexto.
+2. Si es correction, identificar qué campos corrige y extraer solo sus nuevos valores.
 3. Devolver exclusivamente un JSON con el esquema definido. Sin markdown, sin texto adicional.
-4. Si el mensaje no corrige ningún campo (por ejemplo "uh-huh", "confirmo", "cancelar"), devolver interpretable: false y todos los valores null.
-5. Nunca inventar datos. Si un campo no se corrige, devolver null.
-6. ${UNTRUSTED_DATA_GUARD}
+4. Usar new_expense solo cuando el usuario describe claramente otro gasto independiente.
+5. Usar unrelated cuando no sea una corrección ni un gasto nuevo. Para new_expense y unrelated, changed_fields debe estar vacío y todos los valores deben ser null.
+6. Nunca inventar datos. Si un campo no se corrige, devolver null.
+7. ${UNTRUSTED_DATA_GUARD}
 
 Campos corregibles: monto, moneda, categoria, fecha.
 
 Ejemplos válidos:
 - "no, fueron 15" → changed_fields: ["monto"], monto: 15
+- "eran 35 EUR y la categoria es transporte" → intent: "correction", changed_fields: ["monto", "moneda", "categoria"], monto: 35, moneda: "EUR", categoria_raw: "transporte"
 - "ponlo en transporte" → changed_fields: ["categoria"], categoria_raw: "transporte"
 - "fue ayer" → changed_fields: ["fecha"], fecha_raw: "ayer"
 - "no, fueron 15 y es transporte" → changed_fields: ["monto", "categoria"], monto: 15, categoria_raw: "transporte"
+- "Taxi 12 EUR" → intent: "new_expense", changed_fields: [], todos los valores null
+- "uh-huh" → intent: "unrelated", changed_fields: [], todos los valores null
 
 Esquema de salida (JSON puro, sin backticks ni comentarios):
 {
-  "interpretable": boolean,
+  "intent": "correction" | "new_expense" | "unrelated",
   "changed_fields": ["monto" | "moneda" | "categoria" | "fecha"],
   "monto": number | null,
   "moneda": "ARS" | "EUR" | "USD" | "MXN" | "GBP" | "BRL" | null,
@@ -151,7 +175,7 @@ export class ClaudeAdapter implements LLMPort {
     const validated = ExpenseCorrectionSuggestionSchema.parse(parsed);
 
     return {
-      interpretable: validated.interpretable,
+      intent: validated.intent,
       changedFields: validated.changed_fields,
       monto: validated.monto,
       moneda: validated.moneda,

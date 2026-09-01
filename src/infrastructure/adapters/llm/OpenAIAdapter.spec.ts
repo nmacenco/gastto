@@ -115,7 +115,7 @@ describe('OpenAIAdapter', () => {
       createMock.mockResolvedValue(
         buildOpenAIResponse(
           JSON.stringify({
-            interpretable: true,
+            intent: 'correction',
             changed_fields: ['monto'],
             monto: 15,
             moneda: null,
@@ -133,7 +133,7 @@ describe('OpenAIAdapter', () => {
       );
 
       expect(result).toEqual({
-        interpretable: true,
+        intent: 'correction',
         changedFields: ['monto'],
         monto: 15,
         moneda: null,
@@ -157,10 +157,10 @@ describe('OpenAIAdapter', () => {
       createMock.mockResolvedValue(
         buildOpenAIResponse(
           JSON.stringify({
-            interpretable: true,
-            changed_fields: ['monto', 'categoria'],
-            monto: 15,
-            moneda: null,
+            intent: 'correction',
+            changed_fields: ['monto', 'moneda', 'categoria'],
+            monto: 35,
+            moneda: 'EUR',
             categoria_raw: 'transporte',
             fecha_raw: null,
           }),
@@ -169,21 +169,56 @@ describe('OpenAIAdapter', () => {
 
       const adapter = new OpenAIAdapter(API_KEY);
       const result = await adapter.interpretCorrection(
-        'no, fueron 15 y es transporte',
+        'eran 35 EUR y la categoria es transporte',
         currentExtracted,
         userContext,
       );
 
-      expect(result.changedFields).toEqual(['monto', 'categoria']);
-      expect(result.monto).toBe(15);
+      expect(result.intent).toBe('correction');
+      expect(result.changedFields).toEqual(['monto', 'moneda', 'categoria']);
+      expect(result.monto).toBe(35);
+      expect(result.moneda).toBe('EUR');
       expect(result.categoriaRaw).toBe('transporte');
+      const [init] = createMock.mock.calls[0] as [Record<string, unknown>];
+      const messages = init.messages as Array<{ role: string; content: string }>;
+      expect(messages[0]?.content).toContain('eran 35 EUR y la categoria es transporte');
+    });
+
+    it('maps a genuine additional expense without correction data', async () => {
+      createMock.mockResolvedValue(
+        buildOpenAIResponse(
+          JSON.stringify({
+            intent: 'new_expense',
+            changed_fields: [],
+            monto: null,
+            moneda: null,
+            categoria_raw: null,
+            fecha_raw: null,
+          }),
+        ),
+      );
+
+      const result = await new OpenAIAdapter(API_KEY).interpretCorrection(
+        'Taxi 12 EUR',
+        currentExtracted,
+        userContext,
+      );
+
+      expect(result).toEqual({
+        intent: 'new_expense',
+        changedFields: [],
+        monto: null,
+        moneda: null,
+        categoriaRaw: null,
+        fechaRaw: null,
+      });
     });
 
     it('returns not interpretable for unrelated messages', async () => {
       createMock.mockResolvedValue(
         buildOpenAIResponse(
           JSON.stringify({
-            interpretable: false,
+            intent: 'unrelated',
             changed_fields: [],
             monto: null,
             moneda: null,
@@ -196,8 +231,31 @@ describe('OpenAIAdapter', () => {
       const adapter = new OpenAIAdapter(API_KEY);
       const result = await adapter.interpretCorrection('uh-huh', currentExtracted, userContext);
 
-      expect(result.interpretable).toBe(false);
+      expect(result.intent).toBe('unrelated');
       expect(result.changedFields).toEqual([]);
+    });
+
+    it('rejects correction data for a non-correction intent', async () => {
+      createMock.mockResolvedValue(
+        buildOpenAIResponse(
+          JSON.stringify({
+            intent: 'new_expense',
+            changed_fields: ['monto'],
+            monto: 12,
+            moneda: null,
+            categoria_raw: null,
+            fecha_raw: null,
+          }),
+        ),
+      );
+
+      await expect(
+        new OpenAIAdapter(API_KEY).interpretCorrection(
+          'Taxi 12 EUR',
+          currentExtracted,
+          userContext,
+        ),
+      ).rejects.toThrow();
     });
   });
 

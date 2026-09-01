@@ -14,6 +14,7 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - After a confirmed spreadsheet write, the successful confirmation includes the expense concept, amount, currency, destination sheet, and row number when the provider returns one. If the provider confirms the write but omits the row, the message names the destination sheet without a row reference.
 - Cancellation delegates to the same existing action resolver and keeps its established transition to `IDLE`.
 - A mixed reply, such as `comida sí, pero el monto no`, is not a confirmation. It is delegated to `CorrectExpenseUseCase` through the E1-US-07 correction flow before any save occurs.
+- Non-confirm and non-cancel replies are interpreted contextually as `correction`, `new_expense`, or `unrelated`. Only `new_expense` is admitted to the FIFO queue; amount-bearing corrections such as `eran 35 EUR y la categoria es transporte` remain attached to the active review.
 - An uninterpretable reply keeps the `EXPENSE_REVIEW` payload and FSM state unchanged and sends exactly: `¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?`.
 - Callback **Confirmar**, **Corregir**, and **Cancelar** actions remain on their existing action-resolver path.
 - A Google Sheets append is successful only after the provider confirms it. Only then does the system persist the expense record and send the E1-US-10 save confirmation.
@@ -26,10 +27,11 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - Terminal authorization failures transition to contextual `ONBOARDING_START` with `promptShown: true` and direct the user to `empezar`. This occurs only when refresh credentials are missing, revoked, undecryptable, rejected by Google, or the one refreshed replay is still unauthorized. That next reply starts a fresh Google authorization flow without generic expense guidance or automatic replay of the failed expense. Structure failures direct the user to `reconfigurar`, which restarts access validation and column inference for the active Google spreadsheet.
 - Retry state that is expired or malformed is cleared and receives the restart/manual-resolution response. The commands `reintentar` and `reconfigurar` are only active in `EXPENSE_SAVING_RETRY`.
 - When pending expenses exist, a successful save is delivered first, then the queue notice, then the next review. The final queued confirmation sends the batch closing copy only after the save returns the FSM to `IDLE`.
+- Pending-expense queue feedback remains in Spanish throughout the flow. A queue-aware unrelated reply sends `Todavía tenés un gasto pendiente de confirmación y {pendingCount} más en la cola. ¿Querés confirmar, corregir o cancelar el actual?` without changing the review or queue.
 
 ## API / Interface
 
-No HTTP route or external messaging contract is added. `ResolveExpenseReviewReplyUseCase.execute(input)` is the Application-layer contract for text replies in `EXPENSE_REVIEW`. `expenseCopies.expenseSavedConfirmation(input)` is the public Application copy contract for successful saves; it receives the concept, amount, currency, sheet name, and optional row index.
+No HTTP route or external messaging contract is added. `ResolveExpenseReviewReplyUseCase.execute(input)` is the Application-layer contract for text replies in `EXPENSE_REVIEW`; its queue-related outcomes are `expense_queued` and `queue_full`, and it delegates queue persistence only after a typed `new_expense` interpretation. `expenseCopies.expenseSavedConfirmation(input)` is the public Application copy contract for successful saves; it receives the concept, amount, currency, sheet name, and optional row index.
 
 ## Data Model
 
@@ -39,10 +41,13 @@ The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conve
 
 - `intents.spec.ts` covers the complete standard and regional vocabulary, normalization, mixed replies, and partial-word rejection.
 - `ResolveExpenseReviewReplyUseCase.spec.ts` covers confirmation, cancellation, correction routing, and uninterpretable replies.
+- `ResolveExpenseReviewReplyUseCase.spec.ts` and `message.worker.spec.ts` also prove contextual correction precedence, typed additional-expense admission, queue overflow without review mutation, and the reported `eran 35 EUR...` regression.
 - `message.worker.spec.ts` covers delegation, orientation copy, callback regression, zero-amount confirmation, correction cycle limits, and high-amount review behavior.
 - `ResolveExpenseSummaryActionUseCase.spec.ts` covers the success confirmation with complete and omitted row metadata.
 - `RouteIncomingMessage.spec.ts` and `message.worker.spec.ts` cover the contextual `AUTH_ERROR → empezar → OAuth` recovery route while retaining ordinary `IDLE` guidance behavior.
 - `expense.copies.spec.ts` covers the location-aware successful-save copy.
+- `expense.copies.spec.ts` covers Spanish queue copies, singular and plural grammar, and rejects the former English wording. `message.worker.spec.ts` reproduces the reported correction and `y?` sequence without queue admission, hanging, or language switching.
+- `ResolveExpenseSummaryActionUseCase.spec.ts` proves explicit confirmation saves the corrected `35 EUR` payload exactly once and never emits the original `30 EUR` amount as saved.
 - `expense-save-failure-recovery.integration.spec.ts` wires the real save orchestration with boundary mocks and proves an unconfirmed append emits recovery copy without persisting an expense or emitting E1-US-10 confirmation.
 - `GoogleSheetsAdapter.spec.ts` verifies formula-prefix escaping and the final serialized append request body.
 - `OAuthAccessTokenService.spec.ts` covers fresh-token reuse, proactive and forced refresh, encrypted persistence with a new IV, terminal revocation, transient refresh failures, and a single replay after provider authorization failure.
@@ -59,4 +64,4 @@ The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conve
 
 ## Notes
 
-`message.worker.ts` is an Interfaces-layer adapter: it validates the review payload, delegates a text reply once, and renders the typed outcome. `ResolveExpenseReviewReplyUseCase` owns the confirmation, cancellation, and correction precedence rules without depending on Telegram, WhatsApp, workers, or infrastructure adapters. The persisted FSM follows ADR-003; the asynchronous worker pipeline follows ADR-005 and ADR-011.
+`message.worker.ts` is an Interfaces-layer adapter: it validates the review payload, delegates a text reply once, and renders the typed outcome. It does not guess correction intent with a regular expression. `ResolveExpenseReviewReplyUseCase` owns confirmation, cancellation, contextual correction, and new-expense queue precedence without depending on Telegram, WhatsApp, workers, or infrastructure adapters. The persisted FSM follows ADR-003; the asynchronous worker pipeline follows ADR-005 and ADR-011.

@@ -23,9 +23,10 @@ export interface ConversationContext {
 }
 
 export type CorrectionField = 'monto' | 'moneda' | 'categoria' | 'fecha';
+export type ExpenseFollowUpIntent = 'correction' | 'new_expense' | 'unrelated';
 
 export interface ExpenseCorrectionSuggestion {
-  interpretable: boolean;
+  intent: ExpenseFollowUpIntent;
   changedFields: CorrectionField[];
   monto: number | null;
   moneda: Currency | null;

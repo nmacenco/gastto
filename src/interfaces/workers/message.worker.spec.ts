@@ -765,7 +765,10 @@ describe('processMessageJob', () => {
 
     it('delegates an additional expense to queue admission without mutating the active review', async () => {
       const deps = buildMockDeps();
-      mockClassifyFreeTextExpenseIntentExecute.mockReturnValue({ kind: 'expense-like' });
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({
+        status: 'expense_queued',
+        pendingCount: 1,
+      });
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_REVIEW',
@@ -775,19 +778,19 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 12 EUR' }), deps);
 
-      expect(mockQueuePendingExpenseExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        rawMessage: 'Taxi 12 EUR',
-        channel: 'telegram',
-      });
-      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ rawMessage: 'Taxi 12 EUR' }),
+      );
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
     });
 
     it('reports a full queue without changing the active review', async () => {
       const deps = buildMockDeps();
-      mockClassifyFreeTextExpenseIntentExecute.mockReturnValue({ kind: 'expense-like' });
-      mockQueuePendingExpenseExecute.mockResolvedValue({ status: 'full', pendingCount: 2 });
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({
+        status: 'queue_full',
+        pendingCount: 2,
+      });
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_REVIEW',
@@ -798,7 +801,7 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 12 EUR' }), deps);
 
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.expenseQueueFull());
-      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
     });
 
@@ -875,7 +878,7 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
     });
 
-    it('applies a direct natural-language correction and presents one updated summary', async () => {
+    it('applies the reported multi-field correction without queueing it', async () => {
       const deps = buildMockDeps();
       const payload = buildReviewStatePayload();
       mockGetConversationStateExecute.mockResolvedValue(
@@ -888,22 +891,129 @@ describe('processMessageJob', () => {
         status: 'corrected',
         payload: {
           ...payload,
-          extracted: { ...(payload.extracted as Record<string, unknown>), monto: 15 },
+          extracted: {
+            ...(payload.extracted as Record<string, unknown>),
+            monto: 35,
+            moneda: 'EUR',
+            categoriaRaw: 'transporte',
+          },
+          resolvedCategory: 'Transporte',
         },
       });
 
-      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'no, fueron 15' }), deps);
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          rawMessage: 'eran 35 EUR y la categoria es transporte',
+        }),
+        deps,
+      );
 
       expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: 'user-123',
-          rawMessage: 'no, fueron 15',
+          rawMessage: 'eran 35 EUR y la categoria es transporte',
           channel: 'telegram',
         }),
       );
       expect(mockCorrectExpenseExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Monto: 15 ARS');
+      expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Monto: 35 EUR');
+      expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Categoría: Transporte');
+    });
+
+    it('completes the reported correction and follow-up sequence without hanging or switching language', async () => {
+      const deps = buildMockDeps();
+      const originalPayload = buildReviewStatePayload({
+        rawMessage: 'Pague 30 euros por taxi',
+        extracted: {
+          monto: 30,
+          moneda: 'EUR',
+          categoriaRaw: 'transporte',
+          fechaRaw: null,
+          medioPago: null,
+          confianzaCategoria: 'alta',
+        },
+        resolvedCategory: 'Transporte',
+      });
+      const correctedPayload = buildReviewStatePayload({
+        ...originalPayload,
+        extracted: {
+          ...(originalPayload.extracted as Record<string, unknown>),
+          monto: 35,
+          moneda: 'EUR',
+          categoriaRaw: 'transporte',
+        },
+        resolvedCategory: 'Transporte',
+      });
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(
+          buildConversationState({
+            currentState: 'EXPENSE_REVIEW',
+            statePayload: originalPayload,
+          }),
+        )
+        .mockResolvedValueOnce(
+          buildConversationState({
+            currentState: 'EXPENSE_REVIEW',
+            statePayload: correctedPayload,
+          }),
+        );
+      mockResolveExpenseReviewReplyExecute
+        .mockResolvedValueOnce({ status: 'corrected', payload: correctedPayload })
+        .mockResolvedValueOnce({ status: 'not_interpretable', pendingCount: 0 });
+
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          externalMessageId: 'msg-correction',
+          rawMessage: 'eran 35 EUR y la categoria es transporte',
+        }),
+        deps,
+      );
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          externalMessageId: 'msg-follow-up',
+          rawMessage: 'y?',
+        }),
+        deps,
+      );
+
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledTimes(2);
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledTimes(2);
+      expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Monto: 35 EUR');
+      expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Categoría: Transporte');
+      expect(mockSendMessage.mock.calls[1]?.[1]).toBe(expenseCopies.ambiguousResponse());
+      expect(mockSendMessage.mock.calls.flat().join('\n')).not.toMatch(
+        /You still have|Shall we confirm|more in the queue/,
+      );
+    });
+
+    it('renders the queue-aware reminder in Spanish when a real pending expense exists', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: buildReviewStatePayload(),
+        }),
+      );
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({
+        status: 'not_interpretable',
+        pendingCount: 1,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'y?' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        'Todavía tenés un gasto pendiente de confirmación y 1 más en la cola. ¿Querés confirmar, corregir o cancelar el actual?',
+      );
     });
 
     it('keeps the review state and sends the ambiguity prompt when direct correction is not interpretable', async () => {
@@ -1077,6 +1187,33 @@ describe('processMessageJob', () => {
       };
       expect(correctingInput.state.correctionCycles).toBe(2);
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('queues a typed new expense without mutating the active correction', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCorrectionState',
+            payload,
+            correctionCycles: 2,
+            pendingHighAmountConfirmation: false,
+          },
+        }),
+      );
+      mockCorrectExpenseExecute.mockResolvedValue({ status: 'new_expense' });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 12 EUR' }), deps);
+
+      expect(mockQueuePendingExpenseExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Taxi 12 EUR',
+        channel: 'telegram',
+      });
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
     });
 
     it('sends the cycle-limit copy and does not present another summary', async () => {

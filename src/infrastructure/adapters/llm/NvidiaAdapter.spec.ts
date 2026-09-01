@@ -216,7 +216,7 @@ describe('NvidiaAdapter', () => {
           Promise.resolve(
             buildNvidiaResponse(
               JSON.stringify({
-                interpretable: true,
+                intent: 'correction',
                 changed_fields: ['monto'],
                 monto: 15,
                 moneda: null,
@@ -235,7 +235,7 @@ describe('NvidiaAdapter', () => {
       );
 
       expect(result).toEqual({
-        interpretable: true,
+        intent: 'correction',
         changedFields: ['monto'],
         monto: 15,
         moneda: null,
@@ -261,10 +261,10 @@ describe('NvidiaAdapter', () => {
           Promise.resolve(
             buildNvidiaResponse(
               JSON.stringify({
-                interpretable: true,
-                changed_fields: ['monto', 'categoria'],
-                monto: 15,
-                moneda: null,
+                intent: 'correction',
+                changed_fields: ['monto', 'moneda', 'categoria'],
+                monto: 35,
+                moneda: 'EUR',
                 categoria_raw: 'transporte',
                 fecha_raw: null,
               }),
@@ -274,14 +274,48 @@ describe('NvidiaAdapter', () => {
 
       const adapter = new NvidiaAdapter(API_KEY);
       const result = await adapter.interpretCorrection(
-        'no, fueron 15 y es transporte',
+        'eran 35 EUR y la categoria es transporte',
         currentExtracted,
         userContext,
       );
 
-      expect(result.changedFields).toEqual(['monto', 'categoria']);
-      expect(result.monto).toBe(15);
+      expect(result.intent).toBe('correction');
+      expect(result.changedFields).toEqual(['monto', 'moneda', 'categoria']);
+      expect(result.monto).toBe(35);
+      expect(result.moneda).toBe('EUR');
       expect(result.categoriaRaw).toBe('transporte');
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as NvidiaRequestBody;
+      expect(body.messages[0]?.content).toContain('eran 35 EUR y la categoria es transporte');
+    });
+
+    it('maps a genuine additional expense without correction data', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            buildNvidiaResponse(
+              JSON.stringify({
+                intent: 'new_expense',
+                changed_fields: [],
+                monto: null,
+                moneda: null,
+                categoria_raw: null,
+                fecha_raw: null,
+              }),
+            ),
+          ),
+      });
+
+      const result = await new NvidiaAdapter(API_KEY).interpretCorrection(
+        'Taxi 12 EUR',
+        currentExtracted,
+        userContext,
+      );
+
+      expect(result.intent).toBe('new_expense');
+      expect(result.changedFields).toEqual([]);
     });
 
     it('returns not interpretable for unrelated messages', async () => {
@@ -292,7 +326,7 @@ describe('NvidiaAdapter', () => {
           Promise.resolve(
             buildNvidiaResponse(
               JSON.stringify({
-                interpretable: false,
+                intent: 'unrelated',
                 changed_fields: [],
                 monto: null,
                 moneda: null,
@@ -306,8 +340,36 @@ describe('NvidiaAdapter', () => {
       const adapter = new NvidiaAdapter(API_KEY);
       const result = await adapter.interpretCorrection('uh-huh', currentExtracted, userContext);
 
-      expect(result.interpretable).toBe(false);
+      expect(result.intent).toBe('unrelated');
       expect(result.changedFields).toEqual([]);
+    });
+
+    it('rejects correction data for a non-correction intent', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            buildNvidiaResponse(
+              JSON.stringify({
+                intent: 'new_expense',
+                changed_fields: ['monto'],
+                monto: 12,
+                moneda: null,
+                categoria_raw: null,
+                fecha_raw: null,
+              }),
+            ),
+          ),
+      });
+
+      await expect(
+        new NvidiaAdapter(API_KEY).interpretCorrection(
+          'Taxi 12 EUR',
+          currentExtracted,
+          userContext,
+        ),
+      ).rejects.toThrow();
     });
 
     it('throws when the response JSON does not match the correction schema', async () => {
@@ -318,7 +380,7 @@ describe('NvidiaAdapter', () => {
           Promise.resolve(
             buildNvidiaResponse(
               JSON.stringify({
-                interpretable: true,
+                intent: 'correction',
                 changed_fields: ['monto'],
                 monto: 'not a number',
                 moneda: null,
