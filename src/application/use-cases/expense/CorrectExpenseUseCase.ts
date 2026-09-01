@@ -28,6 +28,7 @@ export interface CorrectExpenseInput {
 
 export type CorrectExpenseOutcome =
   | { status: 'not_interpretable' }
+  | { status: 'new_expense' }
   | { status: 'cycle_limit'; payload: ExpenseReviewPayload }
   | { status: 'high_amount_confirmation'; payload: ExpenseReviewPayload }
   | { status: 'corrected'; payload: ExpenseReviewPayload };
@@ -68,7 +69,11 @@ export class CorrectExpenseUseCase {
       await this.buildUserContext(input),
     );
 
-    if (!suggestion.interpretable || suggestion.changedFields.length === 0) {
+    if (suggestion.intent === 'new_expense') {
+      return { status: 'new_expense' };
+    }
+
+    if (suggestion.intent === 'unrelated' || suggestion.changedFields.length === 0) {
       return { status: 'not_interpretable' };
     }
 

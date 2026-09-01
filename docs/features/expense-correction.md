@@ -7,6 +7,8 @@ Allow a user reviewing an expense summary to correct the amount, currency, categ
 ## Behavior (Implemented)
 
 - From `EXPENSE_REVIEW`, a non-confirm and non-cancel text message is interpreted as a correction attempt using the current summary as context.
+- The contextual interpretation returns exactly one typed intent: `correction`, `new_expense`, or `unrelated`. A correction is applied to the active review, a genuine new expense is admitted to the FIFO queue, and an unrelated reply leaves both the active payload and queue unchanged.
+- Queue admission no longer depends on a lexical correction regular expression. Natural variants such as `eran 35 EUR y la categoria es transporte` reach the correction flow even though they also contain an amount and currency.
 - From the inline **Corregir** action, `ResolveExpenseSummaryActionUseCase` creates a typed `ExpenseCorrectionState`, transitions to `EXPENSE_CORRECTING`, and sends examples of natural-language corrections.
 - The next message in `EXPENSE_CORRECTING` is interpreted against the stored review payload.
 - The correctable fields are:
@@ -32,8 +34,9 @@ No HTTP endpoints are added. The feature is driven by the `process-message` Bull
 ### Application and domain contracts
 
 - `ExpenseCorrectionState`: immutable, validated, JSONB-serializable state with the review payload and correction-cycle counter.
-- `LLMPort.interpretCorrection(rawMessage, currentExtracted, userContext)`: provider-neutral correction interpretation contract.
-- `CorrectExpenseUseCase.execute(input)`: interprets and applies corrections, resolves categories and dates, enforces high-amount and cycle rules, and transitions the FSM.
+- `LLMPort.interpretCorrection(rawMessage, currentExtracted, userContext)`: provider-neutral follow-up interpretation contract returning `intent: 'correction' | 'new_expense' | 'unrelated'` plus corrected values only for the `correction` branch.
+- `CorrectExpenseUseCase.execute(input)`: interprets and applies corrections, returns a typed `new_expense` outcome without mutating the review, resolves categories and dates, enforces high-amount and cycle rules, and transitions the FSM.
+- `ResolveExpenseReviewReplyUseCase.execute(input)`: preserves confirm/cancel precedence and delegates only a typed `new_expense` outcome to `QueuePendingExpense`.
 - `MessageWorkerDeps.correctExpense`: injected use case used by the worker for both correction entry points.
 
 ### Architectural boundary
@@ -69,6 +72,7 @@ Additional Definition of Done coverage:
 - Five-cycle limit: `CorrectExpenseUseCase.spec.ts` - `returns cycle_limit when the correction exceeds the maximum cycles`; worker coverage - `sends the cycle-limit copy and does not present another summary`.
 - State serialization and validation: `src/domain/value-objects/expense-correction-state.spec.ts`.
 - Provider schema and contextual prompts: `src/infrastructure/adapters/llm/OpenAIAdapter.spec.ts`, `ClaudeAdapter.spec.ts`, and `NvidiaAdapter.spec.ts`.
+- Correction-versus-queue regression: provider, application, and worker tests cover `eran 35 EUR y la categoria es transporte`, `Taxi 12 EUR`, unrelated input, and rejection of correction fields on non-correction intents.
 - Inline action and dependency wiring: `src/application/use-cases/expense/ResolveExpenseSummaryActionUseCase.spec.ts`, `src/bootstrap/buildDependencies.spec.ts`, and `src/bootstrap/registerWorkers.spec.ts`.
 - Full worker flow and corrupted-state recovery: `src/interfaces/workers/message.worker.spec.ts`.
 

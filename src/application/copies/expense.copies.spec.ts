@@ -62,6 +62,47 @@ describe('expenseCopies', () => {
     );
   });
 
+  describe('pending expense queue copies', () => {
+    it('returns the queue-full instruction in Spanish', () => {
+      const copy = expenseCopies.expenseQueueFull();
+
+      expect(copy).toBe(
+        'Ya tenés 3 gastos en curso. Confirmá o cancelá el actual antes de agregar otro.',
+      );
+      expect(copy).not.toContain('You already have');
+    });
+
+    it('uses singular and plural grammar in pending-count notices', () => {
+      expect(expenseCopies.expenseQueueNotice(1)).toBe(
+        'Tenés 1 gasto pendiente. Vamos con el siguiente:',
+      );
+      expect(expenseCopies.expenseQueueNotice(2)).toBe(
+        'Tenés 2 gastos pendientes. Vamos con el siguiente:',
+      );
+    });
+
+    it('returns the exact queue-aware review reminder in Spanish', () => {
+      const copy = expenseCopies.expenseQueueNonFinancialReminder(1);
+
+      expect(copy).toBe(
+        'Todavía tenés un gasto pendiente de confirmación y 1 más en la cola. ¿Querés confirmar, corregir o cancelar el actual?',
+      );
+      expect(copy).not.toContain('Shall we');
+    });
+
+    it('returns expiration and closing messages in Spanish', () => {
+      expect(expenseCopies.expenseQueueExpirationAdvance()).toBe(
+        'El registro anterior venció sin confirmación y fue cancelado. Vamos con el siguiente gasto pendiente:',
+      );
+      expect(expenseCopies.expenseQueueClosingSummary(1)).toBe(
+        '¡Listo! Registré 1 gasto. Ya no tenés gastos pendientes.',
+      );
+      expect(expenseCopies.expenseQueueClosingSummary(3)).toBe(
+        '¡Listo! Registré 3 gastos. Ya no tenés gastos pendientes.',
+      );
+    });
+  });
+
   describe('clarificationInterrupted', () => {
     it('returns a cancellation notice for the interrupted registration', () => {
       const result = expenseCopies.clarificationInterrupted();

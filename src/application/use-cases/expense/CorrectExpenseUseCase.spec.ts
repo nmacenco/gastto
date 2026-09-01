@@ -71,7 +71,7 @@ function buildDeps(
   const interpretCorrectionMock: ReturnType<typeof vi.fn<LLMPort['interpretCorrection']>> =
     overrides.interpretCorrection ??
     vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
-      interpretable: true,
+      intent: 'correction',
       changedFields: ['monto'],
       monto: 15,
       moneda: null,
@@ -209,7 +209,7 @@ describe('CorrectExpenseUseCase', () => {
   it('updates currency while preserving the original expense context', async () => {
     const { useCase, interpretCorrectionMock } = buildDeps({
       interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
-        interpretable: true,
+        intent: 'correction',
         changedFields: ['moneda'],
         monto: null,
         moneda: 'USD',
@@ -246,7 +246,7 @@ describe('CorrectExpenseUseCase', () => {
   it('updates category through the classifier', async () => {
     const { useCase, classifierMock, transitionMock } = buildDeps({
       interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
-        interpretable: true,
+        intent: 'correction',
         changedFields: ['categoria'],
         monto: null,
         moneda: null,
@@ -286,7 +286,7 @@ describe('CorrectExpenseUseCase', () => {
   it('updates date to previous day when the user says "ayer"', async () => {
     const { useCase, transitionMock } = buildDeps({
       interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
-        interpretable: true,
+        intent: 'correction',
         changedFields: ['fecha'],
         monto: null,
         moneda: null,
@@ -315,7 +315,7 @@ describe('CorrectExpenseUseCase', () => {
   it('updates multiple fields in a single execution', async () => {
     const { useCase, classifierMock, transitionMock } = buildDeps({
       interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
-        interpretable: true,
+        intent: 'correction',
         changedFields: ['monto', 'categoria'],
         monto: 15,
         moneda: null,
@@ -346,7 +346,7 @@ describe('CorrectExpenseUseCase', () => {
   it('returns not_interpretable for unrelated messages and does not transition', async () => {
     const { useCase, transitionMock, interpretCorrectionMock } = buildDeps({
       interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
-        interpretable: false,
+        intent: 'unrelated',
         changedFields: [],
         monto: null,
         moneda: null,
@@ -372,10 +372,35 @@ describe('CorrectExpenseUseCase', () => {
     );
   });
 
+  it('returns new_expense without changing the correction state', async () => {
+    const { useCase, transitionMock } = buildDeps({
+      interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+        intent: 'new_expense',
+        changedFields: [],
+        monto: null,
+        moneda: null,
+        categoriaRaw: null,
+        fechaRaw: null,
+      }),
+    });
+    const state = buildCorrectionState();
+
+    await expect(
+      useCase.execute({
+        userId: 'user-123',
+        rawMessage: 'Taxi 12 EUR',
+        state,
+        channel: 'telegram',
+      }),
+    ).resolves.toEqual({ status: 'new_expense' });
+
+    expect(transitionMock).not.toHaveBeenCalled();
+  });
+
   it('requests explicit confirmation for unusually high corrected amounts', async () => {
     const { useCase, transitionMock, findAverageAmountByUserIdMock } = buildDeps({
       interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
-        interpretable: true,
+        intent: 'correction',
         changedFields: ['monto'],
         monto: 1_000_000,
         moneda: null,

@@ -138,6 +138,42 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     );
   });
 
+  it('saves the corrected expense exactly once only after explicit confirmation', async () => {
+    const save = vi
+      .fn<RegisterExpenseUseCase['save']>()
+      .mockResolvedValue({ sheetName: 'T 6', rowIndex: 44 });
+    const { useCase, sendMessageMock } = buildUseCase({ save });
+    const correctedPayload = buildPayload({
+      rawMessage: 'Pague 30 euros por taxi',
+      extracted: {
+        monto: 35,
+        moneda: 'EUR',
+        categoriaRaw: 'transporte',
+        fechaRaw: null,
+        medioPago: null,
+        confianzaCategoria: 'alta',
+      },
+      resolvedCategory: 'Transporte',
+    });
+
+    expect(save).not.toHaveBeenCalled();
+
+    await useCase.execute({
+      userId: 'user-123',
+      action: 'confirm',
+      payload: correctedPayload,
+      chatId: '123456789',
+    });
+
+    expect(save).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledWith('user-123', correctedPayload, '');
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      '123456789',
+      expect.stringContaining('Monto: 35 EUR'),
+    );
+    expect(sendMessageMock.mock.calls.flat().join('\n')).not.toContain('Monto: 30 EUR');
+  });
+
   it('confirms the destination sheet without a row when the save result has no row', async () => {
     const save = vi.fn<RegisterExpenseUseCase['save']>().mockResolvedValue({ sheetName: 'Gastos' });
     const { useCase, sendMessageMock } = buildUseCase({ save });

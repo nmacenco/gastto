@@ -6,6 +6,8 @@ import { ExpenseCorrectionState } from '../../../domain/value-objects/expense-co
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import type { CorrectExpenseUseCase } from './CorrectExpenseUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from './ResolveExpenseSummaryActionUseCase';
+import type { QueuePendingExpense } from './QueuePendingExpense';
+import type { IExpenseQueueRepository } from '../../../domain/ports/repositories';
 import { ResolveExpenseReviewReplyUseCase } from './ResolveExpenseReviewReplyUseCase';
 
 function buildPayload(): ExpenseReviewPayload {
@@ -29,11 +31,19 @@ function buildPayload(): ExpenseReviewPayload {
 describe('ResolveExpenseReviewReplyUseCase', () => {
   const resolveActionExecute = vi.fn();
   const correctExpenseExecute = vi.fn();
+  const queuePendingExpenseExecute = vi.fn();
+  const countPendingExpenses = vi.fn();
   const useCase = new ResolveExpenseReviewReplyUseCase({
     resolveExpenseSummaryAction: {
       execute: resolveActionExecute,
     } as unknown as ResolveExpenseSummaryActionUseCase,
     correctExpense: { execute: correctExpenseExecute } as unknown as CorrectExpenseUseCase,
+    queuePendingExpense: {
+      execute: queuePendingExpenseExecute,
+    } as unknown as QueuePendingExpense,
+    expenseQueueRepository: {
+      countByUserId: countPendingExpenses,
+    } as unknown as IExpenseQueueRepository,
   });
 
   const input = () => ({
@@ -48,6 +58,8 @@ describe('ResolveExpenseReviewReplyUseCase', () => {
     vi.clearAllMocks();
     resolveActionExecute.mockResolvedValue(undefined);
     correctExpenseExecute.mockResolvedValue({ status: 'not_interpretable' });
+    queuePendingExpenseExecute.mockResolvedValue({ status: 'queued', pendingCount: 1 });
+    countPendingExpenses.mockResolvedValue(0);
   });
 
   it('delegates a standard confirmation once to the summary action resolver', async () => {
@@ -123,10 +135,44 @@ describe('ResolveExpenseReviewReplyUseCase', () => {
     const request = { ...input(), rawMessage: 'uh-huh' };
     const payloadBefore = structuredClone(request.payload);
 
-    await expect(useCase.execute(request)).resolves.toEqual({ status: 'not_interpretable' });
+    await expect(useCase.execute(request)).resolves.toEqual({
+      status: 'not_interpretable',
+      pendingCount: 0,
+    });
 
     expect(correctExpenseExecute).toHaveBeenCalledOnce();
     expect(request.payload).toEqual(payloadBefore);
+    expect(resolveActionExecute).not.toHaveBeenCalled();
+    expect(queuePendingExpenseExecute).not.toHaveBeenCalled();
+  });
+
+  it('queues only a reply interpreted as a genuine new expense', async () => {
+    const request = { ...input(), rawMessage: 'Taxi 12 EUR' };
+    correctExpenseExecute.mockResolvedValue({ status: 'new_expense' });
+
+    await expect(useCase.execute(request)).resolves.toEqual({
+      status: 'expense_queued',
+      pendingCount: 1,
+    });
+
+    expect(queuePendingExpenseExecute).toHaveBeenCalledWith({
+      userId: request.userId,
+      rawMessage: request.rawMessage,
+      channel: request.channel,
+    });
+    expect(resolveActionExecute).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed full outcome without mutating the active review', async () => {
+    const request = { ...input(), rawMessage: 'Taxi 12 EUR' };
+    correctExpenseExecute.mockResolvedValue({ status: 'new_expense' });
+    queuePendingExpenseExecute.mockResolvedValue({ status: 'full', pendingCount: 2 });
+
+    await expect(useCase.execute(request)).resolves.toEqual({
+      status: 'queue_full',
+      pendingCount: 2,
+    });
+
     expect(resolveActionExecute).not.toHaveBeenCalled();
   });
 });

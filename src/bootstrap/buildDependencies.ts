@@ -588,6 +588,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   const resolveExpenseReviewReply = new ResolveExpenseReviewReplyUseCase({
     resolveExpenseSummaryAction,
     correctExpense,
+    queuePendingExpense,
     expenseQueueRepository: expenseQueueRepo,
   });
 
