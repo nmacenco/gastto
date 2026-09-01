@@ -3,7 +3,12 @@
 // Keeps the Application layer agnostic of the spreadsheet provider.
 
 export interface ICategoryReaderPort {
-  readCategories(fileId: string, columnIndex: number, sheetName: string): Promise<string[]>;
+  readCategories(
+    fileId: string,
+    columnIndex: number,
+    sheetName: string,
+    dataStartRow?: number,
+  ): Promise<string[]>;
 }
 
 export interface ICategoryReaderPortFactory {

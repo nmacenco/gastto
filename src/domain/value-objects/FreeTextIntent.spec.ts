@@ -92,5 +92,11 @@ describe('FreeTextIntent', () => {
         kind: 'expense-like',
       });
     });
+
+    it('classifies an unaccented Spanish expense verb as expense-like', () => {
+      expect(FreeTextIntent.fromText('Compre cafe')).toEqual({
+        kind: 'expense-like',
+      });
+    });
   });
 });

@@ -15,8 +15,14 @@ import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spre
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
 import type { ConfirmColumnMapping } from '../../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import type { CorrectColumnMapping } from '../../application/use-cases/spreadsheet/CorrectColumnMapping';
-import type { DetectCategories } from '../../application/use-cases/spreadsheet/DetectCategories';
-import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/ConfirmCategories';
+import {
+  DetectCategories,
+  type DetectCategoriesDeps,
+} from '../../application/use-cases/spreadsheet/DetectCategories';
+import {
+  ConfirmCategories,
+  type ConfirmCategoriesDeps,
+} from '../../application/use-cases/spreadsheet/ConfirmCategories';
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
@@ -26,6 +32,8 @@ import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionInput } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
+import { SpreadsheetCategoryReader } from '../../infrastructure/adapters/sheets/SpreadsheetCategoryReader';
+import type { SpreadsheetPort } from '../../domain/ports/services';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
@@ -1805,6 +1813,98 @@ describe('processMessageJob', () => {
         expect(mockSendMessage).not.toHaveBeenCalled();
       });
 
+      it('prompts only data categories when a title precedes headers on row 2', async () => {
+        const deps = buildMockDeps();
+        const getUniqueValues = vi
+          .fn()
+          .mockImplementation(
+            (_fileId: string, _columnIndex: number, _sheetName: string, dataStartRow: number) => {
+              if (dataStartRow !== 3) {
+                return ['Categoría'];
+              }
+              return ['Comida', 'Transporte'];
+            },
+          );
+        const categoryReader = new SpreadsheetCategoryReader({
+          getUniqueValues,
+        } as unknown as SpreadsheetPort);
+        deps.detectCategories = new DetectCategories({
+          categoryReaderPortFactory: {
+            create: vi.fn().mockReturnValue(categoryReader),
+          },
+          oauthAccessTokenService: {
+            getValidAccessToken: vi.fn().mockResolvedValue({
+              accessToken: 'access-token',
+              expiresAt: new Date('2026-08-31T13:00:00Z'),
+              refreshed: false,
+            }),
+            forceRefreshAccessToken: vi.fn(),
+          },
+          spreadsheetConfigRepository: {
+            findByUserId: vi.fn().mockResolvedValue({
+              id: 'config-1',
+              provider: 'google',
+              fileId: 'file-123',
+              sheetName: 'Gastos',
+            }),
+          } as unknown as DetectCategoriesDeps['spreadsheetConfigRepository'],
+          columnMappingRepository: {
+            findBySpreadsheetId: vi
+              .fn()
+              .mockResolvedValue([{ GasttoField: 'categoria', columnIndex: 2 }]),
+          } as unknown as DetectCategoriesDeps['columnMappingRepository'],
+          messagingPort: { sendMessage: mockSendMessage },
+          transitionState: {
+            execute: mockTransitionStateExecute,
+          } as unknown as DetectCategoriesDeps['transitionState'],
+          categoryVocabularyRepository: {
+            save: vi.fn().mockResolvedValue(undefined),
+          } as unknown as DetectCategoriesDeps['categoryVocabularyRepository'],
+        });
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_MAPPING',
+            statePayload: {
+              ...mappingPayload,
+              preview: {
+                rows: [
+                  { index: 1, values: ['Resumen mensual'] },
+                  { index: 2, values: ['Fecha', 'Monto', 'Categoría'] },
+                  { index: 3, values: ['2026-08-31', '12', 'Comida'] },
+                ],
+              },
+              headerRowIndex: 2,
+            },
+          }),
+        );
+        mockConfirmColumnMappingExecute.mockResolvedValue({
+          nextState: 'ONBOARDING_CATEGORIES',
+          message: onboardingCopies.mappingConfirmedNextStep(),
+          payload: {
+            provider: 'google',
+            fileId: 'file-123',
+            sheetName: 'Gastos',
+            headerRowIndex: 2,
+          },
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+        expect(getUniqueValues).toHaveBeenCalledWith('file-123', 2, 'Gastos', 3);
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expect.stringContaining('• comida'),
+        );
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expect.stringContaining('• transporte'),
+        );
+        expect(mockSendMessage).not.toHaveBeenCalledWith(
+          '123456789',
+          expect.stringContaining('• categoría'),
+        );
+      });
+
       it('confirms mapping proposal even when payload still carries step no-header', async () => {
         const deps = buildMockDeps();
         const staleNoHeaderPayload = {
@@ -2350,6 +2450,76 @@ describe('processMessageJob', () => {
           statePayload: { categories: ['comida', 'transporte'] },
         });
         expect(mockSendMessage).not.toHaveBeenCalled();
+      });
+
+      it('routes the next message to expense interpretation after repeated category confirmation', async () => {
+        const deps = buildMockDeps();
+        const findSpreadsheetConfig = vi.fn().mockResolvedValue({
+          id: 'config-1',
+          categoriesConfirmedAt: new Date('2026-08-30T10:00:00Z'),
+        });
+        const updateCategoriesConfirmed = vi.fn();
+        const updateUserStatus = vi.fn().mockResolvedValue(undefined);
+
+        deps.confirmCategories = new ConfirmCategories({
+          spreadsheetConfigRepository: {
+            findByUserId: findSpreadsheetConfig,
+            updateCategoriesConfirmed,
+          } as unknown as ConfirmCategoriesDeps['spreadsheetConfigRepository'],
+          userRepository: {
+            updateStatus: updateUserStatus,
+          } as unknown as ConfirmCategoriesDeps['userRepository'],
+          messagingPort: { sendMessage: mockSendMessage },
+          transitionState: {
+            execute: mockTransitionStateExecute,
+          } as unknown as ConfirmCategoriesDeps['transitionState'],
+        });
+        mockGetConversationStateExecute
+          .mockResolvedValueOnce(
+            buildConversationState({
+              currentState: 'ONBOARDING_CATEGORIES',
+              statePayload: { categories: ['comida', 'transporte'] },
+              expiresAt: new Date('2026-08-31T12:00:00Z'),
+            }),
+          )
+          .mockResolvedValueOnce(buildConversationState({ currentState: 'IDLE' }));
+        mockRegisterExpenseInterpret.mockResolvedValue({
+          status: 'success',
+          payload: {
+            rawMessage: 'cafe 12 euros',
+            extracted: { monto: 12, moneda: 'EUR', confianzaCategoria: 'alta' },
+            resolvedDate: '2026-08-31',
+            resolvedCategory: 'comida',
+            categoryStatus: 'confirmed',
+          },
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+        await processMessageJob(
+          buildJob({ ...baseJobData, rawMessage: 'cafe 12 euros', externalMessageId: 'msg-43' }),
+          deps,
+        );
+
+        expect(findSpreadsheetConfig).toHaveBeenCalledOnce();
+        expect(updateCategoriesConfirmed).not.toHaveBeenCalled();
+        expect(updateUserStatus).toHaveBeenCalledWith('user-123', 'active');
+        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          targetState: 'IDLE',
+          payload: null,
+          expiresAt: null,
+        });
+        expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
+          userId: 'user-123',
+          rawMessage: 'cafe 12 euros',
+          channel: 'telegram',
+        });
+        expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockModifyCategoryVocabularyExecute).not.toHaveBeenCalled();
+        expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockConfirmColumnMappingExecute).not.toHaveBeenCalled();
+        expect(mockCorrectColumnMappingExecute).not.toHaveBeenCalled();
       });
 
       it('falls back to placeholder on confirm reply when ConfirmCategories is not wired', async () => {

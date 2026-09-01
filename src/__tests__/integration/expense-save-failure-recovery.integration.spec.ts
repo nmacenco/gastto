@@ -99,14 +99,13 @@ describe('expense save failure recovery', () => {
       {} as never,
       {} as never,
       {
-        findByUserAndProvider: vi.fn().mockResolvedValue({
-          accessTokenEnc: Buffer.from('encrypted'),
-          iv: Buffer.from('iv'),
-          accessTokenExpiresAt: new Date('2030-08-05T12:00:00.000Z'),
-          revokedAt: null,
+        getValidAccessToken: vi.fn().mockResolvedValue({
+          accessToken: 'access-token',
+          expiresAt: new Date('2030-08-05T12:00:00.000Z'),
+          refreshed: false,
         }),
-      } as never,
-      { decrypt: vi.fn().mockReturnValue('access-token') } as never,
+        forceRefreshAccessToken: vi.fn(),
+      },
     );
     const useCase = new ResolveExpenseSummaryActionUseCase({
       registerExpense,

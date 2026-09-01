@@ -10,12 +10,13 @@ After the user confirms the column mapping, Gastto reads the values already pres
 - If a conversation is already in `ONBOARDING_CATEGORIES` without categories in its payload (for example, recovery from an interrupted execution), the next worker pass also delegates to `DetectCategories`.
 - `DetectCategories` loads the active spreadsheet config and the decrypted OAuth token.
 - It finds the column mapping for the `categoria` Gastto field.
-- It reads unique values from that column starting at row 2 (skipping the header) through `SpreadsheetCategoryReader`.
+- It reads unique values through `SpreadsheetCategoryReader` beginning at `headerRowIndex + 1` when mapping detected a valid header row. If no header position is available, it defaults to row 2 for backward compatibility.
 - Values are normalized (trimmed and lowercased), deduplicated, and empty cells are filtered out.
 - If no categories are found, a default set is used: `Alimentacion`, `Transporte`, `Servicios`, `Ocio`, `Salud`, `Otros`.
 - A confirmation prompt is sent to the user and the FSM payload stores the detected/default categories.
-- When the user replies with a confirmation intent ("sí", "yes", etc.), `ConfirmCategories` marks the vocabulary as confirmed in `spreadsheet_configs.categories_confirmed_at`, transitions the user status to `active`, moves the FSM to `IDLE`, and sends the final welcome message.
-- Re-confirmation is idempotent: if `categories_confirmed_at` is already set, the use case returns success without error.
+- When the user replies with a confirmation intent ("sí", "yes", etc.), `ConfirmCategories` marks the vocabulary as confirmed in `spreadsheet_configs.categories_confirmed_at` when needed, transitions the user status to `active`, and persists the FSM as `IDLE` with `statePayload` and `expiresAt` cleared.
+- The final welcome message is sent only after user activation and the `IDLE` transition succeed, so a reported completion always reflects persisted finalization.
+- Re-confirmation is idempotent: an existing `categories_confirmed_at` skips only the redundant timestamp update. User activation and the cleared `IDLE` transition still run, allowing interrupted re-onboarding and reconnection flows to restore all final-state invariants.
 
 ## Behavior (Implemented)
 
@@ -38,8 +39,8 @@ No HTTP endpoints. The feature is triggered by the `ONBOARDING_CATEGORIES` FSM s
 
 ### Infrastructure
 
-- `SpreadsheetCategoryReader.readCategories(fileId, columnIndex, sheetName): Promise<string[]>` — reads and normalizes category values from a spreadsheet column.
-- `SpreadsheetPort.getUniqueValues(fileId, columnIndex, sheetName): Promise<string[]>` — adapter-level method that returns deduplicated non-empty values from a column, skipping the header row.
+- `SpreadsheetCategoryReader.readCategories(fileId, columnIndex, sheetName, dataStartRow?): Promise<string[]>` — reads and normalizes category values from a spreadsheet column, defaulting to row 2.
+- `SpreadsheetPort.getUniqueValues(fileId, columnIndex, sheetName, dataStartRow?): Promise<string[]>` — adapter-level method that returns deduplicated non-empty values from a column beginning at the supplied 1-based positive row, defaulting to row 2.
 - `RegexCategoryModificationParser.parse(input: string): Promise<CategoryModificationIntent>` — lightweight rule-based parser supporting Spanish and English add/remove/rename patterns.
 - `DrizzleCategoryVocabularyRepository` — persists `CategoryVocabulary` aggregates to `user_categories` with soft-delete of removed categories and upsert of new ones.
 
@@ -48,7 +49,7 @@ No HTTP endpoints. The feature is triggered by the `ONBOARDING_CATEGORIES` FSM s
 - `expense_records` — not directly used by this feature.
 - `user_categories` — stores the confirmed vocabulary per spreadsheet. New categories are inserted; removed ones are soft-deleted (`isActive = false`).
 - `spreadsheet_configs` — provides `fileId`, `sheetName`, and `provider`. Also tracks `categoriesConfirmedAt`.
-- `column_mappings` — provides the index of the category column for the active spreadsheet.
+- `column_mappings` — provides the index of the category column for the active spreadsheet. The detected header position remains transient in the onboarding FSM payload; no new database column is required.
 
 ## Tests
 

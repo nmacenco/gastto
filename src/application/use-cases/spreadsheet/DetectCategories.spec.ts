@@ -7,6 +7,8 @@ import type { DetectCategoriesDeps } from './DetectCategories';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { ICategoryReaderPort } from '../../../domain/ports/categoryReader';
 import type { ICategoryVocabularyRepository } from '../../../domain/ports/repositories';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { onboardingCopies } from '../../copies/onboarding.copies';
 
 describe('DetectCategories', () => {
   function buildDeps(overrides: Partial<DetectCategoriesDeps> = {}): {
@@ -31,16 +33,17 @@ describe('DetectCategories', () => {
       categoryReaderPortFactory: {
         create: vi.fn().mockReturnValue(mockCategoryReader),
       },
-      tokenRepository: {
-        findByUserAndProvider: vi.fn().mockResolvedValue({
-          accessTokenEnc: Buffer.from('enc'),
-          iv: Buffer.from('iv'),
-          accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-          revokedAt: null,
+      oauthAccessTokenService: {
+        getValidAccessToken: vi.fn().mockResolvedValue({
+          accessToken: 'access-token',
+          expiresAt: new Date(Date.now() + 3600_000),
+          refreshed: false,
         }),
-      },
-      tokenEncryption: {
-        decrypt: vi.fn().mockReturnValue('access-token'),
+        forceRefreshAccessToken: vi.fn().mockResolvedValue({
+          accessToken: 'refreshed-access-token',
+          expiresAt: new Date(Date.now() + 3600_000),
+          refreshed: true,
+        }),
       },
       spreadsheetConfigRepository: {
         findByUserId: vi.fn().mockResolvedValue({
@@ -103,6 +106,27 @@ describe('DetectCategories', () => {
     expect(payload?.categories).toEqual(['comida', 'transporte']);
     expect(result.categories).toEqual(['comida', 'transporte']);
     expect(result.message).toContain('comida');
+  });
+
+  it('starts reading below the detected header row', async () => {
+    const readCategories = vi.fn().mockResolvedValue(['comida', 'transporte']);
+    const { deps, sendMessage } = buildDeps({
+      categoryReaderPortFactory: {
+        create: vi.fn().mockReturnValue({ readCategories }),
+      },
+    });
+
+    const result = await new DetectCategories(deps).execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: { headerRowIndex: 2 },
+    });
+
+    expect(readCategories).toHaveBeenCalledWith('file-123', 2, 'Gastos', 3);
+    expect(result.categories).toEqual(['comida', 'transporte']);
+    expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('comida'));
+    expect(sendMessage).not.toHaveBeenCalledWith('123456789', expect.stringContaining('categoria'));
   });
 
   it('falls back to default categories when the column is empty and persists them', async () => {
@@ -180,5 +204,90 @@ describe('DetectCategories', () => {
       'salud',
       'otros',
     ]);
+  });
+
+  it('reads onboarding categories with a proactively refreshed expired token', async () => {
+    const readCategories = vi.fn().mockResolvedValue(['comida']);
+    const createCategoryReader = vi.fn().mockReturnValue({ readCategories });
+    const { deps, transitionExecute } = buildDeps({
+      categoryReaderPortFactory: {
+        create: createCategoryReader,
+      },
+      oauthAccessTokenService: {
+        getValidAccessToken: vi.fn().mockResolvedValue({
+          accessToken: 'refreshed-access-token',
+          expiresAt: new Date(Date.now() + 3600_000),
+          refreshed: true,
+        }),
+        forceRefreshAccessToken: vi.fn(),
+      },
+    });
+
+    const result = await new DetectCategories(deps).execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: { provider: 'google' },
+    });
+
+    expect(createCategoryReader).toHaveBeenCalledWith('refreshed-access-token');
+    expect(readCategories).toHaveBeenCalledTimes(1);
+    expect(result.categories).toEqual(['comida']);
+    expect(transitionExecute).not.toHaveBeenCalledWith(
+      expect.objectContaining({ targetState: 'ONBOARDING_START' }),
+    );
+  });
+
+  it('reconnects only for terminal authorization failure', async () => {
+    const { deps, sendMessage, transitionExecute, saveVocabulary } = buildDeps({
+      oauthAccessTokenService: {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('revoked', { code: 'AUTH_ERROR' })),
+        forceRefreshAccessToken: vi.fn(),
+      },
+    });
+
+    const result = await new DetectCategories(deps).execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: null,
+    });
+
+    expect(result).toEqual({ categories: [], message: onboardingCopies.reconnectAccount() });
+    expect(sendMessage).toHaveBeenCalledWith('123456789', onboardingCopies.reconnectAccount());
+    expect(transitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
+    });
+    expect(saveVocabulary).not.toHaveBeenCalled();
+  });
+
+  it('does not send placeholders or restart onboarding for transient token failures', async () => {
+    const { deps, sendMessage, transitionExecute, saveVocabulary } = buildDeps({
+      oauthAccessTokenService: {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(
+            new SpreadsheetError('temporary', { code: 'NETWORK_ERROR', retryable: true }),
+          ),
+        forceRefreshAccessToken: vi.fn(),
+      },
+    });
+
+    await expect(
+      new DetectCategories(deps).execute({
+        userId: 'user-123',
+        externalId: '123456789',
+        channel: 'telegram',
+        statePayload: null,
+      }),
+    ).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(transitionExecute).not.toHaveBeenCalled();
+    expect(saveVocabulary).not.toHaveBeenCalled();
   });
 });

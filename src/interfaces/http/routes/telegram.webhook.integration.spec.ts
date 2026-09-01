@@ -220,7 +220,7 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
       method: 'POST',
       url: '/webhook/telegram',
       headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
-      payload: makeValidPayload('Almuerzo 12'),
+      payload: makeValidPayload('Compre cafe'),
     });
 
     expect(response.statusCode).toBe(200);
@@ -234,7 +234,7 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     expect(mockResolveIdentity).toHaveBeenCalledTimes(1);
     expect(mockProcessQueueAdd).toHaveBeenCalledTimes(1);
     const [, jobData] = mockProcessQueueAdd.mock.calls[0] as [string, ProcessMessageJobData];
-    expect(jobData.rawMessage).toBe('Almuerzo 12');
+    expect(jobData.rawMessage).toBe('Compre cafe');
   });
 
   it('non-financial text: returns 200, sends guidance, and does not enqueue', async () => {

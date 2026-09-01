@@ -1,7 +1,7 @@
 // LAYER: Application / Tests
 // Unit tests for InferColumnMapping use case.
-// Mocks all ports: IOAuthTokenRepository, TokenEncryptionPort,
-// ISpreadsheetConfigRepository, IColumnMappingRepository, ColumnInferencePort,
+// Mocks all ports: OAuthAccessTokenProvider, ISpreadsheetConfigRepository,
+// IColumnMappingRepository, ColumnInferencePort,
 // MessagingOutputPort, TransitionConversationState.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -10,15 +10,14 @@ import {
   type InferColumnMappingDeps,
   type InferColumnMappingInput,
 } from './InferColumnMapping';
-import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
-const mockFindToken = vi.fn();
 const mockTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
-const mockEncrypt = vi.fn();
-const mockDecrypt = vi.fn();
+const mockGetValidAccessToken = vi.fn();
+const mockForceRefreshAccessToken = vi.fn();
 const mockFindByUserId = vi.fn();
 const mockUpsertMany = vi.fn();
 const mockInfer = vi.fn();
@@ -28,12 +27,9 @@ const mockLLMDetectHeaderRow = vi.fn();
 
 function buildMockDeps(overrides: Partial<InferColumnMappingDeps> = {}): InferColumnMappingDeps {
   return {
-    tokenRepository: {
-      findByUserAndProvider: mockFindToken,
-    } as unknown as IOAuthTokenRepository,
-    tokenEncryption: {
-      encrypt: mockEncrypt,
-      decrypt: mockDecrypt,
+    oauthAccessTokenService: {
+      getValidAccessToken: mockGetValidAccessToken,
+      forceRefreshAccessToken: mockForceRefreshAccessToken,
     },
     spreadsheetConfigRepository: {
       findByUserId: mockFindByUserId,
@@ -66,21 +62,6 @@ const baseInput: InferColumnMappingInput = {
   externalId: '987654321',
   channel: 'telegram',
   statePayload: null,
-};
-
-const mockToken = {
-  id: 'token-1',
-  userId: 'user-123',
-  provider: 'google' as const,
-  accessTokenEnc: Buffer.from('enc'),
-  refreshTokenEnc: Buffer.from('ref'),
-  iv: Buffer.from('iv'),
-  refreshIv: Buffer.from('refresh-iv'),
-  accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-  scope: ['drive.file'],
-  grantedAt: new Date(),
-  lastRefreshedAt: null,
-  revokedAt: null,
 };
 
 const mockConfig = {
@@ -116,8 +97,16 @@ const mockStatePayload = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDecrypt.mockReturnValue('decrypted-access-token');
-  mockFindToken.mockResolvedValue(mockToken);
+  mockGetValidAccessToken.mockResolvedValue({
+    accessToken: 'decrypted-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: false,
+  });
+  mockForceRefreshAccessToken.mockResolvedValue({
+    accessToken: 'refreshed-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: true,
+  });
   mockFindByUserId.mockResolvedValue(mockConfig);
   mockUpsertMany.mockResolvedValue(undefined);
   mockDetectHeaderRow.mockResolvedValue(1);
@@ -835,7 +824,9 @@ describe('InferColumnMapping', () => {
 
   describe('Token errors', () => {
     it('sends reconnect message and transitions to ONBOARDING_START when token is missing', async () => {
-      mockFindToken.mockResolvedValue(null);
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new InferColumnMapping(deps);
@@ -857,10 +848,11 @@ describe('InferColumnMapping', () => {
       expect(mockInfer).not.toHaveBeenCalled();
     });
 
-    it('sends reconnect message and transitions to ONBOARDING_START when token is expired', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        accessTokenExpiresAt: new Date(Date.now() - 3600_000),
+    it('continues mapping when an expired token refreshes', async () => {
+      mockGetValidAccessToken.mockResolvedValue({
+        accessToken: 'refreshed-access-token',
+        expiresAt: new Date(Date.now() + 3600_000),
+        refreshed: true,
       });
 
       const deps = buildMockDeps();
@@ -870,18 +862,18 @@ describe('InferColumnMapping', () => {
         statePayload: mockStatePayload,
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
         '987654321',
         onboardingCopies.reconnectAccount(),
       );
-      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(mockInfer).toHaveBeenCalledOnce();
     });
 
     it('sends reconnect message and transitions to ONBOARDING_START when token is revoked', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        revokedAt: new Date(),
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Revoked token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new InferColumnMapping(deps);
@@ -898,9 +890,9 @@ describe('InferColumnMapping', () => {
     });
 
     it('sends reconnect message and transitions to ONBOARDING_START when decryption fails', async () => {
-      mockDecrypt.mockImplementation(() => {
-        throw new Error('decryption failed');
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Stored token cannot be decrypted', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new InferColumnMapping(deps);

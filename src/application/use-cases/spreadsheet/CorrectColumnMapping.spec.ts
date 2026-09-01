@@ -15,28 +15,23 @@ import type {
   ISpreadsheetConfigRepository,
   IMappingCorrectionStateRepository,
   MappingCorrectionStateSnapshot,
-  IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
 import type {
   ISpreadsheetColumnPort,
   AvailableColumn,
 } from '../../../domain/ports/spreadsheetColumns';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { ColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
 import { RuleBasedColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
 import { ColumnMappingCorrectionState } from '../../../domain/value-objects/ColumnMappingCorrectionState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
-import type {
-  ColumnMapping,
-  SpreadsheetConfig,
-  OAuthToken,
-} from '../../../domain/entities/SpreadsheetConfig';
+import type { ColumnMapping, SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 const mockFindByUserId = vi.fn();
 const mockFindBySpreadsheetId = vi.fn();
-const mockFindByUserAndProvider = vi.fn();
-const mockDecrypt = vi.fn();
+const mockGetValidAccessToken = vi.fn();
+const mockForceRefreshAccessToken = vi.fn();
 const mockListAvailableColumns = vi.fn();
 const mockParse = vi.fn();
 const mockLoadCorrectionState = vi.fn();
@@ -60,12 +55,10 @@ function buildMockDeps(
     spreadsheetConfigRepository: {
       findByUserId: mockFindByUserId,
     } as unknown as ISpreadsheetConfigRepository,
-    tokenRepository: {
-      findByUserAndProvider: mockFindByUserAndProvider,
-    } as unknown as IOAuthTokenRepository,
-    tokenEncryption: {
-      decrypt: mockDecrypt,
-    } as unknown as TokenEncryptionPort,
+    oauthAccessTokenService: {
+      getValidAccessToken: mockGetValidAccessToken,
+      forceRefreshAccessToken: mockForceRefreshAccessToken,
+    },
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     spreadsheetColumnPort: {
       listAvailableColumns: mockListAvailableColumns,
@@ -158,21 +151,6 @@ const mockMappings: ColumnMapping[] = [
   buildMockMapping({ GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoría' }),
 ];
 
-const mockToken: OAuthToken = {
-  id: 'token-1',
-  userId: 'user-123',
-  provider: 'google',
-  accessTokenEnc: Buffer.from('encrypted'),
-  refreshTokenEnc: Buffer.from('encrypted-refresh'),
-  iv: Buffer.from('iv'),
-  refreshIv: Buffer.from('refresh-iv'),
-  accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-  scope: ['drive', 'spreadsheets'],
-  grantedAt: new Date(),
-  lastRefreshedAt: null,
-  revokedAt: null,
-};
-
 const availableColumns: AvailableColumn[] = [
   { index: 0, columnHeader: 'Fecha' },
   { index: 1, columnHeader: 'Monto' },
@@ -183,10 +161,18 @@ const availableColumns: AvailableColumn[] = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetValidAccessToken.mockResolvedValue({
+    accessToken: 'access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: false,
+  });
+  mockForceRefreshAccessToken.mockResolvedValue({
+    accessToken: 'refreshed-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: true,
+  });
   mockFindByUserId.mockResolvedValue(mockConfig);
   mockFindBySpreadsheetId.mockResolvedValue(mockMappings);
-  mockFindByUserAndProvider.mockResolvedValue(mockToken);
-  mockDecrypt.mockReturnValue('access-token');
   mockListAvailableColumns.mockResolvedValue(availableColumns);
   mockParse.mockReturnValue({ kind: 'success', field: 'categoria', columnRef: 'E' });
   mockLoadCorrectionState.mockResolvedValue(null);
@@ -412,7 +398,7 @@ describe('CorrectColumnMapping', () => {
       nextState: 'ONBOARDING_MAPPING',
       message: onboardingCopies.multipleMappingCorrectionsPrompt(),
     });
-    expect(mockFindByUserAndProvider).not.toHaveBeenCalled();
+    expect(mockGetValidAccessToken).not.toHaveBeenCalled();
     expect(mockListAvailableColumns).not.toHaveBeenCalled();
     expect(mockLoadCorrectionState).not.toHaveBeenCalled();
     expect(mockSaveCorrectionState).not.toHaveBeenCalled();
@@ -473,7 +459,9 @@ describe('CorrectColumnMapping', () => {
 
   it('triggers reconnect flow when the OAuth token is missing on rejection', async () => {
     mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
-    mockFindByUserAndProvider.mockResolvedValue(null);
+    mockGetValidAccessToken.mockRejectedValue(
+      new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+    );
 
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
@@ -489,11 +477,12 @@ describe('CorrectColumnMapping', () => {
     expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
   });
 
-  it('triggers reconnect flow when the OAuth token is expired on rejection', async () => {
+  it('continues correction when an expired OAuth token refreshes on rejection', async () => {
     mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
-    mockFindByUserAndProvider.mockResolvedValue({
-      ...mockToken,
-      accessTokenExpiresAt: new Date(Date.now() - 1000),
+    mockGetValidAccessToken.mockResolvedValue({
+      accessToken: 'refreshed-access-token',
+      expiresAt: new Date(Date.now() + 3600_000),
+      refreshed: true,
     });
 
     const deps = buildMockDeps();
@@ -503,18 +492,22 @@ describe('CorrectColumnMapping', () => {
       rawMessage: 'incorrecto',
     });
 
-    expect(result.kind).toBe('no-proposed-mapping');
-    expect(result.nextState).toBe('ONBOARDING_START');
-    expect(mockDecrypt).not.toHaveBeenCalled();
-    expect(mockListAvailableColumns).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
+    expect(result.kind).toBe('rejected');
+    expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: 'refreshed-access-token' }),
+    );
+    expect(mockSendMessage).not.toHaveBeenCalledWith(
+      '987654321',
+      onboardingCopies.reconnectAccount(),
+    );
   });
 
   it('triggers reconnect flow when token decryption fails on rejection', async () => {
     mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
-    mockDecrypt.mockImplementation(() => {
-      throw new Error('decrypt failed');
-    });
+    mockGetValidAccessToken.mockRejectedValue(
+      new SpreadsheetError('Stored token cannot be decrypted', { code: 'AUTH_ERROR' }),
+    );
 
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
@@ -568,7 +561,9 @@ describe('CorrectColumnMapping', () => {
   });
 
   it('triggers reconnect flow when the OAuth token is missing', async () => {
-    mockFindByUserAndProvider.mockResolvedValue(null);
+    mockGetValidAccessToken.mockRejectedValue(
+      new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+    );
 
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
@@ -586,10 +581,11 @@ describe('CorrectColumnMapping', () => {
     });
   });
 
-  it('triggers reconnect flow when the OAuth token is expired', async () => {
-    mockFindByUserAndProvider.mockResolvedValue({
-      ...mockToken,
-      accessTokenExpiresAt: new Date(Date.now() - 1000),
+  it('continues correction when an expired OAuth token refreshes', async () => {
+    mockGetValidAccessToken.mockResolvedValue({
+      accessToken: 'refreshed-access-token',
+      expiresAt: new Date(Date.now() + 3600_000),
+      refreshed: true,
     });
 
     const deps = buildMockDeps();
@@ -597,16 +593,21 @@ describe('CorrectColumnMapping', () => {
 
     const result = await useCase.execute(baseInput);
 
-    expect(result.kind).toBe('no-proposed-mapping');
-    expect(result.nextState).toBe('ONBOARDING_START');
-    expect(mockDecrypt).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
+    expect(result.kind).toBe('updated');
+    expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: 'refreshed-access-token' }),
+    );
+    expect(mockSendMessage).not.toHaveBeenCalledWith(
+      '987654321',
+      onboardingCopies.reconnectAccount(),
+    );
   });
 
   it('triggers reconnect flow when token decryption fails', async () => {
-    mockDecrypt.mockImplementation(() => {
-      throw new Error('decrypt failed');
-    });
+    mockGetValidAccessToken.mockRejectedValue(
+      new SpreadsheetError('Stored token cannot be decrypted', { code: 'AUTH_ERROR' }),
+    );
 
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);

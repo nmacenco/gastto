@@ -31,7 +31,17 @@ describe('SpreadsheetCategoryReader', () => {
     const result = await reader.readCategories('file-123', 2, 'Gastos');
 
     expect(result).toEqual(['comida', 'transporte', 'servicios']);
-    expect(getUniqueValues).toHaveBeenCalledWith('file-123', 2, 'Gastos');
+    expect(getUniqueValues).toHaveBeenCalledWith('file-123', 2, 'Gastos', 2);
+  });
+
+  it('forwards a dynamic data start row while keeping normalization and deduplication', async () => {
+    const { port, getUniqueValues } = buildMockPort(['  Comida  ', 'COMIDA', 'Transporte']);
+    const reader = new SpreadsheetCategoryReader(port);
+
+    const result = await reader.readCategories('file-123', 2, 'Gastos', 3);
+
+    expect(getUniqueValues).toHaveBeenCalledWith('file-123', 2, 'Gastos', 3);
+    expect(result).toEqual(['comida', 'transporte']);
   });
 
   it('returns empty array when no values are found', async () => {

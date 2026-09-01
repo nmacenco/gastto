@@ -5,11 +5,9 @@
 // port, persists the inferred mappings, and sends a proposal message to the user.
 
 import type {
-  IOAuthTokenRepository,
   ISpreadsheetConfigRepository,
   IColumnMappingRepository,
 } from '../../../domain/ports/repositories';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type {
   ColumnInferencePort,
   ColumnInferenceResult,
@@ -22,6 +20,8 @@ import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import type { OAuthAccessTokenProvider } from '../../services/OAuthAccessTokenService';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 export interface InferColumnMappingInput {
   userId: string;
@@ -37,8 +37,7 @@ export interface InferColumnMappingOutput {
 }
 
 export interface InferColumnMappingDeps {
-  tokenRepository: IOAuthTokenRepository;
-  tokenEncryption: TokenEncryptionPort;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   columnMappingRepository: IColumnMappingRepository;
   columnInferencePort: ColumnInferencePort;
@@ -47,10 +46,6 @@ export interface InferColumnMappingDeps {
   llmHeaderDetectionPort: HeaderDetectionPort;
   messagingPort: MessagingOutputPort;
   transitionState: TransitionConversationState;
-}
-
-function isExpiredToken(expiresAt: Date): boolean {
-  return expiresAt.getTime() <= Date.now();
 }
 
 function cellToString(value: unknown): string {
@@ -73,19 +68,13 @@ export class InferColumnMapping {
       return { nextState: 'ONBOARDING_MAPPING', message };
     }
 
-    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
-    if (!token) {
-      return this.handleReconnect(externalId, userId);
-    }
-
-    if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      return this.handleReconnect(externalId, userId);
-    }
-
     try {
-      this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      return this.handleReconnect(externalId, userId);
+      await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
+    } catch (error) {
+      if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId);
+      }
+      throw error;
     }
 
     const config = await this.deps.spreadsheetConfigRepository.findByUserId(userId);

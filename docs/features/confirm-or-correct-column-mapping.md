@@ -28,10 +28,10 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 
 ## FSM States
 
-| State                  | Description                                                           | Next                                                                 |
-| ---------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `ONBOARDING_MAPPING`   | User is reviewing or correcting the proposed column mapping           | `ONBOARDING_CATEGORIES` (confirmed), self-transition (correction)    |
-| `ONBOARDING_START`     | User must reconnect the cloud storage account                         | -                                                                    |
+| State                | Description                                                 | Next                                                              |
+| -------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------- |
+| `ONBOARDING_MAPPING` | User is reviewing or correcting the proposed column mapping | `ONBOARDING_CATEGORIES` (confirmed), self-transition (correction) |
+| `ONBOARDING_START`   | User must reconnect the cloud storage account               | -                                                                 |
 
 ## Flow Sequence
 
@@ -40,8 +40,8 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 1. The conversation is in `ONBOARDING_MAPPING` with the proposed `mappings` in the state payload.
 2. The message worker detects a confirmation intent and delegates to `ConfirmColumnMapping.execute()`.
 3. The use case loads the `SpreadsheetConfig`, finds the proposed `ColumnMapping` records, and marks them as confirmed via `IColumnMappingRepository.confirmBySpreadsheetId()`.
-4. A confirmation message is sent and the FSM transitions to `ONBOARDING_CATEGORIES`.
-5. In the same worker execution, the orchestrator invokes `DetectCategories` with the new state payload, so the category confirmation prompt is sent without waiting for another user message.
+4. A confirmation message is sent and the FSM transitions to `ONBOARDING_CATEGORIES`. A validated 1-based `headerRowIndex` from the mapping payload is preserved in that new payload.
+5. In the same worker execution, the orchestrator invokes `DetectCategories` with the new state payload. It derives `dataStartRow = headerRowIndex + 1` to skip the detected header, so the category confirmation prompt is sent without waiting for another user message or treating a header as a category.
 
 ### Scenario 2: User corrects one field in natural language
 
@@ -125,7 +125,12 @@ interface CorrectColumnMappingInput {
 ```ts
 type CorrectColumnMappingOutput =
   | { kind: 'updated'; nextState: FsmState; message: string }
-  | { kind: 'invalid-column'; nextState: FsmState; message: string; availableColumns: AvailableColumn[] }
+  | {
+      kind: 'invalid-column';
+      nextState: FsmState;
+      message: string;
+      availableColumns: AvailableColumn[];
+    }
   | { kind: 'parse-failure'; nextState: FsmState; message: string }
   | { kind: 'no-proposed-mapping'; nextState: FsmState; message: string }
   | { kind: 're-inferred'; nextState: FsmState; message: string; payload?: Record<string, unknown> }
@@ -169,7 +174,7 @@ interface ConfirmColumnMappingInput {
 interface ConfirmColumnMappingOutput {
   nextState: FsmState;
   message: string;
-  payload?: Record<string, unknown>;
+  payload?: Record<string, unknown>; // Includes validated headerRowIndex when available.
 }
 ```
 
@@ -250,19 +255,19 @@ interface MappingCorrectionStateSnapshot {
 
 ## Error Handling
 
-| Scenario                                | Behavior                                                                 |
-| --------------------------------------- | ------------------------------------------------------------------------ |
-| Missing OAuth token                     | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Expired / revoked token                 | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Token decryption failure                | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Missing `SpreadsheetConfig`             | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| No proposed mappings                    | `noMappingToConfirm` message sent; stays in `ONBOARDING_MAPPING`.        |
-| Unparseable correction message          | `correctionParseFailurePrompt` sent; stays in `ONBOARDING_MAPPING`.      |
-| Several fields in one correction message | `multipleMappingCorrectionsPrompt` sent; no correction is applied and the FSM stays in `ONBOARDING_MAPPING`. |
-| Invalid column reference                | `invalidColumnPrompt` sent with available columns; stays in `ONBOARDING_MAPPING`. |
-| Redis save failure                      | Error propagated; no confirmation message sent; no state transition.     |
-| Transition failure after valid correction | Updated mapping message already sent; error propagated.                  |
-| Persisting corrections on confirmation fails | The mapping is not confirmed and the confirmation message is not sent. |
+| Scenario                                     | Behavior                                                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Missing OAuth token                          | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
+| Expired / revoked token                      | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
+| Token decryption failure                     | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
+| Missing `SpreadsheetConfig`                  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
+| No proposed mappings                         | `noMappingToConfirm` message sent; stays in `ONBOARDING_MAPPING`.                                            |
+| Unparseable correction message               | `correctionParseFailurePrompt` sent; stays in `ONBOARDING_MAPPING`.                                          |
+| Several fields in one correction message     | `multipleMappingCorrectionsPrompt` sent; no correction is applied and the FSM stays in `ONBOARDING_MAPPING`. |
+| Invalid column reference                     | `invalidColumnPrompt` sent with available columns; stays in `ONBOARDING_MAPPING`.                            |
+| Redis save failure                           | Error propagated; no confirmation message sent; no state transition.                                         |
+| Transition failure after valid correction    | Updated mapping message already sent; error propagated.                                                      |
+| Persisting corrections on confirmation fails | The mapping is not confirmed and the confirmation message is not sent.                                       |
 
 ## QA Checklist
 

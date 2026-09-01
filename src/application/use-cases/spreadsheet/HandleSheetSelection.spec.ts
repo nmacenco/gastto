@@ -1,7 +1,7 @@
 // LAYER: Application / Tests
 // Unit tests for HandleSheetSelection use case.
-// Mocks SpreadsheetPortFactory, IOAuthTokenRepository, TransitionConversationState,
-// MessagingOutputPort, TokenEncryptionPort, and ISpreadsheetConfigRepository.
+// Mocks SpreadsheetPortFactory, OAuthAccessTokenProvider, TransitionConversationState,
+// MessagingOutputPort, and ISpreadsheetConfigRepository.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
@@ -10,7 +10,6 @@ import {
   type HandleSheetSelectionInput,
 } from './HandleSheetSelection';
 import type { ValidateSpreadsheetAccessInput } from './ValidateSpreadsheetAccess';
-import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type {
   TransitionConversationState,
   TransitionConversationStateInput,
@@ -23,7 +22,8 @@ import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 const mockListSheets = vi.fn();
 const mockGetHeaders = vi.fn();
-const mockFindToken = vi.fn();
+const mockGetValidAccessToken = vi.fn();
+const mockForceRefreshAccessToken = vi.fn();
 const mockTransitionExecute = vi.fn((input: TransitionConversationStateInput) => {
   const fromState: FsmState = 'ONBOARDING_SHEET';
   if (!canTransition(fromState, input.targetState)) {
@@ -40,8 +40,6 @@ const mockTransitionExecute = vi.fn((input: TransitionConversationStateInput) =>
 });
 const mockReconnectTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
-const mockEncrypt = vi.fn();
-const mockDecrypt = vi.fn();
 const mockCreateConfig = vi.fn();
 const mockUpsertConfig = vi.fn();
 const mockLoggerError = vi.fn();
@@ -61,15 +59,12 @@ function buildMockDeps(
     spreadsheetPortFactory: {
       create: mockCreatePort,
     },
-    tokenRepository: {
-      findByUserAndProvider: mockFindToken,
-    } as unknown as IOAuthTokenRepository,
+    oauthAccessTokenService: {
+      getValidAccessToken: mockGetValidAccessToken,
+      forceRefreshAccessToken: mockForceRefreshAccessToken,
+    },
     transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
-    tokenEncryption: {
-      encrypt: mockEncrypt,
-      decrypt: mockDecrypt,
-    },
     spreadsheetConfigRepository: {
       create: mockCreateConfig,
       upsertByUserId: mockUpsertConfig,
@@ -90,21 +85,6 @@ const baseInput: HandleSheetSelectionInput = {
   statePayload: null,
 };
 
-const mockToken = {
-  id: 'token-1',
-  userId: 'user-123',
-  provider: 'google' as const,
-  accessTokenEnc: Buffer.from('enc'),
-  refreshTokenEnc: Buffer.from('ref'),
-  iv: Buffer.from('iv'),
-  refreshIv: Buffer.from('refresh-iv'),
-  accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-  scope: ['drive.file'],
-  grantedAt: new Date(),
-  lastRefreshedAt: null,
-  revokedAt: null,
-};
-
 const mockSheets = [
   new SheetInfo({ name: 'Gastos', index: 0 }),
   new SheetInfo({ name: 'Resumen', index: 1 }),
@@ -119,8 +99,16 @@ const mockFilePayload = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDecrypt.mockReturnValue('decrypted-access-token');
-  mockFindToken.mockResolvedValue(mockToken);
+  mockGetValidAccessToken.mockResolvedValue({
+    accessToken: 'decrypted-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: false,
+  });
+  mockForceRefreshAccessToken.mockResolvedValue({
+    accessToken: 'refreshed-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: true,
+  });
   mockUpsertConfig.mockResolvedValue({
     id: 'config-1',
     userId: 'user-123',
@@ -424,7 +412,9 @@ describe('HandleSheetSelection', () => {
 
   describe('error paths', () => {
     it('returns reconnect message when token is missing', async () => {
-      mockFindToken.mockResolvedValue(null);
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps({
         transitionState: {
@@ -446,11 +436,13 @@ describe('HandleSheetSelection', () => {
       });
     });
 
-    it('returns reconnect message when token is expired', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        accessTokenExpiresAt: new Date(Date.now() - 3600_000),
+    it('continues sheet discovery when an expired token refreshes', async () => {
+      mockGetValidAccessToken.mockResolvedValue({
+        accessToken: 'refreshed-access-token',
+        expiresAt: new Date(Date.now() + 3600_000),
+        refreshed: true,
       });
+      mockListSheets.mockResolvedValue(mockSheets);
 
       const deps = buildMockDeps({
         transitionState: {
@@ -463,15 +455,18 @@ describe('HandleSheetSelection', () => {
         statePayload: mockFilePayload,
       });
 
-      expect(result.nextState).toBe('ONBOARDING_START');
-      expect(result.message).toBe(onboardingCopies.reconnectAccount());
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockCreatePort).toHaveBeenCalledWith('refreshed-access-token');
+      expect(result.message).toBe(onboardingCopies.sheetListPrompt(mockSheets));
+      expect(mockReconnectTransitionExecute).not.toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'ONBOARDING_START' }),
+      );
     });
 
     it('returns reconnect message when token is revoked', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        revokedAt: new Date(),
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Revoked token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps({
         transitionState: {
@@ -489,9 +484,9 @@ describe('HandleSheetSelection', () => {
     });
 
     it('returns reconnect message when token decryption fails', async () => {
-      mockDecrypt.mockImplementation(() => {
-        throw new Error('decryption failed');
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Stored token cannot be decrypted', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps({
         transitionState: {
@@ -706,7 +701,9 @@ describe('HandleSheetSelection', () => {
     });
 
     it('returns reconnect message when token is missing', async () => {
-      mockFindToken.mockResolvedValue(null);
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps({
         transitionState: {
@@ -839,7 +836,9 @@ describe('HandleSheetSelection', () => {
     });
 
     it('does not invoke ValidateSpreadsheetAccess on reconnect (missing token)', async () => {
-      mockFindToken.mockResolvedValue(null);
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps({
         transitionState: {

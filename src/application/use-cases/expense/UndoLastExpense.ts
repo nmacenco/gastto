@@ -7,10 +7,12 @@ import type {
   IExpenseRecordRepository,
   ISpreadsheetConfigRepository,
   IOperationLogRepository,
-  IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import {
+  executeWithOAuthAccessToken,
+  type OAuthAccessTokenProvider,
+} from '../../services/OAuthAccessTokenService';
 
 export interface UndoLastExpenseOutput {
   status: 'deleted' | 'confirmation_required' | 'not_found' | 'deletion_failed';
@@ -31,8 +33,7 @@ export class UndoLastExpenseUseCase {
     private readonly expenseRepo: IExpenseRecordRepository,
     private readonly spreadsheetConfigRepo: ISpreadsheetConfigRepository,
     private readonly logRepo: IOperationLogRepository,
-    private readonly tokenRepository: IOAuthTokenRepository,
-    private readonly tokenEncryption: TokenEncryptionPort,
+    private readonly oauthAccessTokenService: OAuthAccessTokenProvider,
   ) {}
 
   async execute(input: UndoLastExpenseInput): Promise<UndoLastExpenseOutput> {
@@ -60,16 +61,16 @@ export class UndoLastExpenseUseCase {
       return { status: 'deletion_failed', errorType: 'STRUCTURE_ERROR' };
     }
 
-    const token = await this.tokenRepository.findByUserAndProvider(input.userId, config.provider);
-    if (!token || token.revokedAt || token.accessTokenExpiresAt.getTime() <= Date.now()) {
-      return { status: 'deletion_failed', errorType: 'AUTH_ERROR' };
-    }
-
     try {
-      const accessToken = this.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-      const spreadsheetPort = this.spreadsheetPortFactory.create(accessToken);
       // 2. Elimina la fila de la planilla real
-      await spreadsheetPort.deleteRow(config.fileId, last.sheetName, last.rowIndex);
+      await executeWithOAuthAccessToken(
+        this.oauthAccessTokenService,
+        { userId: input.userId, provider: config.provider },
+        (accessToken) =>
+          this.spreadsheetPortFactory
+            .create(accessToken)
+            .deleteRow(config.fileId, last.sheetName, last.rowIndex!),
+      );
 
       // 3. Soft delete and audit are one local transaction.
       await this.expenseRepo.softDeleteWithAudit(last.id, input.userId, {
@@ -92,7 +93,10 @@ export class UndoLastExpenseUseCase {
   }
 
   private classifyError(error: unknown): 'NETWORK_ERROR' | 'AUTH_ERROR' | 'STRUCTURE_ERROR' {
-    if (error instanceof SpreadsheetError || error instanceof Error) {
+    if (error instanceof SpreadsheetError && error.code !== 'UNKNOWN') {
+      return error.code;
+    }
+    if (error instanceof Error) {
       const msg = error.message.toLowerCase();
       if (msg.includes('401') || msg.includes('403') || msg.includes('unauthorized'))
         return 'AUTH_ERROR';

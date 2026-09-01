@@ -36,6 +36,10 @@ import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
 import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
 import { RuleBasedColumnMappingCorrectionParser } from '../application/services/ColumnMappingCorrectionParser';
+import {
+  OAuthAccessTokenService,
+  type OAuthAccessTokenProvider,
+} from '../application/services/OAuthAccessTokenService';
 import { TokenEncryptionAdapter } from '../infrastructure/security/TokenEncryptionAdapter';
 import { RedisMappingCorrectionStateRepository } from '../infrastructure/redis/RedisMappingCorrectionStateRepository';
 import { RedisProcessedMessageRepository } from '../infrastructure/redis/RedisProcessedMessageRepository';
@@ -86,6 +90,7 @@ import type { IncomingMessageJobData } from '../application/ports/IncomingMessag
 import type { LLMPort } from '../domain/ports/services';
 import type { MessagingOutputPort } from '../application/ports/output/messaging.port';
 import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
+import { SpreadsheetError } from '../domain/errors/SpreadsheetError';
 
 /** Core infrastructure required to build the dependency graph. */
 export interface BuildDependenciesInfra {
@@ -171,22 +176,15 @@ function buildGoogleOAuthFeature(
     llmColumnInferenceAdapter: LLMColumnInferenceAdapter;
     llmHeaderDetectionAdapter: LLMHeaderDetectionAdapter;
     telegramAdapter: TelegramMessengerAdapter | null;
+    oauthAdapter: GoogleDriveOAuthAdapter | null;
+    oauthAccessTokenService: OAuthAccessTokenProvider;
   },
 ): GoogleOAuthFeature | null {
-  if (
-    !env.GOOGLE_CLIENT_ID ||
-    !env.GOOGLE_CLIENT_SECRET ||
-    !env.GOOGLE_REDIRECT_URI ||
-    !core.telegramAdapter
-  ) {
+  if (!env.GOOGLE_REDIRECT_URI || !core.telegramAdapter || !core.oauthAdapter) {
     return null;
   }
 
-  const adapter = new GoogleDriveOAuthAdapter({
-    clientId: env.GOOGLE_CLIENT_ID,
-    clientSecret: env.GOOGLE_CLIENT_SECRET,
-    redirectUri: env.GOOGLE_REDIRECT_URI,
-  });
+  const adapter = core.oauthAdapter;
 
   const messagingPort = core.telegramAdapter;
 
@@ -202,7 +200,7 @@ function buildGoogleOAuthFeature(
   const sendOAuthReminder = new SendOAuthReminder({
     redis: infra.redis,
     oauthService: adapter,
-    tokenRepository: core.tokenRepo,
+    oauthAccessTokenService: core.oauthAccessTokenService,
     conversationRepo: core.conversationRepo,
     reminderQueue: core.reminderQueue,
     transitionState: core.transitionState,
@@ -222,8 +220,7 @@ function buildGoogleOAuthFeature(
   const categoryReaderFactory = new SpreadsheetCategoryReaderFactory(sheetsAdapterFactory);
 
   const inferColumnMapping = new InferColumnMapping({
-    tokenRepository: core.tokenRepo,
-    tokenEncryption: core.tokenEncryption,
+    oauthAccessTokenService: core.oauthAccessTokenService,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     columnMappingRepository: core.columnMappingRepo,
     columnInferencePort: core.ruleBasedColumnInferenceAdapter,
@@ -236,10 +233,9 @@ function buildGoogleOAuthFeature(
 
   const validateSpreadsheetAccess = new ValidateSpreadsheetAccess({
     validateSpreadsheetAccessPortFactory: new SpreadsheetAccessAdapterFactory(),
-    tokenRepository: core.tokenRepo,
+    oauthAccessTokenService: core.oauthAccessTokenService,
     transitionState: core.transitionState,
     messagingPort,
-    tokenEncryption: core.tokenEncryption,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     inferColumnMapping,
     logger: infra.rootLogger,
@@ -254,10 +250,9 @@ function buildGoogleOAuthFeature(
 
   const handleSheetSelection = new HandleSheetSelection({
     spreadsheetPortFactory: sheetsAdapterFactory,
-    tokenRepository: core.tokenRepo,
+    oauthAccessTokenService: core.oauthAccessTokenService,
     transitionState: core.transitionState,
     messagingPort,
-    tokenEncryption: core.tokenEncryption,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     validateSpreadsheetAccess,
     logger: infra.rootLogger,
@@ -265,10 +260,9 @@ function buildGoogleOAuthFeature(
 
   const handleSpreadsheetFileSelection = new HandleSpreadsheetFileSelection({
     cloudStorage: driveFileDiscovery,
-    tokenRepository: core.tokenRepo,
+    oauthAccessTokenService: core.oauthAccessTokenService,
     transitionState: core.transitionState,
     messagingPort,
-    tokenEncryption: core.tokenEncryption,
     logger: infra.rootLogger,
     handleSheetSelection,
   });
@@ -298,8 +292,7 @@ function buildGoogleOAuthFeature(
   const correctColumnMapping = new CorrectColumnMapping({
     columnMappingRepository: core.columnMappingRepo,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
-    tokenRepository: core.tokenRepo,
-    tokenEncryption: core.tokenEncryption,
+    oauthAccessTokenService: core.oauthAccessTokenService,
     spreadsheetColumnPort: new GoogleSheetsAdapter(''),
     correctionParser: new RuleBasedColumnMappingCorrectionParser(),
     correctionStateRepository: mappingCorrectionStateRepository,
@@ -313,8 +306,7 @@ function buildGoogleOAuthFeature(
 
   const detectCategories = new DetectCategories({
     categoryReaderPortFactory: categoryReaderFactory,
-    tokenRepository: core.tokenRepo,
-    tokenEncryption: core.tokenEncryption,
+    oauthAccessTokenService: core.oauthAccessTokenService,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     columnMappingRepository: core.columnMappingRepo,
     messagingPort,
@@ -388,6 +380,31 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   const expenseQueueRepo = new DrizzleExpenseQueueRepository(infra.db);
 
   const tokenEncryption = new TokenEncryptionAdapter(env.ENCRYPTION_KEY);
+  const googleOAuthAdapter =
+    env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REDIRECT_URI
+      ? new GoogleDriveOAuthAdapter({
+          clientId: env.GOOGLE_CLIENT_ID,
+          clientSecret: env.GOOGLE_CLIENT_SECRET,
+          redirectUri: env.GOOGLE_REDIRECT_URI,
+        })
+      : null;
+  const unavailableOAuthAccessTokenProvider: OAuthAccessTokenProvider = {
+    getValidAccessToken: () =>
+      Promise.reject(
+        new SpreadsheetError('OAuth provider is not configured', { code: 'AUTH_ERROR' }),
+      ),
+    forceRefreshAccessToken: () =>
+      Promise.reject(
+        new SpreadsheetError('OAuth provider is not configured', { code: 'AUTH_ERROR' }),
+      ),
+  };
+  const oauthAccessTokenService: OAuthAccessTokenProvider = googleOAuthAdapter
+    ? new OAuthAccessTokenService({
+        tokenRepository: tokenRepo,
+        tokenEncryption,
+        oauthService: googleOAuthAdapter,
+      })
+    : unavailableOAuthAccessTokenProvider;
 
   const resolveIdentity = new ResolveUserIdentityUseCase(userRepo, conversationRepo);
   const getConversationState = new GetConversationState(conversationRepo);
@@ -482,8 +499,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     operationLogRepo,
     userProfileRepo,
     categoryClassifier,
-    tokenRepo,
-    tokenEncryption,
+    oauthAccessTokenService,
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
   );
   const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
@@ -497,8 +513,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     expenseRecordRepo,
     spreadsheetConfigRepo,
     operationLogRepo,
-    tokenRepo,
-    tokenEncryption,
+    oauthAccessTokenService,
   );
   const correctExpense = new CorrectExpenseUseCase(
     {
@@ -534,6 +549,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     llmColumnInferenceAdapter,
     llmHeaderDetectionAdapter,
     telegramAdapter: telegram?.adapter ?? null,
+    oauthAdapter: googleOAuthAdapter,
+    oauthAccessTokenService,
   });
 
   const messagingPort = telegram?.adapter ?? {
@@ -589,6 +606,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     expenseRecordRepo,
     expenseQueueRepo,
     tokenEncryption,
+    oauthAccessTokenService,
     resolveIdentity,
     getConversationState,
     transitionState,

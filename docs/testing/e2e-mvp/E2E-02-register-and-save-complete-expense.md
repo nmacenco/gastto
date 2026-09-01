@@ -1,6 +1,6 @@
 # E2E-02: Register and Save a Complete Expense
 
-- [ ] Passed.
+- [x] Passed.
 
 ## Objective
 
@@ -29,8 +29,8 @@ Prove that a complete free-text expense is acknowledged, interpreted, reviewed, 
 
 ## Result
 
-- Date:
-- Tester:
-- Environment:
+- Date: 2026-08-29
+- Tester: Nico
+- Environment: development
 - Evidence:
-- Notes:
+- Notes: All expected results passed.

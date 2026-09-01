@@ -29,8 +29,8 @@ Prove that Gastto asks for missing information one item at a time, retains conte
 
 ## Result
 
-- Date:
-- Tester:
-- Environment:
-- Evidence:
-- Notes:
+- Date: 2026-08-29
+- Tester: Nico
+- Environment: development
+- Evidence: Conversation transcript supplied by the tester.
+- Notes: Failed. After `Compre cafe`, the bot sent the generic instruction to provide an amount and concept instead of asking only for the missing amount while retaining `cafe`. A subsequent transaction-style message produced `Parece que algo falló. Vamos a empezar de nuevo.` Sending `cancelar` then returned `No hay ningún registro pendiente para cancelar.`, confirming that the pending expense context had been lost. Repeating the transaction-style message produced the same error and reset response.

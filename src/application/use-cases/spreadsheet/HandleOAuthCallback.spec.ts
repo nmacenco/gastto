@@ -40,6 +40,7 @@ function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): Handle
     oauthService: {
       buildAuthUrl: vi.fn(),
       exchangeCode: mockExchangeCode,
+      refreshAccessToken: vi.fn(),
     },
     tokenRepository: { upsert: mockTokenUpsert } as unknown as IOAuthTokenRepository,
     reminderQueue: { remove: mockQueueRemove } as unknown as Queue,

@@ -9,8 +9,18 @@ import type { SpreadsheetPort } from '../../../domain/ports/services';
 export class SpreadsheetCategoryReader implements ICategoryReaderPort {
   constructor(private readonly spreadsheetPort: SpreadsheetPort) {}
 
-  async readCategories(fileId: string, columnIndex: number, sheetName: string): Promise<string[]> {
-    const rawValues = await this.spreadsheetPort.getUniqueValues(fileId, columnIndex, sheetName);
+  async readCategories(
+    fileId: string,
+    columnIndex: number,
+    sheetName: string,
+    dataStartRow: number = 2,
+  ): Promise<string[]> {
+    const rawValues = await this.spreadsheetPort.getUniqueValues(
+      fileId,
+      columnIndex,
+      sheetName,
+      dataStartRow,
+    );
 
     const seen = new Set<string>();
     const categories: string[] = [];

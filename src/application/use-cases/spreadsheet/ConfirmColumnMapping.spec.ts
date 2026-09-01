@@ -60,6 +60,7 @@ const baseInput: ConfirmColumnMappingInput = {
     provider: 'google',
     fileId: 'file-123',
     sheetName: 'Gastos',
+    headerRowIndex: 2,
   },
 };
 
@@ -130,6 +131,7 @@ describe('ConfirmColumnMapping', () => {
         provider: 'google',
         fileId: 'file-123',
         sheetName: 'Gastos',
+        headerRowIndex: 2,
       },
     });
     expect(mockSendMessage).toHaveBeenCalledWith(
@@ -138,6 +140,25 @@ describe('ConfirmColumnMapping', () => {
     );
     expect(result.nextState).toBe('ONBOARDING_CATEGORIES');
     expect(result.message).toBe(onboardingCopies.mappingConfirmedNextStep());
+  });
+
+  it('omits an invalid header row from the category payload', async () => {
+    const useCase = new ConfirmColumnMapping(buildMockDeps());
+
+    await useCase.execute({
+      ...baseInput,
+      statePayload: { ...baseInput.statePayload, headerRowIndex: 0 },
+    });
+
+    expect(mockTransitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_CATEGORIES',
+      payload: {
+        provider: 'google',
+        fileId: 'file-123',
+        sheetName: 'Gastos',
+      },
+    });
   });
 
   it('persists accumulated corrections, including newly mapped fields, before confirming', async () => {

@@ -281,6 +281,31 @@ describe('ExcelOnlineAdapter', () => {
       expect(result).toEqual([]);
     });
 
+    it('starts at the supplied data row instead of including a later header row', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: [['Comida'], ['Transporte']] }),
+      });
+
+      const result = await adapter.getUniqueValues('file-id-123', 2, 'Gastos', 3);
+
+      expect(result).toEqual(['Comida', 'Transporte']);
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain("/range(address='C3:C1048576')");
+    });
+
+    it.each([0, -1, 2.5])(
+      'rejects invalid data start row %s before making a request',
+      async (row) => {
+        await expect(
+          adapter.getUniqueValues('file-id-123', 2, 'Gastos', row),
+        ).rejects.toBeInstanceOf(SpreadsheetError);
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
     it('throws SpreadsheetError on API error', async () => {
       fetchMock.mockResolvedValue({
         ok: false,

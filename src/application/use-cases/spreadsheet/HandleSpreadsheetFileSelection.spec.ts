@@ -1,7 +1,7 @@
 // LAYER: Application / Tests
 // Unit tests for HandleSpreadsheetFileSelection use case.
-// Mocks CloudStoragePort, IOAuthTokenRepository, TransitionConversationState,
-// MessagingOutputPort, and TokenEncryptionPort.
+// Mocks CloudStoragePort, OAuthAccessTokenProvider, TransitionConversationState,
+// and MessagingOutputPort.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
@@ -10,7 +10,6 @@ import {
   type HandleSpreadsheetFileSelectionInput,
 } from './HandleSpreadsheetFileSelection';
 import type { HandleSheetSelection } from './HandleSheetSelection';
-import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type {
   TransitionConversationState,
   TransitionConversationStateInput,
@@ -20,11 +19,13 @@ import { canTransition, type FsmState } from '../../../domain/entities/Conversat
 import { InvalidStateTransitionError } from '../../../domain/errors/InvalidStateTransitionError';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 const mockListRecent = vi.fn();
 const mockSearch = vi.fn();
 const mockValidateAccess = vi.fn();
-const mockFindToken = vi.fn();
+const mockGetValidAccessToken = vi.fn();
+const mockForceRefreshAccessToken = vi.fn();
 const mockHandleSheetSelectionExecute = vi.fn();
 const mockTransitionExecute = vi.fn((input: TransitionConversationStateInput) => {
   const fromState: FsmState = 'ONBOARDING_FILE';
@@ -42,8 +43,6 @@ const mockTransitionExecute = vi.fn((input: TransitionConversationStateInput) =>
 });
 const mockReconnectTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
-const mockEncrypt = vi.fn();
-const mockDecrypt = vi.fn();
 const mockLoggerError = vi.fn();
 
 function buildMockDeps(
@@ -55,13 +54,12 @@ function buildMockDeps(
       searchSpreadsheets: mockSearch,
       validateFileAccess: mockValidateAccess,
     },
-    tokenRepository: { findByUserAndProvider: mockFindToken } as unknown as IOAuthTokenRepository,
+    oauthAccessTokenService: {
+      getValidAccessToken: mockGetValidAccessToken,
+      forceRefreshAccessToken: mockForceRefreshAccessToken,
+    },
     transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
-    tokenEncryption: {
-      encrypt: mockEncrypt,
-      decrypt: mockDecrypt,
-    },
     logger: { error: mockLoggerError } as unknown as HandleSpreadsheetFileSelectionDeps['logger'],
     handleSheetSelection: {
       execute: mockHandleSheetSelectionExecute,
@@ -76,21 +74,6 @@ const baseInput: HandleSpreadsheetFileSelectionInput = {
   externalId: '987654321',
   channel: 'telegram',
   statePayload: null,
-};
-
-const mockToken = {
-  id: 'token-1',
-  userId: 'user-123',
-  provider: 'google' as const,
-  accessTokenEnc: Buffer.from('enc'),
-  refreshTokenEnc: Buffer.from('ref'),
-  iv: Buffer.from('iv'),
-  refreshIv: Buffer.from('refresh-iv'),
-  accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-  scope: ['drive.file'],
-  grantedAt: new Date(),
-  lastRefreshedAt: null,
-  revokedAt: null,
 };
 
 const mockFiles = [
@@ -110,8 +93,16 @@ const mockFiles = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDecrypt.mockReturnValue('decrypted-access-token');
-  mockFindToken.mockResolvedValue(mockToken);
+  mockGetValidAccessToken.mockResolvedValue({
+    accessToken: 'decrypted-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: false,
+  });
+  mockForceRefreshAccessToken.mockResolvedValue({
+    accessToken: 'refreshed-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: true,
+  });
 });
 
 describe('HandleSpreadsheetFileSelection', () => {
@@ -339,7 +330,9 @@ describe('HandleSpreadsheetFileSelection', () => {
 
   describe('error paths', () => {
     it('returns reconnect message and transitions to ONBOARDING_START when token is missing', async () => {
-      mockFindToken.mockResolvedValue(null);
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps({
         transitionState: {
@@ -359,18 +352,20 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
       expect(mockLoggerError).toHaveBeenCalledWith({
         endpoint: 'HandleSpreadsheetFileSelection',
-        code: 'TOKEN_MISSING',
+        code: 'TOKEN_UNAVAILABLE',
         userId: 'user-123',
-        errorType: undefined,
-        error: undefined,
+        errorType: 'SpreadsheetError',
+        error: 'No active token',
       });
     });
 
-    it('returns reconnect message and transitions to ONBOARDING_START when token is expired', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        accessTokenExpiresAt: new Date(Date.now() - 3600_000),
+    it('continues file discovery when an expired token refreshes', async () => {
+      mockGetValidAccessToken.mockResolvedValue({
+        accessToken: 'refreshed-access-token',
+        expiresAt: new Date(Date.now() + 3600_000),
+        refreshed: true,
       });
+      mockListRecent.mockResolvedValue(mockFiles);
 
       const deps = buildMockDeps({
         transitionState: {
@@ -380,21 +375,17 @@ describe('HandleSpreadsheetFileSelection', () => {
       const useCase = new HandleSpreadsheetFileSelection(deps);
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
-      expect(result.nextState).toBe('ONBOARDING_START');
-      expect(result.message).toBe(onboardingCopies.reconnectAccount());
-      expect(mockReconnectTransitionExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'ONBOARDING_START',
-        payload: { promptShown: true },
-      });
-      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      expect(result.nextState).toBe('ONBOARDING_FILE');
+      expect(mockListRecent).toHaveBeenCalledWith('refreshed-access-token', 'google');
+      expect(mockReconnectTransitionExecute).not.toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'ONBOARDING_START' }),
+      );
     });
 
     it('returns reconnect message and transitions to ONBOARDING_START when token is revoked', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        revokedAt: new Date(),
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Revoked token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps({
         transitionState: {
@@ -412,6 +403,26 @@ describe('HandleSpreadsheetFileSelection', () => {
         payload: { promptShown: true },
       });
       expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+    });
+
+    it('does not restart onboarding when token refresh fails transiently', async () => {
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('OAuth provider unavailable', {
+          code: 'NETWORK_ERROR',
+          retryable: true,
+        }),
+      );
+
+      const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
+
+      await expect(useCase.execute({ ...baseInput, statePayload: null })).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+      });
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.reconnectAccount(),
+      );
     });
 
     it('returns coming soon for microsoft provider', async () => {
