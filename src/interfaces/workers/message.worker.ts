@@ -229,6 +229,7 @@ async function routeByState(
     opts.undoLastExpense &&
     isValidExpenseReviewPayload(conversationState.statePayload)
   ) {
+    const immediateUndoExpenseId = conversationState.statePayload.immediateUndoExpenseId;
     const reviewPayload = { ...conversationState.statePayload };
     delete reviewPayload.immediateUndoExpenseId;
     await opts.transitionState.execute({
@@ -241,7 +242,7 @@ async function routeByState(
       const result = await opts.undoLastExpense.execute({
         userId,
         action: 'request',
-        immediateEligible: true,
+        immediateExpenseId: immediateUndoExpenseId,
       });
       await sendUndoOutcome(result, messaging, externalId);
     } catch (err) {
@@ -303,10 +304,15 @@ async function routeByState(
     case 'EXPENSE_RECEIVING': {
       if (currentState === 'IDLE' && isUndoIntent(rawMessage) && opts.undoLastExpense) {
         const immediateUndoExpenseId = conversationState?.statePayload?.immediateUndoExpenseId;
+        if (typeof immediateUndoExpenseId === 'string') {
+          await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+        }
         const result = await opts.undoLastExpense.execute({
           userId,
           action: 'request',
-          immediateEligible: typeof immediateUndoExpenseId === 'string',
+          ...(typeof immediateUndoExpenseId === 'string'
+            ? { immediateExpenseId: immediateUndoExpenseId }
+            : {}),
         });
         if (result.status === 'confirmation_required' && result.expense) {
           await opts.transitionState.execute({
@@ -412,7 +418,6 @@ async function routeByState(
       const result = await opts.undoLastExpense.execute({
         userId,
         action: 'confirm',
-        immediateEligible: false,
         pendingExpenseId,
       });
       await opts.transitionState.execute({ userId, targetState: 'IDLE' });

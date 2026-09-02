@@ -57,7 +57,7 @@ describe('UndoLastExpenseUseCase', () => {
     const result = await buildUseCase().execute({
       userId: 'user-1',
       action: 'request',
-      immediateEligible: true,
+      immediateExpenseId: 'expense-1',
     });
 
     expect(result).toMatchObject({
@@ -83,7 +83,11 @@ describe('UndoLastExpenseUseCase', () => {
     );
 
     await expect(
-      buildUseCase().execute({ userId: 'user-1', action: 'request', immediateEligible: true }),
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        immediateExpenseId: 'expense-1',
+      }),
     ).resolves.toEqual({ status: 'deletion_failed', errorType: 'AUTH_ERROR' });
 
     expect(softDeleteWithAudit).not.toHaveBeenCalled();
@@ -95,12 +99,65 @@ describe('UndoLastExpenseUseCase', () => {
     );
   });
 
+  it('classifies an unexpected spreadsheet failure as a network error without local deletion', async () => {
+    deleteRow.mockRejectedValue(new Error('socket closed'));
+
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        immediateExpenseId: 'expense-1',
+      }),
+    ).resolves.toEqual({ status: 'deletion_failed', errorType: 'NETWORK_ERROR' });
+
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
+    expect(logCreate).toHaveBeenCalledWith(
+      'user-1',
+      'EXPENSE_SAVE_FAILED',
+      { phase: 'undo' },
+      'NETWORK_ERROR',
+    );
+  });
+
+  it('returns a structure error without external or local deletion when configuration is missing', async () => {
+    findConfig.mockResolvedValue(null);
+
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        immediateExpenseId: 'expense-1',
+      }),
+    ).resolves.toEqual({ status: 'deletion_failed', errorType: 'STRUCTURE_ERROR' });
+
+    expect(createPort).not.toHaveBeenCalled();
+    expect(deleteRow).not.toHaveBeenCalled();
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
+    expect(logCreate).not.toHaveBeenCalled();
+  });
+
   it('returns confirmation_required without creating a spreadsheet port when immediate undo is unavailable', async () => {
     await expect(
-      buildUseCase().execute({ userId: 'user-1', action: 'request', immediateEligible: false }),
+      buildUseCase().execute({ userId: 'user-1', action: 'request' }),
     ).resolves.toMatchObject({ status: 'confirmation_required', expense: { id: 'expense-1' } });
     expect(createPort).not.toHaveBeenCalled();
     expect(deleteRow).not.toHaveBeenCalled();
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
+  });
+
+  it('requires confirmation without side effects when the immediate expense ID is stale', async () => {
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        immediateExpenseId: 'already-deleted-expense',
+      }),
+    ).resolves.toMatchObject({ status: 'confirmation_required', expense: { id: 'expense-1' } });
+
+    expect(createPort).not.toHaveBeenCalled();
+    expect(deleteRow).not.toHaveBeenCalled();
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
+    expect(logCreate).not.toHaveBeenCalled();
   });
 
   it('deletes once with a proactively refreshed expired token', async () => {
@@ -111,7 +168,11 @@ describe('UndoLastExpenseUseCase', () => {
     });
 
     await expect(
-      buildUseCase().execute({ userId: 'user-1', action: 'request', immediateEligible: true }),
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        immediateExpenseId: 'expense-1',
+      }),
     ).resolves.toMatchObject({ status: 'deleted' });
 
     expect(createPort).toHaveBeenCalledWith('refreshed-access-token');
@@ -125,7 +186,11 @@ describe('UndoLastExpenseUseCase', () => {
       .mockResolvedValueOnce(undefined);
 
     await expect(
-      buildUseCase().execute({ userId: 'user-1', action: 'request', immediateEligible: true }),
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        immediateExpenseId: 'expense-1',
+      }),
     ).resolves.toMatchObject({ status: 'deleted' });
 
     expect(forceRefreshAccessToken).toHaveBeenCalledTimes(1);
