@@ -23,7 +23,7 @@ export interface UndoLastExpenseOutput {
 export interface UndoLastExpenseInput {
   userId: string;
   action: 'request' | 'confirm';
-  immediateEligible: boolean;
+  immediateExpenseId?: string | undefined;
   pendingExpenseId?: string | undefined;
 }
 
@@ -49,7 +49,7 @@ export class UndoLastExpenseUseCase {
       savedAt: last.savedAt,
     };
 
-    if (input.action === 'request' && !input.immediateEligible) {
+    if (input.action === 'request' && input.immediateExpenseId !== last.id) {
       return { status: 'confirmation_required', expense };
     }
     if (input.action === 'confirm' && input.pendingExpenseId !== last.id) {

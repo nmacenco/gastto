@@ -352,11 +352,20 @@ describe('processMessageJob', () => {
 
         await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
 
+        expect(mockLoggerError).not.toHaveBeenCalled();
         expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
           userId: 'user-123',
           action: 'request',
-          immediateEligible: true,
+          immediateExpenseId: 'expense-1',
         });
+        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          targetState: 'IDLE',
+          payload: null,
+        });
+        expect(mockTransitionStateExecute.mock.invocationCallOrder[0]!).toBeLessThan(
+          mockUndoLastExpenseExecute.mock.invocationCallOrder[0]!,
+        );
         expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
         expect(mockSendMessage).toHaveBeenCalledWith(
           '123456789',
@@ -364,6 +373,111 @@ describe('processMessageJob', () => {
         );
       },
     );
+
+    it('does not invoke undo when immediate eligibility cannot be consumed', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ statePayload: { immediateUndoExpenseId: 'expense-1' } }),
+      );
+      mockTransitionStateExecute.mockRejectedValueOnce(new Error('state unavailable'));
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'deshacer' }), deps);
+
+      expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.fallbackError());
+    });
+
+    it('keeps immediate eligibility consumed when spreadsheet deletion fails', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ statePayload: { immediateUndoExpenseId: 'expense-1' } }),
+      );
+      mockUndoLastExpenseExecute.mockResolvedValue({
+        status: 'deletion_failed',
+        errorType: 'AUTH_ERROR',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'deshacer' }), deps);
+
+      expect(mockTransitionStateExecute).toHaveBeenCalledTimes(1);
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: null,
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.undoDeletionFailed());
+    });
+
+    it('requires confirmation instead of deleting on a second consecutive undo', async () => {
+      const deps = buildMockDeps();
+      const olderExpense = {
+        id: 'expense-older',
+        concepto: 'Taxi',
+        monto: 12,
+        moneda: 'EUR',
+        savedAt: new Date('2026-08-01T10:00:00Z'),
+      };
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(
+          buildConversationState({ statePayload: { immediateUndoExpenseId: 'expense-1' } }),
+        )
+        .mockResolvedValueOnce(buildConversationState());
+      mockUndoLastExpenseExecute
+        .mockResolvedValueOnce({
+          status: 'deleted',
+          expense: {
+            id: 'expense-1',
+            concepto: 'Café',
+            monto: 4.5,
+            moneda: 'EUR',
+            savedAt: new Date('2026-08-02T10:00:00Z'),
+          },
+        })
+        .mockResolvedValueOnce({ status: 'confirmation_required', expense: olderExpense });
+
+      const undoJob = buildJob({ ...baseJobData, rawMessage: 'deshacer' });
+      await processMessageJob(undoJob, deps);
+      await processMessageJob(undoJob, deps);
+
+      expect(mockUndoLastExpenseExecute).toHaveBeenNthCalledWith(1, {
+        userId: 'user-123',
+        action: 'request',
+        immediateExpenseId: 'expense-1',
+      });
+      expect(mockUndoLastExpenseExecute).toHaveBeenNthCalledWith(2, {
+        userId: 'user-123',
+        action: 'request',
+      });
+      expect(mockTransitionStateExecute).toHaveBeenNthCalledWith(1, {
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: null,
+      });
+      expect(mockTransitionStateExecute).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          userId: 'user-123',
+          targetState: 'EXPENSE_UNDO_CONFIRMING',
+          payload: { pendingExpenseId: 'expense-older' },
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledTimes(2);
+      expect(mockSendMessage).toHaveBeenNthCalledWith(
+        1,
+        '123456789',
+        expenseCopies.undoDeleted('Café', 4.5, 'EUR'),
+      );
+      expect(mockSendMessage).toHaveBeenNthCalledWith(
+        2,
+        '123456789',
+        expenseCopies.undoConfirmationRequired(
+          olderExpense.concepto,
+          olderExpense.monto,
+          olderExpense.moneda,
+          olderExpense.savedAt,
+        ),
+      );
+    });
 
     it('requires confirmation for delayed undo without deleting in the request turn', async () => {
       const deps = buildMockDeps();
@@ -384,7 +498,6 @@ describe('processMessageJob', () => {
       expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'request',
-        immediateEligible: false,
       });
       expect(mockTransitionStateExecute).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -711,7 +824,6 @@ describe('processMessageJob', () => {
       expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'confirm',
-        immediateEligible: false,
         pendingExpenseId: 'expense-1',
       });
       expect(mockTransitionStateExecute).toHaveBeenCalledWith({
@@ -745,6 +857,38 @@ describe('processMessageJob', () => {
   });
 
   describe('EXPENSE_REVIEW state', () => {
+    it('consumes queued-review immediate eligibility and forwards its exact expense ID', async () => {
+      const deps = buildMockDeps();
+      const reviewPayload = buildReviewStatePayload({ immediateUndoExpenseId: 'expense-1' });
+      const consumedPayload = { ...reviewPayload };
+      delete consumedPayload.immediateUndoExpenseId;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: reviewPayload,
+          expiresAt: new Date('2026-08-02T10:10:00Z'),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'deshacer' }), deps);
+
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'EXPENSE_REVIEW',
+        payload: consumedPayload,
+        expiresAt: new Date('2026-08-02T10:10:00Z'),
+      });
+      expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        action: 'request',
+        immediateExpenseId: 'expense-1',
+      });
+      expect(mockTransitionStateExecute.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockUndoLastExpenseExecute.mock.invocationCallOrder[0]!,
+      );
+      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+    });
+
     it('keeps correction routing ahead of queue admission', async () => {
       const deps = buildMockDeps();
       mockClassifyFreeTextExpenseIntentExecute.mockReturnValue({ kind: 'expense-like' });

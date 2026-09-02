@@ -1,6 +1,7 @@
 # E2E-07: Undo the Latest Expense
 
 - [ ] Passed.
+- [x] Rejected pending fix verification.
 
 ## Objective
 
@@ -28,8 +29,8 @@ Prove that an immediate undo removes only the most recently saved expense and sy
 
 ## Result
 
-- Date:
-- Tester:
-- Environment:
-- Evidence:
-- Notes:
+- Date: 2026-09-02
+- Tester: Nico
+- Environment: `develop`
+- Evidence: The newly created expense was saved and the first `deshacer` removed it as expected. Sending `deshacer` a second consecutive time immediately removed an older expense that had appeared earlier in the conversation history, without asking for confirmation.
+- Notes: Rejected because the second undo deleted an unrelated older expense when no immediate-undo eligibility should have remained. Re-run this scenario in `develop` after the fix is deployed.
