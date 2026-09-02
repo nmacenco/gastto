@@ -1,6 +1,6 @@
 # E2E-05: Cancel an In-Progress Expense Safely
 
-- [ ] Passed.
+- [x] Passed.
 
 ## Objective
 
@@ -28,8 +28,8 @@ Prove that cancellation removes an active draft without changing the spreadsheet
 
 ## Result
 
-- Date:
-- Tester:
-- Environment:
-- Evidence:
-- Notes:
+- Date: 2026-09-01
+- Tester: Ternico
+- Environment: developed
+- Evidence: Flujo ejecutado íntegramente: la cancelación indicó que no se guardó nada, el número de filas permaneció sin cambios y el gasto posterior del bus se procesó de forma independiente y guardó exactamente una fila.
+- Notes: Passed.

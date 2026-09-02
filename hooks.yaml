@@ -1,5 +1,7 @@
 hooks:
   - event: tool.after.edit
     actions:
-      - bash: "npx prettier --write $FILE"
-      - bash: "npx eslint --fix $FILE"
+      - bash: 'pnpm exec prettier --write "$FILE"'
+  - event: tool.after.edit
+    actions:
+      - bash: 'pnpm exec eslint --fix "$FILE"'

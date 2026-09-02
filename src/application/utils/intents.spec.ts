@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isConfirmIntent,
   isCancelIntent,
+  isUndoIntent,
   isListColumnsIntent,
   isRejectMappingIntent,
 } from './intents';
@@ -160,6 +161,22 @@ describe('isCancelIntent', () => {
     expect(isCancelIntent('ok')).toBe(false);
     expect(isCancelIntent('algo random')).toBe(false);
   });
+});
+
+describe('isUndoIntent', () => {
+  it.each(['deshacer', 'UNDO', 'borrar el último', '  Deshacer  ', 'borrar   el   ultimo'])(
+    'returns true for the normalized undo command %s',
+    (message) => {
+      expect(isUndoIntent(message)).toBe(true);
+    },
+  );
+
+  it.each(['rehacer', 'deshacer el gasto anterior', 'borrar', 'último gasto', 'Hola'])(
+    'returns false for the non-undo text %s',
+    (message) => {
+      expect(isUndoIntent(message)).toBe(false);
+    },
+  );
 });
 
 describe('isListColumnsIntent', () => {

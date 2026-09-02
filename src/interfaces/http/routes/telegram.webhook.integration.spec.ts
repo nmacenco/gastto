@@ -275,6 +275,46 @@ describe('POST /webhook/telegram — free-text expense routing (integration)', (
     );
   });
 
+  it('undo command: returns 200, bypasses guidance, and enqueues process-message job', async () => {
+    const capturedJobs: IncomingMessageJobData[] = [];
+    const deps = buildMockDeps();
+    (deps.incomingMessageQueue as unknown as { add: typeof mockProcessQueueAdd }).add = vi
+      .fn()
+      .mockImplementation((_name: string, data: IncomingMessageJobData) => {
+        capturedJobs.push(data);
+        return Promise.resolve(undefined);
+      });
+
+    const { app } = buildApp(deps);
+    const routeIncomingMessage = buildRouteIncomingMessage();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: makeValidPayload('deshacer'),
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    await vi.waitFor(() =>
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…'),
+    );
+
+    await processCapturedJob(capturedJobs, routeIncomingMessage);
+
+    expect(mockProcessQueueAdd).toHaveBeenCalledTimes(1);
+    expect(mockProcessQueueAdd).toHaveBeenCalledWith(
+      'process-message',
+      expect.objectContaining({ rawMessage: 'deshacer' }),
+    );
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage).not.toHaveBeenCalledWith(
+      '123456789',
+      expect.stringContaining('Para registrar un gasto'),
+    );
+  });
+
   it('non-financial reply during ONBOARDING_MAPPING: returns 200, enqueues process-message job, and sends ack', async () => {
     mockGetConversationStateExecute.mockResolvedValue({
       userId: 'user-123',
