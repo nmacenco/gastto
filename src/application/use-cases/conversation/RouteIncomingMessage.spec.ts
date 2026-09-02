@@ -209,6 +209,26 @@ describe('RouteIncomingMessage', () => {
       },
     );
 
+    it.each(['deshacer', 'UNDO', 'borrar el último'])(
+      'enqueues global undo command %s from IDLE without guidance',
+      async (text) => {
+        mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
+        const router = new RouteIncomingMessage(
+          buildMockDeps() as unknown as RouteIncomingMessageDeps,
+        );
+
+        await router.execute(buildTextPayload({ text }));
+
+        expect(mockClassifyExecute).toHaveBeenCalledWith(text);
+        expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
+        expect(mockAdd).toHaveBeenCalledWith(
+          'process-message',
+          expect.objectContaining({ rawMessage: text }),
+        );
+        expect(mockProcessedMarkAsProcessed).toHaveBeenCalledTimes(1);
+      },
+    );
+
     it('enqueues non-financial text when user is in ONBOARDING_MAPPING', async () => {
       mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
       mockGetConversationStateExecute.mockResolvedValue({

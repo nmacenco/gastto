@@ -1,6 +1,6 @@
 // LAYER: Application
 // Shared conversational intent detection utilities.
-// Centralizes confirmation and cancellation word lists used across use cases.
+// Centralizes confirmation, cancellation, and undo intent detection used across use cases.
 
 const CONFIRM_WORDS = [
   'si',
@@ -22,6 +22,8 @@ const CONFIRM_WORDS = [
 ];
 
 const CANCEL_WORDS = ['cancelar', 'cancela', 'para', 'stop', 'salir', 'cancel', 'exit'];
+
+const UNDO_COMMANDS = ['deshacer', 'undo', 'borrar el ultimo'];
 
 const REJECT_MAPPING_PHRASES = [
   'no',
@@ -96,6 +98,17 @@ export function isCancelIntent(rawMessage: string): boolean {
     normalized.startsWith('do not register') ||
     CANCEL_WORDS.some((w) => normalized === w || normalized.startsWith(w + ' '))
   );
+}
+
+export function isUndoIntent(rawMessage: string): boolean {
+  const normalized = rawMessage
+    .toLocaleLowerCase('es')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return UNDO_COMMANDS.includes(normalized);
 }
 
 export function isListColumnsIntent(rawMessage: string): boolean {

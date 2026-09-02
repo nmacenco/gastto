@@ -24,7 +24,8 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
 - Before processing a `process-message` job, the worker verifies that its `(channel, externalId)` resolves to its declared `userId`. A mismatch is rejected before the per-user lock, state lookup, messaging, or FSM handling.
 - `RouteIncomingMessage` routes `TEXT` and `UNSUPPORTED`:
   - `TEXT` → resolves user identity, loads the current conversation state, and decides based on the FSM state:
-    - `IDLE` / `EXPENSE_RECEIVING` → classifies the text with `ClassifyFreeTextExpenseIntent`. Expense-like or very-long messages are enqueued to `process-message` and acknowledged; non-financial messages receive guidance and are not enqueued.
+    - `IDLE` / `EXPENSE_RECEIVING` → classifies the text with `ClassifyFreeTextExpenseIntent`. Expense-like or very-long messages are enqueued to `process-message` and acknowledged; ordinary non-financial messages receive guidance and are not enqueued.
+    - Global cancellation and normalized undo commands (`deshacer`, `undo`, and `borrar el último`) bypass non-financial guidance and are enqueued to `process-message` so the FSM worker can handle them in context.
     - Spanish expense verbs are matched without requiring diacritics, so partial inputs such as `Compre cafe` reach expense interpretation and its missing-data clarification flow.
     - Any other active state (e.g. `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `EXPENSE_REVIEW`, `EXPENSE_CLARIFYING`) → the message is enqueued to `process-message` and acknowledged, bypassing the intent classifier. This ensures onboarding replies and expense corrections are handled by the FSM in context.
   - `UNSUPPORTED` → delegates to `HandleUnsupportedMessage` which replies with a friendly message.
@@ -62,7 +63,8 @@ RouteIncomingMessage.execute()
       │                        │
       │    IDLE/EXPENSE_RECEIVING? ──► classify intent
       │                        │
-      │        non-financial ──► guidance
+      │        ordinary non-financial ──► guidance
+      │        cancel/undo command ──► process-message Queue ──► Thick Worker
       │        financial/too-long ──► process-message Queue ──► Thick Worker
       │
       │    active state ──► process-message Queue ──► Thick Worker
@@ -99,13 +101,13 @@ No database schema changes yet. The feature operates on transient domain value o
 
 - [x] `TelegramPayloadParser.spec.ts` — private and non-private chat-scope classification, happy path, unsupported types (photo, audio, sticker), empty text, malformed payloads, null payloads, `externalMessageId` extraction.
 - [x] `messaging.spec.ts` — `NormalizedPayload` contract, including optional `externalMessageId`.
-- [x] `RouteIncomingMessage.spec.ts` — TEXT routing (identity, enqueue, ack, ack-failure logging), UNSUPPORTED delegation.
+- [x] `RouteIncomingMessage.spec.ts` — TEXT routing (identity, enqueue, ack, ack-failure logging), global cancel/undo command bypass, UNSUPPORTED delegation.
 - [x] `HandleUnsupportedMessage.spec.ts` — exact copy sent, no-throw on send failure.
 - [x] `SendImmediateAcknowledgement.spec.ts` — success path, port-level failure, exception handling, optional `userId` and `whatsapp` channel acceptance.
 - [x] `ProcessedMessageKey.spec.ts` — construction, channel validation, empty ID validation, equality.
 - [x] `ProcessedMessageRepository.spec.ts` — contract test for `exists` and `markAsProcessed`.
 - [x] `telegram.webhook.spec.ts` — origin authentication before body validation, private-chat routing, metadata-only malformed logging, non-private zero-side-effect acknowledgment, unsupported messages, `/start` short-circuit, and FIFO enqueue.
-- [x] `telegram.webhook.integration.spec.ts` — end-to-end scenarios including accent-insensitive partial expenses and non-financial replies during active onboarding states that must be enqueued to `process-message` instead of receiving guidance.
+- [x] `telegram.webhook.integration.spec.ts` — end-to-end scenarios including accent-insensitive partial expenses, undo-command routing, and non-financial replies during active onboarding states that must be enqueued to `process-message` instead of receiving guidance.
 - [x] `incomingMessage.worker.spec.ts` — strict payload validation, job deserialization, FIFO processing, worker construction (`concurrency: 1`), and metadata-only failed-event logging.
 
 ## Related User Stories

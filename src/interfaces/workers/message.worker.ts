@@ -60,6 +60,7 @@ import { expenseCopies } from '../../application/copies/expense.copies';
 import {
   isConfirmIntent,
   isCancelIntent,
+  isUndoIntent,
   isListColumnsIntent,
   isIdkVariant,
 } from '../../application/utils/intents';
@@ -206,7 +207,7 @@ async function routeByState(
 
   // The immediate-undo token is valid for precisely the next inbound message.
   // Clear it before any other routing path, including global cancellation.
-  const isImmediateUndoCommand = currentState === 'IDLE' && isUndoCommand(rawMessage);
+  const isImmediateUndoCommand = currentState === 'IDLE' && isUndoIntent(rawMessage);
   if (
     currentState === 'IDLE' &&
     conversationState?.statePayload?.immediateUndoExpenseId &&
@@ -223,7 +224,7 @@ async function routeByState(
         : null;
   if (
     currentState === 'EXPENSE_REVIEW' &&
-    isUndoCommand(rawMessage) &&
+    isUndoIntent(rawMessage) &&
     typeof conversationState?.statePayload?.immediateUndoExpenseId === 'string' &&
     opts.undoLastExpense &&
     isValidExpenseReviewPayload(conversationState.statePayload)
@@ -300,7 +301,7 @@ async function routeByState(
   switch (currentState) {
     case 'IDLE':
     case 'EXPENSE_RECEIVING': {
-      if (currentState === 'IDLE' && isUndoCommand(rawMessage) && opts.undoLastExpense) {
+      if (currentState === 'IDLE' && isUndoIntent(rawMessage) && opts.undoLastExpense) {
         const immediateUndoExpenseId = conversationState?.statePayload?.immediateUndoExpenseId;
         const result = await opts.undoLastExpense.execute({
           userId,
@@ -643,15 +644,6 @@ async function handleExpenseSavingRetry(
   }
 
   await messaging.sendMessage(externalId, expenseCopies.saveNetworkFailure());
-}
-
-function isUndoCommand(rawMessage: string): boolean {
-  const normalized = rawMessage
-    .trim()
-    .toLocaleLowerCase('es')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-  return normalized === 'deshacer' || normalized === 'undo' || normalized === 'borrar el ultimo';
 }
 
 async function sendUndoOutcome(

@@ -1,6 +1,6 @@
 # E2E-04: Correct an Expense Before Saving
 
-- [ ] Passed.
+- [x] Passed.
 
 ## Objective
 
@@ -31,13 +31,12 @@ Prove that a user can correct a reviewed expense in natural language and that on
 - Date: 2026-09-01
 - Tester: Nico
 - Environment: development
-- Evidence: Conversation transcript supplied by the tester.
-- Notes: Failed. After the review for `Pague 30 euros por taxi`, the correction `eran 35 EUR y la categoria es transporte` received only the processing acknowledgement. The bot appears to have enqueued the correction as another expense instead of applying it to the active review. A later `y?` message was also acknowledged without completing the correction; the bot eventually replied `You still have one expense awaiting confirmation and 1 more in the queue. Shall we confirm, correct, or cancel the current one?` This introduced a second defect: the bot switched to English in an otherwise Spanish conversation. No updated summary was returned, so the case could not proceed to confirmation or spreadsheet verification.
+- Evidence: Conversation transcript and spreadsheet row verified by the tester.
+- Notes: Passed on retest. The correction `eran 35 EUR y la categoría es Transporte` returned an updated review summary with amount `35 EUR` and category `transporte`. After confirmation, exactly one corrected expense was verified in the spreadsheet and the original amount `30` was not saved. The concept still contains the original phrase `pague 30 euros por taxi`; normalizing it to a value independent of the amount, such as `Taxi`, is a separate quality improvement and does not block this test.
 
-## Retest Required
+## Retest
 
-- Status: Pending connected retest after the correction-routing and Spanish queue-copy implementation.
-- Verify that the correction returns one updated summary with amount `35 EUR` and the configured transport category.
-- Verify that no pending queue entry or spreadsheet row is created by the correction itself.
-- Send an unrelated follow-up such as `y?` and verify that the bot responds in Spanish without hanging.
-- Confirm the corrected review and verify that exactly one new spreadsheet row contains `35 EUR`, never the original amount `30`.
+- Status: Passed on 2026-09-01.
+- The correction returned one updated summary with amount `35 EUR` and the configured transport category.
+- No row was added before confirmation.
+- Confirmation saved exactly one corrected row containing `35 EUR`, never the original amount `30`.
