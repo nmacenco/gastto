@@ -64,19 +64,19 @@ Plan an additive hierarchy and stable identifiers without activating new runtime
 
 #### To-do actions
 
-- [ ] Create `ai/plans/2026_09_02-subcategory_data_domain_foundation/2026_09_02-subcategory_data_domain_foundation-plan.md`.
-- [ ] Specify `user_subcategories` with `id`, `category_id`, raw and normalized values, usage count, active flag, creation timestamp, FK, lookup index, and `(category_id, normalized_value)` uniqueness.
-- [ ] Specify nullable `category_id`, `subcategory_id`, and `subcategoria` columns for `expense_records`, including indexes and `ON DELETE SET NULL` behavior.
-- [ ] Require schema-first Drizzle changes and a generated additive migration without editing existing migrations.
-- [ ] Define the `Subcategory` entity and parent-scoped add, rename, move, remove, lookup, and duplicate invariants in `CategoryVocabulary`.
-- [ ] Preserve domain-generated category and subcategory IDs when repositories insert new rows.
-- [ ] Define row-level and aggregate repository contracts for loading and saving the hierarchy transactionally.
-- [ ] Extend `ExpenseRecord` with nullable identifiers and the subcategory snapshot while retaining current category behavior.
-- [ ] Specify domain, repository, schema, and integration tests for hierarchy integrity, duplicate scope, soft-disable behavior, and deletion semantics.
-- [ ] Require a new ADR for the hierarchy and snapshot/reference strategy, plus updates to `docs/adr/README.md` and `docs/architecture/data-model.md`.
-- [ ] Require focused tests and then the complete project test suite in the subplan.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create `ai/plans/2026_09_02-subcategory_data_domain_foundation/2026_09_02-subcategory_data_domain_foundation-plan.md`.
+- [x] Specify `user_subcategories` with `id`, `category_id`, raw and normalized values, usage count, active flag, creation timestamp, FK, lookup index, and `(category_id, normalized_value)` uniqueness.
+- [x] Specify nullable `category_id`, `subcategory_id`, and `subcategoria` columns for `expense_records`, including indexes and `ON DELETE SET NULL` behavior.
+- [x] Require schema-first Drizzle changes and a generated additive migration without editing existing migrations.
+- [x] Define the `Subcategory` entity and parent-scoped add, rename, move, remove, lookup, and duplicate invariants in `CategoryVocabulary`.
+- [x] Preserve domain-generated category and subcategory IDs when repositories insert new rows.
+- [x] Define row-level and aggregate repository contracts for loading and saving the hierarchy transactionally.
+- [x] Extend `ExpenseRecord` with nullable identifiers and the subcategory snapshot while retaining current category behavior.
+- [x] Specify domain, repository, schema, and integration tests for hierarchy integrity, duplicate scope, soft-disable behavior, and deletion semantics.
+- [x] Require a new ADR for the hierarchy and snapshot/reference strategy, plus updates to `docs/adr/README.md` and `docs/architecture/data-model.md`.
+- [x] Require focused tests and then the complete project test suite in the subplan.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Create the spreadsheet mapping and pair-detection subplan
 
@@ -192,4 +192,4 @@ Plan spreadsheet and internal persistence, then close the feature with backward-
 
 ## Next step
 
-Create the Phase 2 additive data and domain foundation subplan before making any application-code changes.
+Create the Phase 3 spreadsheet mapping and pair-detection subplan before making any application-code changes.

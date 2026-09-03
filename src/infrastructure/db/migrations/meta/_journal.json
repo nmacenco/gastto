@@ -50,6 +50,13 @@
       "when": 1785678186949,
       "tag": "0006_add_undo_confirming_state",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788463736975,
+      "tag": "0007_material_eternals",
+      "breakpoints": true
     }
   ]
 }

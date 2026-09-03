@@ -1,6 +1,6 @@
 # Data Model
 
-The MVP schema consists of 10 tables grouped into five functional areas: user identity, conversational state, OAuth tokens, spreadsheet configuration, and expense records plus audit logs. All tables use UUID primary keys with `gen_random_uuid()` defaults and `TIMESTAMPTZ` timestamps. PostgreSQL `TEXT` with `CHECK` constraints is preferred over native `ENUM` types to simplify future migrations.
+The schema consists of 11 tables grouped into five functional areas: user identity, conversational state, OAuth tokens, spreadsheet configuration, and expense records plus audit logs. All tables use UUID primary keys with `gen_random_uuid()` defaults and `TIMESTAMPTZ` timestamps. PostgreSQL `TEXT` with `CHECK` constraints is preferred over native `ENUM` types to simplify future migrations.
 
 ## Entity Graph
 
@@ -15,6 +15,7 @@ users
 ├── spreadsheet_configs         (1:1 — one active spreadsheet)
 │     ├── column_mappings       (1:N — field-to-column map)
 │     └── user_categories       (1:N — category vocabulary)
+│           └── user_subcategories (1:N — linked subcategory vocabulary)
 ├── expense_records             (1:N — saved expenses, soft delete)
 └── operation_logs              (1:N — immutable audit trail)
 ```
@@ -143,6 +144,21 @@ Per-spreadsheet category vocabulary used for semantic mapping.
 | `created_at`       | `TIMESTAMPTZ` | NOT NULL, default `now()`               | Creation timestamp.                       |
 | **UNIQUE**         | —             | `(spreadsheet_id, normalized_value)`    | One normalized entry per spreadsheet.     |
 
+### user_subcategories
+
+Per-category subcategory vocabulary. Every configured subcategory belongs to exactly one category.
+
+| Column             | Type          | Constraints                         | Description                                       |
+| ------------------ | ------------- | ----------------------------------- | ------------------------------------------------- |
+| `id`               | `UUID`        | PK, default `gen_random_uuid()`     | Stable subcategory identifier.                    |
+| `category_id`      | `UUID`        | FK → `user_categories(id)`, CASCADE | Required parent category.                         |
+| `raw_value`        | `TEXT`        | NOT NULL                            | Exact display and spreadsheet value.              |
+| `normalized_value` | `TEXT`        | NOT NULL                            | Normalized value used for parent-scoped matching. |
+| `usage_count`      | `INTEGER`     | NOT NULL, default `0`               | Usage counter for ranking.                        |
+| `is_active`        | `BOOLEAN`     | NOT NULL, default `true`            | Soft-disable without deleting historical links.  |
+| `created_at`       | `TIMESTAMPTZ` | NOT NULL, default `now()`           | Record creation timestamp.                        |
+| **UNIQUE**         | —             | `(category_id, normalized_value)`   | One normalized child per parent category.         |
+
 ### expense_records
 
 Immutable record of every successfully saved expense. Enables undo and future query features.
@@ -155,7 +171,10 @@ Immutable record of every successfully saved expense. Enables undo and future qu
 | `concepto`             | `TEXT`          | NOT NULL                                  | Expense description.                              |
 | `monto`                | `NUMERIC(14,2)` | NOT NULL, CHECK `>= 0`                    | Expense amount.                                   |
 | `moneda`               | `TEXT`          | NOT NULL, CHECK                           | `ARS`, `EUR`, `USD`, `MXN`, `GBP`, `BRL`.         |
-| `categoria`            | `TEXT`          | NULL                                      | Mapped category. NULL if unassigned.              |
+| `categoria`            | `TEXT`          | NULL                                      | Category text snapshot at save time.              |
+| `category_id`          | `UUID`          | NULL, FK → `user_categories(id)`, SET NULL | Stable category reference when available.         |
+| `subcategory_id`       | `UUID`          | NULL, FK → `user_subcategories(id)`, SET NULL | Stable subcategory reference when available.   |
+| `subcategoria`         | `TEXT`          | NULL                                      | Subcategory text snapshot at save time.           |
 | `fecha_gasto`          | `DATE`          | NOT NULL                                  | User-facing expense date.                         |
 | `medio_pago`           | `TEXT`          | NULL                                      | Payment method.                                   |
 | `sheet_name`           | `TEXT`          | NOT NULL                                  | Target sheet at save time.                        |
@@ -194,6 +213,8 @@ Immutable audit trail of critical operations.
 | `idx_oauth_tokens_user_provider`  | `oauth_tokens`         | `user_id`, `provider`                       | Token lookup on every spreadsheet operation.          |
 | `idx_spreadsheet_configs_user`    | `spreadsheet_configs`  | `user_id`                                   | Lookup user's linked spreadsheet.                     |
 | `idx_column_mappings_spreadsheet` | `column_mappings`      | `spreadsheet_id`                            | Load all mappings for a spreadsheet.                  |
+| `idx_expense_records_category`    | `expense_records`      | `category_id`                               | Historical expenses referencing a category.           |
+| `idx_expense_records_subcategory` | `expense_records`      | `subcategory_id`                            | Historical expenses referencing a subcategory.        |
 | `idx_expense_records_sheet_row`   | `expense_records`      | `spreadsheet_id`, `sheet_name`, `row_index` | Deterministic row reference for undo.                 |
 | `idx_operation_logs_user_created` | `operation_logs`       | `user_id`, `created_at`                     | User audit history.                                   |
 
@@ -204,6 +225,7 @@ Immutable audit trail of critical operations.
 | `idx_conversation_states_expires` | `conversation_states` | `expires_at`              | `expires_at IS NOT NULL`            | Cleanup job for expired states.      |
 | `idx_oauth_tokens_expires`        | `oauth_tokens`        | `access_token_expires_at` | `revoked_at IS NULL`                | Proactive refresh detection.         |
 | `idx_user_categories_spreadsheet` | `user_categories`     | `spreadsheet_id`          | `is_active = true`                  | Active category lookups.             |
+| `idx_user_subcategories_category` | `user_subcategories`  | `category_id`             | `is_active = true`                  | Active children for one category.    |
 | `idx_expense_records_user_latest` | `expense_records`     | `user_id`, `saved_at`     | `is_deleted = false`                | Undo: last non-deleted expense.      |
 | `idx_expense_records_user_fecha`  | `expense_records`     | `user_id`, `fecha_gasto`  | `is_deleted = false`                | Future historical queries by period. |
 | `idx_operation_logs_failures`     | `operation_logs`      | `created_at`              | `operation = 'EXPENSE_SAVE_FAILED'` | Failure alerting and monitoring.     |
@@ -219,8 +241,11 @@ Immutable audit trail of critical operations.
 | `spreadsheet_configs`  | `user_id`        | `users`               | `CASCADE`   | Remove spreadsheet config when a user is deleted.                     |
 | `column_mappings`      | `spreadsheet_id` | `spreadsheet_configs` | `CASCADE`   | Delete mappings with their spreadsheet.                               |
 | `user_categories`      | `spreadsheet_id` | `spreadsheet_configs` | `CASCADE`   | Delete categories with their spreadsheet.                             |
+| `user_subcategories`   | `category_id`    | `user_categories`     | `CASCADE`   | Delete configured children when their category is hard-deleted.       |
 | `expense_records`      | `user_id`        | `users`               | `CASCADE`   | Remove expenses when a user is deleted.                               |
 | `expense_records`      | `spreadsheet_id` | `spreadsheet_configs` | `NO ACTION` | Intentionally preserves expense history if a spreadsheet is unlinked. |
+| `expense_records`      | `category_id`    | `user_categories`     | `SET NULL`  | Retain the category snapshot if its vocabulary row is deleted.        |
+| `expense_records`      | `subcategory_id` | `user_subcategories`  | `SET NULL`  | Retain the subcategory snapshot if its vocabulary row is deleted.     |
 | `operation_logs`       | `user_id`        | `users`               | `CASCADE`   | Remove audit trail when a user is deleted.                            |
 
 ## Domain Aggregates
@@ -248,6 +273,7 @@ The aggregate is persisted via `ICategoryVocabularyRepository`, which translates
 - **Config replaced on re-onboarding via upsert.** When a user re-onboards (e.g., after an expired OAuth token), `ISpreadsheetConfigRepository.upsertByUserId` transparently replaces the existing row via `ON CONFLICT (user_id) DO UPDATE`, avoiding `uq_user_spreadsheet` violations. The `create` method remains for first-time users only.
 - **Optional spreadsheet row reference.** A confirmed spreadsheet write always records its destination sheet; `expense_records.row_index` is nullable only when the provider confirms the write but does not expose a row number. This preserves the successful-save audit while preventing an unverified row reference from being invented.
 - **Aggregate-oriented category repository.** `ICategoryVocabularyRepository` provides aggregate-level operations (`findBySpreadsheetId`, `save`) while `IUserCategoryRepository` continues to expose row-level operations (`findActiveBySpreadsheetId`, `upsertMany`, `incrementUsage`). Both interfaces are implemented by separate Drizzle repository classes operating on the same `user_categories` table, keeping the Domain and Application layers clean of ORM details.
+- **Linked subcategories use stable references plus immutable snapshots.** `user_subcategories` requires a parent category and scopes normalized-name uniqueness to that parent. Saved expenses keep nullable category/subcategory UUID references for traceability and separate `categoria`/`subcategoria` text snapshots for historical stability. Vocabulary deletion sets references to NULL without rewriting snapshots, and existing rows receive no inferred backfill. See ADR-022.
 
 ## Related ADRs
 
@@ -255,3 +281,4 @@ The aggregate is persisted via `ICategoryVocabularyRepository`, which translates
 - [ADR-004: Spreadsheet Integration — Adapter Pattern](../adr/adr.md#adr-004--integración-con-planillas-adapter-pattern) — Motivates `spreadsheet_configs`, `column_mappings`, and dynamic column mapping.
 - [ADR-007: Security — OAuth Token Storage with AES-256](../adr/adr.md#adr-007--seguridad-almacenamiento-de-tokens-oauth-con-aes-256) — Describes the encryption strategy for `oauth_tokens`.
 - [ADR-008: User Identity — Local Registration with Own userId](../adr/adr.md#adr-008--identidad-de-usuario-registro-local-con-userid-propio) — Explains the `users` / `messaging_identities` split and the internal `user_id` anchor.
+- [ADR-022: Store Linked Subcategories with Stable References and Snapshots](../adr/ADR-022-linked-subcategory-hierarchy.md) — Defines the required parent hierarchy, parent-scoped uniqueness, nullable expense references, and immutable snapshots.

@@ -216,6 +216,27 @@ export const userCategories = pgTable(
   }),
 );
 
+export const userSubcategories = pgTable(
+  'user_subcategories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => userCategories.id, { onDelete: 'cascade' }),
+    rawValue: text('raw_value').notNull(),
+    normalizedValue: text('normalized_value').notNull(),
+    usageCount: integer('usage_count').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    categoryIdx: index('idx_user_subcategories_category')
+      .on(t.categoryId)
+      .where(sql`${t.isActive} = true`),
+    uniqueSubcategory: uniqueIndex('uq_category_subcategory').on(t.categoryId, t.normalizedValue),
+  }),
+);
+
 // ── GRUPO 5: REGISTRO DE GASTOS ───────────────────────────────────────────────
 
 export const expenseRecords = pgTable(
@@ -232,6 +253,13 @@ export const expenseRecords = pgTable(
     monto: numeric('monto', { precision: 14, scale: 2 }).notNull(),
     moneda: text('moneda').notNull(),
     categoria: text('categoria'),
+    categoryId: uuid('category_id').references(() => userCategories.id, {
+      onDelete: 'set null',
+    }),
+    subcategoryId: uuid('subcategory_id').references(() => userSubcategories.id, {
+      onDelete: 'set null',
+    }),
+    subcategoria: text('subcategoria'),
     fechaGasto: date('fecha_gasto').notNull(),
     medioPago: text('medio_pago'),
     sheetName: text('sheet_name').notNull(),
@@ -255,6 +283,8 @@ export const expenseRecords = pgTable(
       t.sheetName,
       t.rowIndex,
     ),
+    categoryIdx: index('idx_expense_records_category').on(t.categoryId),
+    subcategoryIdx: index('idx_expense_records_subcategory').on(t.subcategoryId),
     montoCheck: check('chk_monto', sql`${t.monto} >= 0`),
     monedaCheck: check('chk_moneda', sql`${t.moneda} IN ('ARS','EUR','USD','MXN','GBP','BRL')`),
     confidenceCheck: check(
