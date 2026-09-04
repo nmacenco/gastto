@@ -93,20 +93,20 @@ Introduce a hierarchy reader and factory that consume complete rows from `Spread
 
 #### To-do actions
 
-- [ ] Add the `CategorySubcategoryPair`, `CategoryHierarchyReadResult`, `ICategoryHierarchyReaderPort`, and `ICategoryHierarchyReaderPortFactory` domain contracts defined above while retaining `ICategoryReaderPort` unchanged for the existing flat flow.
-- [ ] Add `SpreadsheetCategoryHierarchyReader` in the spreadsheet adapter layer and build an A1 range from column A through the furthest mapped category/subcategory column, beginning at `dataStartRow` so returned value positions remain aligned with the absolute mapping indexes.
-- [ ] Validate non-negative mapped column indexes and a positive integer `dataStartRow`; propagate typed provider errors and never return a partially invented hierarchy after a read failure.
-- [ ] For each row, trim and lowercase category and subcategory text consistently with `SpreadsheetCategoryReader`; ignore rows where both values are blank and include category-only rows in `categories` without creating a child.
-- [ ] Deduplicate categories by normalized category, deduplicate pairs by normalized parent plus normalized child while preserving first-seen order, and keep an equal normalized child under different parents as two distinct pairs.
-- [ ] When a row has a nonblank subcategory and a blank category, exclude it from `pairs`, add its normalized value once to `orphanSubcategories`, and never assign a default, previous, or inferred parent.
-- [ ] Add the provider-aware factory wiring needed for future Application use while leaving `DetectCategories`, vocabulary persistence, FSM payloads, onboarding messages, and expense saving unchanged in this subplan.
-- [ ] Add `SpreadsheetCategoryHierarchyReader.spec.ts` with meaningful assertions for mapped category/subcategory columns in either order, custom data-start rows, duplicate normalized pairs, blank children, category-only rows, same-name children under different parents, duplicate orphans, fully blank rows, invalid indexes, empty results, and provider failure propagation.
-- [ ] Add factory tests proving both `google` and `microsoft` readers use their existing `readRows()` implementations without importing provider details into Domain or Application code.
-- [ ] Run the focused hierarchy-reader and both provider adapter test suites.
-- [ ] Run `pnpm test` to execute the complete project test suite after the focused tests pass.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add the `CategorySubcategoryPair`, `CategoryHierarchyReadResult`, `ICategoryHierarchyReaderPort`, and `ICategoryHierarchyReaderPortFactory` domain contracts defined above while retaining `ICategoryReaderPort` unchanged for the existing flat flow.
+- [x] Add `SpreadsheetCategoryHierarchyReader` in the spreadsheet adapter layer and build an A1 range from column A through the furthest mapped category/subcategory column, beginning at `dataStartRow` so returned value positions remain aligned with the absolute mapping indexes.
+- [x] Validate non-negative mapped column indexes and a positive integer `dataStartRow`; propagate typed provider errors and never return a partially invented hierarchy after a read failure.
+- [x] For each row, trim and lowercase category and subcategory text consistently with `SpreadsheetCategoryReader`; ignore rows where both values are blank and include category-only rows in `categories` without creating a child.
+- [x] Deduplicate categories by normalized category, deduplicate pairs by normalized parent plus normalized child while preserving first-seen order, and keep an equal normalized child under different parents as two distinct pairs.
+- [x] When a row has a nonblank subcategory and a blank category, exclude it from `pairs`, add its normalized value once to `orphanSubcategories`, and never assign a default, previous, or inferred parent.
+- [x] Add the provider-aware factory wiring needed for future Application use while leaving `DetectCategories`, vocabulary persistence, FSM payloads, onboarding messages, and expense saving unchanged in this subplan.
+- [x] Add `SpreadsheetCategoryHierarchyReader.spec.ts` with meaningful assertions for mapped category/subcategory columns in either order, custom data-start rows, duplicate normalized pairs, blank children, category-only rows, same-name children under different parents, duplicate orphans, fully blank rows, invalid indexes, empty results, and provider failure propagation.
+- [x] Add factory tests proving both `google` and `microsoft` readers use their existing `readRows()` implementations without importing provider details into Domain or Application code.
+- [x] Run the focused hierarchy-reader and both provider adapter test suites.
+- [x] Run `pnpm test` to execute the complete project test suite after the focused tests pass.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Implement Phase 3 by adding row-preserving hierarchy pair detection on top of the provider-neutral row readers.
+All phases are complete; review and commit the finished subcategory spreadsheet mapping and hierarchy detection subplan.

@@ -3,6 +3,7 @@
 
 export * from './categoryModificationParser';
 export * from './categoryReader';
+export * from './categoryHierarchyReader';
 export * from './cloudStorage';
 export * from './columnInference';
 export * from './headerDetection';

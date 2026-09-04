@@ -41,6 +41,8 @@ No HTTP endpoints. The feature is triggered by the `ONBOARDING_CATEGORIES` FSM s
 
 - `SpreadsheetCategoryReader.readCategories(fileId, columnIndex, sheetName, dataStartRow?): Promise<string[]>` — reads and normalizes category values from a spreadsheet column, defaulting to row 2.
 - `SpreadsheetPort.getUniqueValues(fileId, columnIndex, sheetName, dataStartRow?): Promise<string[]>` — adapter-level method that returns deduplicated non-empty values from a column beginning at the supplied 1-based positive row, defaulting to row 2.
+- `SpreadsheetCategoryHierarchyReader.readHierarchy(fileId, categoryColumnIndex, subcategoryColumnIndex, sheetName, dataStartRow?): Promise<CategoryHierarchyReadResult>` reads complete rows from column A through the furthest mapped hierarchy column. It returns normalized categories, parent-scoped pairs, and deduplicated orphan subcategories in first-seen order.
+- `SpreadsheetCategoryHierarchyReaderFactory` accepts a provider-specific `SpreadsheetPortFactory`; Google and Microsoft factories both delegate hierarchy reads to their existing `readRows()` implementations without exposing provider details to Domain or Application.
 - `RegexCategoryModificationParser.parse(input: string): Promise<CategoryModificationIntent>` — lightweight rule-based parser supporting Spanish and English add/remove/rename patterns.
 - `DrizzleCategoryVocabularyRepository` — persists `CategoryVocabulary` aggregates to `user_categories` with soft-delete of removed categories and upsert of new ones.
 
@@ -58,6 +60,8 @@ No HTTP endpoints. The feature is triggered by the `ONBOARDING_CATEGORIES` FSM s
 - `src/application/use-cases/spreadsheet/ModifyCategoryVocabulary.spec.ts` — covers add, remove, rename, unknown intent, duplicate rejection, missing config, and missing targets.
 - `src/infrastructure/adapters/RegexCategoryModificationParser.spec.ts` — covers Spanish and English add/remove/rename/unknown patterns with normalization.
 - `src/infrastructure/adapters/sheets/SpreadsheetCategoryReader.spec.ts` — covers normalization, deduplication, and empty filtering.
+- `src/infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReader.spec.ts` — covers row-aligned normalization, parent-scoped deduplication, orphan exclusion, column order, range construction, validation, empty results, and provider failure propagation.
+- `src/infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory.spec.ts` — proves Google and Microsoft hierarchy readers use the provider row-reading adapters.
 - `src/infrastructure/adapters/sheets/GoogleSheetsAdapter.spec.ts` — covers `getUniqueValues` header skip and error handling.
 - `src/infrastructure/adapters/sheets/ExcelOnlineAdapter.spec.ts` — covers `getUniqueValues` header skip and error handling.
 - `src/interfaces/workers/message.worker.spec.ts` — covers `ONBOARDING_CATEGORIES` delegation to DetectCategories, ConfirmCategories, ModifyCategoryVocabulary, and fallback branches.
@@ -70,3 +74,4 @@ No HTTP endpoints. The feature is triggered by the `ONBOARDING_CATEGORIES` FSM s
 
 - `RegisterExpenseUseCase` already reads active categories from `user_categories`, so completing the confirmation persistence will immediately improve category resolution.
 - The current `DetectCategories` use case sends the prompt and stores categories in the FSM payload, but does not yet wait for or process the user's response.
+- The hierarchy reader is an implemented provider-independent foundation but is not yet consumed by `DetectCategories`; the active onboarding behavior and category-only payload remain unchanged until the next master-plan phase wires hierarchy detection into Application.
