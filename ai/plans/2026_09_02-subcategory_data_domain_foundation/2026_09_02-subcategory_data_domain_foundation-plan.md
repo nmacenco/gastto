@@ -102,17 +102,17 @@ Complete the inactive foundation by extending saved-expense entities and persist
 
 #### To-do actions
 
-- [ ] Extend `ExpenseRecord` with `categoryId: string | null`, `subcategoryId: string | null`, and `subcategoria: string | null`, retaining `categoria` as the historical category text snapshot and making no change to `ExtractedExpense` in this subplan.
-- [ ] Update `DrizzleExpenseRecordRepository.create` to insert both nullable identifiers and the subcategory snapshot, and update `mapExpenseRecord` so create, latest-expense, average/currency queries, and undo paths return the extended entity without changing their selection semantics.
-- [ ] Update the current `RegisterExpenseUseCase.save` call to pass `categoryId: null`, `subcategoryId: null`, and `subcategoria: null`; do not alter classification, review payloads, spreadsheet row construction, retry payloads, messages, or the write-before-local-persistence order from ADR-006.
-- [ ] Update expense fixtures and typed mocks affected by the required nullable fields so legacy/category-only paths remain explicit and type-safe.
-- [ ] Extend `DrizzleExpenseRecordRepository.spec.ts` to assert all three fields are inserted and mapped for populated and null cases, while retaining failure and undo coverage.
-- [ ] Extend `DrizzleExpenseRecordRepository.integration.spec.ts` to persist and reload category/subcategory IDs plus both snapshots and to verify category or subcategory deletion clears only the matching references, never the stored `categoria` or `subcategoria` text.
-- [ ] Run focused tests for `RegisterExpenseUseCase`, `DrizzleExpenseRecordRepository`, and the PostgreSQL expense/hierarchy integration suites.
-- [ ] Run `pnpm test` to execute the complete project test suite after all focused tests pass.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Extend `ExpenseRecord` with `categoryId: string | null`, `subcategoryId: string | null`, and `subcategoria: string | null`, retaining `categoria` as the historical category text snapshot and making no change to `ExtractedExpense` in this subplan.
+- [x] Update `DrizzleExpenseRecordRepository.create` to insert both nullable identifiers and the subcategory snapshot, and update `mapExpenseRecord` so create, latest-expense, average/currency queries, and undo paths return the extended entity without changing their selection semantics.
+- [x] Update the current `RegisterExpenseUseCase.save` call to pass `categoryId: null`, `subcategoryId: null`, and `subcategoria: null`; do not alter classification, review payloads, spreadsheet row construction, retry payloads, messages, or the write-before-local-persistence order from ADR-006.
+- [x] Update expense fixtures and typed mocks affected by the required nullable fields so legacy/category-only paths remain explicit and type-safe.
+- [x] Extend `DrizzleExpenseRecordRepository.spec.ts` to assert all three fields are inserted and mapped for populated and null cases, while retaining failure and undo coverage.
+- [x] Extend `DrizzleExpenseRecordRepository.integration.spec.ts` to persist and reload category/subcategory IDs plus both snapshots and to verify category or subcategory deletion clears only the matching references, never the stored `categoria` or `subcategoria` text.
+- [x] Run focused tests for `RegisterExpenseUseCase`, `DrizzleExpenseRecordRepository`, and the PostgreSQL expense/hierarchy integration suites.
+- [x] Run `pnpm test` to execute the complete project test suite after all focused tests pass.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Implement Phase 3 by carrying nullable hierarchy references through saved expenses.
+All phases are complete; review and optionally commit the Phase 3 changes.

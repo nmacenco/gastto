@@ -250,7 +250,13 @@ describe('RegisterExpenseUseCase', () => {
       expect(mockSpreadsheetPortFactoryCreate).toHaveBeenCalledWith('access-token');
       expect(mockAppendRow).toHaveBeenCalledWith('file-1', 'Hoja 1', [100]);
       expect(mockExpenseRecordCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ sheetName: 'Hoja 1', rowIndex: 2 }),
+        expect.objectContaining({
+          sheetName: 'Hoja 1',
+          rowIndex: 2,
+          categoryId: null,
+          subcategoryId: null,
+          subcategoria: null,
+        }),
       );
     });
 
