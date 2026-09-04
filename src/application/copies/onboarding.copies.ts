@@ -1,7 +1,7 @@
 import type { CloudFile } from '../../domain/entities/CloudFile';
 import type { SheetInfo } from '../../domain/entities/SheetInfo';
 import type { ColumnInferenceMapping } from '../../domain/ports/columnInference';
-import type { GasttoField } from '../../domain/entities/SpreadsheetConfig';
+import { SUPPORTED_GASTTO_FIELDS, type GasttoField } from '../../domain/entities/SpreadsheetConfig';
 
 export const onboardingCopies = {
   welcomePrompt: () =>
@@ -171,7 +171,7 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
         c.columnHeader.trim().length > 0 ? formatColumnHeader(c.columnHeader) : '(vacía)';
       return `${columnIndexToLetter(c.index)} - ${label}`;
     });
-    const fieldLines = ALL_GASTTO_FIELDS.map((f) => `• ${GASTTO_FIELD_LABELS[f]}`);
+    const fieldLines = SUPPORTED_GASTTO_FIELDS.map((f) => `• ${GASTTO_FIELD_LABELS[f]}`);
     return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}\n\nIndicame un solo campo por mensaje. Por ejemplo: "la categoría está en la columna E".`;
   },
 
@@ -220,6 +220,7 @@ const GASTTO_FIELD_LABELS: Record<GasttoField, string> = {
   fecha: 'Fecha',
   monto: 'Monto',
   categoria: 'Categoría',
+  subcategoria: 'Subcategoría',
   concepto: 'Concepto',
   medio_pago: 'Medio de pago',
   moneda: 'Moneda',
@@ -229,19 +230,11 @@ const GASTTO_FIELD_EMOJI: Record<GasttoField, string> = {
   fecha: '📅',
   monto: '💰',
   categoria: '🏷️',
+  subcategoria: '🔖',
   concepto: '📝',
   medio_pago: '💳',
   moneda: '💱',
 };
-
-const ALL_GASTTO_FIELDS: GasttoField[] = [
-  'fecha',
-  'monto',
-  'moneda',
-  'categoria',
-  'concepto',
-  'medio_pago',
-];
 
 function columnIndexToLetter(index: number): string {
   return String.fromCharCode(65 + index);
@@ -255,6 +248,19 @@ function formatColumnHeader(header: string): string {
 }
 
 function formatUnmappedFields(fields: GasttoField[]): string {
-  const labels = fields.map((f) => GASTTO_FIELD_LABELS[f]).join(', ');
-  return `No encontré columnas para: ${labels}. Estos campos se omitirán al registrar.`;
+  const requiredFields = fields.filter((field) => field !== 'subcategoria');
+  const messages: string[] = [];
+
+  if (requiredFields.length > 0) {
+    const labels = requiredFields.map((field) => GASTTO_FIELD_LABELS[field]).join(', ');
+    messages.push(`No encontré columnas para: ${labels}. Estos campos se omitirán al registrar.`);
+  }
+
+  if (fields.includes('subcategoria')) {
+    messages.push(
+      'No encontré una columna de Subcategoría. Es opcional y podés continuar solo con Categoría.',
+    );
+  }
+
+  return messages.join(' ');
 }

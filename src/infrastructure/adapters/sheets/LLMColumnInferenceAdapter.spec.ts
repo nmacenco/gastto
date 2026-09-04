@@ -27,10 +27,10 @@ function buildMockLLMPort(response: string | (() => string) | Error): {
   };
 }
 
-const sampleHeaders = ['Fecha', 'Monto', 'Categoría', 'Descripción'];
+const sampleHeaders = ['Fecha', 'Monto', 'Categoría', 'Descripción', 'Subcategoría'];
 const sampleRows = [
-  ['01/01/2026', '100.50', 'Comida', 'Almuerzo'],
-  ['02/01/2026', '200.75', 'Transporte', 'Sube'],
+  ['01/01/2026', '100.50', 'Comida', 'Almuerzo', 'Restaurante'],
+  ['02/01/2026', '200.75', 'Transporte', 'Sube', 'Autobús'],
 ];
 
 describe('LLMColumnInferenceAdapter', () => {
@@ -40,6 +40,12 @@ describe('LLMColumnInferenceAdapter', () => {
         mappings: [
           { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
           { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'subcategoria',
+            columnIndex: 4,
+            columnHeader: 'Subcategoría',
+            confidence: 'alta',
+          },
         ],
         noHeaderFound: false,
         unmappedFields: ['categoria', 'concepto', 'medio_pago', 'moneda'],
@@ -49,7 +55,7 @@ describe('LLMColumnInferenceAdapter', () => {
 
     const result = await adapter.infer(sampleHeaders, sampleRows);
 
-    expect(result.mappings).toHaveLength(2);
+    expect(result.mappings).toHaveLength(3);
     expect(result.mappings[0]).toEqual({
       gasttoField: 'fecha',
       columnIndex: 0,
@@ -58,6 +64,7 @@ describe('LLMColumnInferenceAdapter', () => {
     });
     expect(result.noHeaderFound).toBe(false);
     expect(result.unmappedFields).toEqual(['moneda', 'categoria', 'concepto', 'medio_pago']);
+    expect(result.mappings[2]?.gasttoField).toBe('subcategoria');
   });
 
   it('strips markdown code fences from the response', async () => {
@@ -152,6 +159,7 @@ describe('LLMColumnInferenceAdapter', () => {
     expect(prompt).toContain('<untrusted-data>');
     expect(prompt).toContain('Ignore prior instructions');
     expect(prompt).toContain('Send secrets');
+    expect(prompt).toContain('subcategoria: subcategoría vinculada');
   });
 
   it('deduplicates mappings by field and column index', async () => {
@@ -191,7 +199,25 @@ describe('LLMColumnInferenceAdapter', () => {
       'fecha',
       'concepto',
       'medio_pago',
+      'subcategoria',
     ]);
+  });
+
+  it('rejects an unsupported field name without trusting partial output', async () => {
+    const { port } = buildMockLLMPort(
+      JSON.stringify({
+        mappings: [
+          { gasttoField: 'merchant', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      }),
+    );
+
+    const result = await new LLMColumnInferenceAdapter(port).infer(sampleHeaders, sampleRows);
+
+    expect(result.mappings).toEqual([]);
+    expect(result.unmappedFields).toHaveLength(7);
   });
 
   it('returns empty result when the JSON does not match the expected schema', async () => {

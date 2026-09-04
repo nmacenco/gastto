@@ -11,27 +11,14 @@ import type {
   ColumnInferencePort,
   ColumnInferenceResult,
 } from '../../../domain/ports/columnInference';
-import type { GasttoField } from '../../../domain/entities/SpreadsheetConfig';
+import {
+  SUPPORTED_GASTTO_FIELDS,
+  type GasttoField,
+} from '../../../domain/entities/SpreadsheetConfig';
 import type { LLMPort, ConversationContext } from '../../../domain/ports/services';
 import { serializeUntrustedData } from '../llm/untrustedData';
 
-const ALL_GASTTO_FIELDS: GasttoField[] = [
-  'monto',
-  'moneda',
-  'categoria',
-  'fecha',
-  'concepto',
-  'medio_pago',
-];
-
-const GasttoFieldSchema = z.enum([
-  'monto',
-  'moneda',
-  'categoria',
-  'fecha',
-  'concepto',
-  'medio_pago',
-]);
+const GasttoFieldSchema = z.enum(SUPPORTED_GASTTO_FIELDS);
 
 // Zod schema for the LLM structured response.
 const ColumnInferenceResponseSchema = z.object({
@@ -64,6 +51,7 @@ Campos de Gastto:
 - monto: importe del gasto
 - moneda: código de moneda (ARS, USD, EUR, etc.)
 - categoria: categoría del gasto
+- subcategoria: subcategoría vinculada a la categoría del gasto (campo opcional)
 - concepto: descripción o concepto del gasto
 - medio_pago: medio o forma de pago
 
@@ -98,7 +86,7 @@ export class LLMColumnInferenceAdapter implements ColumnInferencePort {
       return {
         mappings: [],
         noHeaderFound: true,
-        unmappedFields: [...ALL_GASTTO_FIELDS],
+        unmappedFields: [...SUPPORTED_GASTTO_FIELDS],
       };
     }
 
@@ -147,7 +135,7 @@ export class LLMColumnInferenceAdapter implements ColumnInferencePort {
 
       const mappedFields = new Set(mappings.map((m) => m.gasttoField));
       const requestedUnmapped = new Set(validated.data.unmappedFields);
-      const unmappedFields = ALL_GASTTO_FIELDS.filter(
+      const unmappedFields = SUPPORTED_GASTTO_FIELDS.filter(
         (f) => !mappedFields.has(f) || requestedUnmapped.has(f),
       );
 
@@ -169,7 +157,7 @@ export class LLMColumnInferenceAdapter implements ColumnInferencePort {
     return {
       mappings: [],
       noHeaderFound: false,
-      unmappedFields: [...ALL_GASTTO_FIELDS],
+      unmappedFields: [...SUPPORTED_GASTTO_FIELDS],
     };
   }
 }

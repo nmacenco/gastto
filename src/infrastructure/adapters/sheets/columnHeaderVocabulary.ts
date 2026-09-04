@@ -27,6 +27,12 @@ export const COLUMN_HEADER_DICTIONARY: Readonly<Record<string, GasttoField>> = {
   category: 'categoria',
   type: 'categoria',
 
+  subcategoria: 'subcategoria',
+  'sub categoria': 'subcategoria',
+  'categoria secundaria': 'subcategoria',
+  subcategory: 'subcategoria',
+  'sub category': 'subcategoria',
+
   concepto: 'concepto',
   descripcion: 'concepto',
   detalle: 'concepto',

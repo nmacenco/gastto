@@ -31,6 +31,12 @@ describe('DrizzleColumnMappingRepository', () => {
           columnIndex: 0,
           columnHeader: 'Date',
         }),
+        buildColumnMappingRow({
+          id: 'mapping-789',
+          gasttoField: 'subcategoria',
+          columnIndex: 2,
+          columnHeader: 'Subcategory',
+        }),
       ];
       const db = {
         select: vi.fn().mockReturnValue({
@@ -59,6 +65,15 @@ describe('DrizzleColumnMappingRepository', () => {
           GasttoField: 'fecha',
           columnIndex: 0,
           columnHeader: 'Date',
+          inferred: true,
+          confirmedAt: null,
+        },
+        {
+          id: 'mapping-789',
+          spreadsheetId: 'config-123',
+          GasttoField: 'subcategoria',
+          columnIndex: 2,
+          columnHeader: 'Subcategory',
           inferred: true,
           confirmedAt: null,
         },

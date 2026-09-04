@@ -21,7 +21,14 @@ interface FieldMatcher {
 }
 
 const FIELD_MATCHERS: FieldMatcher[] = [
-  { regex: /\b(categoria|rubro|tipo|category)\b/, field: 'categoria' },
+  {
+    regex: /\b(subcategoria|sub\s+categoria|subcategory|sub\s+category|categoria\s+secundaria)\b/,
+    field: 'subcategoria',
+  },
+  {
+    regex: /(?<!sub )\b(categoria|rubro|tipo|category)\b(?!\s+secundaria)/,
+    field: 'categoria',
+  },
   { regex: /\b(monto|amount|valor|importe|total|precio|costo)\b/, field: 'monto' },
   { regex: /\b(fecha|date|data|dia)\b/, field: 'fecha' },
   { regex: /\b(concepto|descripcion|description|detalle|motivo|nota)\b/, field: 'concepto' },

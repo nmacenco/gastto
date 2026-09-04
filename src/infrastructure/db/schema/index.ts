@@ -190,7 +190,7 @@ export const columnMappings = pgTable(
     uniqueColumn: uniqueIndex('uq_spreadsheet_column').on(t.spreadsheetId, t.columnIndex),
     fieldCheck: check(
       'chk_gastto_field',
-      sql`${t.gasttoField} IN ('monto','moneda','categoria','fecha','concepto','medio_pago')`,
+      sql`${t.gasttoField} IN ('monto','moneda','categoria','fecha','concepto','medio_pago','subcategoria')`,
     ),
   }),
 );

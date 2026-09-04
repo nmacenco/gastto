@@ -288,6 +288,7 @@ describe('onboardingCopies', () => {
       expect(result).toContain('Fecha');
       expect(result).toContain('Monto');
       expect(result).toContain('Categoría');
+      expect(result).toContain('Subcategoría');
       expect(result).toContain('Indicame un solo campo por mensaje');
       expect(result).toContain('la categoría está en la columna E');
     });
@@ -306,6 +307,32 @@ describe('onboardingCopies', () => {
       expect(result).toContain('A - (vacía)');
       expect(result).toContain('B - Para añadir o cambiar categorías, modifi…');
       expect(result).not.toContain('tablas de la hoja Resumen');
+    });
+  });
+
+  describe('optional subcategory mapping', () => {
+    it('uses a distinct label and icon for a mapped subcategory', () => {
+      const result = onboardingCopies.mappingProposalHighConfidence(
+        [
+          {
+            gasttoField: 'subcategoria',
+            columnIndex: 3,
+            columnHeader: 'Subcategoría',
+            confidence: 'alta',
+          },
+        ],
+        [],
+      );
+
+      expect(result).toContain('🔖 Subcategoría → columna D (Subcategoría)');
+    });
+
+    it('describes an unmapped subcategory as optional', () => {
+      const result = onboardingCopies.unmappedFieldsNote(['subcategoria']);
+
+      expect(result).toContain('Es opcional');
+      expect(result).toContain('continuar solo con Categoría');
+      expect(result).not.toContain('se omitirán al registrar');
     });
   });
 

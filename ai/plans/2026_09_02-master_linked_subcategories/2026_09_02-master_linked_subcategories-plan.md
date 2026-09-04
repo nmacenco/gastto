@@ -86,19 +86,19 @@ Plan recognition of an optional subcategory column and safe extraction of parent
 
 #### To-do actions
 
-- [ ] Create `ai/plans/2026_09_02-subcategory_spreadsheet_mapping_detection/2026_09_02-subcategory_spreadsheet_mapping_detection-plan.md`.
-- [ ] Add `subcategoria` to the planned `GasttoField` contract and database field constraint.
-- [ ] Keep `subcategoria` optional so its absence never blocks existing mapping confirmation.
-- [ ] Extend rule-based and LLM column inference, header vocabulary, mapping correction parsing, and proposal copies.
-- [ ] Define a hierarchy reader contract that uses `SpreadsheetPort.readRows()` to preserve row-level parent/child relationships.
-- [ ] Normalize and deduplicate pairs while allowing the same child name under different parents.
-- [ ] Return orphan subcategories separately instead of assigning an invented parent.
-- [ ] Cover Google Sheets and Excel Online through their existing `readRows()` implementations.
-- [ ] Specify tests for mapped and unmapped optional columns, duplicate pairs, blank children, same-name children under different parents, and orphan rows.
-- [ ] Require updates to the column-mapping feature documentation and `docs/features/README.md`.
-- [ ] Require focused adapter tests and then the complete project test suite in the subplan.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create `ai/plans/2026_09_02-subcategory_spreadsheet_mapping_detection/2026_09_02-subcategory_spreadsheet_mapping_detection-plan.md`.
+- [x] Add `subcategoria` to the planned `GasttoField` contract and database field constraint.
+- [x] Keep `subcategoria` optional so its absence never blocks existing mapping confirmation.
+- [x] Extend rule-based and LLM column inference, header vocabulary, mapping correction parsing, and proposal copies.
+- [x] Define a hierarchy reader contract that uses `SpreadsheetPort.readRows()` to preserve row-level parent/child relationships.
+- [x] Normalize and deduplicate pairs while allowing the same child name under different parents.
+- [x] Return orphan subcategories separately instead of assigning an invented parent.
+- [x] Cover Google Sheets and Excel Online through their existing `readRows()` implementations.
+- [x] Specify tests for mapped and unmapped optional columns, duplicate pairs, blank children, same-name children under different parents, and orphan rows.
+- [x] Require updates to the column-mapping feature documentation and `docs/features/README.md`.
+- [x] Require focused adapter tests and then the complete project test suite in the subplan.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 4: Create the onboarding management and confirmation subplan
 
@@ -192,4 +192,4 @@ Plan spreadsheet and internal persistence, then close the feature with backward-
 
 ## Next step
 
-Create the Phase 3 spreadsheet mapping and pair-detection subplan before making any application-code changes.
+Create the Phase 4 onboarding management and confirmation subplan before making any application-code changes.

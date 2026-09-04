@@ -121,13 +121,15 @@ Maps canonical Gastto fields to real spreadsheet column indices.
 | ---------------- | ------------- | --------------------------------------- | ----------------------------------------------------------------------------------- |
 | `id`             | `UUID`        | PK, default `gen_random_uuid()`         | Row identifier.                                                                     |
 | `spreadsheet_id` | `UUID`        | FK → `spreadsheet_configs(id)`, CASCADE | Parent spreadsheet.                                                                 |
-| `gastto_field`   | `TEXT`        | NOT NULL, CHECK                         | Canonical field: `monto`, `moneda`, `categoria`, `fecha`, `concepto`, `medio_pago`. |
+| `gastto_field`   | `TEXT`        | NOT NULL, CHECK                         | Canonical field: `monto`, `moneda`, `categoria`, `fecha`, `concepto`, `medio_pago`, `subcategoria`. |
 | `column_index`   | `SMALLINT`    | NOT NULL                                | Zero-based column index in the sheet.                                               |
 | `column_header`  | `TEXT`        | NOT NULL                                | Detected header name for display and debugging.                                     |
 | `inferred`       | `BOOLEAN`     | NOT NULL, default `true`                | `true` = LLM inferred; `false` = user corrected.                                    |
 | `confirmed_at`   | `TIMESTAMPTZ` | NULL                                    | NULL = pending confirmation.                                                        |
 | **UNIQUE**       | —             | `(spreadsheet_id, gastto_field)`        | One mapping per field.                                                              |
 | **UNIQUE**       | —             | `(spreadsheet_id, column_index)`        | One field per column index.                                                         |
+
+Migration `0008_add_subcategory_mapping_field.sql` additively replaces only `chk_gastto_field` so it admits optional `subcategoria`; existing category-only mappings remain valid. The migration was generated with Drizzle's custom-migration scaffold because the pinned Drizzle Kit version does not diff PostgreSQL `CHECK` expressions, and its snapshot and journal entry remain part of the generated migration history.
 
 ### user_categories
 

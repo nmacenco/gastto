@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Confirm or Correct Column Mapping feature lets the user review the column mapping proposed by Gastto and either accept it with a single confirmation or correct it one field per message using natural language. Corrections can replace an inferred mapping or add a field that the original proposal left unmapped. They are accumulated in a transient Redis-backed state with a 30-minute TTL, so the user can resume an abandoned correction session. Messages containing several fields are rejected without applying a partial correction. Once the mapping is accepted, the accumulated corrections are persisted and the FSM advances to `ONBOARDING_CATEGORIES`.
+The Confirm or Correct Column Mapping feature lets the user review the column mapping proposed by Gastto and either accept it with a single confirmation or correct it one field per message using natural language. Corrections can replace an inferred mapping or add a field that the original proposal left unmapped, including optional `subcategoria`. They are accumulated in a transient Redis-backed state with a 30-minute TTL, so the user can resume an abandoned correction session. Messages containing several fields are rejected without applying a partial correction. Once the mapping is accepted, the accumulated corrections are persisted and the FSM advances to `ONBOARDING_CATEGORIES`.
 
 This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Confirm or correct column mapping`](../user-stories/01-mvp/01-Vinculación%20de%20planilla%20%C2%B7%20Release%201%20MVP/HU-4.06-confirm-or-correct-column-mapping/HU-4.06%20%E2%80%94%20Confirm%20or%20correct%20column%20mapping.md).
 
@@ -16,6 +16,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
   - Column validation against the actual spreadsheet headers.
   - Accumulation of multiple corrections and re-display of the updated mapping after each one.
   - Assignment of previously unmapped Gastto fields to valid spreadsheet columns.
+  - Category and subcategory correction as distinct fields, with subcategory remaining optional.
   - Persistence of accumulated corrections when the user confirms the final mapping.
   - Redis-backed transient correction state with configurable TTL (default 30 minutes).
   - Resume behavior after abandonment via the persisted correction state.
@@ -54,6 +55,8 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 7. If the column exists, the correction is applied through `ColumnMappingCorrectionState`, the updated snapshot is saved to Redis via `IMappingCorrectionStateRepository.save()`, and the updated mapping is sent back for re-confirmation. A field absent from the original proposal is added to the displayed mapping and removed from `unmappedFields`.
 8. The FSM self-transitions to `ONBOARDING_MAPPING` with the updated `mappings` and `unmappedFields` payload.
 
+`subcategoria`, `subcategory`, and their Spanish/Portuguese variants select the optional subcategory field. Assigning it removes only `subcategoria` from `unmappedFields` and displays the mapping with its distinct label and icon.
+
 ### Scenario 3: User corrects several fields
 
 1. The user corrects a first field as in Scenario 2.
@@ -69,6 +72,8 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 2. The system asks the user to send one correction per message.
 3. No OAuth token, spreadsheet columns, or transient correction state are loaded.
 4. No correction is applied and the FSM stays in `ONBOARDING_MAPPING`.
+
+This rule also applies when one message mentions both category and subcategory: neither assignment is applied.
 
 ### Scenario 4: User indicates a column that does not exist
 
@@ -93,7 +98,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 5. `CorrectColumnMapping` detects the rejection intent, retrieves the OAuth token, and reads `headerRowIndex` from the current FSM payload.
 6. `ISpreadsheetColumnPort.listAvailableColumns()` is called with `headerRowIndex` so the headers shown come from the same row that was used for the proposal. If no `headerRowIndex` is present, row 1 is used.
 7. Any existing transient correction state is cleared via `IMappingCorrectionStateRepository.clear(userId)` so the user starts fresh.
-8. `onboardingCopies.mappingRejectionPrompt(availableColumns)` is sent, listing the available columns, the list of Gastto fields that can be assigned, and inviting the user to specify field-to-column assignments in natural language (e.g., "la categoría está en la columna E"). Empty headers are shown as `(vacía)` and very long headers are truncated.
+8. `onboardingCopies.mappingRejectionPrompt(availableColumns)` is sent, listing the available columns, all seven supported Gastto fields including optional Subcategory, and inviting the user to specify field-to-column assignments in natural language (e.g., "la categoría está en la columna E"). Empty headers are shown as `(vacía)` and very long headers are truncated.
 9. The FSM self-transitions to `ONBOARDING_MAPPING` keeping the existing `statePayload` (including `headerRowIndex`) unchanged so the next correction message is processed normally.
 
 ## Adapters
@@ -243,7 +248,7 @@ interface MappingCorrectionStateSnapshot {
 
 - `column_mappings` table (see [`docs/architecture/data-model.md`](docs/architecture/data-model.md))
   - `spreadsheet_id` (FK → `spreadsheet_configs.id`, CASCADE)
-  - `gastto_field` (TEXT, CHECK: `monto`, `moneda`, `categoria`, `fecha`, `concepto`, `medio_pago`)
+  - `gastto_field` (TEXT, CHECK: `monto`, `moneda`, `categoria`, `fecha`, `concepto`, `medio_pago`, `subcategoria`)
   - `column_index` (SMALLINT)
   - `column_header` (TEXT)
   - `inferred` (BOOLEAN, default `true`)
@@ -275,8 +280,10 @@ interface MappingCorrectionStateSnapshot {
 
 - [x] Recognizes Spanish field synonyms (`categoría`, `monto`, `fecha`, `concepto`, `moneda`, `medio de pago`).
 - [x] Recognizes English field synonyms (`category`, `amount`, `date`, `description`, `currency`, `payment method`).
+- [x] Recognizes optional subcategory synonyms in Spanish, English, and Portuguese without confusing them with category.
 - [x] Extracts column references as letters (`E`), numbers (`5`), or header names (`"Descripción"`).
 - [x] Rejects messages containing several distinct Gastto fields.
+- [x] Rejects a combined category/subcategory message without applying either correction.
 - [x] Returns explicit failure for confirmation messages like "sí" or unrelated text.
 
 ### CorrectColumnMapping use case
@@ -285,6 +292,7 @@ interface MappingCorrectionStateSnapshot {
 - [x] Cumulative corrections for different fields are accumulated.
 - [x] New correction for the same field replaces the previous correction.
 - [x] A correction adds a field missing from the inferred proposal and removes it from `unmappedFields`.
+- [x] A correction can add optional `subcategoria`; unsupported payload field names are discarded during `unmappedFields` restoration.
 - [x] Invalid column reference returns available columns without persisting state.
 - [x] Parse failure leaves state unchanged and returns a helpful copy.
 - [x] Multi-field messages leave state unchanged and request one correction per message.
