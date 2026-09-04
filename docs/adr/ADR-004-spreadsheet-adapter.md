@@ -45,6 +45,11 @@ interface SpreadsheetPort {
 }
 ```
 
+`readRows()` accepts one provider-neutral, worksheet-qualified A1 range. The first
+cell must contain a positive 1-based row, for example `Gastos!A2:F` or
+`'Gastos 2026'!A2:F50`. Both adapters validate this contract before performing a
+provider request and return each row with its real 1-based worksheet index.
+
 **Implementations:** `GoogleSheetsAdapter` and `ExcelOnlineAdapter`, both implementing `SpreadsheetPort`.
 
 **Dynamic column mapping:** The onboarding result (column inference in E4-US-05 and E4-US-06) is persisted in the database as `MappingConfig` per user. This mapping relates AI-extracted entities to the file's actual column indices (e.g. `"monto" → Column B`). The mapping is cached in Redis with a 1-hour TTL to avoid unnecessary API calls on every registration.
@@ -64,6 +69,8 @@ interface SpreadsheetPort {
 - Total decoupling from storage provider.
 - Easy to add new providers by implementing the interface.
 - Proactive permission verification prevents first-save errors.
+- Row consumers remain provider-independent because both adapters preserve cell
+  types, blank-column offsets, and absolute worksheet row indexes.
 
 ### Negative
 

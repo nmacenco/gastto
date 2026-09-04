@@ -65,7 +65,8 @@ export interface AppendResult {
 }
 
 export interface SpreadsheetPort {
-  // Lee filas de un rango (ej. "Gastos!A:F")
+  // Reads a worksheet-qualified A1 range whose first cell has a 1-based row
+  // (for example, "Gastos!A2:F" or "'Gastos 2026'!A2:F50").
   readRows(fileId: string, range: string): Promise<Row[]>;
 
   // Appends a row and returns the location reference (ADR-006)

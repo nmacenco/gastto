@@ -74,16 +74,16 @@ Implement the existing `SpreadsheetPort.readRows()` operation for Google Sheets 
 
 #### To-do actions
 
-- [ ] Document and enforce a provider-neutral A1 `range` input that includes the worksheet name and a 1-based starting row; reject malformed or non-positive ranges with `SpreadsheetError` using `STRUCTURE_ERROR` before issuing a provider request.
-- [ ] Implement `GoogleSheetsAdapter.readRows()` with the Sheets values endpoint, correct encoding for worksheet names and A1 ranges, bearer authentication, and the adapter's existing `AUTH_ERROR`, retryable `NETWORK_ERROR`, `STRUCTURE_ERROR`, and `UNKNOWN` classifications.
-- [ ] Parse Google values defensively into `Row[]`, preserve valid `string`, `number`, `boolean`, and `null` cells, keep column offsets for blank cells, return an empty array for a valid empty range, and calculate each 1-based row index from the requested or provider-returned range instead of resetting it to row 1.
-- [ ] Implement `ExcelOnlineAdapter.readRows()` with the Microsoft Graph worksheet range endpoint, safely split and encode the worksheet name and address, attach bearer authentication, and map authorization, provider/network, malformed-response, and invalid-range failures to the same typed spreadsheet error taxonomy used by the Google adapter.
-- [ ] Parse Excel values into the same `Row[]` contract, preserving cell types, blank-column offsets, empty ranges, and actual 1-based row indexes so consumers are provider-agnostic.
-- [ ] Extend `GoogleSheetsAdapter.spec.ts` and `ExcelOnlineAdapter.spec.ts` with mocked-HTTP contract tests for a non-first start row, mixed and blank cell values, sparse/trailing cells, empty results, worksheet names requiring encoding, malformed payloads, invalid ranges, authorization failures, provider 5xx responses, and transport failures.
-- [ ] Assert that neither adapter performs a request for a locally invalid range and that all tests continue to avoid real external APIs.
-- [ ] Run the focused Google Sheets and Excel Online adapter test suites.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Document and enforce a provider-neutral A1 `range` input that includes the worksheet name and a 1-based starting row; reject malformed or non-positive ranges with `SpreadsheetError` using `STRUCTURE_ERROR` before issuing a provider request.
+- [x] Implement `GoogleSheetsAdapter.readRows()` with the Sheets values endpoint, correct encoding for worksheet names and A1 ranges, bearer authentication, and the adapter's existing `AUTH_ERROR`, retryable `NETWORK_ERROR`, `STRUCTURE_ERROR`, and `UNKNOWN` classifications.
+- [x] Parse Google values defensively into `Row[]`, preserve valid `string`, `number`, `boolean`, and `null` cells, keep column offsets for blank cells, return an empty array for a valid empty range, and calculate each 1-based row index from the requested or provider-returned range instead of resetting it to row 1.
+- [x] Implement `ExcelOnlineAdapter.readRows()` with the Microsoft Graph worksheet range endpoint, safely split and encode the worksheet name and address, attach bearer authentication, and map authorization, provider/network, malformed-response, and invalid-range failures to the same typed spreadsheet error taxonomy used by the Google adapter.
+- [x] Parse Excel values into the same `Row[]` contract, preserving cell types, blank-column offsets, empty ranges, and actual 1-based row indexes so consumers are provider-agnostic.
+- [x] Extend `GoogleSheetsAdapter.spec.ts` and `ExcelOnlineAdapter.spec.ts` with mocked-HTTP contract tests for a non-first start row, mixed and blank cell values, sparse/trailing cells, empty results, worksheet names requiring encoding, malformed payloads, invalid ranges, authorization failures, provider 5xx responses, and transport failures.
+- [x] Assert that neither adapter performs a request for a locally invalid range and that all tests continue to avoid real external APIs.
+- [x] Run the focused Google Sheets and Excel Online adapter test suites.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Add row-preserving hierarchy pair detection
 
@@ -109,4 +109,4 @@ Introduce a hierarchy reader and factory that consume complete rows from `Spread
 
 ## Next step
 
-Implement Phase 2 by adding provider-neutral row reading to the Google Sheets and Excel Online adapters.
+Implement Phase 3 by adding row-preserving hierarchy pair detection on top of the provider-neutral row readers.

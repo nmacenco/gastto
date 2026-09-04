@@ -319,11 +319,167 @@ describe('ExcelOnlineAdapter', () => {
     });
   });
 
-  describe('unimplemented methods', () => {
-    it('readRows throws SpreadsheetError', async () => {
-      await expect(adapter.readRows('id', 'range')).rejects.toBeInstanceOf(SpreadsheetError);
+  describe('readRows', () => {
+    it('preserves mixed cells, blank offsets, sparse cells, and absolute row indexes', async () => {
+      const sparseRow = new Array<unknown>(3);
+      sparseRow[0] = 'Casa';
+      sparseRow[2] = false;
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            rowIndex: 6,
+            values: [
+              ['Comida', '', 12.5],
+              [true, null, 'EUR'],
+              sparseRow,
+              ['trailing cells omitted'],
+            ],
+          }),
+      });
+
+      await expect(adapter.readRows('file-id', "'Gastos 2026'!B5:D")).resolves.toEqual([
+        { index: 7, values: ['Comida', '', 12.5] },
+        { index: 8, values: [true, null, 'EUR'] },
+        { index: 9, values: ['Casa', null, false] },
+        { index: 10, values: ['trailing cells omitted'] },
+      ]);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://graph.microsoft.com/v1.0/me/drive/items/file-id/workbook/worksheets/Gastos%202026/range(address='B5%3AD')",
+        { headers: { Authorization: 'Bearer access-token-123' } },
+      );
     });
 
+    it('safely encodes worksheet punctuation and the range address', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: [] }),
+      });
+
+      await expect(adapter.readRows('file-id', "'Q1 & O''Brien!'!A2:C10")).resolves.toEqual([]);
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        "https://graph.microsoft.com/v1.0/me/drive/items/file-id/workbook/worksheets/Q1%20%26%20O%27Brien%21/range(address='A2%3AC10')",
+      );
+    });
+
+    it('uses a valid provider-returned address when rowIndex is absent', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ address: "'Gastos 2026'!A11:C12", values: [['Casa']] }),
+      });
+
+      await expect(adapter.readRows('file-id', "'Gastos 2026'!A5:C")).resolves.toEqual([
+        { index: 11, values: ['Casa'] },
+      ]);
+    });
+
+    it('returns an empty array for a valid empty range', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ rowIndex: 3, values: [] }),
+      });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A4:C')).resolves.toEqual([]);
+    });
+
+    it.each(['range', 'Gastos!A:F', 'Gastos!A0:F', '!A1:F', 'Gastos!A1:'])(
+      'rejects invalid range %s before making a request',
+      async (range) => {
+        await expect(adapter.readRows('file-id', range)).rejects.toMatchObject({
+          code: 'STRUCTURE_ERROR',
+          retryable: false,
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      null,
+      { values: {} },
+      { rowIndex: -1, values: [] },
+      { address: 42, values: [] },
+      { values: ['not-a-row'] },
+      { values: [[{ formula: '=1+1' }]] },
+    ])('classifies malformed payloads as structure errors', async (payload) => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(payload),
+      });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
+    });
+
+    it.each([401, 403])('classifies HTTP %s as an authorization error', async (status) => {
+      fetchMock.mockResolvedValue({ ok: false, status });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'AUTH_ERROR',
+        retryable: false,
+      });
+    });
+
+    it.each([400, 404])('classifies HTTP %s as a structure error', async (status) => {
+      fetchMock.mockResolvedValue({ ok: false, status });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
+    });
+
+    it('classifies provider 5xx responses as retryable network errors', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 503 });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
+    });
+
+    it('classifies transport failures as retryable network errors', async () => {
+      fetchMock.mockRejectedValue(new Error('ECONNRESET'));
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
+    });
+
+    it('classifies unexpected HTTP failures as unknown errors', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 429 });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'UNKNOWN',
+        retryable: false,
+      });
+    });
+
+    it('classifies invalid JSON as a structure error', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError('invalid JSON')),
+      });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
+    });
+  });
+
+  describe('unimplemented methods', () => {
     it('appendRow throws SpreadsheetError', async () => {
       await expect(adapter.appendRow('id', 'sheet', [])).rejects.toBeInstanceOf(SpreadsheetError);
     });
