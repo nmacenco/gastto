@@ -76,23 +76,23 @@ Introduce parent-aware domain behavior and persistence ports, then load and save
 
 #### To-do actions
 
-- [ ] Add `src/domain/entities/Subcategory.ts` with the stable identifier, required parent category identifier, raw display name, and normalized name contract.
-- [ ] Add `UserSubcategory` to `src/domain/entities/SpreadsheetConfig.ts` as the row-level persistence entity mirroring `user_subcategories`.
-- [ ] Extend `CategoryVocabulary` with backward-compatible constructor defaults and the public lookup, add, rename, move, and remove methods defined above.
-- [ ] Enforce pure domain invariants: reject blank normalized names, reject missing child or parent identifiers, scope duplicate detection to a parent, permit equal child names under different parents, preserve IDs on rename and move, and remove all active children when their category is removed.
-- [ ] Extend `src/domain/entities/CategoryVocabulary.spec.ts` with meaningful assertions for construction, immutable reads, lookup isolation, generated IDs, blank and duplicate rejection, same-name children under different parents, rename isolation, move success and collision rejection, individual child removal, and category-branch removal.
-- [ ] Add `IUserSubcategoryRepository` to `src/domain/ports/repositories.ts`, change category and subcategory `upsertMany` inputs to retain supplied IDs while omitting only database-generated timestamps, and keep infrastructure types out of the domain port.
-- [ ] Add `src/infrastructure/db/repositories/DrizzleUserSubcategoryRepository.ts` with active lookup by parent, ID-preserving upsert/reactivation on `(category_id, normalized_value)`, usage-count increment, and row-to-domain mapping.
-- [ ] Update `DrizzleUserCategoryRepository` so genuinely new rows use the supplied category ID; on conflicts, preserve the already persisted primary key and update only mutable raw/active fields.
-- [ ] Extend `DrizzleCategoryVocabularyRepository.findBySpreadsheetId` to load active categories and only their active children, return a hierarchy with persisted stable IDs, avoid exposing orphan rows, and preserve the current `null` result when no active category exists.
-- [ ] Extend `DrizzleCategoryVocabularyRepository.save` so category and child reads, soft-disables, inserts, reactivations, renames, and moves occur within one `db.transaction`; persist parents before children, resolve existing IDs during reactivation, never rewrite primary keys on conflict, and roll back the complete hierarchy if any child mutation fails.
-- [ ] Ensure all category and subcategory inserts pass the aggregate-generated `id` explicitly, while natural-key conflicts keep the existing database ID; use the resolved persisted parent ID when saving a reactivated branch so no dangling child reference can be produced.
-- [ ] Add `DrizzleUserCategoryRepository.spec.ts` and `DrizzleUserSubcategoryRepository.spec.ts`, and extend `DrizzleCategoryVocabularyRepository.spec.ts` for active filtering, parent isolation, row mapping, supplied-ID insertion, persisted-ID reactivation, usage increments, complete hierarchy loading, soft-disable behavior, transaction boundaries, operation order, and rollback propagation.
-- [ ] Extend the PostgreSQL hierarchy integration test to prove aggregate round-trips preserve IDs, saving the same aggregate is idempotent, moving a child changes only its parent, removed entries become inactive, removing a category disables its children, and an induced child failure leaves categories and subcategories unchanged.
-- [ ] Update the `CategoryVocabulary` aggregate section in `docs/architecture/data-model.md` with the parent-scoped invariants, stable-ID behavior, soft-disable semantics, and transactional persistence boundary.
-- [ ] Run focused tests for `CategoryVocabulary`, `DrizzleUserSubcategoryRepository`, `DrizzleCategoryVocabularyRepository`, and the PostgreSQL hierarchy integration suite.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add `src/domain/entities/Subcategory.ts` with the stable identifier, required parent category identifier, raw display name, and normalized name contract.
+- [x] Add `UserSubcategory` to `src/domain/entities/SpreadsheetConfig.ts` as the row-level persistence entity mirroring `user_subcategories`.
+- [x] Extend `CategoryVocabulary` with backward-compatible constructor defaults and the public lookup, add, rename, move, and remove methods defined above.
+- [x] Enforce pure domain invariants: reject blank normalized names, reject missing child or parent identifiers, scope duplicate detection to a parent, permit equal child names under different parents, preserve IDs on rename and move, and remove all active children when their category is removed.
+- [x] Extend `src/domain/entities/CategoryVocabulary.spec.ts` with meaningful assertions for construction, immutable reads, lookup isolation, generated IDs, blank and duplicate rejection, same-name children under different parents, rename isolation, move success and collision rejection, individual child removal, and category-branch removal.
+- [x] Add `IUserSubcategoryRepository` to `src/domain/ports/repositories.ts`, change category and subcategory `upsertMany` inputs to retain supplied IDs while omitting only database-generated timestamps, and keep infrastructure types out of the domain port.
+- [x] Add `src/infrastructure/db/repositories/DrizzleUserSubcategoryRepository.ts` with active lookup by parent, ID-preserving upsert/reactivation on `(category_id, normalized_value)`, usage-count increment, and row-to-domain mapping.
+- [x] Update `DrizzleUserCategoryRepository` so genuinely new rows use the supplied category ID; on conflicts, preserve the already persisted primary key and update only mutable raw/active fields.
+- [x] Extend `DrizzleCategoryVocabularyRepository.findBySpreadsheetId` to load active categories and only their active children, return a hierarchy with persisted stable IDs, avoid exposing orphan rows, and preserve the current `null` result when no active category exists.
+- [x] Extend `DrizzleCategoryVocabularyRepository.save` so category and child reads, soft-disables, inserts, reactivations, renames, and moves occur within one `db.transaction`; persist parents before children, resolve existing IDs during reactivation, never rewrite primary keys on conflict, and roll back the complete hierarchy if any child mutation fails.
+- [x] Ensure all category and subcategory inserts pass the aggregate-generated `id` explicitly, while natural-key conflicts keep the existing database ID; use the resolved persisted parent ID when saving a reactivated branch so no dangling child reference can be produced.
+- [x] Add `DrizzleUserCategoryRepository.spec.ts` and `DrizzleUserSubcategoryRepository.spec.ts`, and extend `DrizzleCategoryVocabularyRepository.spec.ts` for active filtering, parent isolation, row mapping, supplied-ID insertion, persisted-ID reactivation, usage increments, complete hierarchy loading, soft-disable behavior, transaction boundaries, operation order, and rollback propagation.
+- [x] Extend the PostgreSQL hierarchy integration test to prove aggregate round-trips preserve IDs, saving the same aggregate is idempotent, moving a child changes only its parent, removed entries become inactive, removing a category disables its children, and an induced child failure leaves categories and subcategories unchanged.
+- [x] Update the `CategoryVocabulary` aggregate section in `docs/architecture/data-model.md` with the parent-scoped invariants, stable-ID behavior, soft-disable semantics, and transactional persistence boundary.
+- [x] Run focused tests for `CategoryVocabulary`, `DrizzleUserSubcategoryRepository`, `DrizzleCategoryVocabularyRepository`, and the PostgreSQL hierarchy integration suite.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Carry nullable hierarchy references through saved expenses
 
@@ -115,4 +115,4 @@ Complete the inactive foundation by extending saved-expense entities and persist
 
 ## Next step
 
-Implement Phase 2 by adding the hierarchy aggregate, row-level subcategory repository, and transactional aggregate persistence.
+Implement Phase 3 by carrying nullable hierarchy references through saved expenses.

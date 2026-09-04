@@ -252,15 +252,23 @@ Immutable audit trail of critical operations.
 
 ### CategoryVocabulary
 
-Aggregate root that encapsulates the full set of categories for a single spreadsheet. Enforces the invariant that no two categories can share the same normalized name (case-insensitive).
+Aggregate root that encapsulates the complete category/subcategory hierarchy for one spreadsheet. Category names are unique after normalization across the spreadsheet. Subcategory names are unique only within their parent, so the same normalized child name may exist under different categories.
 
-| Method            | Arguments                          | Behavior                                                                |
-| ----------------- | ---------------------------------- | ----------------------------------------------------------------------- |
-| `addCategory`     | `name: string`                     | Creates a new `Category` after trimming and lowercasing. Rejects duplicates and empty names. |
-| `removeCategory`  | `id: string`                       | Removes the category with the given id from the vocabulary.             |
-| `renameCategory`  | `id: string`, `newName: string`    | Updates the name and normalized name. Replicates addCategory validation. |
+| Method                  | Arguments                                      | Behavior                                                                                     |
+| ----------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `addCategory`           | `name: string`                                 | Creates a category with a stable generated UUID after rejecting blank or duplicate names.    |
+| `removeCategory`        | `id: string`                                   | Removes the category and every child in its active branch.                                   |
+| `renameCategory`        | `id: string`, `newName: string`                | Preserves the category UUID and applies the category-level name invariants.                   |
+| `getSubcategories`      | `categoryId?: string`                          | Returns immutable copies of every child or only the children of one parent.                  |
+| `findSubcategory`       | `categoryId: string`, `name: string`           | Performs an exact normalized lookup isolated to one parent.                                  |
+| `addSubcategory`        | `categoryId: string`, `name: string`           | Requires an existing parent and creates a child with a stable generated UUID.                 |
+| `renameSubcategory`     | `id: string`, `newName: string`                | Preserves the child UUID and parent while enforcing uniqueness within that parent.            |
+| `moveSubcategory`       | `id: string`, `targetCategoryId: string`       | Preserves the child UUID and name, requires the target parent, and rejects target collisions. |
+| `removeSubcategory`     | `id: string`                                   | Removes only the selected child from the active aggregate.                                   |
 
-The aggregate is persisted via `ICategoryVocabularyRepository`, which translates between the aggregate and the `user_categories` table rows. The repository diffs the aggregate against the database on `save`: categories not in the aggregate are soft-deleted (`is_active = false`), new categories are inserted, and existing ones are updated via upsert on the unique `(spreadsheet_id, normalized_value)` constraint.
+`ICategoryVocabularyRepository` loads only active parents and active children attached to those parents. Its `save` operation reads and mutates both tables inside one database transaction: parents are inserted, renamed, or reactivated before children; missing aggregate entries are soft-disabled; moves update the existing child row; and any child failure rolls back the complete hierarchy mutation.
+
+Aggregate-generated UUIDs are supplied explicitly for new category and subcategory rows. When a normalized natural key already exists, reactivation keeps the database row's established primary key instead of rewriting it. Parent IDs are resolved before child persistence, so a child created beneath a reactivated category always references the persisted parent UUID. Repeated saves are idempotent.
 
 ## Design Decisions
 

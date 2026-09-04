@@ -40,6 +40,16 @@ export interface UserCategory {
   createdAt: Date;
 }
 
+export interface UserSubcategory {
+  id: string;
+  categoryId: string;
+  rawValue: string;
+  normalizedValue: string;
+  usageCount: number;
+  isActive: boolean;
+  createdAt: Date;
+}
+
 // Tokens OAuth. access_token_enc y refresh_token_enc son BYTEA en BD
 // (cifrados con AES-256-GCM, ADR-007). En el dominio los representamos
 // como Buffer para que la capa de infraestructura gestione el cifrado.

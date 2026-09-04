@@ -9,6 +9,8 @@ import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import * as schema from '../../infrastructure/db/schema';
+import { CategoryVocabulary } from '../../domain/entities/CategoryVocabulary';
+import { DrizzleCategoryVocabularyRepository } from '../../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
 
 const userId = '11111111-1111-4111-8111-111111111111';
 const spreadsheetId = '22222222-2222-4222-8222-222222222222';
@@ -177,5 +179,119 @@ describePostgres('subcategory hierarchy persistence (PostgreSQL)', () => {
       categoryId: null,
       subcategoryId: null,
     });
+  });
+
+  it('round-trips stable hierarchy ids and saves the same aggregate idempotently', async () => {
+    const repository = new DrizzleCategoryVocabularyRepository(db);
+    const vocabulary = new CategoryVocabulary('22222222-2222-4222-8222-222222222222', [
+      { id: foodCategoryId, name: 'Food', normalizedName: 'food' },
+      { id: leisureCategoryId, name: 'Leisure', normalizedName: 'leisure' },
+    ]);
+    const child = vocabulary.addSubcategory(foodCategoryId, 'Restaurant');
+
+    await repository.save(vocabulary);
+    await repository.save(vocabulary);
+
+    const reloaded = await repository.findBySpreadsheetId(spreadsheetId);
+    expect(reloaded?.getCategories().map(({ id }) => id)).toEqual([
+      foodCategoryId,
+      leisureCategoryId,
+    ]);
+    expect(reloaded?.getSubcategories()).toEqual([
+      {
+        id: child.id,
+        categoryId: foodCategoryId,
+        name: 'Restaurant',
+        normalizedName: 'restaurant',
+      },
+    ]);
+    await expect(db.select().from(schema.userCategories)).resolves.toHaveLength(2);
+    await expect(db.select().from(schema.userSubcategories)).resolves.toHaveLength(1);
+  });
+
+  it('moves a child by updating only its parent reference', async () => {
+    await db.insert(schema.userSubcategories).values({
+      id: restaurantSubcategoryId,
+      categoryId: foodCategoryId,
+      rawValue: 'Restaurant',
+      normalizedValue: 'restaurant',
+    });
+    const repository = new DrizzleCategoryVocabularyRepository(db);
+    const vocabulary = await repository.findBySpreadsheetId(spreadsheetId);
+    expect(vocabulary).not.toBeNull();
+
+    vocabulary!.moveSubcategory(restaurantSubcategoryId, leisureCategoryId);
+    await repository.save(vocabulary!);
+
+    const [row] = await db
+      .select()
+      .from(schema.userSubcategories)
+      .where(eq(schema.userSubcategories.id, restaurantSubcategoryId));
+    expect(row).toMatchObject({
+      id: restaurantSubcategoryId,
+      categoryId: leisureCategoryId,
+      rawValue: 'Restaurant',
+      normalizedValue: 'restaurant',
+      isActive: true,
+    });
+  });
+
+  it('soft-disables a removed child and a removed category branch', async () => {
+    await db.insert(schema.userSubcategories).values([
+      {
+        id: restaurantSubcategoryId,
+        categoryId: foodCategoryId,
+        rawValue: 'Restaurant',
+        normalizedValue: 'restaurant',
+      },
+      {
+        id: '99999999-9999-4999-8999-999999999999',
+        categoryId: leisureCategoryId,
+        rawValue: 'Cinema',
+        normalizedValue: 'cinema',
+      },
+    ]);
+    const repository = new DrizzleCategoryVocabularyRepository(db);
+    const vocabulary = await repository.findBySpreadsheetId(spreadsheetId);
+    expect(vocabulary).not.toBeNull();
+
+    vocabulary!.removeSubcategory(restaurantSubcategoryId);
+    vocabulary!.removeCategory(leisureCategoryId);
+    await repository.save(vocabulary!);
+
+    const categories = await db.select().from(schema.userCategories);
+    const subcategories = await db.select().from(schema.userSubcategories);
+    expect(categories.find(({ id }) => id === foodCategoryId)?.isActive).toBe(true);
+    expect(categories.find(({ id }) => id === leisureCategoryId)?.isActive).toBe(false);
+    expect(subcategories.every(({ isActive }) => !isActive)).toBe(true);
+  });
+
+  it('rolls back parent changes when a child mutation fails', async () => {
+    const repository = new DrizzleCategoryVocabularyRepository(db);
+    const invalidVocabulary = new CategoryVocabulary(
+      spreadsheetId,
+      [
+        { id: foodCategoryId, name: 'Groceries', normalizedName: 'groceries' },
+        { id: leisureCategoryId, name: 'Leisure', normalizedName: 'leisure' },
+      ],
+      [
+        {
+          id: 'not-a-uuid',
+          categoryId: foodCategoryId,
+          name: 'Restaurant',
+          normalizedName: 'restaurant',
+        },
+      ],
+    );
+
+    await expect(repository.save(invalidVocabulary)).rejects.toThrow();
+
+    const categories = await db.select().from(schema.userCategories);
+    expect(categories.find(({ id }) => id === foodCategoryId)).toMatchObject({
+      rawValue: 'Food',
+      normalizedValue: 'food',
+      isActive: true,
+    });
+    await expect(db.select().from(schema.userSubcategories)).resolves.toEqual([]);
   });
 });

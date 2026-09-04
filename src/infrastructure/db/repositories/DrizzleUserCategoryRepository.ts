@@ -23,7 +23,7 @@ export class DrizzleUserCategoryRepository implements IUserCategoryRepository {
     return rows.map((row) => this.mapUserCategory(row));
   }
 
-  async upsertMany(categories: Omit<UserCategory, 'id' | 'createdAt'>[]): Promise<void> {
+  async upsertMany(categories: Omit<UserCategory, 'createdAt'>[]): Promise<void> {
     if (categories.length === 0) return;
 
     await this.db.transaction(async (tx) => {
@@ -31,6 +31,7 @@ export class DrizzleUserCategoryRepository implements IUserCategoryRepository {
         await tx
           .insert(userCategories)
           .values({
+            id: category.id,
             spreadsheetId: category.spreadsheetId,
             rawValue: category.rawValue,
             normalizedValue: category.normalizedValue,
