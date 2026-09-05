@@ -89,16 +89,16 @@ Feature: Configure linked categories and subcategories
 
 ## Definition of Done
 
-- [ ] `subcategoria` is an optional mapping field, and a spreadsheet without that column preserves the exact behavior of HU-4.07.
-- [ ] Detection uses complete rows, normalizes and deduplicates parent/child pairs, and permits the same subcategory name under different parents.
-- [ ] A subcategory without a parent is excluded, reported by value, and never assigned an invented parent.
-- [ ] An empty hierarchy offers default categories without creating default subcategories.
-- [ ] Adding, renaming, moving, and removing subcategories requires an unambiguous active parent and enforces parent-scoped duplicate rules.
-- [ ] Removing a category deactivates its configured subcategories, and the complete hierarchy is confirmed atomically.
-- [ ] Repeated detection, modification, or confirmation is idempotent and does not create duplicate relationships.
-- [ ] Unit and integration tests cover every scenario, persistence failures, and compatibility with existing flat payloads.
-- [ ] Presentation and operations are consistent in Telegram and WhatsApp.
-- [ ] No HTTP route or FSM state is added.
+- [x] `subcategoria` is an optional mapping field, and a spreadsheet without that column preserves the exact behavior of HU-4.07.
+- [x] Detection uses complete rows, normalizes and deduplicates parent/child pairs, and permits the same subcategory name under different parents.
+- [x] A subcategory without a parent is excluded, reported by value, and never assigned an invented parent.
+- [x] An empty hierarchy offers default categories without creating default subcategories.
+- [x] Adding, renaming, moving, and removing subcategories requires an unambiguous active parent and enforces parent-scoped duplicate rules.
+- [x] Removing a category deactivates its configured subcategories, and the complete hierarchy is confirmed atomically.
+- [x] Repeated detection, modification, or confirmation is idempotent and does not create duplicate relationships.
+- [x] Unit and integration tests cover every scenario, persistence failures, and compatibility with existing flat payloads.
+- [x] Presentation and operations are consistent in Telegram and WhatsApp.
+- [x] No HTTP route or FSM state is added.
 
 ## Dependencies
 

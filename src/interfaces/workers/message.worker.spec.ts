@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { processMessageJob, createMessageWorker, type MessageWorkerDeps } from './message.worker';
 import { Worker, type Job } from 'bullmq';
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
-import type { ConversationState } from '../../domain/entities/ConversationState';
+import { FSM_STATES, type ConversationState } from '../../domain/entities/ConversationState';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
@@ -34,6 +34,7 @@ import { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expen
 import type { ResolveExpenseSummaryActionInput } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import { SpreadsheetCategoryReader } from '../../infrastructure/adapters/sheets/SpreadsheetCategoryReader';
 import type { SpreadsheetPort } from '../../domain/ports/services';
+import { CategoryVocabulary } from '../../domain/entities/CategoryVocabulary';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
@@ -2744,12 +2745,20 @@ describe('processMessageJob', () => {
         });
         const updateCategoriesConfirmed = vi.fn();
         const updateUserStatus = vi.fn().mockResolvedValue(undefined);
+        const vocabulary = new CategoryVocabulary('config-1');
+        vocabulary.addCategory('comida');
+        vocabulary.addCategory('transporte');
+        const saveVocabulary = vi.fn().mockResolvedValue(undefined);
 
         deps.confirmCategories = new ConfirmCategories({
           spreadsheetConfigRepository: {
             findByUserId: findSpreadsheetConfig,
             updateCategoriesConfirmed,
           } as unknown as ConfirmCategoriesDeps['spreadsheetConfigRepository'],
+          categoryVocabularyRepository: {
+            findBySpreadsheetId: vi.fn().mockResolvedValue(vocabulary),
+            save: saveVocabulary,
+          },
           userRepository: {
             updateStatus: updateUserStatus,
           } as unknown as ConfirmCategoriesDeps['userRepository'],
@@ -2785,6 +2794,7 @@ describe('processMessageJob', () => {
         );
 
         expect(findSpreadsheetConfig).toHaveBeenCalledOnce();
+        expect(saveVocabulary).toHaveBeenCalledWith(vocabulary);
         expect(updateCategoriesConfirmed).not.toHaveBeenCalled();
         expect(updateUserStatus).toHaveBeenCalledWith('user-123', 'active');
         expect(mockTransitionStateExecute).toHaveBeenCalledWith({
@@ -2955,6 +2965,83 @@ describe('processMessageJob', () => {
           );
         },
       );
+
+      it('routes a hierarchy modification followed by confirmation without a new FSM state', async () => {
+        const deps = buildMockDeps();
+        const initialPayload = {
+          categories: [{ name: 'Transport', subcategories: [] }],
+          orphanSubcategories: [],
+          subcategoryColumnMapped: true,
+        };
+        const modifiedPayload = {
+          categories: [{ name: 'Transport', subcategories: ['Tolls'] }],
+          orphanSubcategories: [],
+          subcategoryColumnMapped: true,
+        };
+        mockGetConversationStateExecute
+          .mockResolvedValueOnce(
+            buildConversationState({
+              currentState: 'ONBOARDING_CATEGORIES',
+              statePayload: initialPayload,
+            }),
+          )
+          .mockResolvedValueOnce(
+            buildConversationState({
+              currentState: 'ONBOARDING_CATEGORIES',
+              statePayload: modifiedPayload,
+            }),
+          );
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, rawMessage: 'add Tolls to Transport' }),
+          deps,
+        );
+        await processMessageJob(
+          buildJob({ ...baseJobData, rawMessage: 'yes', externalMessageId: 'msg-43' }),
+          deps,
+        );
+
+        expect(mockModifyCategoryVocabularyExecute).toHaveBeenCalledOnce();
+        expect(mockConfirmCategoriesExecute).toHaveBeenCalledOnce();
+        expect(mockConfirmCategoriesExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload: modifiedPayload,
+        });
+        expect(FSM_STATES.filter((state) => state === 'ONBOARDING_CATEGORIES')).toEqual([
+          'ONBOARDING_CATEGORIES',
+        ]);
+        expect(FSM_STATES).toHaveLength(15);
+      });
+
+      it('passes canonical confirmation through WhatsApp unchanged', async () => {
+        const deps = buildMockDeps();
+        const statePayload = {
+          categories: [{ name: 'Food', subcategories: ['Restaurant'] }],
+          orphanSubcategories: [],
+          subcategoryColumnMapped: true,
+        };
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_CATEGORIES',
+            statePayload,
+          }),
+        );
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, channel: 'whatsapp', rawMessage: 'sí' }),
+          deps,
+        );
+
+        expect(mockConfirmCategoriesExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'whatsapp',
+          statePayload,
+        });
+        expect(mockModifyCategoryVocabularyExecute).not.toHaveBeenCalled();
+      });
 
       it.each(['telegram', 'whatsapp'] as const)(
         'passes the same canonical hierarchy contract once through %s',

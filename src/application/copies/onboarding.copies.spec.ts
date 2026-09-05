@@ -97,6 +97,16 @@ describe('onboardingCopies', () => {
     });
   });
 
+  describe('invalid category proposal recovery', () => {
+    it('explains that detection will run again before completion', () => {
+      const result = onboardingCopies.categoryProposalUnavailable();
+
+      expect(result).toContain('No pude validar');
+      expect(result).toContain('detectar de nuevo');
+      expect(result).not.toContain('Todo listo');
+    });
+  });
+
   describe('categoryNotFoundForRemoval', () => {
     it('identifies the missing category and lists the current vocabulary', () => {
       const result = onboardingCopies.categoryNotFoundForRemoval('ocio', ['comida', 'transporte']);

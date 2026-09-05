@@ -156,6 +156,7 @@ describe('buildDependencies', () => {
     expect(deps.googleOAuth?.adapter).toBeDefined();
     expect(deps.googleOAuth?.handleOAuthCallback).toBeDefined();
     expect(deps.googleOAuth?.inferColumnMapping).toBeDefined();
+    expect(deps.googleOAuth?.confirmCategories).toBeDefined();
     expect(deps.googleOAuth?.modifyCategoryVocabulary).toBeDefined();
     expect(deps.googleOAuth?.categoryHierarchyReaderFactory).toBeInstanceOf(
       SpreadsheetCategoryHierarchyReaderFactory,

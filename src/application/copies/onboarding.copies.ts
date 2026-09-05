@@ -157,6 +157,9 @@ export const onboardingCopies = {
   noMappingToConfirm: () =>
     `Todavía no tengo una propuesta de mapeo para confirmar. Esperá un momento o escribí *empezar* para reconectar.`,
 
+  categoryProposalUnavailable: () =>
+    'No pude validar la propuesta de categorías. La voy a detectar de nuevo antes de completar la configuración.',
+
   unmappedFieldsNote: (fields: GasttoField[]) => formatUnmappedFields(fields),
 
   // Mapping correction copies (HU-4.06)

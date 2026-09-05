@@ -95,25 +95,25 @@ Finalize the reviewed hierarchy before onboarding completion. The complete aggre
 
 #### To-do actions
 
-- [ ] Extend `ConfirmCategoriesDeps` with `ICategoryVocabularyRepository` and make confirmation parse the canonical or legacy payload, load the current aggregate to preserve persisted identifiers, and reconcile the payload into one complete `CategoryVocabulary` before finalization.
-- [ ] Save the complete category/subcategory aggregate through `ICategoryVocabularyRepository.save()` before updating `categoriesConfirmedAt` or user status; rely on its database transaction so a parent/child failure rolls back the whole proposed hierarchy.
-- [ ] If the payload is absent, malformed, or contains no valid category, do not activate the user or send completion; remain in `ONBOARDING_CATEGORIES` and delegate or guide the user through fresh detection using the existing recovery path.
-- [ ] Preserve finalization ordering after the aggregate save: update the confirmation timestamp only when absent, set the user to `active`, transition to `IDLE` with both payload and expiry cleared, and send completion only after every persisted invariant succeeds.
-- [ ] Preserve re-confirmation idempotency by re-saving the same hierarchy without duplicate rows, skipping only the redundant timestamp update, and still restoring user activation and the cleared `IDLE` state after interrupted onboarding or reconnection.
-- [ ] Verify that a hierarchy save failure leaves the user unconfirmed/inactive and in `ONBOARDING_CATEGORIES`, and sends no completion message; verify later activation or transition failures also send no false success message.
-- [ ] Keep the worker's confirmation-intent precedence and `ONBOARDING_CATEGORIES` state unchanged, and ensure canonical plus legacy payloads follow the same confirmation use case on both messaging channels.
-- [ ] Extend `ConfirmCategories.spec.ts` with hierarchical and legacy confirmation, stable-ID reconciliation, aggregate-save ordering, aggregate rollback, invalid-payload recovery, first confirmation, re-confirmation, activation failure, transition failure, and reconnect behavior.
-- [ ] Add `src/__tests__/integration/subcategory-onboarding-persistence.integration.spec.ts` with the real repository and migration chain to prove atomic parent/child persistence, orphan exclusion, legacy flat confirmation, same-name children under different parents, idempotent re-confirmation, reactivation after interruption, soft-disable of removed branches, and no partial hierarchy on induced persistence failure.
-- [ ] Extend `message.worker.spec.ts` with end-to-end routing assertions for interrupted detection, canonical confirmation, legacy confirmation, modification followed by confirmation, invalid payload recovery, and the absence of any new FSM state.
-- [ ] Create `docs/features/subcategory-hierarchy.md` documenting detection, capability activation, canonical and legacy payloads, nested presentation, orphan handling, all parent-aware commands, transactional persistence, confirmation ordering, reconnection, idempotency, both channels, failure behavior, and QA cases.
-- [ ] Update `docs/features/category-confirmation.md` to distinguish the retained flat path from hierarchy-enabled behavior and replace stale notes that say the hierarchy reader is not consumed.
-- [ ] Add or update the `subcategory-hierarchy.md` and category-confirmation entries in `docs/features/README.md` in the same documentation change.
-- [ ] Run the focused confirmation, worker, parser, DTO, repository, and PostgreSQL onboarding integration tests.
-- [ ] Run `pnpm test` to execute the complete project test suite after the focused tests pass.
-- [ ] Run `pnpm run format:check` to verify the new feature document, TypeScript contracts, and tests follow repository formatting.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Extend `ConfirmCategoriesDeps` with `ICategoryVocabularyRepository` and make confirmation parse the canonical or legacy payload, load the current aggregate to preserve persisted identifiers, and reconcile the payload into one complete `CategoryVocabulary` before finalization.
+- [x] Save the complete category/subcategory aggregate through `ICategoryVocabularyRepository.save()` before updating `categoriesConfirmedAt` or user status; rely on its database transaction so a parent/child failure rolls back the whole proposed hierarchy.
+- [x] If the payload is absent, malformed, or contains no valid category, do not activate the user or send completion; remain in `ONBOARDING_CATEGORIES` and delegate or guide the user through fresh detection using the existing recovery path.
+- [x] Preserve finalization ordering after the aggregate save: update the confirmation timestamp only when absent, set the user to `active`, transition to `IDLE` with both payload and expiry cleared, and send completion only after every persisted invariant succeeds.
+- [x] Preserve re-confirmation idempotency by re-saving the same hierarchy without duplicate rows, skipping only the redundant timestamp update, and still restoring user activation and the cleared `IDLE` state after interrupted onboarding or reconnection.
+- [x] Verify that a hierarchy save failure leaves the user unconfirmed/inactive and in `ONBOARDING_CATEGORIES`, and sends no completion message; verify later activation or transition failures also send no false success message.
+- [x] Keep the worker's confirmation-intent precedence and `ONBOARDING_CATEGORIES` state unchanged, and ensure canonical plus legacy payloads follow the same confirmation use case on both messaging channels.
+- [x] Extend `ConfirmCategories.spec.ts` with hierarchical and legacy confirmation, stable-ID reconciliation, aggregate-save ordering, aggregate rollback, invalid-payload recovery, first confirmation, re-confirmation, activation failure, transition failure, and reconnect behavior.
+- [x] Add `src/__tests__/integration/subcategory-onboarding-persistence.integration.spec.ts` with the real repository and migration chain to prove atomic parent/child persistence, orphan exclusion, legacy flat confirmation, same-name children under different parents, idempotent re-confirmation, reactivation after interruption, soft-disable of removed branches, and no partial hierarchy on induced persistence failure.
+- [x] Extend `message.worker.spec.ts` with end-to-end routing assertions for interrupted detection, canonical confirmation, legacy confirmation, modification followed by confirmation, invalid payload recovery, and the absence of any new FSM state.
+- [x] Create `docs/features/subcategory-hierarchy.md` documenting detection, capability activation, canonical and legacy payloads, nested presentation, orphan handling, all parent-aware commands, transactional persistence, confirmation ordering, reconnection, idempotency, both channels, failure behavior, and QA cases.
+- [x] Update `docs/features/category-confirmation.md` to distinguish the retained flat path from hierarchy-enabled behavior and replace stale notes that say the hierarchy reader is not consumed.
+- [x] Add or update the `subcategory-hierarchy.md` and category-confirmation entries in `docs/features/README.md` in the same documentation change.
+- [x] Run the focused confirmation, worker, parser, DTO, repository, and PostgreSQL onboarding integration tests.
+- [x] Run `pnpm test` to execute the complete project test suite after the focused tests pass.
+- [x] Run `pnpm run format:check` to verify the new feature document, TypeScript contracts, and tests follow repository formatting.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Implement Phase 3 to confirm the complete hierarchy atomically and close compatibility documentation.
+All phases are complete; review and commit the Phase 3 implementation and documentation.

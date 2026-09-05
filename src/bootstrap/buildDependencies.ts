@@ -321,6 +321,7 @@ function buildGoogleOAuthFeature(
 
   const confirmCategories = new ConfirmCategories({
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    categoryVocabularyRepository: core.categoryVocabularyRepo,
     userRepository: core.userRepo,
     messagingPort,
     transitionState: core.transitionState,
