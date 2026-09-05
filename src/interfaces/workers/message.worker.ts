@@ -32,6 +32,7 @@ import {
   type ProcessMessageJobData,
 } from '../../application/ports/ProcessMessageJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { parseCategoryOnboardingState } from '../../application/dtos/CategoryOnboardingState';
 import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 import type { ExpenseReviewPayload } from '../../domain/value-objects/expense-review-payload';
 import type {
@@ -522,9 +523,8 @@ async function routeByState(
 
     case 'ONBOARDING_CATEGORIES': {
       const categoryPayload = conversationState?.statePayload ?? null;
-      const hasCategories =
-        Array.isArray(categoryPayload?.categories) &&
-        (categoryPayload.categories as string[]).length > 0;
+      const categoryState = parseCategoryOnboardingState(categoryPayload);
+      const hasCategories = categoryState !== null && categoryState.categories.length > 0;
 
       if (!hasCategories) {
         await enterOnboardingCategories(
@@ -559,7 +559,14 @@ async function routeByState(
           // Re-send the confirmation prompt for any non-confirm reply.
           await messaging.sendMessage(
             externalId,
-            onboardingCopies.categoryConfirmationPrompt(categoryPayload.categories as string[]),
+            categoryState.subcategoryColumnMapped
+              ? onboardingCopies.categoryHierarchyConfirmationPrompt(
+                  categoryState.categories,
+                  categoryState.orphanSubcategories,
+                )
+              : onboardingCopies.categoryConfirmationPrompt(
+                  categoryState.categories.map((category) => category.name),
+                ),
           );
         }
       }

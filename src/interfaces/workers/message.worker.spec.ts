@@ -2113,6 +2113,9 @@ describe('processMessageJob', () => {
           categoryReaderPortFactory: {
             create: vi.fn().mockReturnValue(categoryReader),
           },
+          categoryHierarchyReaderPortFactory: {
+            create: vi.fn(),
+          },
           oauthAccessTokenService: {
             getValidAccessToken: vi.fn().mockResolvedValue({
               accessToken: 'access-token',
@@ -2871,6 +2874,108 @@ describe('processMessageJob', () => {
           '123456789',
           expect.stringContaining('transporte'),
         );
+      });
+
+      it('recognizes a canonical hierarchy payload and delegates confirmation without re-detection', async () => {
+        const deps = buildMockDeps();
+        const statePayload = {
+          categories: [{ name: 'food', subcategories: ['restaurant'] }],
+          orphanSubcategories: ['streaming'],
+          subcategoryColumnMapped: true,
+        };
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_CATEGORIES', statePayload }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'yes' }), deps);
+
+        expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockConfirmCategoriesExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload,
+        });
+      });
+
+      it.each([
+        {
+          categories: [{ name: 'food', subcategories: 'restaurant' }],
+          orphanSubcategories: [],
+          subcategoryColumnMapped: true,
+        },
+        {
+          categories: [{ name: 'food', subcategories: [42] }],
+          orphanSubcategories: [],
+          subcategoryColumnMapped: true,
+        },
+      ])('delegates malformed canonical payloads back to detection', async (statePayload) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_CATEGORIES', statePayload }),
+        );
+
+        await processMessageJob(buildJob(baseJobData), deps);
+
+        expect(mockDetectCategoriesExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'telegram',
+          statePayload,
+        });
+        expect(mockConfirmCategoriesExecute).not.toHaveBeenCalled();
+        expect(mockModifyCategoryVocabularyExecute).not.toHaveBeenCalled();
+      });
+
+      it('re-sends the shared nested proposal when hierarchy modification is unavailable', async () => {
+        const deps = buildMockDeps();
+        deps.modifyCategoryVocabulary = null;
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'ONBOARDING_CATEGORIES',
+            statePayload: {
+              categories: [{ name: 'food', subcategories: ['restaurant'] }],
+              orphanSubcategories: ['streaming'],
+              subcategoryColumnMapped: true,
+            },
+          }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'what?' }), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expect.stringContaining('  ◦ restaurant'),
+        );
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expect.stringContaining('streaming'),
+        );
+      });
+
+      it('passes the same canonical hierarchy contract through WhatsApp', async () => {
+        const deps = buildMockDeps();
+        const statePayload = {
+          categories: [{ name: 'food', subcategories: ['restaurant'] }],
+          orphanSubcategories: [],
+          subcategoryColumnMapped: true,
+        };
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({ currentState: 'ONBOARDING_CATEGORIES', statePayload }),
+        );
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, channel: 'whatsapp', rawMessage: 'add health' }),
+          deps,
+        );
+
+        expect(mockModifyCategoryVocabularyExecute).toHaveBeenCalledWith({
+          userId: 'user-123',
+          externalId: '123456789',
+          channel: 'whatsapp',
+          rawMessage: 'add health',
+          statePayload,
+        });
       });
     });
   });

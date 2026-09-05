@@ -9,8 +9,19 @@ import type { ICategoryReaderPort } from '../../../domain/ports/categoryReader';
 import type { ICategoryVocabularyRepository } from '../../../domain/ports/repositories';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
 
 describe('DetectCategories', () => {
+  function buildColumnMappingRepository(mappings: unknown[]) {
+    return {
+      findBySpreadsheetId: vi.fn().mockResolvedValue(mappings),
+      upsertMany: vi.fn(),
+      confirm: vi.fn(),
+      confirmBySpreadsheetId: vi.fn(),
+      updateCorrected: vi.fn(),
+    } as unknown as DetectCategoriesDeps['columnMappingRepository'];
+  }
+
   function buildDeps(overrides: Partial<DetectCategoriesDeps> = {}): {
     deps: DetectCategoriesDeps;
     sendMessage: ReturnType<typeof vi.fn<MessagingOutputPort['sendMessage']>>;
@@ -32,6 +43,15 @@ describe('DetectCategories', () => {
     const deps = {
       categoryReaderPortFactory: {
         create: vi.fn().mockReturnValue(mockCategoryReader),
+      },
+      categoryHierarchyReaderPortFactory: {
+        create: vi.fn().mockReturnValue({
+          readHierarchy: vi.fn().mockResolvedValue({
+            categories: ['comida', 'transporte'],
+            pairs: [],
+            orphanSubcategories: [],
+          }),
+        }),
       },
       oauthAccessTokenService: {
         getValidAccessToken: vi.fn().mockResolvedValue({
@@ -71,6 +91,7 @@ describe('DetectCategories', () => {
         execute: transitionExecute,
       },
       categoryVocabularyRepository: {
+        findBySpreadsheetId: vi.fn().mockResolvedValue(null),
         save: saveVocabulary,
       },
       ...overrides,
@@ -103,7 +124,11 @@ describe('DetectCategories', () => {
     const transitionCall = transitionExecute.mock.calls[0];
     if (!transitionCall) throw new Error('Expected transitionState.execute to be called');
     const payload = (transitionCall[0] as { payload?: Record<string, unknown> }).payload;
-    expect(payload?.categories).toEqual(['comida', 'transporte']);
+    expect(payload?.categories).toEqual([
+      { name: 'comida', subcategories: [] },
+      { name: 'transporte', subcategories: [] },
+    ]);
+    expect(payload?.subcategoryColumnMapped).toBe(false);
     expect(result.categories).toEqual(['comida', 'transporte']);
     expect(result.message).toContain('comida');
   });
@@ -157,14 +182,12 @@ describe('DetectCategories', () => {
     const transitionCall = transitionExecute.mock.calls[0];
     if (!transitionCall) throw new Error('Expected transitionState.execute to be called');
     const payload = (transitionCall[0] as { payload?: Record<string, unknown> }).payload;
-    expect(payload?.categories).toEqual([
-      'alimentacion',
-      'transporte',
-      'servicios',
-      'ocio',
-      'salud',
-      'otros',
-    ]);
+    expect(payload?.categories).toEqual(
+      ['alimentacion', 'transporte', 'servicios', 'ocio', 'salud', 'otros'].map((name) => ({
+        name,
+        subcategories: [],
+      })),
+    );
     expect(result.categories).toEqual([
       'alimentacion',
       'transporte',
@@ -255,7 +278,11 @@ describe('DetectCategories', () => {
       statePayload: null,
     });
 
-    expect(result).toEqual({ categories: [], message: onboardingCopies.reconnectAccount() });
+    expect(result).toEqual({
+      categories: [],
+      state: { categories: [], orphanSubcategories: [], subcategoryColumnMapped: false },
+      message: onboardingCopies.reconnectAccount(),
+    });
     expect(sendMessage).toHaveBeenCalledWith('123456789', onboardingCopies.reconnectAccount());
     expect(transitionExecute).toHaveBeenCalledWith({
       userId: 'user-123',
@@ -289,5 +316,241 @@ describe('DetectCategories', () => {
     expect(sendMessage).not.toHaveBeenCalled();
     expect(transitionExecute).not.toHaveBeenCalled();
     expect(saveVocabulary).not.toHaveBeenCalled();
+  });
+
+  it('reads a mapped hierarchy once and persists parent-scoped children', async () => {
+    const readHierarchy = vi.fn().mockResolvedValue({
+      categories: ['food', 'leisure'],
+      pairs: [
+        { category: 'food', subcategory: 'restaurant' },
+        { category: 'food', subcategory: 'groceries' },
+        { category: 'leisure', subcategory: 'restaurant' },
+      ],
+      orphanSubcategories: [],
+    });
+    const readCategories = vi.fn();
+    const { deps, saveVocabulary } = buildDeps({
+      columnMappingRepository: buildColumnMappingRepository([
+        { GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Category' },
+        { GasttoField: 'subcategoria', columnIndex: 4, columnHeader: 'Subcategory' },
+      ]),
+      categoryReaderPortFactory: { create: vi.fn().mockReturnValue({ readCategories }) },
+      categoryHierarchyReaderPortFactory: {
+        create: vi.fn().mockReturnValue({ readHierarchy }),
+      },
+    });
+
+    const result = await new DetectCategories(deps).execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: { headerRowIndex: 2 },
+    });
+
+    expect(readHierarchy).toHaveBeenCalledOnce();
+    expect(readHierarchy).toHaveBeenCalledWith('file-123', 2, 4, 'Gastos', 3);
+    expect(readCategories).not.toHaveBeenCalled();
+    expect(result.state).toEqual({
+      categories: [
+        { name: 'food', subcategories: ['restaurant', 'groceries'] },
+        { name: 'leisure', subcategories: ['restaurant'] },
+      ],
+      orphanSubcategories: [],
+      subcategoryColumnMapped: true,
+    });
+    const saved = saveVocabulary.mock.calls[0]?.[0];
+    expect(saved?.getSubcategories()).toHaveLength(3);
+  });
+
+  it('keeps category-only hierarchy rows and excludes reported orphans', async () => {
+    const { deps, sendMessage } = buildDeps({
+      columnMappingRepository: buildColumnMappingRepository([
+        { GasttoField: 'categoria', columnIndex: 1, columnHeader: 'Category' },
+        { GasttoField: 'subcategoria', columnIndex: 2, columnHeader: 'Subcategory' },
+      ]),
+      categoryHierarchyReaderPortFactory: {
+        create: vi.fn().mockReturnValue({
+          readHierarchy: vi.fn().mockResolvedValue({
+            categories: ['food', 'health'],
+            pairs: [{ category: 'food', subcategory: 'groceries' }],
+            orphanSubcategories: ['streaming', 'cinema'],
+          }),
+        }),
+      },
+    });
+
+    const result = await new DetectCategories(deps).execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'whatsapp',
+      statePayload: null,
+    });
+
+    expect(result.state.categories).toEqual([
+      { name: 'food', subcategories: ['groceries'] },
+      { name: 'health', subcategories: [] },
+    ]);
+    expect(result.state.orphanSubcategories).toEqual(['streaming', 'cinema']);
+    expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('streaming'));
+    expect(sendMessage).toHaveBeenCalledWith(
+      '123456789',
+      expect.stringContaining('no tenían una categoría padre asignada'),
+    );
+  });
+
+  it('uses category-only defaults when a mapped hierarchy has no valid parent', async () => {
+    const { deps } = buildDeps({
+      columnMappingRepository: buildColumnMappingRepository([
+        { GasttoField: 'categoria', columnIndex: 1, columnHeader: 'Category' },
+        { GasttoField: 'subcategoria', columnIndex: 2, columnHeader: 'Subcategory' },
+      ]),
+      categoryHierarchyReaderPortFactory: {
+        create: vi.fn().mockReturnValue({
+          readHierarchy: vi.fn().mockResolvedValue({
+            categories: [],
+            pairs: [],
+            orphanSubcategories: ['streaming'],
+          }),
+        }),
+      },
+    });
+
+    const result = await new DetectCategories(deps).execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: null,
+    });
+
+    expect(result.categories).toEqual([
+      'alimentacion',
+      'transporte',
+      'servicios',
+      'ocio',
+      'salud',
+      'otros',
+    ]);
+    expect(result.state.categories.every((category) => category.subcategories.length === 0)).toBe(
+      true,
+    );
+    expect(result.state.orphanSubcategories).toEqual(['streaming']);
+  });
+
+  it('merges an active vocabulary while preserving stable identifiers', async () => {
+    const persisted = new CategoryVocabulary(
+      'config-123',
+      [{ id: 'food-id', name: 'food', normalizedName: 'food' }],
+      [
+        {
+          id: 'manual-id',
+          categoryId: 'food-id',
+          name: 'manual',
+          normalizedName: 'manual',
+        },
+      ],
+    );
+    const saveVocabulary = vi
+      .fn<ICategoryVocabularyRepository['save']>()
+      .mockResolvedValue(undefined);
+    const { deps } = buildDeps({
+      columnMappingRepository: buildColumnMappingRepository([
+        { GasttoField: 'categoria', columnIndex: 1, columnHeader: 'Category' },
+        { GasttoField: 'subcategoria', columnIndex: 2, columnHeader: 'Subcategory' },
+      ]),
+      categoryHierarchyReaderPortFactory: {
+        create: vi.fn().mockReturnValue({
+          readHierarchy: vi.fn().mockResolvedValue({
+            categories: ['food'],
+            pairs: [{ category: 'food', subcategory: 'restaurant' }],
+            orphanSubcategories: [],
+          }),
+        }),
+      },
+      categoryVocabularyRepository: {
+        findBySpreadsheetId: vi.fn().mockResolvedValue(persisted),
+        save: saveVocabulary,
+      },
+    });
+
+    const result = await new DetectCategories(deps).execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: null,
+    });
+
+    const saved = saveVocabulary.mock.calls[0]?.[0];
+    expect(saved?.getCategories()[0]?.id).toBe('food-id');
+    expect(saved?.getSubcategories().map((subcategory) => subcategory.id)).toContain('manual-id');
+    expect(result.state.categories).toEqual([
+      { name: 'food', subcategories: ['manual', 'restaurant'] },
+    ]);
+  });
+
+  it('does not send or transition when hierarchy persistence fails', async () => {
+    const { deps, sendMessage, transitionExecute } = buildDeps({
+      columnMappingRepository: buildColumnMappingRepository([
+        { GasttoField: 'categoria', columnIndex: 1, columnHeader: 'Category' },
+        { GasttoField: 'subcategoria', columnIndex: 2, columnHeader: 'Subcategory' },
+      ]),
+      categoryVocabularyRepository: {
+        findBySpreadsheetId: vi.fn().mockResolvedValue(null),
+        save: vi.fn().mockRejectedValue(new Error('database unavailable')),
+      },
+    });
+
+    await expect(
+      new DetectCategories(deps).execute({
+        userId: 'user-123',
+        externalId: '123456789',
+        channel: 'telegram',
+        statePayload: null,
+      }),
+    ).rejects.toThrow('database unavailable');
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(transitionExecute).not.toHaveBeenCalled();
+  });
+
+  it('keeps repeated hierarchy detection idempotent', async () => {
+    const persisted = new CategoryVocabulary('config-123');
+    const category = persisted.addCategory('food');
+    persisted.addSubcategory(category.id, 'restaurant');
+    const saveVocabulary = vi
+      .fn<ICategoryVocabularyRepository['save']>()
+      .mockResolvedValue(undefined);
+    const { deps } = buildDeps({
+      columnMappingRepository: buildColumnMappingRepository([
+        { GasttoField: 'categoria', columnIndex: 1, columnHeader: 'Category' },
+        { GasttoField: 'subcategoria', columnIndex: 2, columnHeader: 'Subcategory' },
+      ]),
+      categoryVocabularyRepository: {
+        findBySpreadsheetId: vi.fn().mockResolvedValue(persisted),
+        save: saveVocabulary,
+      },
+      categoryHierarchyReaderPortFactory: {
+        create: vi.fn().mockReturnValue({
+          readHierarchy: vi.fn().mockResolvedValue({
+            categories: ['food'],
+            pairs: [{ category: 'food', subcategory: 'restaurant' }],
+            orphanSubcategories: [],
+          }),
+        }),
+      },
+    });
+
+    const input = {
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram' as const,
+      statePayload: null,
+    };
+    const useCase = new DetectCategories(deps);
+    const first = await useCase.execute(input);
+    const second = await useCase.execute(input);
+
+    expect(first.state).toEqual(second.state);
+    expect(persisted.getCategories()).toHaveLength(1);
+    expect(persisted.getSubcategories()).toHaveLength(1);
+    expect(saveVocabulary).toHaveBeenCalledTimes(2);
   });
 });

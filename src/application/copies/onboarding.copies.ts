@@ -2,6 +2,7 @@ import type { CloudFile } from '../../domain/entities/CloudFile';
 import type { SheetInfo } from '../../domain/entities/SheetInfo';
 import type { ColumnInferenceMapping } from '../../domain/ports/columnInference';
 import { SUPPORTED_GASTTO_FIELDS, type GasttoField } from '../../domain/entities/SpreadsheetConfig';
+import type { CategoryOnboardingCategory } from '../dtos/CategoryOnboardingState';
 
 export const onboardingCopies = {
   welcomePrompt: () =>
@@ -131,6 +132,26 @@ export const onboardingCopies = {
   categoryConfirmationPrompt: (categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');
     return `Encontré estas categorías en tu planilla:\n${list}\n\n¿Las usamos tal cual? Respondé *sí* o decime si querés agregar/quitar alguna.`;
+  },
+
+  categoryHierarchyConfirmationPrompt: (
+    categories: CategoryOnboardingCategory[],
+    orphanSubcategories: string[],
+  ) => {
+    const hierarchy = categories
+      .flatMap((category) => [
+        `• ${category.name}`,
+        ...category.subcategories.map((subcategory) => `  ◦ ${subcategory}`),
+      ])
+      .join('\n');
+    const orphanWarning = onboardingCopies.orphanSubcategoriesWarning(orphanSubcategories);
+    return `Encontré estas categorías y subcategorías en tu planilla:\n${hierarchy}${orphanWarning}\n\n¿Las usamos tal cual? Respondé *sí* o decime si querés agregar/quitar alguna.`;
+  },
+
+  orphanSubcategoriesWarning: (orphanSubcategories: string[]) => {
+    if (orphanSubcategories.length === 0) return '';
+    const values = orphanSubcategories.map((subcategory) => `• ${subcategory}`).join('\n');
+    return `\n\n⚠️ Excluí estas subcategorías porque no tenían una categoría padre asignada:\n${values}`;
   },
 
   noMappingToConfirm: () =>

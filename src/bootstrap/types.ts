@@ -22,6 +22,7 @@ import type { GoogleDriveFileDiscoveryAdapter } from '../infrastructure/adapters
 import type { GoogleSheetsAdapterFactory } from '../infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
 import type { SpreadsheetAccessAdapterFactory } from '../infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import type { SpreadsheetCategoryReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryReaderFactory';
+import type { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
 import type { RuleBasedColumnInferenceAdapter } from '../infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
 import type { RuleBasedHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
 import type { LLMHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/LLMHeaderDetectionAdapter';
@@ -112,6 +113,8 @@ export interface GoogleOAuthFeature {
   sheetsAdapterFactory: GoogleSheetsAdapterFactory;
   /** Factory for creating spreadsheet readers from an access token. */
   categoryReaderFactory: SpreadsheetCategoryReaderFactory;
+  /** Factory for reading linked category/subcategory rows from Google Sheets. */
+  categoryHierarchyReaderFactory: SpreadsheetCategoryHierarchyReaderFactory;
   /** Selects a spreadsheet file and advances to sheet selection. */
   handleSpreadsheetFileSelection: HandleSpreadsheetFileSelection;
   /** Selects a sheet within a spreadsheet and advances to validation. */

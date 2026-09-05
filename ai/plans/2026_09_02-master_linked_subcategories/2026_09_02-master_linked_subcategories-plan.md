@@ -108,19 +108,19 @@ Plan the user-visible hierarchy configuration flow while reusing the existing `O
 
 #### To-do actions
 
-- [ ] Create `ai/plans/2026_09_02-subcategory_onboarding_management/2026_09_02-subcategory_onboarding_management-plan.md`.
-- [ ] Extend `DetectCategories` to load mapped pairs, persist the hierarchy, and retain flat behavior when no subcategory column exists.
-- [ ] Define a typed hierarchical onboarding DTO while accepting legacy `categories: string[]` state payloads.
-- [ ] Present categories with nested subcategories and warn about excluded orphan values.
-- [ ] Extend category modification intents with parent-aware add, rename, move, and remove operations.
-- [ ] Require an existing active parent for every subcategory mutation and reject ambiguous parent names.
-- [ ] Confirm the complete hierarchy atomically before activating or reactivating the user.
-- [ ] Preserve reconnection, interrupted onboarding, and idempotent re-confirmation behavior without adding an FSM state.
-- [ ] Specify application, parser, worker, copy, persistence, and legacy-payload tests.
-- [ ] Require creation of `docs/features/subcategory-hierarchy.md`, updates to category confirmation documentation, and synchronization of `docs/features/README.md`.
-- [ ] Require focused onboarding tests and then the complete project test suite in the subplan.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create `ai/plans/2026_09_02-subcategory_onboarding_management/2026_09_02-subcategory_onboarding_management-plan.md`.
+- [x] Extend `DetectCategories` to load mapped pairs, persist the hierarchy, and retain flat behavior when no subcategory column exists.
+- [x] Define a typed hierarchical onboarding DTO while accepting legacy `categories: string[]` state payloads.
+- [x] Present categories with nested subcategories and warn about excluded orphan values.
+- [x] Extend category modification intents with parent-aware add, rename, move, and remove operations.
+- [x] Require an existing active parent for every subcategory mutation and reject ambiguous parent names.
+- [x] Confirm the complete hierarchy atomically before activating or reactivating the user.
+- [x] Preserve reconnection, interrupted onboarding, and idempotent re-confirmation behavior without adding an FSM state.
+- [x] Specify application, parser, worker, copy, persistence, and legacy-payload tests.
+- [x] Require creation of `docs/features/subcategory-hierarchy.md`, updates to category confirmation documentation, and synchronization of `docs/features/README.md`.
+- [x] Require focused onboarding tests and then the complete project test suite in the subplan.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 5: Create the hierarchical classification and review subplan
 
@@ -192,4 +192,4 @@ Plan spreadsheet and internal persistence, then close the feature with backward-
 
 ## Next step
 
-Create the Phase 4 onboarding management and confirmation subplan before making any application-code changes.
+Create the Phase 5 hierarchical classification and review subplan before making any application-code changes.

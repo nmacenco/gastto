@@ -8,6 +8,32 @@ import { CloudFile } from '../../domain/entities/CloudFile';
 import { SheetInfo } from '../../domain/entities/SheetInfo';
 
 describe('onboardingCopies', () => {
+  describe('category hierarchy proposal', () => {
+    it('formats parents, nested children, and every orphan deterministically', () => {
+      const result = onboardingCopies.categoryHierarchyConfirmationPrompt(
+        [
+          { name: 'food', subcategories: ['groceries', 'restaurant'] },
+          { name: 'health', subcategories: [] },
+        ],
+        ['streaming', 'cinema'],
+      );
+
+      expect(result).toContain('• food\n  ◦ groceries\n  ◦ restaurant\n• health');
+      expect(result).toContain('• streaming\n• cinema');
+      expect(result).toContain('no tenían una categoría padre asignada');
+    });
+
+    it('omits the orphan warning when every child has a parent', () => {
+      const result = onboardingCopies.categoryHierarchyConfirmationPrompt(
+        [{ name: 'food', subcategories: ['restaurant'] }],
+        [],
+      );
+
+      expect(result).not.toContain('Excluí');
+      expect(onboardingCopies.orphanSubcategoriesWarning([])).toBe('');
+    });
+  });
+
   describe('categoryNotFoundForRemoval', () => {
     it('identifies the missing category and lists the current vocabulary', () => {
       const result = onboardingCopies.categoryNotFoundForRemoval('ocio', ['comida', 'transporte']);

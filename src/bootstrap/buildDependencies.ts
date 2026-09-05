@@ -27,6 +27,7 @@ import { GoogleSheetsAdapterFactory } from '../infrastructure/adapters/sheets/Go
 import { SpreadsheetAccessAdapterFactory } from '../infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import { GoogleSheetsAdapter } from '../infrastructure/adapters/sheets/GoogleSheetsAdapter';
 import { SpreadsheetCategoryReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryReaderFactory';
+import { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
 import { RegexCategoryModificationParser } from '../infrastructure/adapters/RegexCategoryModificationParser';
 import { RuleBasedColumnInferenceAdapter } from '../infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
 import { RuleBasedHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
@@ -218,6 +219,9 @@ function buildGoogleOAuthFeature(
   const driveFileDiscovery = new GoogleDriveFileDiscoveryAdapter(infra.rootLogger);
   const sheetsAdapterFactory = new GoogleSheetsAdapterFactory();
   const categoryReaderFactory = new SpreadsheetCategoryReaderFactory(sheetsAdapterFactory);
+  const categoryHierarchyReaderFactory = new SpreadsheetCategoryHierarchyReaderFactory(
+    sheetsAdapterFactory,
+  );
 
   const inferColumnMapping = new InferColumnMapping({
     oauthAccessTokenService: core.oauthAccessTokenService,
@@ -306,6 +310,7 @@ function buildGoogleOAuthFeature(
 
   const detectCategories = new DetectCategories({
     categoryReaderPortFactory: categoryReaderFactory,
+    categoryHierarchyReaderPortFactory: categoryHierarchyReaderFactory,
     oauthAccessTokenService: core.oauthAccessTokenService,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     columnMappingRepository: core.columnMappingRepo,
@@ -338,6 +343,7 @@ function buildGoogleOAuthFeature(
     driveFileDiscovery,
     sheetsAdapterFactory,
     categoryReaderFactory,
+    categoryHierarchyReaderFactory,
     handleSpreadsheetFileSelection,
     handleSheetSelection,
     validateSpreadsheetAccess,
