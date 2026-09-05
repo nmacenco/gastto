@@ -52,7 +52,13 @@ describe('AdvancePendingExpense', () => {
       status: 'ready_for_review',
       payload: {
         rawMessage: 'Taxi 12 EUR',
-        extracted: { monto: 12, moneda: 'EUR', confianzaCategoria: 'alta' },
+        extracted: {
+          monto: 12,
+          moneda: 'EUR',
+          subcategoriaRaw: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
         resolvedDate: '2026-08-05',
         resolvedCategory: 'Transporte',
         resolvedCategoryId: null,

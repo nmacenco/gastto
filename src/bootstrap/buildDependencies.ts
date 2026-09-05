@@ -502,6 +502,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     spreadsheetConfigRepo,
     columnMappingRepo,
     userCategoryRepo,
+    categoryVocabularyRepo,
     conversationRepo,
     operationLogRepo,
     userProfileRepo,

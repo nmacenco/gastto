@@ -9,6 +9,7 @@ import type {
   ISpreadsheetConfigRepository,
   IColumnMappingRepository,
   IUserCategoryRepository,
+  ICategoryVocabularyRepository,
   IOperationLogRepository,
   IConversationStateRepository,
 } from '../../../domain/ports/repositories';
@@ -54,6 +55,7 @@ export class RegisterExpenseUseCase {
     private readonly spreadsheetConfigRepo: ISpreadsheetConfigRepository,
     private readonly columnMappingRepo: IColumnMappingRepository,
     private readonly categoryRepo: IUserCategoryRepository,
+    private readonly categoryVocabularyRepo: ICategoryVocabularyRepository,
     private readonly conversationRepo: IConversationStateRepository,
     private readonly logRepo: IOperationLogRepository,
     private readonly userProfilePort: IUserProfilePort,
@@ -75,13 +77,34 @@ export class RegisterExpenseUseCase {
 
     // Load active user categories to give context to the LLM
     const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
-    const categories = config
-      ? (await this.categoryRepo.findActiveBySpreadsheetId(config.id)).map((c) => c.normalizedValue)
+    const [activeCategories, categoryVocabulary, columnMappings] = config
+      ? await Promise.all([
+          this.categoryRepo.findActiveBySpreadsheetId(config.id),
+          this.categoryVocabularyRepo.findBySpreadsheetId(config.id),
+          this.columnMappingRepo.findBySpreadsheetId(config.id),
+        ])
+      : [[], null, []];
+    const categories = activeCategories.map((category) => category.normalizedValue);
+    const categoryHierarchy = categoryVocabulary
+      ? [...categoryVocabulary.getCategories()]
+          .sort((left, right) => left.normalizedName.localeCompare(right.normalizedName))
+          .map((category) => ({
+            name: category.name,
+            subcategories: [...categoryVocabulary.getSubcategories(category.id)]
+              .sort((left, right) => left.normalizedName.localeCompare(right.normalizedName))
+              .map((subcategory) => subcategory.name),
+          }))
       : [];
+    const subcategoryEnabled =
+      columnMappings.some(
+        (mapping) => mapping.GasttoField === 'subcategoria' && mapping.confirmedAt !== null,
+      ) || categoryHierarchy.some((category) => category.subcategories.length > 0);
 
     const userContext: UserContext = {
       defaultCurrency,
       categories,
+      categoryHierarchy,
+      subcategoryEnabled,
       channel: input.channel,
     };
 

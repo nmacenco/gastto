@@ -23,9 +23,11 @@ function buildExtractedExpense(overrides: Partial<ExtractedExpense> = {}): Extra
     monto: 12,
     moneda: 'EUR',
     categoriaRaw: 'Comida',
+    subcategoriaRaw: null,
     fechaRaw: '2026-07-25',
     medioPago: null,
     confianzaCategoria: 'alta',
+    confianzaSubcategoria: 'nula',
     ...overrides,
   };
 }

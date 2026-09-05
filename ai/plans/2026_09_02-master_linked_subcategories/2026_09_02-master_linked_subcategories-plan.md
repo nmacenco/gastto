@@ -130,20 +130,20 @@ Plan classification of a linked subcategory and presentation of the result durin
 
 #### To-do actions
 
-- [ ] Create `ai/plans/2026_09_02-subcategory_classification_and_review/2026_09_02-subcategory_classification_and_review-plan.md`.
-- [ ] Extend `ExtractedExpense` with nullable `subcategoriaRaw` and independent subcategory confidence.
-- [ ] Pass hierarchical category context through `LLMPort` and update the OpenAI, Claude, and NVIDIA extraction schemas and prompts.
-- [ ] Replace name-only classification results with a structured selection containing stable category and optional subcategory IDs, names, and statuses.
-- [ ] Resolve the parent first and restrict exact, keyword, and fallback child matching to that parent.
-- [ ] Return no subcategory when the parent is unresolved or no valid child matches.
-- [ ] Extend `ExpenseReviewPayload` with backward-compatible subcategory fields and a `subcategoryEnabled` flag.
-- [ ] Extend the expense summary and Telegram presenter to show subcategory data only when the feature is enabled for the user.
-- [ ] Preserve current summary output for users without a subcategory mapping or configured hierarchy.
-- [ ] Specify classifier, LLM adapter, review-payload, summary, presenter, and worker tests covering confidence and parent isolation.
-- [ ] Require updates to the expense-summary and hierarchy feature documentation.
-- [ ] Require focused classification and presentation tests and then the complete project test suite in the subplan.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create `ai/plans/2026_09_02-subcategory_classification_and_review/2026_09_02-subcategory_classification_and_review-plan.md`.
+- [x] Extend `ExtractedExpense` with nullable `subcategoriaRaw` and independent subcategory confidence.
+- [x] Pass hierarchical category context through `LLMPort` and update the OpenAI, Claude, and NVIDIA extraction schemas and prompts.
+- [x] Replace name-only classification results with a structured selection containing stable category and optional subcategory IDs, names, and statuses.
+- [x] Resolve the parent first and restrict exact, keyword, and fallback child matching to that parent.
+- [x] Return no subcategory when the parent is unresolved or no valid child matches.
+- [x] Extend `ExpenseReviewPayload` with backward-compatible subcategory fields and a `subcategoryEnabled` flag.
+- [x] Extend the expense summary and Telegram presenter to show subcategory data only when the feature is enabled for the user.
+- [x] Preserve current summary output for users without a subcategory mapping or configured hierarchy.
+- [x] Specify classifier, LLM adapter, review-payload, summary, presenter, and worker tests covering confidence and parent isolation.
+- [x] Require updates to the expense-summary and hierarchy feature documentation.
+- [x] Require focused classification and presentation tests and then the complete project test suite in the subplan.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 6: Create the natural-language correction subplan
 
@@ -192,4 +192,4 @@ Plan spreadsheet and internal persistence, then close the feature with backward-
 
 ## Next step
 
-Create the Phase 5 hierarchical classification and review subplan before making any application-code changes.
+Create the Phase 6 natural-language correction subplan before making any application-code changes.

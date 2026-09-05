@@ -12,16 +12,11 @@ import type {
 } from '../../../domain/ports/services';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import { serializeUntrustedData, UNTRUSTED_DATA_GUARD } from './untrustedData';
-
-// Zod schema for LLM response — strict JSON output validation
-const ExtractedExpenseSchema = z.object({
-  monto: z.number().nullable(),
-  moneda: z.enum(['ARS', 'EUR', 'USD', 'MXN', 'GBP', 'BRL']).nullable(),
-  categoria_raw: z.string().nullable(),
-  fecha_raw: z.string().nullable(),
-  medio_pago: z.string().nullable(),
-  confianza_categoria: z.enum(['alta', 'baja', 'nula']),
-});
+import {
+  buildExtractionSystemPrompt,
+  ExtractedExpenseSchema,
+  toExtractedExpense,
+} from './expenseExtraction';
 
 const ExpenseCorrectionSuggestionSchema = z
   .object({
@@ -51,30 +46,6 @@ const ExpenseCorrectionSuggestionSchema = z
       ctx.addIssue({ code: 'custom', message: 'Non-correction intent cannot contain changes' });
     }
   });
-
-// Strict system prompt — structured extraction instructions (ADR-002)
-function buildExtractionSystemPrompt(): string {
-  return `Eres el motor de extracción de datos de Gastto. Tu ÚNICA tarea es:
-1. Extraer las entidades del mensaje del usuario: monto, moneda, categoría, fecha y medio de pago.
-2. Devolver un JSON estricto con el esquema definido. Sin markdown, sin explicaciones.
-3. Nunca inventar datos. Si un campo no está presente, devolver null.
-4. ${UNTRUSTED_DATA_GUARD}
-
-Esquema de salida (siempre JSON puro, sin backticks):
-{
-  "monto": number | null,
-  "moneda": "ARS" | "EUR" | "USD" | "MXN" | "GBP" | "BRL" | null,
-  "categoria_raw": string | null,
-  "fecha_raw": string | null,
-  "medio_pago": string | null,
-  "confianza_categoria": "alta" | "baja" | "nula"
-}
-
-Reglas para confianza_categoria:
-- "alta": la categoría coincide exactamente o es muy similar a una de las disponibles
-- "baja": la categoría es inferida pero no coincide exactamente con ninguna disponible
-- "nula": no se puede inferir ninguna categoría del mensaje`;
-}
 
 function buildCorrectionSystemPrompt(): string {
   return `Eres el motor de corrección de Gastto. El usuario acaba de ver un resumen de gasto y responde en lenguaje natural para corregir uno o varios campos.
@@ -151,6 +122,8 @@ export class NvidiaAdapter implements LLMPort {
               userMessage,
               defaultCurrency: userContext.defaultCurrency,
               categories: userContext.categories,
+              categoryHierarchy: userContext.categoryHierarchy,
+              subcategoryEnabled: userContext.subcategoryEnabled,
             }),
           },
         ],
@@ -170,14 +143,7 @@ export class NvidiaAdapter implements LLMPort {
     const parsed: unknown = JSON.parse(cleaned);
     const validated = ExtractedExpenseSchema.parse(parsed);
 
-    return {
-      monto: validated.monto,
-      moneda: validated.moneda,
-      categoriaRaw: validated.categoria_raw,
-      fechaRaw: validated.fecha_raw,
-      medioPago: validated.medio_pago,
-      confianzaCategoria: validated.confianza_categoria,
-    };
+    return toExtractedExpense(validated);
   }
 
   async interpretCorrection(

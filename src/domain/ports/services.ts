@@ -13,7 +13,14 @@ import type { Currency } from '../entities/User';
 export interface UserContext {
   defaultCurrency: Currency | null;
   categories: string[]; // active categories from the user's spreadsheet
+  categoryHierarchy: CategoryHierarchyContext[];
+  subcategoryEnabled: boolean;
   channel: 'telegram' | 'whatsapp';
+}
+
+export interface CategoryHierarchyContext {
+  name: string;
+  subcategories: string[];
 }
 
 export interface ConversationContext {

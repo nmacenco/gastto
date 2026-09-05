@@ -121,6 +121,8 @@ export class CorrectExpenseUseCase {
     return {
       defaultCurrency: input.state.payload.extracted.moneda,
       categories,
+      categoryHierarchy: [],
+      subcategoryEnabled: false,
       channel: input.channel,
     };
   }

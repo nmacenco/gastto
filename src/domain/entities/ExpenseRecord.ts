@@ -34,7 +34,9 @@ export interface ExtractedExpense {
   monto: number | null;
   moneda: Currency | null;
   categoriaRaw: string | null;
+  subcategoriaRaw: string | null;
   fechaRaw: string | null;
   medioPago: string | null;
   confianzaCategoria: CategoryConfidence;
+  confianzaSubcategoria: CategoryConfidence;
 }
