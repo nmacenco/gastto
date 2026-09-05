@@ -71,21 +71,21 @@ Extend natural-language modification from a flat list to the complete hierarchy.
 
 #### To-do actions
 
-- [ ] Add typed intent variants for `add-subcategory { name, parent }`, `rename-subcategory { from, to, parent }`, `move-subcategory { name, fromParent, toParent }`, and `remove-subcategory { name, parent }` without weakening the existing flat category intents or `unknown` fallback.
-- [ ] Extend `RegexCategoryModificationParser` with ordered Spanish and English patterns for commands such as "add Tolls to Transportation", "under Food, rename Delivery to Takeout", "move Streaming from Utilities to Leisure", and "remove Cinema from Leisure"; parse the most specific child/move forms before the flat add, rename, and remove forms.
-- [ ] Keep parsing deterministic and side-effect free: normalize surrounding command syntax, preserve user-provided names for display, reject missing source/target parents as `unknown`, and do not infer a parent from order, a previous command, or spreadsheet proximity.
-- [ ] Extend `ModifyCategoryVocabulary` to parse the canonical or legacy state, load the active aggregate, and rebuild from a valid payload only when no aggregate exists; never create a subcategory until its parent resolves to exactly one active category.
-- [ ] Add a shared exact normalized parent resolver that returns found, not-found, or ambiguous outcomes defensively; reject missing or ambiguous source and target parents and list the active category names the user can choose.
-- [ ] Apply child add, rename, move, and remove through the existing aggregate methods so parent-scoped duplicates, target collisions, stable child IDs, and source isolation remain domain-owned; keep category removal responsible for deactivating its complete child branch.
-- [ ] For an accepted mutation, save the complete aggregate in one repository transaction, serialize the updated nested state while preserving orphan warnings and mapping capability, transition back to `ONBOARDING_CATEGORIES`, and send one updated confirmation prompt.
-- [ ] For unknown, missing-parent, ambiguous-parent, missing-child, duplicate, or move-collision outcomes, do not persist a partial mutation; retain the prior canonical payload, send targeted guidance, and remain in `ONBOARDING_CATEGORIES`.
-- [ ] Extend onboarding copies with parent-not-found, parent-ambiguous, child-not-found, duplicate/collision, and generic hierarchy-update messages; every response must show enough of the current hierarchy or valid parent candidates for the user to retry.
-- [ ] Extend `RegexCategoryModificationParser.spec.ts` with Spanish and English category and child commands, precedence collisions, incomplete parent clauses, whitespace/case normalization, and unknown inputs.
-- [ ] Extend `ModifyCategoryVocabulary.spec.ts` with every successful child operation, same child under two parents, category branch removal, missing and ambiguous parents, missing child, duplicates, move collisions, legacy payload rebuild, repository rollback propagation, rejected-operation non-persistence, and idempotent repeated commands.
-- [ ] Extend worker tests to prove non-confirming hierarchical messages delegate once to modification and that Telegram and WhatsApp use the same canonical state and shared copy contracts.
-- [ ] Run the focused parser, aggregate regression, modification, copy, and worker tests.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add typed intent variants for `add-subcategory { name, parent }`, `rename-subcategory { from, to, parent }`, `move-subcategory { name, fromParent, toParent }`, and `remove-subcategory { name, parent }` without weakening the existing flat category intents or `unknown` fallback.
+- [x] Extend `RegexCategoryModificationParser` with ordered Spanish and English patterns for commands such as "add Tolls to Transportation", "under Food, rename Delivery to Takeout", "move Streaming from Utilities to Leisure", and "remove Cinema from Leisure"; parse the most specific child/move forms before the flat add, rename, and remove forms.
+- [x] Keep parsing deterministic and side-effect free: normalize surrounding command syntax, preserve user-provided names for display, reject missing source/target parents as `unknown`, and do not infer a parent from order, a previous command, or spreadsheet proximity.
+- [x] Extend `ModifyCategoryVocabulary` to parse the canonical or legacy state, load the active aggregate, and rebuild from a valid payload only when no aggregate exists; never create a subcategory until its parent resolves to exactly one active category.
+- [x] Add a shared exact normalized parent resolver that returns found, not-found, or ambiguous outcomes defensively; reject missing or ambiguous source and target parents and list the active category names the user can choose.
+- [x] Apply child add, rename, move, and remove through the existing aggregate methods so parent-scoped duplicates, target collisions, stable child IDs, and source isolation remain domain-owned; keep category removal responsible for deactivating its complete child branch.
+- [x] For an accepted mutation, save the complete aggregate in one repository transaction, serialize the updated nested state while preserving orphan warnings and mapping capability, transition back to `ONBOARDING_CATEGORIES`, and send one updated confirmation prompt.
+- [x] For unknown, missing-parent, ambiguous-parent, missing-child, duplicate, or move-collision outcomes, do not persist a partial mutation; retain the prior canonical payload, send targeted guidance, and remain in `ONBOARDING_CATEGORIES`.
+- [x] Extend onboarding copies with parent-not-found, parent-ambiguous, child-not-found, duplicate/collision, and generic hierarchy-update messages; every response must show enough of the current hierarchy or valid parent candidates for the user to retry.
+- [x] Extend `RegexCategoryModificationParser.spec.ts` with Spanish and English category and child commands, precedence collisions, incomplete parent clauses, whitespace/case normalization, and unknown inputs.
+- [x] Extend `ModifyCategoryVocabulary.spec.ts` with every successful child operation, same child under two parents, category branch removal, missing and ambiguous parents, missing child, duplicates, move collisions, legacy payload rebuild, repository rollback propagation, rejected-operation non-persistence, and idempotent repeated commands.
+- [x] Extend worker tests to prove non-confirming hierarchical messages delegate once to modification and that Telegram and WhatsApp use the same canonical state and shared copy contracts.
+- [x] Run the focused parser, aggregate regression, modification, copy, and worker tests.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Confirm atomically and close compatibility documentation
 
@@ -116,4 +116,4 @@ Finalize the reviewed hierarchy before onboarding completion. The complete aggre
 
 ## Next step
 
-Implement Phase 2 to add parent-aware hierarchy management while preserving canonical and legacy onboarding payloads.
+Implement Phase 3 to confirm the complete hierarchy atomically and close compatibility documentation.

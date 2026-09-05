@@ -34,6 +34,69 @@ describe('onboardingCopies', () => {
     });
   });
 
+  describe('category hierarchy modification guidance', () => {
+    const state = {
+      categories: [
+        { name: 'Food', subcategories: ['Delivery'] },
+        { name: 'Leisure', subcategories: ['Cinema'] },
+      ],
+      orphanSubcategories: ['Unassigned'],
+    };
+
+    it('shows the updated hierarchy and retained orphan warning', () => {
+      const result = onboardingCopies.hierarchyUpdatedPrompt(state);
+
+      expect(result).toContain('• Food\n  ◦ Delivery');
+      expect(result).toContain('• Leisure\n  ◦ Cinema');
+      expect(result).toContain('Unassigned');
+      expect(result).toContain('Respondé *sí*');
+    });
+
+    it('lists valid parents when the requested parent is missing', () => {
+      const result = onboardingCopies.hierarchyParentNotFound('Missing', state);
+
+      expect(result).toContain('"Missing"');
+      expect(result).toContain('• Food');
+      expect(result).toContain('• Leisure');
+    });
+
+    it('lists ambiguous candidates and asks for an unambiguous parent', () => {
+      const result = onboardingCopies.hierarchyParentAmbiguous('food', ['Food', 'FOOD'], state);
+
+      expect(result).toContain('ambigua');
+      expect(result).toContain('• Food\n• FOOD');
+      expect(result).toContain('inequívoco');
+    });
+
+    it('identifies a missing child within its requested parent', () => {
+      const result = onboardingCopies.hierarchyChildNotFound('Takeout', 'Food', state);
+
+      expect(result).toContain('"Takeout"');
+      expect(result).toContain('"Food"');
+      expect(result).toContain('  ◦ Delivery');
+    });
+
+    it('explains duplicate or move-collision rejection without exposing domain details', () => {
+      const result = onboardingCopies.hierarchyDuplicateOrCollision(
+        'internal domain detail',
+        state,
+      );
+
+      expect(result).toContain('duplicado');
+      expect(result).toContain('colisión');
+      expect(result).not.toContain('internal domain detail');
+      expect(result).toContain('Jerarquía actual');
+    });
+
+    it('shows parent-aware command guidance for unknown input', () => {
+      const result = onboardingCopies.hierarchyUpdateGuidance(state);
+
+      expect(result).toContain('categoría padre');
+      expect(result).toContain('agregar Peajes a Transporte');
+      expect(result).toContain('Jerarquía actual');
+    });
+  });
+
   describe('categoryNotFoundForRemoval', () => {
     it('identifies the missing category and lists the current vocabulary', () => {
       const result = onboardingCopies.categoryNotFoundForRemoval('ocio', ['comida', 'transporte']);

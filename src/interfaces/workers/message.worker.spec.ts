@@ -2927,56 +2927,64 @@ describe('processMessageJob', () => {
         expect(mockModifyCategoryVocabularyExecute).not.toHaveBeenCalled();
       });
 
-      it('re-sends the shared nested proposal when hierarchy modification is unavailable', async () => {
-        const deps = buildMockDeps();
-        deps.modifyCategoryVocabulary = null;
-        mockGetConversationStateExecute.mockResolvedValue(
-          buildConversationState({
-            currentState: 'ONBOARDING_CATEGORIES',
-            statePayload: {
-              categories: [{ name: 'food', subcategories: ['restaurant'] }],
-              orphanSubcategories: ['streaming'],
-              subcategoryColumnMapped: true,
-            },
-          }),
-        );
+      it.each(['telegram', 'whatsapp'] as const)(
+        're-sends the shared nested proposal through %s when hierarchy modification is unavailable',
+        async (channel) => {
+          const deps = buildMockDeps();
+          deps.modifyCategoryVocabulary = null;
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'ONBOARDING_CATEGORIES',
+              statePayload: {
+                categories: [{ name: 'food', subcategories: ['restaurant'] }],
+                orphanSubcategories: ['streaming'],
+                subcategoryColumnMapped: true,
+              },
+            }),
+          );
 
-        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'what?' }), deps);
+          await processMessageJob(buildJob({ ...baseJobData, channel, rawMessage: 'what?' }), deps);
 
-        expect(mockSendMessage).toHaveBeenCalledWith(
-          '123456789',
-          expect.stringContaining('  ◦ restaurant'),
-        );
-        expect(mockSendMessage).toHaveBeenCalledWith(
-          '123456789',
-          expect.stringContaining('streaming'),
-        );
-      });
+          expect(mockSendMessage).toHaveBeenCalledWith(
+            '123456789',
+            expect.stringContaining('  ◦ restaurant'),
+          );
+          expect(mockSendMessage).toHaveBeenCalledWith(
+            '123456789',
+            expect.stringContaining('streaming'),
+          );
+        },
+      );
 
-      it('passes the same canonical hierarchy contract through WhatsApp', async () => {
-        const deps = buildMockDeps();
-        const statePayload = {
-          categories: [{ name: 'food', subcategories: ['restaurant'] }],
-          orphanSubcategories: [],
-          subcategoryColumnMapped: true,
-        };
-        mockGetConversationStateExecute.mockResolvedValue(
-          buildConversationState({ currentState: 'ONBOARDING_CATEGORIES', statePayload }),
-        );
+      it.each(['telegram', 'whatsapp'] as const)(
+        'passes the same canonical hierarchy contract once through %s',
+        async (channel) => {
+          const deps = buildMockDeps();
+          const statePayload = {
+            categories: [{ name: 'food', subcategories: ['restaurant'] }],
+            orphanSubcategories: [],
+            subcategoryColumnMapped: true,
+          };
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({ currentState: 'ONBOARDING_CATEGORIES', statePayload }),
+          );
 
-        await processMessageJob(
-          buildJob({ ...baseJobData, channel: 'whatsapp', rawMessage: 'add health' }),
-          deps,
-        );
+          await processMessageJob(
+            buildJob({ ...baseJobData, channel, rawMessage: 'add tolls to transport' }),
+            deps,
+          );
 
-        expect(mockModifyCategoryVocabularyExecute).toHaveBeenCalledWith({
-          userId: 'user-123',
-          externalId: '123456789',
-          channel: 'whatsapp',
-          rawMessage: 'add health',
-          statePayload,
-        });
-      });
+          expect(mockModifyCategoryVocabularyExecute).toHaveBeenCalledTimes(1);
+          expect(mockModifyCategoryVocabularyExecute).toHaveBeenCalledWith({
+            userId: 'user-123',
+            externalId: '123456789',
+            channel,
+            rawMessage: 'add tolls to transport',
+            statePayload,
+          });
+          expect(mockSendMessage).not.toHaveBeenCalled();
+        },
+      );
     });
   });
 

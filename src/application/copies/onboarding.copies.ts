@@ -225,6 +225,44 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     return `No pude actualizar la categoría. Las categorías actuales son:\n${list}\n\n¿Están bien? Respondé *sí* o intentá de nuevo.`;
   },
 
+  hierarchyUpdatedPrompt: (state: {
+    categories: CategoryOnboardingCategory[];
+    orphanSubcategories: string[];
+  }) =>
+    `Actualicé la jerarquía:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}\n\n¿Está bien ahora? Respondé *sí* o decime si querés cambiar algo más.`,
+
+  hierarchyUpdateGuidance: (state: {
+    categories: CategoryOnboardingCategory[];
+    orphanSubcategories: string[];
+  }) =>
+    `No entendí el cambio. Indicá siempre la categoría padre de una subcategoría. Por ejemplo: "agregar Peajes a Transporte".\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+
+  hierarchyParentNotFound: (
+    parent: string,
+    state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
+  ) =>
+    `No encontré la categoría padre "${parent}". Podés elegir una de estas categorías:\n${formatCategoryNames(state.categories)}\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+
+  hierarchyParentAmbiguous: (
+    parent: string,
+    candidates: string[],
+    state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
+  ) =>
+    `La categoría padre "${parent}" es ambigua. Coincide con:\n${candidates.map((candidate) => `• ${candidate}`).join('\n')}\n\nElegí un nombre de categoría padre inequívoco.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+
+  hierarchyChildNotFound: (
+    child: string,
+    parent: string,
+    state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
+  ) =>
+    `No encontré la subcategoría "${child}" dentro de "${parent}". Revisá el nombre y la categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+
+  hierarchyDuplicateOrCollision: (
+    _errorMessage: string,
+    state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
+  ) =>
+    `No pude aplicar el cambio porque generaría un nombre duplicado o una colisión en esa categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+
   mappingResumePrompt: (
     mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
   ) => {
@@ -284,4 +322,17 @@ function formatUnmappedFields(fields: GasttoField[]): string {
   }
 
   return messages.join(' ');
+}
+
+function formatCategoryHierarchy(categories: CategoryOnboardingCategory[]): string {
+  return categories
+    .flatMap((category) => [
+      `• ${category.name}`,
+      ...category.subcategories.map((subcategory) => `  ◦ ${subcategory}`),
+    ])
+    .join('\n');
+}
+
+function formatCategoryNames(categories: CategoryOnboardingCategory[]): string {
+  return categories.map((category) => `• ${category.name}`).join('\n');
 }

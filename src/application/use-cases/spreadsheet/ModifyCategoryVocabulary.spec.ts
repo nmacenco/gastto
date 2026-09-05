@@ -53,6 +53,32 @@ const baseInput: ModifyCategoryVocabularyInput = {
   statePayload: { categories: ['comida', 'transporte'] },
 };
 
+const hierarchyInput: ModifyCategoryVocabularyInput = {
+  ...baseInput,
+  statePayload: {
+    headerRowIndex: 3,
+    categories: [
+      { name: 'Food', subcategories: ['Delivery', 'Groceries'] },
+      { name: 'Utilities', subcategories: ['Streaming'] },
+      { name: 'Leisure', subcategories: ['Cinema'] },
+    ],
+    orphanSubcategories: ['Unassigned'],
+    subcategoryColumnMapped: true,
+  },
+};
+
+function buildHierarchyVocabulary(): CategoryVocabulary {
+  const vocabulary = new CategoryVocabulary('config-1');
+  const food = vocabulary.addCategory('Food');
+  const utilities = vocabulary.addCategory('Utilities');
+  const leisure = vocabulary.addCategory('Leisure');
+  vocabulary.addSubcategory(food.id, 'Delivery');
+  vocabulary.addSubcategory(food.id, 'Groceries');
+  vocabulary.addSubcategory(utilities.id, 'Streaming');
+  vocabulary.addSubcategory(leisure.id, 'Cinema');
+  return vocabulary;
+}
+
 const mockConfig = {
   id: 'config-1',
   userId: 'user-123',
@@ -145,7 +171,11 @@ describe('ModifyCategoryVocabulary', () => {
     expect(mockTransitionExecute).toHaveBeenCalledWith({
       userId: 'user-123',
       targetState: 'ONBOARDING_CATEGORIES',
-      payload: { categories: ['comida'] },
+      payload: {
+        categories: [{ name: 'comida', subcategories: [] }],
+        orphanSubcategories: [],
+        subcategoryColumnMapped: false,
+      },
     });
   });
 
@@ -282,5 +312,231 @@ describe('ModifyCategoryVocabulary', () => {
     expect(result.categories).toContain('comida');
     expect(result.categories).toContain('transporte');
     expect(result.categories).toContain('salud');
+  });
+
+  it('adds a child under its exact active parent and preserves payload metadata', async () => {
+    mockParse.mockResolvedValue({ kind: 'add-subcategory', name: 'Takeout', parent: 'food' });
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+
+    expect(result.state.categories[0]).toEqual({
+      name: 'Food',
+      subcategories: ['Delivery', 'Groceries', 'Takeout'],
+    });
+    expect(result.state.orphanSubcategories).toEqual(['Unassigned']);
+    expect(mockSaveVocabulary).toHaveBeenCalledOnce();
+    expect(mockTransitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_CATEGORIES',
+      payload: {
+        headerRowIndex: 3,
+        categories: result.state.categories,
+        orphanSubcategories: ['Unassigned'],
+        subcategoryColumnMapped: true,
+      },
+    });
+  });
+
+  it('allows the same child name under a different parent', async () => {
+    mockParse.mockResolvedValue({ kind: 'add-subcategory', name: 'Cinema', parent: 'Food' });
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+
+    expect(
+      result.state.categories.find((category) => category.name === 'Food')?.subcategories,
+    ).toContain('Cinema');
+    expect(
+      result.state.categories.find((category) => category.name === 'Leisure')?.subcategories,
+    ).toContain('Cinema');
+    expect(mockSaveVocabulary).toHaveBeenCalledOnce();
+  });
+
+  it('renames only the selected child and preserves its stable id', async () => {
+    mockParse.mockResolvedValue({
+      kind: 'rename-subcategory',
+      from: 'Delivery',
+      to: 'Takeout',
+      parent: 'Food',
+    });
+    const vocabulary = buildHierarchyVocabulary();
+    const food = vocabulary.getCategories().find((category) => category.name === 'Food')!;
+    const childId = vocabulary.findSubcategory(food.id, 'Delivery')!.id;
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(vocabulary);
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+    const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;
+
+    expect(saved.findSubcategory(food.id, 'Takeout')?.id).toBe(childId);
+    expect(result.state.categories[0]?.subcategories).toEqual(['Takeout', 'Groceries']);
+  });
+
+  it('moves one child between parents while preserving its id and source isolation', async () => {
+    mockParse.mockResolvedValue({
+      kind: 'move-subcategory',
+      name: 'Streaming',
+      fromParent: 'Utilities',
+      toParent: 'Leisure',
+    });
+    const vocabulary = buildHierarchyVocabulary();
+    const utilities = vocabulary.getCategories().find((category) => category.name === 'Utilities')!;
+    const leisure = vocabulary.getCategories().find((category) => category.name === 'Leisure')!;
+    const childId = vocabulary.findSubcategory(utilities.id, 'Streaming')!.id;
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(vocabulary);
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+    const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;
+
+    expect(saved.findSubcategory(utilities.id, 'Streaming')).toBeUndefined();
+    expect(saved.findSubcategory(leisure.id, 'Streaming')?.id).toBe(childId);
+    expect(result.state.categories[1]?.subcategories).toEqual([]);
+    expect(result.state.categories[2]?.subcategories).toEqual(['Streaming', 'Cinema']);
+  });
+
+  it('removes only the requested child', async () => {
+    mockParse.mockResolvedValue({
+      kind: 'remove-subcategory',
+      name: 'Cinema',
+      parent: 'Leisure',
+    });
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+
+    expect(result.state.categories[2]).toEqual({ name: 'Leisure', subcategories: [] });
+    expect(result.state.categories[0]?.subcategories).toEqual(['Delivery', 'Groceries']);
+    expect(mockSaveVocabulary).toHaveBeenCalledOnce();
+  });
+
+  it('removes a category together with its complete child branch', async () => {
+    mockParse.mockResolvedValue({ kind: 'remove', name: 'Food' });
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+    const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;
+
+    expect(result.state.categories.map((category) => category.name)).toEqual([
+      'Utilities',
+      'Leisure',
+    ]);
+    expect(saved.getSubcategories().map((subcategory) => subcategory.name)).toEqual([
+      'Streaming',
+      'Cinema',
+    ]);
+  });
+
+  it('rejects a missing parent and lists valid parent candidates without persistence', async () => {
+    mockParse.mockResolvedValue({
+      kind: 'add-subcategory',
+      name: 'Takeout',
+      parent: 'Missing',
+    });
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(result.message).toContain('"Missing"');
+    expect(result.message).toContain('• Food');
+    expect(result.message).toContain('• Utilities');
+    expect(result.state.categories[0]?.subcategories).toEqual(['Delivery', 'Groceries']);
+  });
+
+  it('defensively rejects an ambiguous parent without persistence', async () => {
+    mockParse.mockResolvedValue({
+      kind: 'add-subcategory',
+      name: 'Takeout',
+      parent: 'Food',
+    });
+    const vocabulary = new CategoryVocabulary('config-1', [
+      { id: 'food-1', name: 'Food', normalizedName: 'food' },
+      { id: 'food-2', name: 'FOOD', normalizedName: 'food' },
+    ]);
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(vocabulary);
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(result.message).toContain('ambigua');
+    expect(result.message).toContain('• Food');
+    expect(result.message).toContain('• FOOD');
+  });
+
+  it('rejects a missing child within the resolved parent without persistence', async () => {
+    mockParse.mockResolvedValue({
+      kind: 'remove-subcategory',
+      name: 'Missing',
+      parent: 'Food',
+    });
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(result.message).toContain('"Missing"');
+    expect(result.message).toContain('"Food"');
+  });
+
+  it('rejects duplicate children and move collisions without partial persistence', async () => {
+    const vocabulary = buildHierarchyVocabulary();
+    const leisure = vocabulary.getCategories().find((category) => category.name === 'Leisure')!;
+    vocabulary.addSubcategory(leisure.id, 'Streaming');
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(vocabulary);
+    mockParse.mockResolvedValue({
+      kind: 'move-subcategory',
+      name: 'Streaming',
+      fromParent: 'Utilities',
+      toParent: 'Leisure',
+    });
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(result.message).toContain('colisión');
+    expect(result.state.categories[1]?.subcategories).toEqual(['Streaming']);
+    expect(result.state.categories[2]?.subcategories).toEqual(['Cinema', 'Streaming']);
+  });
+
+  it('rebuilds the complete hierarchy from a valid payload when no aggregate exists', async () => {
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(null);
+    mockParse.mockResolvedValue({
+      kind: 'rename-subcategory',
+      from: 'Delivery',
+      to: 'Takeout',
+      parent: 'Food',
+    });
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+
+    expect(result.state.categories[0]).toEqual({
+      name: 'Food',
+      subcategories: ['Takeout', 'Groceries'],
+    });
+    expect(mockSaveVocabulary).toHaveBeenCalledOnce();
+  });
+
+  it('propagates repository failure before sending or transitioning', async () => {
+    mockParse.mockResolvedValue({ kind: 'add-subcategory', name: 'Takeout', parent: 'Food' });
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
+    mockSaveVocabulary.mockRejectedValueOnce(new Error('transaction rolled back'));
+
+    await expect(
+      new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput),
+    ).rejects.toThrow('transaction rolled back');
+
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockTransitionExecute).not.toHaveBeenCalled();
+  });
+
+  it('treats a repeated child command idempotently and does not persist again', async () => {
+    mockParse.mockResolvedValue({ kind: 'add-subcategory', name: 'Delivery', parent: 'Food' });
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
+
+    const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
+
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(result.message).toContain('duplicado');
+    expect(result.state.categories[0]?.subcategories).toEqual(['Delivery', 'Groceries']);
   });
 });
