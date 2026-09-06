@@ -16,7 +16,10 @@ import type {
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
-import { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
+import {
+  ClassificationSelection,
+  HierarchicalClassificationResult,
+} from '../../../domain/value-objects/ClassificationResult';
 
 function buildExtractedExpense(overrides: Partial<ExtractedExpense> = {}): ExtractedExpense {
   return {
@@ -83,7 +86,9 @@ function buildDeps(
 
   const classifierMock: ReturnType<typeof vi.fn<ICategoryClassifier['execute']>> =
     overrides.classifier ??
-    vi.fn<ICategoryClassifier['execute']>().mockResolvedValue(ClassificationResult.noMatch());
+    vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(HierarchicalClassificationResult.none());
 
   const findAverageAmountByUserIdMock: ReturnType<
     typeof vi.fn<IExpenseRecordRepository['findAverageAmountByUserId']>
@@ -257,7 +262,11 @@ describe('CorrectExpenseUseCase', () => {
       }),
       classifier: vi
         .fn<ICategoryClassifier['execute']>()
-        .mockResolvedValue(ClassificationResult.highConfidence('Transporte')),
+        .mockResolvedValue(
+          HierarchicalClassificationResult.create(
+            ClassificationSelection.confirmed('category-transport', 'Transporte'),
+          ),
+        ),
     });
     const state = buildCorrectionState();
 
@@ -278,6 +287,8 @@ describe('CorrectExpenseUseCase', () => {
         rawMessage: 'ponlo en transporte',
         llmCategory: 'transporte',
         llmConfidence: 'alta',
+        llmSubcategory: null,
+        llmSubcategoryConfidence: 'nula',
       }),
     );
     expect(transitionMock).toHaveBeenCalledWith(
@@ -326,7 +337,11 @@ describe('CorrectExpenseUseCase', () => {
       }),
       classifier: vi
         .fn<ICategoryClassifier['execute']>()
-        .mockResolvedValue(ClassificationResult.highConfidence('Transporte')),
+        .mockResolvedValue(
+          HierarchicalClassificationResult.create(
+            ClassificationSelection.confirmed('category-transport', 'Transporte'),
+          ),
+        ),
     });
     const state = buildCorrectionState();
 

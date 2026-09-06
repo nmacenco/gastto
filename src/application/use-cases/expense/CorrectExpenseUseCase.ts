@@ -17,7 +17,6 @@ import { MAX_CORRECTION_CYCLES } from '../../../domain/value-objects/expense-cor
 import type { ExpenseCorrectionState } from '../../../domain/value-objects/expense-correction-state';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { Currency } from '../../../domain/entities/User';
-import type { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
 
 export interface CorrectExpenseInput {
   userId: string;
@@ -152,16 +151,19 @@ export class CorrectExpenseUseCase {
           break;
         case 'categoria':
           if (suggestion.categoriaRaw !== null) {
+            const config = await this.deps.spreadsheetConfigRepo.findByUserId(input.userId);
             const classification = await this.deps.classifier.execute({
               userId: input.userId,
+              spreadsheetId: config?.id ?? null,
               rawMessage: input.rawMessage,
               llmCategory: suggestion.categoriaRaw,
               llmConfidence: 'alta',
+              llmSubcategory: null,
+              llmSubcategoryConfidence: 'nula',
             });
-            const category = this.toReviewCategory(classification);
-            resolvedCategory = category.resolvedCategory;
-            resolvedCategoryId = category.resolvedCategoryId;
-            categoryStatus = category.categoryStatus;
+            resolvedCategory = classification.category.name;
+            resolvedCategoryId = classification.category.id;
+            categoryStatus = classification.category.status;
             extracted = { ...extracted, categoriaRaw: suggestion.categoriaRaw };
           }
           break;
@@ -224,35 +226,5 @@ export class CorrectExpenseUseCase {
 
   private reviewExpiration(): Date {
     return new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000);
-  }
-
-  private toReviewCategory(classification: ClassificationResult): {
-    resolvedCategory: string | null;
-    resolvedCategoryId: string | null;
-    categoryStatus: ExpenseReviewPayload['categoryStatus'];
-  } {
-    switch (classification.kind) {
-      case 'high-confidence':
-        return {
-          resolvedCategory: classification.category,
-          resolvedCategoryId: null,
-          categoryStatus: 'confirmed',
-        };
-      case 'ambiguous':
-        return {
-          resolvedCategory: classification.category,
-          resolvedCategoryId: null,
-          categoryStatus: 'ambiguous',
-        };
-      case 'fallback':
-        return {
-          resolvedCategory: classification.category,
-          resolvedCategoryId: null,
-          categoryStatus: 'fallback',
-        };
-      case 'no-match':
-      default:
-        return { resolvedCategory: null, resolvedCategoryId: null, categoryStatus: 'none' };
-    }
   }
 }

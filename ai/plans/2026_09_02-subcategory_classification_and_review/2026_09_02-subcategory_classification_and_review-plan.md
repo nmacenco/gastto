@@ -76,23 +76,23 @@ Replace the name-only classification result with one stable parent/child selecti
 
 #### To-do actions
 
-- [ ] Replace the category-only `ClassificationResult` public union with `ClassificationSelection` and `HierarchicalClassificationResult`; provide constructors and type guards that keep `confirmed`, `ambiguous`, `fallback`, and `none` explicit for each level.
-- [ ] Extend `ClassifyExpenseCategoryInput` with `spreadsheetId`, `llmSubcategory`, and `llmSubcategoryConfidence`, and inject `ICategoryVocabularyRepository` into `ClassifyExpenseCategory` through `buildDependencies.ts`.
-- [ ] Preserve the current category strategy order and thresholds, but bind every resolved category name to the active aggregate so a successful result contains its persisted UUID; a stale keyword or fallback name that is not active becomes a category `none` selection.
-- [ ] Stop child classification when the parent selection has no active ID, returning subcategory `{ id: null, name: null, categoryId: null, status: 'none', confidence: 'nula' }` regardless of the LLM child suggestion.
-- [ ] Restrict the child candidate set to `CategoryVocabulary.getSubcategories(selectedCategory.id)` before exact, keyword, or fallback work; never inspect or return an equal normalized child belonging to another parent.
-- [ ] Resolve a high-confidence exact normalized LLM child first, then deterministic whole-name/phrase matches from the raw message, then a conservative fuzzy fallback against only the selected parent's child names; do not auto-select a sole child without textual evidence.
-- [ ] Add a narrow subcategory fallback matcher contract or reusable deterministic matcher that accepts arbitrary child names and returns no result for absent, tied, or over-threshold candidates; do not widen the canonical-category-only fallback contract unsafely.
-- [ ] Mark exact or decisive keyword child matches as `confirmed`, tied/insufficiently separated matches as `ambiguous`, conservative approximate matches as `fallback`, and no valid child as `none`, independently of the parent status.
-- [ ] Update `RegisterExpenseUseCase.interpret()` and its zero-amount payload helper to pass both LLM suggestions/confidences, consume the hierarchical result once, and populate stable category plus optional child IDs/names/statuses without changing clarification priority or adding an FSM state.
-- [ ] Keep a resolved category when no child matches, and make all newly constructed review payloads include explicit null child values plus the computed `subcategoryEnabled` flag for deterministic serialization.
-- [ ] Leave `RegisterExpenseUseCase.save()`, spreadsheet row construction, expense-record persistence, retry, correction, cancellation, and undo semantics unchanged in this subplan; Phase 7 will consume the reviewed identifiers/snapshots for persistence.
-- [ ] Replace and extend `ClassificationResult.spec.ts` and `ClassifyExpenseCategory.spec.ts` for stable IDs, exact parent and child matches, category keyword and fallback behavior, child phrase/keyword and fallback behavior, confidence/status independence, ambiguous children, no-evidence single child, missing hierarchy, unresolved parent, no valid child, inactive/stale candidates, and equal child names under different parents.
-- [ ] Extend `RegisterExpense.spec.ts` for ready, zero-amount, date-default, and category-only payloads plus explicit assertions that classification never writes to the spreadsheet or expense repository during interpretation.
-- [ ] Extend bootstrap dependency tests for the active hierarchy repository and subcategory matcher wiring.
-- [ ] Run the focused classification result, classifier, register-expense, and dependency-wiring test suites.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Replace the category-only `ClassificationResult` public union with `ClassificationSelection` and `HierarchicalClassificationResult`; provide constructors and type guards that keep `confirmed`, `ambiguous`, `fallback`, and `none` explicit for each level.
+- [x] Extend `ClassifyExpenseCategoryInput` with `spreadsheetId`, `llmSubcategory`, and `llmSubcategoryConfidence`, and inject `ICategoryVocabularyRepository` into `ClassifyExpenseCategory` through `buildDependencies.ts`.
+- [x] Preserve the current category strategy order and thresholds, but bind every resolved category name to the active aggregate so a successful result contains its persisted UUID; a stale keyword or fallback name that is not active becomes a category `none` selection.
+- [x] Stop child classification when the parent selection has no active ID, returning subcategory `{ id: null, name: null, categoryId: null, status: 'none', confidence: 'nula' }` regardless of the LLM child suggestion.
+- [x] Restrict the child candidate set to `CategoryVocabulary.getSubcategories(selectedCategory.id)` before exact, keyword, or fallback work; never inspect or return an equal normalized child belonging to another parent.
+- [x] Resolve a high-confidence exact normalized LLM child first, then deterministic whole-name/phrase matches from the raw message, then a conservative fuzzy fallback against only the selected parent's child names; do not auto-select a sole child without textual evidence.
+- [x] Add a narrow subcategory fallback matcher contract or reusable deterministic matcher that accepts arbitrary child names and returns no result for absent, tied, or over-threshold candidates; do not widen the canonical-category-only fallback contract unsafely.
+- [x] Mark exact or decisive keyword child matches as `confirmed`, tied/insufficiently separated matches as `ambiguous`, conservative approximate matches as `fallback`, and no valid child as `none`, independently of the parent status.
+- [x] Update `RegisterExpenseUseCase.interpret()` and its zero-amount payload helper to pass both LLM suggestions/confidences, consume the hierarchical result once, and populate stable category plus optional child IDs/names/statuses without changing clarification priority or adding an FSM state.
+- [x] Keep a resolved category when no child matches, and make all newly constructed review payloads include explicit null child values plus the computed `subcategoryEnabled` flag for deterministic serialization.
+- [x] Leave `RegisterExpenseUseCase.save()`, spreadsheet row construction, expense-record persistence, retry, correction, cancellation, and undo semantics unchanged in this subplan; Phase 7 will consume the reviewed identifiers/snapshots for persistence.
+- [x] Replace and extend `ClassificationResult.spec.ts` and `ClassifyExpenseCategory.spec.ts` for stable IDs, exact parent and child matches, category keyword and fallback behavior, child phrase/keyword and fallback behavior, confidence/status independence, ambiguous children, no-evidence single child, missing hierarchy, unresolved parent, no valid child, inactive/stale candidates, and equal child names under different parents.
+- [x] Extend `RegisterExpense.spec.ts` for ready, zero-amount, date-default, and category-only payloads plus explicit assertions that classification never writes to the spreadsheet or expense repository during interpretation.
+- [x] Extend bootstrap dependency tests for the active hierarchy repository and subcategory matcher wiring.
+- [x] Run the focused classification result, classifier, register-expense, and dependency-wiring test suites.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Present hierarchy-aware reviews and close documentation
 
@@ -122,4 +122,4 @@ Carry the optional child selection through the channel-neutral summary and Teleg
 
 ## Next step
 
-Implement Phase 2 to resolve a parent-first stable hierarchy selection.
+Implement Phase 3 to present hierarchy-aware reviews and close documentation.

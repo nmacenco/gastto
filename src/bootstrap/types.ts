@@ -41,6 +41,8 @@ import type { UndoLastExpenseUseCase } from '../application/use-cases/expense/Un
 import type { RetryExpenseSaveUseCase } from '../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { QueuePendingExpense } from '../application/use-cases/expense/QueuePendingExpense';
 import type { AdvancePendingExpense } from '../application/use-cases/expense/AdvancePendingExpense';
+import type { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
+import type { SubcategoryFallbackMatcher } from '../infrastructure/adapters/category/SubcategoryFallbackMatcher';
 import type { ExpenseSummaryPresenter } from '../application/ports/output/expense-summary.presenter';
 import type { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
 import type { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
@@ -188,6 +190,8 @@ export interface Dependencies {
   userProcessingLock: RedisUserProcessingLock;
 
   // Expense registration use cases
+  categoryClassifier?: ClassifyExpenseCategory;
+  subcategoryFallbackMatcher?: SubcategoryFallbackMatcher;
   registerExpense: RegisterExpenseUseCase;
   queuePendingExpense: QueuePendingExpense;
   advancePendingExpense: AdvancePendingExpense;

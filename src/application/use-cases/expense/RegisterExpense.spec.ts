@@ -23,7 +23,11 @@ import type {
 } from '../../../domain/ports/repositories';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
-import { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
+import {
+  ClassificationSelection,
+  HierarchicalClassificationResult,
+  SubcategoryClassificationSelection,
+} from '../../../domain/value-objects/ClassificationResult';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
@@ -210,7 +214,7 @@ beforeEach(() => {
   mockConversationTransition.mockResolvedValue(null);
   mockAppendRow.mockResolvedValue({ sheet: 'Hoja 1', row: 2 });
   mockSpreadsheetPortFactoryCreate.mockReturnValue(buildMockSpreadsheetPort());
-  mockClassifierExecute.mockResolvedValue(ClassificationResult.noMatch());
+  mockClassifierExecute.mockResolvedValue(HierarchicalClassificationResult.none());
 });
 
 describe('RegisterExpenseUseCase', () => {
@@ -373,6 +377,108 @@ describe('RegisterExpenseUseCase', () => {
   });
 
   describe('interpret()', () => {
+    it('builds a ready payload with stable parent and child selections', async () => {
+      mockVocabularyFindBySpreadsheetId.mockResolvedValue(
+        new CategoryVocabulary(
+          'config-1',
+          [{ id: 'category-food', name: 'Food', normalizedName: 'food' }],
+          [
+            {
+              id: 'subcategory-restaurant',
+              categoryId: 'category-food',
+              name: 'Restaurant',
+              normalizedName: 'restaurant',
+            },
+          ],
+        ),
+      );
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Food'),
+          SubcategoryClassificationSelection.confirmed(
+            'subcategory-restaurant',
+            'Restaurant',
+            'category-food',
+          ),
+        ),
+      );
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({
+          categoriaRaw: 'Food',
+          subcategoriaRaw: 'Restaurant',
+          confianzaSubcategoria: 'alta',
+        }),
+      );
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
+      expect(result.payload).toMatchObject({
+        resolvedCategory: 'Food',
+        resolvedCategoryId: 'category-food',
+        categoryStatus: 'confirmed',
+        resolvedSubcategory: 'Restaurant',
+        resolvedSubcategoryId: 'subcategory-restaurant',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
+      });
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+    });
+
+    it('serializes explicit null child values for a hierarchy-disabled zero-amount review', async () => {
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Food'),
+        ),
+      );
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ monto: 0 }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result.status).toBe('needs_zero_confirmation');
+      if (result.status !== 'needs_zero_confirmation') {
+        throw new Error('Expected needs_zero_confirmation');
+      }
+      expect(result.payload).toMatchObject({
+        resolvedCategory: 'Food',
+        resolvedCategoryId: 'category-food',
+        resolvedSubcategory: null,
+        resolvedSubcategoryId: null,
+        subcategoryStatus: 'none',
+        subcategoryEnabled: false,
+      });
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+    });
+
+    it('keeps category-only review data and defaults a missing date without persistence', async () => {
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Food'),
+        ),
+      );
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ fechaRaw: null }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
+      expect(result.payload.resolvedDate).toBe(new Date().toISOString().slice(0, 10));
+      expect(result.payload).toMatchObject({
+        resolvedCategoryId: 'category-food',
+        resolvedSubcategory: null,
+        resolvedSubcategoryId: null,
+        subcategoryStatus: 'none',
+      });
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+    });
+
     it('enables subcategories when a confirmed subcategory mapping exists', async () => {
       mockFindBySpreadsheetId.mockResolvedValue([
         {
@@ -526,9 +632,12 @@ describe('RegisterExpenseUseCase', () => {
       expect(result.payload.categoryStatus).toBe('none');
       expect(mockClassifierExecute).toHaveBeenCalledWith({
         userId: 'user-123',
+        spreadsheetId: 'config-1',
         rawMessage: 'Café con leche 100 EUR',
         llmCategory: 'café',
         llmConfidence: 'alta',
+        llmSubcategory: null,
+        llmSubcategoryConfidence: 'nula',
       });
       expect(mockConversationTransition).toHaveBeenCalledTimes(1);
       expect(mockConversationTransition).toHaveBeenCalledWith(
@@ -548,7 +657,11 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('propagates a confirmed classification as categoryStatus confirmed', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.highConfidence('Comida'));
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Comida'),
+        ),
+      );
       mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: 'comida' }));
 
       const { useCase } = buildUseCase();
@@ -563,7 +676,11 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('propagates an ambiguous classification as categoryStatus ambiguous', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.ambiguous('Ocio'));
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.ambiguous('category-leisure', 'Ocio'),
+        ),
+      );
       mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: 'ocio' }));
 
       const { useCase } = buildUseCase();
@@ -578,7 +695,11 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('propagates a fallback classification as categoryStatus fallback', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.fallback('Comida'));
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.fallback('category-food', 'Comida'),
+        ),
+      );
       mockLLMExtractExpense.mockResolvedValue(
         buildExtractedExpense({ categoriaRaw: 'restaurante' }),
       );
@@ -595,7 +716,7 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('propagates a no-match classification as categoryStatus none', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.noMatch());
+      mockClassifierExecute.mockResolvedValue(HierarchicalClassificationResult.none());
       mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: null }));
 
       const { useCase } = buildUseCase();
@@ -750,7 +871,12 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('proceeds to review when category is ambiguous instead of asking for clarification', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.ambiguous('Ocio'));
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.ambiguous('category-leisure', 'Ocio'),
+          SubcategoryClassificationSelection.none(),
+        ),
+      );
       mockLLMExtractExpense.mockResolvedValue(
         buildExtractedExpense({ categoriaRaw: 'ocio', confianzaCategoria: 'baja' }),
       );

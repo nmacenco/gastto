@@ -13,6 +13,10 @@ export interface ExpenseReviewPayload {
   resolvedCategory: string | null;
   resolvedCategoryId: string | null;
   categoryStatus: 'confirmed' | 'ambiguous' | 'fallback' | 'none';
+  resolvedSubcategory?: string | null;
+  resolvedSubcategoryId?: string | null;
+  subcategoryStatus?: 'confirmed' | 'ambiguous' | 'fallback' | 'none';
+  subcategoryEnabled?: boolean;
   awaitingZeroConfirmation?: boolean;
   reminderSent?: boolean;
   pendingHighAmountConfirmation?: boolean;

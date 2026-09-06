@@ -14,6 +14,8 @@ import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
 import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
 import { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
+import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
+import { SubcategoryFallbackMatcher } from '../infrastructure/adapters/category/SubcategoryFallbackMatcher';
 
 vi.mock('bullmq', () => ({
   Queue: vi.fn(),
@@ -90,6 +92,11 @@ describe('buildDependencies', () => {
     expect(deps.resolveExpenseSummaryAction).toBeDefined();
     expect(deps.resolveExpenseReviewReply).toBeDefined();
     expect(deps.expenseSummaryPresenterFactory).toBeDefined();
+    expect(deps.categoryClassifier).toBeInstanceOf(ClassifyExpenseCategory);
+    expect(deps.subcategoryFallbackMatcher).toBeInstanceOf(SubcategoryFallbackMatcher);
+    expect((deps.categoryClassifier as unknown as { hierarchyRepo: unknown }).hierarchyRepo).toBe(
+      deps.categoryVocabularyRepo,
+    );
   });
 
   it('creates the required BullMQ queues', () => {

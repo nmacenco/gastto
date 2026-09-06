@@ -21,6 +21,7 @@ import { DrizzleExpenseRecordRepository } from '../infrastructure/db/repositorie
 import { DrizzleExpenseQueueRepository } from '../infrastructure/db/repositories/DrizzleExpenseQueueRepository';
 import { TelegramMessengerAdapter } from '../infrastructure/adapters/telegram/TelegramMessengerAdapter';
 import { CategoryFallbackMapper } from '../infrastructure/adapters/category/CategoryFallbackMapper';
+import { SubcategoryFallbackMatcher } from '../infrastructure/adapters/category/SubcategoryFallbackMatcher';
 import { GoogleDriveOAuthAdapter } from '../infrastructure/adapters/oauth';
 import { GoogleDriveFileDiscoveryAdapter } from '../infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
 import { GoogleSheetsAdapterFactory } from '../infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
@@ -488,9 +489,12 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     userCategoryRepo,
   );
   const categoryFallbackMapper = new CategoryFallbackMapper();
+  const subcategoryFallbackMatcher = new SubcategoryFallbackMatcher();
   const categoryClassifier = new ClassifyExpenseCategory(
     categoryKeywordVocabularyRepo,
+    categoryVocabularyRepo,
     categoryFallbackMapper,
+    subcategoryFallbackMatcher,
     env.CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD,
   );
   const spreadsheetPortFactory = new GoogleSheetsAdapterFactory();
@@ -631,6 +635,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     ruleBasedHeaderDetectionAdapter,
     mappingCorrectionStateRepository,
     userProcessingLock,
+    categoryClassifier,
+    subcategoryFallbackMatcher,
     registerExpense,
     queuePendingExpense,
     advancePendingExpense,
