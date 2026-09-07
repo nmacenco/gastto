@@ -97,6 +97,13 @@ describe('buildDependencies', () => {
     expect((deps.categoryClassifier as unknown as { hierarchyRepo: unknown }).hierarchyRepo).toBe(
       deps.categoryVocabularyRepo,
     );
+    expect(
+      (
+        deps.correctExpense as unknown as {
+          deps: { categoryVocabularyRepo: unknown };
+        }
+      ).deps.categoryVocabularyRepo,
+    ).toBe(deps.categoryVocabularyRepo);
   });
 
   it('creates the required BullMQ queues', () => {

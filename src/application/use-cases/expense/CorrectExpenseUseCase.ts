@@ -8,7 +8,7 @@ import type { LLMPort, UserContext, CorrectionField } from '../../../domain/port
 import type {
   IExpenseRecordRepository,
   ISpreadsheetConfigRepository,
-  IUserCategoryRepository,
+  ICategoryVocabularyRepository,
 } from '../../../domain/ports/repositories';
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
@@ -37,7 +37,7 @@ export interface CorrectExpenseUseCaseDeps {
   classifier: ICategoryClassifier;
   expenseRepo: IExpenseRecordRepository;
   spreadsheetConfigRepo: ISpreadsheetConfigRepository;
-  categoryRepo: IUserCategoryRepository;
+  categoryVocabularyRepo: ICategoryVocabularyRepository;
   transitionState: TransitionConversationState;
 }
 
@@ -46,6 +46,7 @@ interface CorrectionSuggestionValues {
   monto: number | null;
   moneda: Currency | null;
   categoriaRaw: string | null;
+  subcategoriaRaw: string | null;
   fechaRaw: string | null;
 }
 
@@ -73,6 +74,12 @@ export class CorrectExpenseUseCase {
     }
 
     if (suggestion.intent === 'unrelated' || suggestion.changedFields.length === 0) {
+      return { status: 'not_interpretable' };
+    }
+
+    // A subcategory correction must never be partially applied without its
+    // parent-aware atomic resolution path.
+    if (suggestion.changedFields.includes('subcategoria')) {
       return { status: 'not_interpretable' };
     }
 
@@ -111,17 +118,21 @@ export class CorrectExpenseUseCase {
 
   private async buildUserContext(input: CorrectExpenseInput): Promise<UserContext> {
     const config = await this.deps.spreadsheetConfigRepo.findByUserId(input.userId);
-    const categories = config
-      ? (await this.deps.categoryRepo.findActiveBySpreadsheetId(config.id)).map(
-          (c) => c.normalizedValue,
-        )
-      : [];
+    const vocabulary = config
+      ? await this.deps.categoryVocabularyRepo.findBySpreadsheetId(config.id)
+      : null;
+    const categories = vocabulary?.getCategories() ?? [];
 
     return {
       defaultCurrency: input.state.payload.extracted.moneda,
-      categories,
-      categoryHierarchy: [],
-      subcategoryEnabled: false,
+      categories: categories.map((category) => category.name),
+      categoryHierarchy: categories.map((category) => ({
+        name: category.name,
+        subcategories: vocabulary
+          ? vocabulary.getSubcategories(category.id).map((subcategory) => subcategory.name)
+          : [],
+      })),
+      subcategoryEnabled: input.state.payload.subcategoryEnabled === true,
       channel: input.channel,
     };
   }
@@ -166,6 +177,8 @@ export class CorrectExpenseUseCase {
             categoryStatus = classification.category.status;
             extracted = { ...extracted, categoriaRaw: suggestion.categoriaRaw };
           }
+          break;
+        case 'subcategoria':
           break;
         case 'fecha':
           if (suggestion.fechaRaw !== null) {

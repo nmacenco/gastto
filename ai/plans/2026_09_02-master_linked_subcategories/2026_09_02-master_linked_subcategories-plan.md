@@ -153,19 +153,19 @@ Plan atomic category/subcategory corrections while preserving persisted-state, r
 
 #### To-do actions
 
-- [ ] Create `ai/plans/2026_09_02-subcategory_natural_language_correction/2026_09_02-subcategory_natural_language_correction-plan.md`.
-- [ ] Add `subcategoria` to correction field contracts and every provider correction schema and contextual prompt.
-- [ ] Resolve category and subcategory together when both are corrected in one message.
-- [ ] Clear the previous subcategory when a category correction changes the parent and no valid replacement is supplied.
-- [ ] Reject a subcategory that does not belong to the selected parent and return a typed outcome containing the allowed children.
-- [ ] Add user-facing correction guidance without mutating the stored review after rejection.
-- [ ] Make correction, clarification, retry, queue, and worker validators accept missing legacy subcategory fields and normalize them to null/default status.
-- [ ] Preserve correction-cycle limits, timeout behavior, high-amount checks, confirmation precedence, and queue admission rules.
-- [ ] Specify correction, provider, serialization, legacy JSONB, queue regression, and worker presentation tests.
-- [ ] Require updates to expense-correction and hierarchy feature documentation.
-- [ ] Require focused correction and state tests and then the complete project test suite in the subplan.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create `ai/plans/2026_09_02-subcategory_natural_language_correction/2026_09_02-subcategory_natural_language_correction-plan.md`.
+- [x] Add `subcategoria` to correction field contracts and every provider correction schema and contextual prompt.
+- [x] Resolve category and subcategory together when both are corrected in one message.
+- [x] Clear the previous subcategory when a category correction changes the parent and no valid replacement is supplied.
+- [x] Reject a subcategory that does not belong to the selected parent and return a typed outcome containing the allowed children.
+- [x] Add user-facing correction guidance without mutating the stored review after rejection.
+- [x] Make correction, clarification, retry, queue, and worker validators accept missing legacy subcategory fields and normalize them to null/default status.
+- [x] Preserve correction-cycle limits, timeout behavior, high-amount checks, confirmation precedence, and queue admission rules.
+- [x] Specify correction, provider, serialization, legacy JSONB, queue regression, and worker presentation tests.
+- [x] Require updates to expense-correction and hierarchy feature documentation.
+- [x] Require focused correction and state tests and then the complete project test suite in the subplan.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 7: Create the persistence, compatibility, and release subplan
 
@@ -192,4 +192,4 @@ Plan spreadsheet and internal persistence, then close the feature with backward-
 
 ## Next step
 
-Create the Phase 6 natural-language correction subplan before making any application-code changes.
+Create the Phase 7 persistence, compatibility, and release subplan before making any application-code changes.

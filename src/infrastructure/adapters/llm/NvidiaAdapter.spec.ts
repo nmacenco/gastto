@@ -267,6 +267,7 @@ describe('NvidiaAdapter', () => {
                 monto: 15,
                 moneda: null,
                 categoria_raw: null,
+                subcategoria_raw: null,
                 fecha_raw: null,
               }),
             ),
@@ -286,6 +287,7 @@ describe('NvidiaAdapter', () => {
         monto: 15,
         moneda: null,
         categoriaRaw: null,
+        subcategoriaRaw: null,
         fechaRaw: null,
       });
 
@@ -312,6 +314,7 @@ describe('NvidiaAdapter', () => {
                 monto: 35,
                 moneda: 'EUR',
                 categoria_raw: 'transporte',
+                subcategoria_raw: null,
                 fecha_raw: null,
               }),
             ),
@@ -335,6 +338,112 @@ describe('NvidiaAdapter', () => {
       expect(body.messages[0]?.content).toContain('eran 35 EUR y la categoria es transporte');
     });
 
+    it('maps a combined category/subcategory correction with untrusted parent context', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            buildNvidiaResponse(
+              JSON.stringify({
+                intent: 'correction',
+                changed_fields: ['categoria', 'subcategoria'],
+                monto: null,
+                moneda: null,
+                categoria_raw: 'ParentPromptAttack',
+                subcategoria_raw: 'ChildPromptAttack',
+                fecha_raw: null,
+              }),
+            ),
+          ),
+      });
+      const adversarialContext: UserContext = {
+        ...userContext,
+        categories: ['ParentPromptAttack', 'OtherParent'],
+        categoryHierarchy: [
+          { name: 'ParentPromptAttack', subcategories: ['ChildPromptAttack'] },
+          { name: 'OtherParent', subcategories: ['ChildPromptAttack'] },
+        ],
+      };
+
+      const result = await new NvidiaAdapter(API_KEY).interpretCorrection(
+        'es ParentPromptAttack, subcategoria ChildPromptAttack',
+        currentExtracted,
+        adversarialContext,
+      );
+
+      expect(result).toMatchObject({
+        changedFields: ['categoria', 'subcategoria'],
+        categoriaRaw: 'ParentPromptAttack',
+        subcategoriaRaw: 'ChildPromptAttack',
+      });
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as NvidiaRequestBody;
+      expect(body.messages[0]?.content).not.toContain('ParentPromptAttack');
+      expect(body.messages[0]?.content).not.toContain('ChildPromptAttack');
+      expect(body.messages[1]?.content).toContain('"subcategoryEnabled": true');
+      expect(body.messages[1]?.content).toContain('"name": "ParentPromptAttack"');
+      expect(body.messages[1]?.content.match(/ChildPromptAttack/g)).toHaveLength(3);
+    });
+
+    it('maps a child-only correction and rejects a missing child field', async () => {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(
+              buildNvidiaResponse(
+                JSON.stringify({
+                  intent: 'correction',
+                  changed_fields: ['subcategoria'],
+                  monto: null,
+                  moneda: null,
+                  categoria_raw: null,
+                  subcategoria_raw: 'Restaurante',
+                  fecha_raw: null,
+                }),
+              ),
+            ),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(
+              buildNvidiaResponse(
+                JSON.stringify({
+                  intent: 'correction',
+                  changed_fields: ['subcategoria'],
+                  monto: null,
+                  moneda: null,
+                  categoria_raw: null,
+                  fecha_raw: null,
+                }),
+              ),
+            ),
+        });
+
+      await expect(
+        new NvidiaAdapter(API_KEY).interpretCorrection(
+          'la subcategoria es Restaurante',
+          currentExtracted,
+          userContext,
+        ),
+      ).resolves.toMatchObject({
+        changedFields: ['subcategoria'],
+        categoriaRaw: null,
+        subcategoriaRaw: 'Restaurante',
+      });
+      await expect(
+        new NvidiaAdapter(API_KEY).interpretCorrection(
+          'la subcategoria es Restaurante',
+          currentExtracted,
+          userContext,
+        ),
+      ).rejects.toThrow();
+    });
+
     it('maps a genuine additional expense without correction data', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
@@ -348,6 +457,7 @@ describe('NvidiaAdapter', () => {
                 monto: null,
                 moneda: null,
                 categoria_raw: null,
+                subcategoria_raw: null,
                 fecha_raw: null,
               }),
             ),
@@ -377,6 +487,7 @@ describe('NvidiaAdapter', () => {
                 monto: null,
                 moneda: null,
                 categoria_raw: null,
+                subcategoria_raw: null,
                 fecha_raw: null,
               }),
             ),
@@ -399,10 +510,11 @@ describe('NvidiaAdapter', () => {
             buildNvidiaResponse(
               JSON.stringify({
                 intent: 'new_expense',
-                changed_fields: ['monto'],
-                monto: 12,
+                changed_fields: ['subcategoria'],
+                monto: null,
                 moneda: null,
                 categoria_raw: null,
+                subcategoria_raw: 'Aeropuerto',
                 fecha_raw: null,
               }),
             ),
@@ -431,6 +543,7 @@ describe('NvidiaAdapter', () => {
                 monto: 'not a number',
                 moneda: null,
                 categoria_raw: null,
+                subcategoria_raw: null,
                 fecha_raw: null,
               }),
             ),

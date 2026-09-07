@@ -533,7 +533,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       classifier: categoryClassifier,
       expenseRepo: expenseRecordRepo,
       spreadsheetConfigRepo,
-      categoryRepo: userCategoryRepo,
+      categoryVocabularyRepo,
       transitionState,
     },
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,

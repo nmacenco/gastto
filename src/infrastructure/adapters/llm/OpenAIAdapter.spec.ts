@@ -180,6 +180,7 @@ describe('OpenAIAdapter', () => {
             monto: 15,
             moneda: null,
             categoria_raw: null,
+            subcategoria_raw: null,
             fecha_raw: null,
           }),
         ),
@@ -198,6 +199,7 @@ describe('OpenAIAdapter', () => {
         monto: 15,
         moneda: null,
         categoriaRaw: null,
+        subcategoriaRaw: null,
         fechaRaw: null,
       });
 
@@ -222,6 +224,7 @@ describe('OpenAIAdapter', () => {
             monto: 35,
             moneda: 'EUR',
             categoria_raw: 'transporte',
+            subcategoria_raw: null,
             fecha_raw: null,
           }),
         ),
@@ -244,6 +247,97 @@ describe('OpenAIAdapter', () => {
       expect(messages[0]?.content).toContain('eran 35 EUR y la categoria es transporte');
     });
 
+    it('maps a combined category/subcategory correction with untrusted parent context', async () => {
+      createMock.mockResolvedValue(
+        buildOpenAIResponse(
+          JSON.stringify({
+            intent: 'correction',
+            changed_fields: ['categoria', 'subcategoria'],
+            monto: null,
+            moneda: null,
+            categoria_raw: 'ParentPromptAttack',
+            subcategoria_raw: 'ChildPromptAttack',
+            fecha_raw: null,
+          }),
+        ),
+      );
+      const adversarialContext: UserContext = {
+        ...userContext,
+        categories: ['ParentPromptAttack', 'OtherParent'],
+        categoryHierarchy: [
+          { name: 'ParentPromptAttack', subcategories: ['ChildPromptAttack'] },
+          { name: 'OtherParent', subcategories: ['ChildPromptAttack'] },
+        ],
+      };
+
+      const result = await new OpenAIAdapter(API_KEY).interpretCorrection(
+        'es ParentPromptAttack, subcategoria ChildPromptAttack',
+        currentExtracted,
+        adversarialContext,
+      );
+
+      expect(result).toMatchObject({
+        changedFields: ['categoria', 'subcategoria'],
+        categoriaRaw: 'ParentPromptAttack',
+        subcategoriaRaw: 'ChildPromptAttack',
+      });
+      const [init] = createMock.mock.calls[0] as [Record<string, unknown>];
+      const messages = init.messages as Array<{ role: string; content: string }>;
+      expect(messages[0]?.content).not.toContain('ParentPromptAttack');
+      expect(messages[0]?.content).not.toContain('ChildPromptAttack');
+      expect(messages[1]?.content).toContain('"subcategoryEnabled": true');
+      expect(messages[1]?.content).toContain('"name": "ParentPromptAttack"');
+      expect(messages[1]?.content.match(/ChildPromptAttack/g)).toHaveLength(3);
+    });
+
+    it('maps a child-only correction and rejects a missing child field', async () => {
+      createMock
+        .mockResolvedValueOnce(
+          buildOpenAIResponse(
+            JSON.stringify({
+              intent: 'correction',
+              changed_fields: ['subcategoria'],
+              monto: null,
+              moneda: null,
+              categoria_raw: null,
+              subcategoria_raw: 'Restaurante',
+              fecha_raw: null,
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(
+          buildOpenAIResponse(
+            JSON.stringify({
+              intent: 'correction',
+              changed_fields: ['subcategoria'],
+              monto: null,
+              moneda: null,
+              categoria_raw: null,
+              fecha_raw: null,
+            }),
+          ),
+        );
+
+      await expect(
+        new OpenAIAdapter(API_KEY).interpretCorrection(
+          'la subcategoria es Restaurante',
+          currentExtracted,
+          userContext,
+        ),
+      ).resolves.toMatchObject({
+        changedFields: ['subcategoria'],
+        categoriaRaw: null,
+        subcategoriaRaw: 'Restaurante',
+      });
+      await expect(
+        new OpenAIAdapter(API_KEY).interpretCorrection(
+          'la subcategoria es Restaurante',
+          currentExtracted,
+          userContext,
+        ),
+      ).rejects.toThrow();
+    });
+
     it('maps a genuine additional expense without correction data', async () => {
       createMock.mockResolvedValue(
         buildOpenAIResponse(
@@ -253,6 +347,7 @@ describe('OpenAIAdapter', () => {
             monto: null,
             moneda: null,
             categoria_raw: null,
+            subcategoria_raw: null,
             fecha_raw: null,
           }),
         ),
@@ -270,6 +365,7 @@ describe('OpenAIAdapter', () => {
         monto: null,
         moneda: null,
         categoriaRaw: null,
+        subcategoriaRaw: null,
         fechaRaw: null,
       });
     });
@@ -283,6 +379,7 @@ describe('OpenAIAdapter', () => {
             monto: null,
             moneda: null,
             categoria_raw: null,
+            subcategoria_raw: null,
             fecha_raw: null,
           }),
         ),
@@ -300,10 +397,11 @@ describe('OpenAIAdapter', () => {
         buildOpenAIResponse(
           JSON.stringify({
             intent: 'new_expense',
-            changed_fields: ['monto'],
-            monto: 12,
+            changed_fields: ['subcategoria'],
+            monto: null,
             moneda: null,
             categoria_raw: null,
+            subcategoria_raw: 'Aeropuerto',
             fecha_raw: null,
           }),
         ),

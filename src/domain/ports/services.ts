@@ -29,7 +29,7 @@ export interface ConversationContext {
   statePayload: Record<string, unknown> | null;
 }
 
-export type CorrectionField = 'monto' | 'moneda' | 'categoria' | 'fecha';
+export type CorrectionField = 'monto' | 'moneda' | 'categoria' | 'subcategoria' | 'fecha';
 export type ExpenseFollowUpIntent = 'correction' | 'new_expense' | 'unrelated';
 
 export interface ExpenseCorrectionSuggestion {
@@ -38,6 +38,7 @@ export interface ExpenseCorrectionSuggestion {
   monto: number | null;
   moneda: Currency | null;
   categoriaRaw: string | null;
+  subcategoriaRaw: string | null;
   fechaRaw: string | null;
 }
 
