@@ -61,6 +61,10 @@ function buildReviewPayload(overrides: Partial<ExpenseReviewPayload> = {}): Expe
     resolvedCategory: 'Comida',
     resolvedCategoryId: null,
     categoryStatus: 'confirmed',
+    resolvedSubcategory: null,
+    resolvedSubcategoryId: null,
+    subcategoryStatus: 'none',
+    subcategoryEnabled: false,
     ...overrides,
   };
 }
@@ -94,6 +98,10 @@ describe('GenerateExpenseSummaryUseCase', () => {
     expect(summary.date).toBe('2026-07-25');
     expect(summary.categoryConfidence).toBe('alta');
     expect(summary.categoryStatus).toBe('confirmed');
+    expect(summary.subcategory).toBe('');
+    expect(summary.subcategoryConfidence).toBe('nula');
+    expect(summary.subcategoryStatus).toBe('none');
+    expect(summary.subcategoryEnabled).toBe(false);
     expect(summary.actions).toEqual({ confirm: true, correct: true, cancel: true });
     expect(summary.isHighAmount).toBe(false);
     expect(summary.requiresExplicitConfirmation).toBe(false);
@@ -155,6 +163,84 @@ describe('GenerateExpenseSummaryUseCase', () => {
     const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
     expect(summary.category).toBe('');
     expect(summary.categoryStatus).toBe('none');
+  });
+
+  it('includes a selected subcategory and its independent confidence when enabled', async () => {
+    const presenter = buildMockPresenter();
+    const { useCase } = buildUseCase();
+    const payload = buildReviewPayload({
+      extracted: buildExtractedExpense({
+        confianzaCategoria: 'baja',
+        confianzaSubcategoria: 'alta',
+      }),
+      resolvedSubcategory: 'Restaurante',
+      resolvedSubcategoryId: 'subcategory-1',
+      subcategoryStatus: 'confirmed',
+      subcategoryEnabled: true,
+    });
+
+    await useCase.execute({ userId: 'user-123', payload, presenter });
+
+    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    expect(summary.categoryConfidence).toBe('baja');
+    expect(summary.subcategory).toBe('Restaurante');
+    expect(summary.subcategoryConfidence).toBe('alta');
+    expect(summary.subcategoryStatus).toBe('confirmed');
+    expect(summary.subcategoryEnabled).toBe(true);
+  });
+
+  it.each([
+    { status: 'ambiguous' as const, confidence: 'baja' as const },
+    { status: 'fallback' as const, confidence: 'nula' as const },
+  ])('preserves a $status subcategory selection', async ({ status, confidence }) => {
+    const presenter = buildMockPresenter();
+    const { useCase } = buildUseCase();
+    const payload = buildReviewPayload({
+      extracted: buildExtractedExpense({ confianzaSubcategoria: confidence }),
+      resolvedSubcategory: 'Restaurante',
+      subcategoryStatus: status,
+      subcategoryEnabled: true,
+    });
+
+    await useCase.execute({ userId: 'user-123', payload, presenter });
+
+    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    expect(summary.subcategory).toBe('Restaurante');
+    expect(summary.subcategoryConfidence).toBe(confidence);
+    expect(summary.subcategoryStatus).toBe(status);
+  });
+
+  it('shows an empty child selection when hierarchy support is enabled without a match', async () => {
+    const presenter = buildMockPresenter();
+    const { useCase } = buildUseCase();
+    const payload = buildReviewPayload({ subcategoryEnabled: true });
+
+    await useCase.execute({ userId: 'user-123', payload, presenter });
+
+    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    expect(summary.subcategory).toBe('');
+    expect(summary.subcategoryStatus).toBe('none');
+    expect(summary.subcategoryEnabled).toBe(true);
+  });
+
+  it('normalizes legacy missing hierarchy fields as a disabled empty subcategory', async () => {
+    const presenter = buildMockPresenter();
+    const { useCase } = buildUseCase();
+    const payload = buildReviewPayload();
+    delete payload.resolvedSubcategory;
+    delete payload.resolvedSubcategoryId;
+    delete payload.subcategoryStatus;
+    delete payload.subcategoryEnabled;
+    delete (payload.extracted as Partial<ExtractedExpense>).subcategoriaRaw;
+    delete (payload.extracted as Partial<ExtractedExpense>).confianzaSubcategoria;
+
+    await useCase.execute({ userId: 'user-123', payload, presenter });
+
+    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    expect(summary.subcategory).toBe('');
+    expect(summary.subcategoryConfidence).toBe('nula');
+    expect(summary.subcategoryStatus).toBe('none');
+    expect(summary.subcategoryEnabled).toBe(false);
   });
 
   it('marks the amount as high when it exceeds the configured multiplier of the average', async () => {

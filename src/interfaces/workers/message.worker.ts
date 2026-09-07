@@ -1313,13 +1313,6 @@ async function handleClarification(
   } else if (result.status === 'needs_zero_confirmation') {
     await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
   } else {
-    const summary = expenseCopies.updatedSummary({
-      monto: result.payload.extracted.monto,
-      moneda: result.payload.extracted.moneda,
-      category: result.payload.resolvedCategory ?? '❓ Sin categoría',
-      categoryStatus: result.payload.categoryStatus,
-      date: result.payload.resolvedDate,
-    });
-    await messaging.sendMessage(externalId, summary);
+    await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
   }
 }

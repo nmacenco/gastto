@@ -33,15 +33,20 @@ export class GenerateExpenseSummaryUseCase {
     const averageAmount = await this.expenseRepo.findAverageAmountByUserId(userId);
     const isHighAmount =
       averageAmount !== null && amount > averageAmount * this.highAmountThresholdMultiplier;
+    const subcategoryEnabled = payload.subcategoryEnabled ?? false;
 
     return {
       concept: payload.rawMessage,
       amount,
       currency: payload.extracted.moneda ?? '',
       category: payload.resolvedCategory ?? '',
+      subcategory: subcategoryEnabled ? (payload.resolvedSubcategory ?? '') : '',
       date,
       categoryConfidence: payload.extracted.confianzaCategoria,
       categoryStatus: payload.categoryStatus,
+      subcategoryConfidence: payload.extracted.confianzaSubcategoria ?? 'nula',
+      subcategoryStatus: payload.subcategoryStatus ?? 'none',
+      subcategoryEnabled,
       actions: {
         confirm: true,
         correct: true,

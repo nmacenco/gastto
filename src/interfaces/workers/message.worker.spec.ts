@@ -161,12 +161,24 @@ function buildMockDeps(): MessageWorkerDeps {
             : summary.categoryStatus === 'fallback'
               ? ' (sugerida)'
               : '';
+        const subcategoryMarker =
+          summary.subcategoryStatus === 'fallback'
+            ? ' (sugerida)'
+            : summary.subcategoryStatus === 'ambiguous' ||
+                (summary.subcategoryStatus === 'confirmed' &&
+                  summary.subcategoryConfidence === 'baja')
+              ? ' (¿correcto?)'
+              : '';
+        const subcategoryLine = summary.subcategoryEnabled
+          ? `• Subcategoría: ${summary.subcategory || '❓ Sin subcategoría'}${subcategoryMarker}`
+          : '';
         const text = [
           summary.isHighAmount ? '⚠️ *Monto inusualmente alto*' : '',
           '📋 *Resumen del gasto:*',
           `• Concepto: ${summary.concept.slice(0, 80)}`,
           `• Monto: ${summary.amount} ${summary.currency}`,
           `• Categoría: ${summary.category || '❓ Sin categoría'}${categoryMarker}`,
+          subcategoryLine,
           `• Fecha: ${summary.date}`,
           '',
           '¿Confirmamos?',
@@ -630,7 +642,7 @@ describe('processMessageJob', () => {
       );
     });
 
-    it('sends expense summary when interpretation succeeds', async () => {
+    it('sends one hierarchy-aware expense summary when interpretation succeeds', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({ currentState: 'EXPENSE_RECEIVING' }),
@@ -642,13 +654,18 @@ describe('processMessageJob', () => {
           extracted: {
             monto: '850',
             moneda: 'ARS',
-            subcategoriaRaw: null,
+            subcategoriaRaw: 'Restaurante',
             confianzaCategoria: 'alta',
-            confianzaSubcategoria: 'nula',
+            confianzaSubcategoria: 'alta',
           },
           resolvedDate: '2026-01-15',
           resolvedCategory: 'Comida',
+          resolvedCategoryId: 'category-1',
           categoryStatus: 'confirmed',
+          resolvedSubcategory: 'Restaurante',
+          resolvedSubcategoryId: 'subcategory-1',
+          subcategoryStatus: 'confirmed',
+          subcategoryEnabled: true,
         },
       });
 
@@ -658,6 +675,8 @@ describe('processMessageJob', () => {
       const sentText = mockSendMessage.mock.calls[0]![1] as string;
       expect(sentText).toContain('850 ARS');
       expect(sentText).toContain('Comida');
+      expect(sentText).toContain('Subcategoría: Restaurante');
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
     });
 
     it('surfaces ambiguity hint in the expense summary', async () => {
@@ -1216,27 +1235,33 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
     });
 
-    it('delegates a zero-amount confirmation to the application resolver', async () => {
+    it('re-presents one hierarchy-aware summary after zero-amount confirmation', async () => {
       const deps = buildMockDeps();
+      const payload = buildReviewStatePayload({
+        rawMessage: 'Cafe 0',
+        extracted: {
+          monto: 0,
+          moneda: 'ARS',
+          categoriaRaw: 'café',
+          subcategoriaRaw: 'Restaurante',
+          fechaRaw: '2026-07-25',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'alta',
+        },
+        resolvedSubcategory: 'Restaurante',
+        resolvedSubcategoryId: 'subcategory-1',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
+        awaitingZeroConfirmation: true,
+      });
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_REVIEW',
-          statePayload: buildReviewStatePayload({
-            rawMessage: 'Cafe 0',
-            extracted: {
-              monto: 0,
-              moneda: 'ARS',
-              categoriaRaw: 'café',
-              subcategoriaRaw: null,
-              fechaRaw: '2026-07-25',
-              medioPago: null,
-              confianzaCategoria: 'alta',
-              confianzaSubcategoria: 'nula',
-            },
-            awaitingZeroConfirmation: true,
-          }),
+          statePayload: payload,
         }),
       );
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({ status: 'corrected', payload });
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
 
@@ -1248,6 +1273,32 @@ describe('processMessageJob', () => {
         }),
       );
       expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(mockSendMessage.mock.calls[0]?.[1]).toContain('Subcategoría: Restaurante');
+    });
+
+    it('re-presents one legacy review without adding a subcategory line', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      delete payload.resolvedSubcategory;
+      delete payload.resolvedSubcategoryId;
+      delete payload.subcategoryStatus;
+      delete payload.subcategoryEnabled;
+      const extracted = payload.extracted as Record<string, unknown>;
+      delete extracted.subcategoriaRaw;
+      delete extracted.confianzaSubcategoria;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_REVIEW', statePayload: payload }),
+      );
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({ status: 'corrected', payload });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'mantenelo así' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      const text = mockSendMessage.mock.calls[0]?.[1] as string;
+      expect(text).toContain('Categoría: Comida');
+      expect(text).not.toContain('Subcategoría:');
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
     });
 
     it('resolves confirm callback via inline button', async () => {
@@ -1568,7 +1619,7 @@ describe('processMessageJob', () => {
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
     });
 
-    it('sends updated summary when clarification resolves', async () => {
+    it('delegates one hierarchy-aware summary when clarification resolves', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
@@ -1583,13 +1634,18 @@ describe('processMessageJob', () => {
           extracted: {
             monto: '850',
             moneda: 'ARS',
-            subcategoriaRaw: null,
+            subcategoriaRaw: 'Cafetería',
             confianzaCategoria: 'alta',
-            confianzaSubcategoria: 'nula',
+            confianzaSubcategoria: 'baja',
           },
           resolvedDate: '2026-01-15',
           resolvedCategory: 'Comida',
+          resolvedCategoryId: 'category-1',
           categoryStatus: 'confirmed',
+          resolvedSubcategory: 'Cafetería',
+          resolvedSubcategoryId: 'subcategory-1',
+          subcategoryStatus: 'ambiguous',
+          subcategoryEnabled: true,
         },
       });
 
@@ -1601,7 +1657,9 @@ describe('processMessageJob', () => {
         channel: 'telegram',
       });
       const sentText = mockSendMessage.mock.calls[0]![1] as string;
-      expect(sentText).toContain('Resumen actualizado');
+      expect(sentText).toContain('Resumen del gasto');
+      expect(sentText).toContain('Subcategoría: Cafetería (¿correcto?)');
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
     });
 
     it('surfaces ambiguity hint in the updated summary', async () => {
@@ -1632,7 +1690,7 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: '850 pesos' }), deps);
 
       const sentText = mockSendMessage.mock.calls[0]![1] as string;
-      expect(sentText).toContain('Resumen actualizado');
+      expect(sentText).toContain('Resumen del gasto');
       expect(sentText).toContain('(¿correcto?)');
     });
 

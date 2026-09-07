@@ -102,24 +102,24 @@ Carry the optional child selection through the channel-neutral summary and Teleg
 
 #### To-do actions
 
-- [ ] Extend `ExpenseReviewPayload` with the optional backward-compatible subcategory fields and document the invariant that all new `RegisterExpenseUseCase` payloads set them explicitly, while missing legacy fields mean null child values and `subcategoryEnabled: false` at presentation time.
-- [ ] Extend `ExpenseSummary` and `GenerateExpenseSummaryUseCase` with subcategory name, independent confidence/status, and capability values without changing concept, amount, currency, category, date, actions, or high-amount calculations.
-- [ ] Normalize missing subcategory review fields locally when building the summary so a legacy `EXPENSE_REVIEW` JSONB payload renders successfully; defer correction, queue, and retry validator normalization to Phase 6 as planned.
-- [ ] Update `TelegramExpenseSummaryPresenter` to add `Subcategoría: <name>` with the same confirmed/ambiguous/fallback/none marker semantics only when `subcategoryEnabled` is true; render an explicit no-subcategory value when the capability is enabled but no child was selected.
-- [ ] Preserve the exact current normal and high-amount summary text, line order, buttons, timeout copy, and explicit-confirmation flow when hierarchy support is disabled or legacy fields are missing.
-- [ ] Verify every worker path that presents or re-presents a review delegates the expanded payload unchanged through `GenerateExpenseSummaryUseCase`; keep the existing permissive payload guard and the `EXPENSE_REVIEW` state unchanged.
-- [ ] Extend `GenerateExpenseSummaryUseCase.spec.ts` for selected, missing, ambiguous, and fallback subcategories, independently differing parent/child confidences, capability-disabled behavior, legacy missing fields, date defaults, and high-amount flags.
-- [ ] Extend `TelegramExpenseSummaryPresenter.spec.ts` for enabled selected/no-child displays, child confidence markers, exact hierarchy-disabled output regression, action buttons, high-amount formatting, and no duplicate summary presentation.
-- [ ] Extend `message.worker.spec.ts` for initial review, zero-amount confirmation, clarification completion, and review re-presentation with hierarchical and legacy payloads; assert one presentation, no new FSM state, and unchanged disabled-user output.
-- [ ] Update `docs/features/expense-summary-review.md` with hierarchy activation, optional child display, independent confidence markers, category-without-child behavior, legacy output, and QA/test coverage.
-- [ ] Update `docs/features/subcategory-hierarchy.md` with parent-first classification, active-parent isolation, stable review identifiers, capability activation, no-child behavior, and the explicit Phase 5 persistence boundary.
-- [ ] Synchronize the affected entries in `docs/features/README.md` in the same documentation change.
-- [ ] Run the focused summary use-case, Telegram presenter, worker, register-expense, classifier, and LLM adapter suites.
-- [ ] Run `pnpm test` to execute the complete project test suite after the focused tests pass.
-- [ ] Run `pnpm run format:check` to verify the TypeScript, tests, plan-driven feature documentation, and feature index follow repository formatting.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Extend `ExpenseReviewPayload` with the optional backward-compatible subcategory fields and document the invariant that all new `RegisterExpenseUseCase` payloads set them explicitly, while missing legacy fields mean null child values and `subcategoryEnabled: false` at presentation time.
+- [x] Extend `ExpenseSummary` and `GenerateExpenseSummaryUseCase` with subcategory name, independent confidence/status, and capability values without changing concept, amount, currency, category, date, actions, or high-amount calculations.
+- [x] Normalize missing subcategory review fields locally when building the summary so a legacy `EXPENSE_REVIEW` JSONB payload renders successfully; defer correction, queue, and retry validator normalization to Phase 6 as planned.
+- [x] Update `TelegramExpenseSummaryPresenter` to add `Subcategoría: <name>` with the same confirmed/ambiguous/fallback/none marker semantics only when `subcategoryEnabled` is true; render an explicit no-subcategory value when the capability is enabled but no child was selected.
+- [x] Preserve the exact current normal and high-amount summary text, line order, buttons, timeout copy, and explicit-confirmation flow when hierarchy support is disabled or legacy fields are missing.
+- [x] Verify every worker path that presents or re-presents a review delegates the expanded payload unchanged through `GenerateExpenseSummaryUseCase`; keep the existing permissive payload guard and the `EXPENSE_REVIEW` state unchanged.
+- [x] Extend `GenerateExpenseSummaryUseCase.spec.ts` for selected, missing, ambiguous, and fallback subcategories, independently differing parent/child confidences, capability-disabled behavior, legacy missing fields, date defaults, and high-amount flags.
+- [x] Extend `TelegramExpenseSummaryPresenter.spec.ts` for enabled selected/no-child displays, child confidence markers, exact hierarchy-disabled output regression, action buttons, high-amount formatting, and no duplicate summary presentation.
+- [x] Extend `message.worker.spec.ts` for initial review, zero-amount confirmation, clarification completion, and review re-presentation with hierarchical and legacy payloads; assert one presentation, no new FSM state, and unchanged disabled-user output.
+- [x] Update `docs/features/expense-summary-review.md` with hierarchy activation, optional child display, independent confidence markers, category-without-child behavior, legacy output, and QA/test coverage.
+- [x] Update `docs/features/subcategory-hierarchy.md` with parent-first classification, active-parent isolation, stable review identifiers, capability activation, no-child behavior, and the explicit Phase 5 persistence boundary.
+- [x] Synchronize the affected entries in `docs/features/README.md` in the same documentation change.
+- [x] Run the focused summary use-case, Telegram presenter, worker, register-expense, classifier, and LLM adapter suites.
+- [x] Run `pnpm test` to execute the complete project test suite after the focused tests pass.
+- [x] Run `pnpm run format:check` to verify the TypeScript, tests, plan-driven feature documentation, and feature index follow repository formatting.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Implement Phase 3 to present hierarchy-aware reviews and close documentation.
+All phases are complete; review and commit Phase 3.

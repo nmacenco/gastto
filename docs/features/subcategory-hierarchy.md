@@ -97,6 +97,19 @@ Re-confirmation always re-saves the reviewed hierarchy idempotently. It skips on
 
 An absent, empty, or malformed proposal remains in `ONBOARDING_CATEGORIES`, clears the invalid payload, and prompts fresh detection. A missing spreadsheet configuration follows the existing account reconnection path.
 
+### Parent-first expense classification and review
+
+- Expense interpretation receives ordered active parents and their active children as untrusted hierarchy data. The explicit `subcategoryEnabled` capability is true when the spreadsheet has a confirmed `subcategoria` mapping or its active vocabulary contains configured children.
+- The deterministic classifier resolves the active category first and binds it to its stable persisted ID. It evaluates exact, message-phrase, and conservative fallback child matches only against that selected parent's active children.
+- Equal normalized child names under different parents remain isolated. An unresolved parent never produces a child, and a valid parent is preserved when no child has sufficient textual evidence.
+- The hierarchical result contains independent category and subcategory selections with stable IDs, names, statuses, and confidence. A missing child uses null identifiers/names plus `none`/`nula` and never triggers automatic selection merely because the parent has one child.
+- New `EXPENSE_REVIEW` payloads explicitly retain nullable child IDs/names, child status, and the capability flag. Hierarchy-enabled Telegram reviews show the child or an explicit `❓ Sin subcategoría`; disabled and legacy reviews keep the five-field category-only output.
+- Legacy review payloads without hierarchy fields are accepted by the existing permissive worker guard and normalized only when the channel-neutral summary is built. Broader correction, queue, and retry normalization remains in the natural-language correction phase.
+
+### Phase 5 persistence boundary
+
+Master-plan Phase 5 ends after classification and review presentation. It does not change spreadsheet row construction, local expense persistence, retry, queue, cancellation, or undo semantics. Spreadsheet writes and local category/subcategory ID plus snapshot persistence remain deferred to the master plan's Phase 7 persistence and release subplan.
+
 ## API / Interface
 
 No HTTP route is added. The feature uses the existing `ONBOARDING_CATEGORIES` FSM state in the `process-message` BullMQ worker.
@@ -123,6 +136,7 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - `user_subcategories` requires a category parent and scopes normalized-name uniqueness to that parent.
 - Removed parents and children are soft-disabled during aggregate reconciliation.
 - `conversation_states.state_payload` stores the transient canonical or legacy onboarding proposal.
+- During expense review, it also stores nullable stable category/subcategory selections and the hierarchy capability. Missing hierarchy fields continue to mean a legacy category-only review.
 - `spreadsheet_configs.categories_confirmed_at` is written only after the complete hierarchy save succeeds.
 
 ## Tests
@@ -132,6 +146,7 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - Parser and modification tests cover every Spanish/English command, parent resolution, duplicates, collisions, branch removal, state preservation, and rejected-operation non-persistence.
 - Confirmation tests cover hierarchical and legacy payloads, stable-ID reconciliation, strict finalization ordering, failure paths, reconnection, and re-confirmation.
 - Worker tests cover interrupted detection, modification, canonical/legacy confirmation, invalid recovery, both channels, and the unchanged FSM state.
+- Classification and review tests cover stable IDs, active-parent isolation, equal child names under different parents, absent children, independent status/confidence, enabled presentation, and legacy category-only output.
 - PostgreSQL integration tests cover the production migration chain, atomic hierarchy persistence, orphan exclusion, same-name children under different parents, stable IDs, idempotency, reactivation, soft-disable, and induced transaction rollback.
 
 ## QA cases
@@ -143,13 +158,18 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - Retry missing-parent, ambiguous-parent, missing-child, duplicate, and collision commands and verify no partial change is saved.
 - Confirm, reconnect, and confirm again; verify stable IDs, no duplicates, an active user, and a cleared `IDLE` state.
 - Induce hierarchy persistence failure and verify no confirmation timestamp, activation, `IDLE` transition, or completion message.
+- Review an expense with a mapped subcategory column and verify the selected child appears directly below its parent with its own marker.
+- Review a valid category without a child and verify `❓ Sin subcategoría` can still be confirmed.
+- Review a legacy payload or a category-only user and verify no subcategory row appears.
 
 ## Related User Stories
 
 - [`HU-4.08 - Configure linked categories and subcategories`](../user-stories/02-release-2-producto-complejo/02-epica-4/HU-4.08%20%E2%80%94%20Configure%20linked%20categories%20and%20subcategories.md)
 - [`HU-4.07 - Confirm spreadsheet categories`](../user-stories/01-mvp/01-Vinculacion%20de%20planilla%20%C2%B7%20Release%201%20MVP/HU-4.07%20%E2%80%94%20Confirmar%20las%20categorias%20de%20la%20planilla.md)
+- [`E1-US-18 - Classify and register linked subcategories`](../user-stories/02-release-2-producto-complejo/01-epica-1/E1-US-18%20%E2%80%94%20Classify%20and%20register%20linked%20subcategories.md)
 
 ## Notes
 
 - No new FSM state, database migration, or HTTP endpoint is required.
 - Category/subcategory vocabulary writes use soft-disable rather than destructive deletion.
+- Review-time stable identifiers are not yet consumed by spreadsheet or local expense persistence in this phase.

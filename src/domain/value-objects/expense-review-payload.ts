@@ -13,6 +13,11 @@ export interface ExpenseReviewPayload {
   resolvedCategory: string | null;
   resolvedCategoryId: string | null;
   categoryStatus: 'confirmed' | 'ambiguous' | 'fallback' | 'none';
+  /**
+   * Optional for persisted-payload compatibility. New registration payloads
+   * always set the four hierarchy fields explicitly; missing fields represent
+   * a legacy, hierarchy-disabled review at presentation time.
+   */
   resolvedSubcategory?: string | null;
   resolvedSubcategoryId?: string | null;
   subcategoryStatus?: 'confirmed' | 'ambiguous' | 'fallback' | 'none';

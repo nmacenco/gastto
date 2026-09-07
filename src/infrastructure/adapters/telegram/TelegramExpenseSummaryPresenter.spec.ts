@@ -15,9 +15,13 @@ function buildSummary(overrides: Partial<ExpenseSummary> = {}): ExpenseSummary {
     amount: 100,
     currency: 'EUR',
     category: 'Comida',
+    subcategory: '',
     date: '2026-07-25',
     categoryConfidence: 'alta',
     categoryStatus: 'confirmed',
+    subcategoryConfidence: 'nula',
+    subcategoryStatus: 'none',
+    subcategoryEnabled: false,
     actions: { confirm: true, correct: true, cancel: true },
     isHighAmount: false,
     requiresExplicitConfirmation: false,
@@ -94,6 +98,83 @@ describe('TelegramExpenseSummaryPresenter', () => {
 
     const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
     expect(text).toContain('Comida (sugerida)');
+  });
+
+  it('renders a selected subcategory after its parent when hierarchy support is enabled', async () => {
+    await presenter.presentSummary(
+      buildSummary({
+        subcategory: 'Restaurante',
+        subcategoryConfidence: 'alta',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
+      }),
+    );
+
+    const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
+    expect(text).toContain('• Categoría: Comida\n• Subcategoría: Restaurante\n• Fecha:');
+  });
+
+  it('renders an explicit empty subcategory when hierarchy support is enabled', async () => {
+    await presenter.presentSummary(buildSummary({ subcategoryEnabled: true }));
+
+    const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
+    expect(text).toContain('• Subcategoría: ❓ Sin subcategoría');
+  });
+
+  it.each([
+    {
+      name: 'ambiguous',
+      status: 'ambiguous' as const,
+      confidence: 'alta' as const,
+      marker: '(¿correcto?)',
+    },
+    {
+      name: 'low-confidence confirmed',
+      status: 'confirmed' as const,
+      confidence: 'baja' as const,
+      marker: '(¿correcto?)',
+    },
+    {
+      name: 'fallback',
+      status: 'fallback' as const,
+      confidence: 'nula' as const,
+      marker: '(sugerida)',
+    },
+  ])(
+    'marks a $name subcategory independently of its parent',
+    async ({ status, confidence, marker }) => {
+      await presenter.presentSummary(
+        buildSummary({
+          categoryStatus: 'confirmed',
+          categoryConfidence: 'alta',
+          subcategory: 'Restaurante',
+          subcategoryStatus: status,
+          subcategoryConfidence: confidence,
+          subcategoryEnabled: true,
+        }),
+      );
+
+      const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
+      expect(text).toContain(`Subcategoría: Restaurante ${marker}`);
+      expect(text).toContain('Categoría: Comida\n');
+    },
+  );
+
+  it('preserves the exact category-only output when hierarchy support is disabled', async () => {
+    await presenter.presentSummary(buildSummary());
+
+    const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
+    expect(text).toBe(
+      [
+        '📋 *Resumen del gasto:*',
+        '• Concepto: Café con leche 100 EUR',
+        '• Monto: 100 EUR',
+        '• Categoría: Comida',
+        '• Fecha: 2026-07-25',
+        '',
+        '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.',
+      ].join('\n'),
+    );
   });
 
   it('shows the high-amount warning and explicit confirmation prompt', async () => {
