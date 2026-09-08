@@ -32,6 +32,10 @@ function buildReviewPayload(overrides: Partial<ExpenseReviewPayload> = {}): Expe
     resolvedCategory: 'Comida',
     resolvedCategoryId: null,
     categoryStatus: 'confirmed',
+    resolvedSubcategory: null,
+    resolvedSubcategoryId: null,
+    subcategoryStatus: 'none',
+    subcategoryEnabled: false,
     ...overrides,
   };
 }
@@ -71,28 +75,28 @@ describe('ExpenseCorrectionState', () => {
     it('throws when extracted expense is invalid', () => {
       const payload = buildReviewPayload({ extracted: { monto: Number.NaN } as ExtractedExpense });
       expect(() => ExpenseCorrectionState.create(payload)).toThrow(
-        'payload.extracted.monto must be a finite number or null',
+        'extracted expense monto must be a finite number or null',
       );
     });
 
     it('throws when rawMessage is empty', () => {
       const payload = buildReviewPayload({ rawMessage: '   ' });
       expect(() => ExpenseCorrectionState.create(payload)).toThrow(
-        'payload.rawMessage must be a non-empty string',
+        'expense review rawMessage must be a non-empty string',
       );
     });
 
     it('throws when resolvedDate is empty', () => {
       const payload = buildReviewPayload({ resolvedDate: '' });
       expect(() => ExpenseCorrectionState.create(payload)).toThrow(
-        'payload.resolvedDate must be a non-empty string',
+        'expense review resolvedDate must be a non-empty string',
       );
     });
 
     it('throws when categoryStatus is invalid', () => {
       const payload = buildReviewPayload({ categoryStatus: 'invalid' as 'confirmed' });
       expect(() => ExpenseCorrectionState.create(payload)).toThrow(
-        'payload.categoryStatus must be one of',
+        'expense review categoryStatus is invalid',
       );
     });
 
@@ -153,6 +157,37 @@ describe('ExpenseCorrectionState', () => {
       const state = ExpenseCorrectionState.fromPayload(serialized);
 
       expect(state.pendingHighAmountConfirmation).toBe(false);
+    });
+
+    it('normalizes a legacy review and extraction to canonical no-child fields', () => {
+      const canonical = buildReviewPayload();
+      const {
+        resolvedSubcategory: _resolvedSubcategory,
+        resolvedSubcategoryId: _resolvedSubcategoryId,
+        subcategoryStatus: _subcategoryStatus,
+        subcategoryEnabled: _subcategoryEnabled,
+        ...legacyReview
+      } = canonical;
+      const {
+        subcategoriaRaw: _subcategoriaRaw,
+        confianzaSubcategoria: _confianzaSubcategoria,
+        ...legacyExtracted
+      } = legacyReview.extracted;
+
+      const state = ExpenseCorrectionState.fromPayload({
+        _type: 'ExpenseCorrectionState',
+        payload: { ...legacyReview, extracted: legacyExtracted },
+        correctionCycles: 3,
+      });
+
+      expect(state.payload).toMatchObject({
+        resolvedSubcategory: null,
+        resolvedSubcategoryId: null,
+        subcategoryStatus: 'none',
+        subcategoryEnabled: false,
+        extracted: { subcategoriaRaw: null, confianzaSubcategoria: 'nula' },
+      });
+      expect(state.toPayload()).toMatchObject({ payload: state.payload, correctionCycles: 3 });
     });
 
     it('throws when payload is not an object', () => {

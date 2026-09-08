@@ -321,8 +321,13 @@ export class RegisterExpenseUseCase {
       ? new Date(extracted.fechaRaw).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10);
 
+    const canonicalExtracted =
+      classification.subcategory.id === null
+        ? { ...extracted, subcategoriaRaw: null, confianzaSubcategoria: 'nula' as const }
+        : extracted;
+
     return {
-      extracted,
+      extracted: canonicalExtracted,
       rawMessage,
       resolvedDate,
       resolvedCategory: classification.category.name,

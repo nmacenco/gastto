@@ -104,11 +104,23 @@ An absent, empty, or malformed proposal remains in `ONBOARDING_CATEGORIES`, clea
 - Equal normalized child names under different parents remain isolated. An unresolved parent never produces a child, and a valid parent is preserved when no child has sufficient textual evidence.
 - The hierarchical result contains independent category and subcategory selections with stable IDs, names, statuses, and confidence. A missing child uses null identifiers/names plus `none`/`nula` and never triggers automatic selection merely because the parent has one child.
 - New `EXPENSE_REVIEW` payloads explicitly retain nullable child IDs/names, child status, and the capability flag. Hierarchy-enabled Telegram reviews show the child or an explicit `❓ Sin subcategoría`; disabled and legacy reviews keep the five-field category-only output.
-- Legacy review payloads without hierarchy fields are accepted by the existing permissive worker guard and normalized only when the channel-neutral summary is built. Broader correction, queue, and retry normalization remains in the natural-language correction phase.
+- Category and subcategory corrections are resolved as one parent-aware selection. Combined changes are atomic, child-only changes remain scoped to the current active parent, and category-only changes clear a child whose stable ID no longer belongs to the resolved parent.
+- Invalid or inactive children produce typed parent-specific guidance and leave the complete persisted review, correction count, timeout, high-amount flag, queue count, and undo metadata unchanged.
+
+### Conversational payload compatibility
+
+- Shared domain normalizers validate every existing extraction and review field. Legacy payloads missing hierarchy fields are upgraded in memory to explicit `subcategoriaRaw: null`, `confianzaSubcategoria: nula`, null child name/ID, `subcategoryStatus: none`, and `subcategoryEnabled: false`.
+- Explicit canonical values are preserved. Contradictory selections are rejected: a child requires a resolved parent plus non-null stable child ID/name, disabled hierarchy cannot expose a child, and no-child selections use canonical empty values.
+- `ExpenseCorrectionState` and `ExpenseClarificationState` normalize on creation and deserialization and always serialize canonical hierarchy fields while retaining cycle, high-amount, queue-count, and type-marker behavior.
+- Retry envelopes validate and normalize their nested reviewed expense before replay. Invalid or expired retries return safely to `IDLE`; valid retries reuse reviewed data without NLP.
+- The worker uses the shared review parser for text and callback confirmation/cancellation/correction, immediate undo re-presentation, and other review routing. Invalid payloads are logged with structured context, reset safely, and never reach application use cases through casts.
+- Queue storage remains a FIFO of raw message items with the existing capacity rules. Canonical clarification or review payloads are produced only after dequeue through normal registration.
 
 ### Phase 5 persistence boundary
 
 Master-plan Phase 5 ends after classification and review presentation. It does not change spreadsheet row construction, local expense persistence, retry, queue, cancellation, or undo semantics. Spreadsheet writes and local category/subcategory ID plus snapshot persistence remain deferred to the master plan's Phase 7 persistence and release subplan.
+
+The natural-language correction compatibility phase keeps this boundary unchanged: normalization and correction do not add spreadsheet columns, persist hierarchy IDs/snapshots, consume them during save, or replay NLP during retries.
 
 ## API / Interface
 
@@ -147,6 +159,7 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - Confirmation tests cover hierarchical and legacy payloads, stable-ID reconciliation, strict finalization ordering, failure paths, reconnection, and re-confirmation.
 - Worker tests cover interrupted detection, modification, canonical/legacy confirmation, invalid recovery, both channels, and the unchanged FSM state.
 - Classification and review tests cover stable IDs, active-parent isolation, equal child names under different parents, absent children, independent status/confidence, enabled presentation, and legacy category-only output.
+- Correction and compatibility tests cover atomic combined changes, scoped child-only changes, invalid-child non-mutation, canonical/legacy state round trips, clarification completion, queue progression, retry without NLP, timeout recovery, and malformed-state reset.
 - PostgreSQL integration tests cover the production migration chain, atomic hierarchy persistence, orphan exclusion, same-name children under different parents, stable IDs, idempotency, reactivation, soft-disable, and induced transaction rollback.
 
 ## QA cases
@@ -161,6 +174,8 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - Review an expense with a mapped subcategory column and verify the selected child appears directly below its parent with its own marker.
 - Review a valid category without a child and verify `❓ Sin subcategoría` can still be confirmed.
 - Review a legacy payload or a category-only user and verify no subcategory row appears.
+- Correct both parent and child, then try a child from another parent and verify the second attempt changes no persisted review field.
+- Resume legacy clarification, review, correction, and retry payloads and verify they continue with canonical no-child values and no extra NLP on retry.
 
 ## Related User Stories
 

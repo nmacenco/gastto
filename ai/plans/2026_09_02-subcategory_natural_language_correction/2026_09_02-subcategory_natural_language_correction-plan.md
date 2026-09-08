@@ -95,26 +95,26 @@ Normalize hierarchy fields at every persisted conversational boundary so pre-dep
 
 #### To-do actions
 
-- [ ] Add shared extraction and review normalizers at the domain boundary; validate all existing fields, preserve explicit canonical hierarchy values, and default only missing legacy hierarchy fields to `null`, `nula`, `none`, and `false`.
-- [ ] Enforce canonical cross-field invariants available without repository access: a selected child requires a resolved category and non-null child ID/name, disabled hierarchy cannot expose a selected child, and no-child values use null identifiers/names plus `none`/`nula`; keep parent-membership validation in the classifier/use case.
-- [ ] Make `ExpenseCorrectionState.create()` and `fromPayload()` consume the shared normalizer and make `toPayload()` emit canonical hierarchy fields, while retaining type markers, correction-cycle validation, and pending high-amount compatibility.
-- [ ] Make `ExpenseClarificationState.create()` and `fromPayload()` normalize legacy `partialExtracted` values and serialize canonical child extraction fields without changing supported missing fields or queue-count semantics.
-- [ ] Replace permissive retry-envelope checking with `parseExpenseSaveRetryPayload()` so valid legacy nested reviews are normalized before `RetryExpenseSaveUseCase` replays them and invalid/expired payloads retain the current safe `IDLE` recovery behavior.
-- [ ] Replace the worker-local review guard/casts with the shared review parser before confirm, cancel, direct correction, timeout, and re-presentation paths; invalid payloads retain structured logging, safe reset, and fallback messaging.
-- [ ] Verify queued expenses remain raw-message queue items, still obey FIFO and capacity rules, and produce canonical review/clarification payloads only when dequeued through normal registration; do not add hierarchy data to the queue table or replay NLP during save retry.
-- [ ] Preserve spreadsheet/local persistence behavior from Phase 5: correction and normalization must not write a subcategory externally, consume review IDs in `expense_records`, alter undo, or implement any Phase 7 save change.
-- [ ] Extend `expense-correction-state.spec.ts`, `expense-clarification-state.spec.ts`, and review/retry payload tests with canonical, legacy-missing, explicit-null, malformed, contradictory, round-trip, and metadata-preservation cases.
-- [ ] Extend `RetryExpenseSaveUseCase.spec.ts`, queue use-case/repository tests, `ResolveExpenseReviewReplyUseCase.spec.ts`, summary-action tests, and `message.worker.spec.ts` for legacy confirmation, correction, cancellation, clarification completion, queue progression, retry, timeout, invalid-state recovery, and unchanged category-only presentation.
-- [ ] Add regression assertions that accepted corrections transition exactly once, rejected corrections never transition or enqueue, queue overflow never mutates active state, retries never invoke NLP, and confirmation/cancellation precedence remains unchanged.
-- [ ] Update `docs/features/expense-correction.md` with `subcategoria`, atomic parent/child application, invalid-child guidance, non-mutation, and legacy normalization behavior.
-- [ ] Update `docs/features/subcategory-hierarchy.md` with correction rules, active-parent membership, cleared-child semantics, typed rejection, compatibility defaults, and the unchanged Phase 7 persistence boundary.
-- [ ] Synchronize the affected entries in `docs/features/README.md` in the same documentation change.
-- [ ] Run the focused correction, provider, payload/state, clarification, retry, queue, summary-action, classifier, and worker test suites.
-- [ ] Run `pnpm test` to execute the complete project test suite after the focused tests pass.
-- [ ] Run `pnpm run format:check` to verify the TypeScript, tests, plan-driven feature documentation, and feature index follow repository formatting.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add shared extraction and review normalizers at the domain boundary; validate all existing fields, preserve explicit canonical hierarchy values, and default only missing legacy hierarchy fields to `null`, `nula`, `none`, and `false`.
+- [x] Enforce canonical cross-field invariants available without repository access: a selected child requires a resolved category and non-null child ID/name, disabled hierarchy cannot expose a selected child, and no-child values use null identifiers/names plus `none`/`nula`; keep parent-membership validation in the classifier/use case.
+- [x] Make `ExpenseCorrectionState.create()` and `fromPayload()` consume the shared normalizer and make `toPayload()` emit canonical hierarchy fields, while retaining type markers, correction-cycle validation, and pending high-amount compatibility.
+- [x] Make `ExpenseClarificationState.create()` and `fromPayload()` normalize legacy `partialExtracted` values and serialize canonical child extraction fields without changing supported missing fields or queue-count semantics.
+- [x] Replace permissive retry-envelope checking with `parseExpenseSaveRetryPayload()` so valid legacy nested reviews are normalized before `RetryExpenseSaveUseCase` replays them and invalid/expired payloads retain the current safe `IDLE` recovery behavior.
+- [x] Replace the worker-local review guard/casts with the shared review parser before confirm, cancel, direct correction, timeout, and re-presentation paths; invalid payloads retain structured logging, safe reset, and fallback messaging.
+- [x] Verify queued expenses remain raw-message queue items, still obey FIFO and capacity rules, and produce canonical review/clarification payloads only when dequeued through normal registration; do not add hierarchy data to the queue table or replay NLP during save retry.
+- [x] Preserve spreadsheet/local persistence behavior from Phase 5: correction and normalization must not write a subcategory externally, consume review IDs in `expense_records`, alter undo, or implement any Phase 7 save change.
+- [x] Extend `expense-correction-state.spec.ts`, `expense-clarification-state.spec.ts`, and review/retry payload tests with canonical, legacy-missing, explicit-null, malformed, contradictory, round-trip, and metadata-preservation cases.
+- [x] Extend `RetryExpenseSaveUseCase.spec.ts`, queue use-case/repository tests, `ResolveExpenseReviewReplyUseCase.spec.ts`, summary-action tests, and `message.worker.spec.ts` for legacy confirmation, correction, cancellation, clarification completion, queue progression, retry, timeout, invalid-state recovery, and unchanged category-only presentation.
+- [x] Add regression assertions that accepted corrections transition exactly once, rejected corrections never transition or enqueue, queue overflow never mutates active state, retries never invoke NLP, and confirmation/cancellation precedence remains unchanged.
+- [x] Update `docs/features/expense-correction.md` with `subcategoria`, atomic parent/child application, invalid-child guidance, non-mutation, and legacy normalization behavior.
+- [x] Update `docs/features/subcategory-hierarchy.md` with correction rules, active-parent membership, cleared-child semantics, typed rejection, compatibility defaults, and the unchanged Phase 7 persistence boundary.
+- [x] Synchronize the affected entries in `docs/features/README.md` in the same documentation change.
+- [x] Run the focused correction, provider, payload/state, clarification, retry, queue, summary-action, classifier, and worker test suites.
+- [x] Run `pnpm test` to execute the complete project test suite after the focused tests pass.
+- [x] Run `pnpm run format:check` to verify the TypeScript, tests, plan-driven feature documentation, and feature index follow repository formatting.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Execute Phase 3 to centralize legacy state normalization, close persisted-payload compatibility, synchronize documentation, and run the full regression suite.
+All phases are complete; review and commit the Phase 3 compatibility changes.

@@ -442,12 +442,14 @@ describe('CorrectExpenseUseCase', () => {
       subcategoriaRaw: 'Peajes',
       fechaRaw: null,
     });
-    const classifier = vi.fn<ICategoryClassifier['execute']>().mockResolvedValue(
-      HierarchicalClassificationResult.create(
-        ClassificationSelection.confirmed('cat-2', 'Transporte'),
-        SubcategoryClassificationSelection.confirmed('sub-3', 'Peajes', 'cat-2'),
-      ),
-    );
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-2', 'Transporte'),
+          SubcategoryClassificationSelection.confirmed('sub-3', 'Peajes', 'cat-2'),
+        ),
+      );
     const { useCase, classifierMock, transitionMock } = buildDeps({
       interpretCorrection,
       classifier,
@@ -508,11 +510,13 @@ describe('CorrectExpenseUseCase', () => {
       subcategoriaRaw: 'Restaurante',
       fechaRaw: null,
     });
-    const classifier = vi.fn<ICategoryClassifier['execute']>().mockResolvedValue(
-      HierarchicalClassificationResult.create(
-        ClassificationSelection.confirmed('cat-2', 'Transporte'),
-      ),
-    );
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-2', 'Transporte'),
+        ),
+      );
     const { useCase, transitionMock, findAverageAmountByUserIdMock } = buildDeps({
       interpretCorrection,
       classifier,
@@ -559,12 +563,14 @@ describe('CorrectExpenseUseCase', () => {
       subcategoriaRaw: 'Restaurante',
       fechaRaw: null,
     });
-    const classifier = vi.fn<ICategoryClassifier['execute']>().mockResolvedValue(
-      HierarchicalClassificationResult.create(
-        ClassificationSelection.confirmed('cat-1', 'Comida'),
-        SubcategoryClassificationSelection.confirmed('sub-1', 'Restaurante', 'cat-1'),
-      ),
-    );
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-1', 'Comida'),
+          SubcategoryClassificationSelection.confirmed('sub-1', 'Restaurante', 'cat-1'),
+        ),
+      );
     const { useCase, classifierMock } = buildDeps({ interpretCorrection, classifier });
     const state = buildCorrectionState(
       buildReviewPayload({
@@ -635,12 +641,14 @@ describe('CorrectExpenseUseCase', () => {
       subcategoriaRaw: 'Común',
       fechaRaw: null,
     });
-    const classifier = vi.fn<ICategoryClassifier['execute']>().mockResolvedValue(
-      HierarchicalClassificationResult.create(
-        ClassificationSelection.confirmed('cat-1', 'Comida'),
-        SubcategoryClassificationSelection.confirmed('sub-other', 'Común', 'cat-2'),
-      ),
-    );
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-1', 'Comida'),
+          SubcategoryClassificationSelection.confirmed('sub-other', 'Común', 'cat-2'),
+        ),
+      );
     const { useCase, transitionMock } = buildDeps({ interpretCorrection, classifier });
     const state = buildCorrectionState(
       buildReviewPayload({ resolvedCategoryId: 'cat-1', subcategoryEnabled: true }),
@@ -672,11 +680,13 @@ describe('CorrectExpenseUseCase', () => {
       subcategoriaRaw: 'Varios',
       fechaRaw: null,
     });
-    const classifier = vi.fn<ICategoryClassifier['execute']>().mockResolvedValue(
-      HierarchicalClassificationResult.create(
-        ClassificationSelection.confirmed('cat-other', 'Otros'),
-      ),
-    );
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-other', 'Otros'),
+        ),
+      );
     const vocabulary = new CategoryVocabulary('sheet-1', [
       { id: 'cat-other', name: 'Otros', normalizedName: 'otros' },
     ]);
@@ -716,11 +726,13 @@ describe('CorrectExpenseUseCase', () => {
       subcategoriaRaw: null,
       fechaRaw: null,
     });
-    const classifier = vi.fn<ICategoryClassifier['execute']>().mockResolvedValue(
-      HierarchicalClassificationResult.create(
-        ClassificationSelection.confirmed('cat-1', 'Comida'),
-      ),
-    );
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-1', 'Comida'),
+        ),
+      );
     const { useCase } = buildDeps({ interpretCorrection, classifier });
     const state = buildCorrectionState(
       buildReviewPayload({
@@ -763,11 +775,13 @@ describe('CorrectExpenseUseCase', () => {
       subcategoriaRaw: null,
       fechaRaw: null,
     });
-    const classifier = vi.fn<ICategoryClassifier['execute']>().mockResolvedValue(
-      HierarchicalClassificationResult.create(
-        ClassificationSelection.confirmed('cat-2', 'Transporte'),
-      ),
-    );
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-2', 'Transporte'),
+        ),
+      );
     const { useCase } = buildDeps({ interpretCorrection, classifier });
     const state = buildCorrectionState(
       buildReviewPayload({

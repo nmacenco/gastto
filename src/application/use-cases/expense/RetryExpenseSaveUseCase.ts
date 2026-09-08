@@ -6,7 +6,7 @@ import type { RegisterExpenseUseCase } from './RegisterExpense';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { IOperationLogRepository } from '../../../domain/ports/repositories';
 import {
-  isExpenseSaveRetryPayload,
+  parseExpenseSaveRetryPayload,
   type ExpenseSaveRetryPayload,
 } from '../../../domain/value-objects/expense-save-retry-payload';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
@@ -77,7 +77,8 @@ export class RetryExpenseSaveUseCase {
   }
 
   private validateRetryPayload(input: RetryExpenseSaveInput): ExpenseSaveRetryPayload | null {
-    if (!isExpenseSaveRetryPayload(input.statePayload) || input.expiresAt === null) {
+    const retryPayload = parseExpenseSaveRetryPayload(input.statePayload);
+    if (retryPayload === null || input.expiresAt === null) {
       return null;
     }
 
@@ -85,7 +86,7 @@ export class RetryExpenseSaveUseCase {
       return null;
     }
 
-    return { ...input.statePayload };
+    return retryPayload;
   }
 
   private async clearExpiredState(userId: string, chatId: string): Promise<void> {

@@ -94,10 +94,7 @@ export class CorrectExpenseUseCase {
       return { status: 'not_interpretable' };
     }
 
-    if (
-      suggestion.changedFields.includes('subcategoria') &&
-      suggestion.subcategoriaRaw === null
-    ) {
+    if (suggestion.changedFields.includes('subcategoria') && suggestion.subcategoriaRaw === null) {
       return { status: 'not_interpretable' };
     }
 
@@ -233,7 +230,10 @@ export class CorrectExpenseUseCase {
           classification.subcategory.categoryId !== selectedParentId)
       ) {
         return this.invalidSubcategory(
-          selectedParentName ?? suggestion.categoriaRaw ?? current.resolvedCategory ?? 'Sin categoría',
+          selectedParentName ??
+            suggestion.categoriaRaw ??
+            current.resolvedCategory ??
+            'Sin categoría',
           attemptedSubcategory!,
           allowedSubcategories,
         );

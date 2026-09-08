@@ -31,6 +31,10 @@ function buildPayload(overrides: Partial<ExpenseReviewPayload> = {}): ExpenseRev
     resolvedCategory: 'Comida',
     resolvedCategoryId: null,
     categoryStatus: 'confirmed',
+    resolvedSubcategory: null,
+    resolvedSubcategoryId: null,
+    subcategoryStatus: 'none',
+    subcategoryEnabled: false,
     ...overrides,
   };
 }

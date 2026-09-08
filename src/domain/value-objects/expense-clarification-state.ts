@@ -3,14 +3,11 @@
 // Replaces the previous Record<string, unknown> bag with a validated,
 // immutable value object that is safe to serialize to JSONB.
 
-import type { ExtractedExpense, CategoryConfidence } from '../entities/ExpenseRecord';
-import type { Currency } from '../entities/User';
+import type { ExtractedExpense } from '../entities/ExpenseRecord';
 import { DomainValidationError } from '../errors/DomainValidationError';
+import { normalizeExtractedExpensePayload } from './expense-review-payload';
 
 export type MissingClarificationField = 'monto' | 'moneda';
-
-const VALID_CONFIDENCE: CategoryConfidence[] = ['alta', 'baja', 'nula'];
-const VALID_CURRENCIES: Currency[] = ['ARS', 'EUR', 'USD', 'MXN', 'GBP', 'BRL'];
 
 export class ExpenseClarificationState {
   private constructor(
@@ -30,13 +27,13 @@ export class ExpenseClarificationState {
     queueRegisteredCount?: number,
   ): ExpenseClarificationState {
     ExpenseClarificationState.validateMissingField(missingField);
-    ExpenseClarificationState.validatePartialExtracted(partialExtracted);
+    const normalizedPartialExtracted = normalizeExtractedExpensePayload(partialExtracted);
     ExpenseClarificationState.validateRawMessage(rawMessage);
     ExpenseClarificationState.validateQueueRegisteredCount(queueRegisteredCount);
 
     return new ExpenseClarificationState(
       missingField,
-      partialExtracted,
+      normalizedPartialExtracted,
       rawMessage,
       queueRegisteredCount,
     );
@@ -49,12 +46,11 @@ export class ExpenseClarificationState {
 
     const missingField = payload.missingField;
     const rawMessage = payload.rawMessage;
-    const partialExtracted = payload.partialExtracted;
+    const partialExtracted = normalizeExtractedExpensePayload(payload.partialExtracted);
     const queueRegisteredCount = payload.queueRegisteredCount;
 
     ExpenseClarificationState.validateMissingField(missingField);
     ExpenseClarificationState.validateRawMessage(rawMessage);
-    ExpenseClarificationState.validatePartialExtracted(partialExtracted);
     ExpenseClarificationState.validateQueueRegisteredCount(queueRegisteredCount);
 
     return new ExpenseClarificationState(
@@ -101,98 +97,22 @@ export class ExpenseClarificationState {
       );
     }
   }
-
-  private static validatePartialExtracted(value: unknown): asserts value is ExtractedExpense {
-    if (!isPlainObject(value)) {
-      throw new DomainValidationError('partialExtracted must be an object');
-    }
-
-    const { monto, moneda, categoriaRaw, fechaRaw, medioPago, confianzaCategoria } = value;
-
-    if (monto !== null && (typeof monto !== 'number' || !Number.isFinite(monto))) {
-      throw new DomainValidationError('partialExtracted.monto must be a finite number or null');
-    }
-
-    if (moneda !== null && !VALID_CURRENCIES.some((currency) => currency === moneda)) {
-      const monedaValue = typeof moneda === 'string' ? moneda : JSON.stringify(moneda);
-      throw new DomainValidationError(
-        `partialExtracted.moneda must be a valid currency or null, received: ${monedaValue}`,
-      );
-    }
-
-    if (categoriaRaw !== null && typeof categoriaRaw !== 'string') {
-      throw new DomainValidationError('partialExtracted.categoriaRaw must be a string or null');
-    }
-
-    if (fechaRaw !== null && typeof fechaRaw !== 'string') {
-      throw new DomainValidationError('partialExtracted.fechaRaw must be a string or null');
-    }
-
-    if (medioPago !== null && typeof medioPago !== 'string') {
-      throw new DomainValidationError('partialExtracted.medioPago must be a string or null');
-    }
-
-    if (!VALID_CONFIDENCE.includes(confianzaCategoria as CategoryConfidence)) {
-      throw new DomainValidationError(
-        `partialExtracted.confianzaCategoria must be one of ${VALID_CONFIDENCE.join(', ')}, received: ${String(confianzaCategoria)}`,
-      );
-    }
-  }
 }
 
 export function isExpenseClarificationState(
   payload: unknown,
 ): payload is ExpenseClarificationState {
-  if (!isPlainObject(payload)) {
+  if (!isPlainObject(payload) || payload._type !== 'ExpenseClarificationState') {
     return false;
   }
-
-  if (payload._type !== 'ExpenseClarificationState') {
+  try {
+    ExpenseClarificationState.fromPayload(payload);
+    return true;
+  } catch {
     return false;
   }
-
-  const missingField = payload.missingField;
-  if (missingField !== 'monto' && missingField !== 'moneda') {
-    return false;
-  }
-
-  if (typeof payload.rawMessage !== 'string' || payload.rawMessage.trim().length === 0) {
-    return false;
-  }
-
-  return isPlainExtractedExpense(payload.partialExtracted);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isPlainExtractedExpense(value: unknown): boolean {
-  if (!isPlainObject(value)) {
-    return false;
-  }
-
-  const { monto, moneda, categoriaRaw, fechaRaw, medioPago, confianzaCategoria } = value;
-
-  if (monto !== null && (typeof monto !== 'number' || !Number.isFinite(monto))) {
-    return false;
-  }
-
-  if (moneda !== null && !VALID_CURRENCIES.includes(moneda as Currency)) {
-    return false;
-  }
-
-  if (categoriaRaw !== null && typeof categoriaRaw !== 'string') {
-    return false;
-  }
-
-  if (fechaRaw !== null && typeof fechaRaw !== 'string') {
-    return false;
-  }
-
-  if (medioPago !== null && typeof medioPago !== 'string') {
-    return false;
-  }
-
-  return VALID_CONFIDENCE.includes(confianzaCategoria as CategoryConfidence);
 }

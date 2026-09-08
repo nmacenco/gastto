@@ -13,12 +13,12 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference with untrusted-data boundaries, optional multilingual subcategory mapping, and category-only compatibility.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message correction for legacy and optional subcategory mappings, preserving the detected header row for category detection.
 - [`category-confirmation.md`](./category-confirmation.md) — Confirms flat or linked category vocabulary only after transactional aggregate persistence, with legacy payload and reconnection compatibility.
-- [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, manages, classifies, and reviews parent-scoped subcategories with stable IDs, active-parent isolation, and category-only compatibility.
+- [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, manages, classifies, reviews, and atomically corrects parent-scoped subcategories with stable IDs and legacy conversational compatibility.
 - [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation, accent-insensitive expense routing, and command-aware bypass of non-financial guidance.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow for missing or ambiguous expense amount/currency data.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with optional hierarchy-aware subcategory display and confirm / correct / cancel options before saving.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Global safe cancellation of in-progress expense registrations.
-- [`expense-correction.md`](./expense-correction.md) — Contextual natural-language correction of amount, currency, category, or date with typed separation from genuine additional expenses.
+- [`expense-correction.md`](./expense-correction.md) — Contextual natural-language correction of amount, currency, category, linked subcategory, or date with atomic hierarchy validation and legacy state normalization.
 - [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with typed correction-versus-queue precedence, Spanish queue feedback, safe single-success Google Sheets writes, transparent OAuth refresh, save-location confirmation, and terminal Google reauthorization recovery.
 - [`undo-last-expense.md`](./undo-last-expense.md) — Safe one-record Google Sheets undo with immediate eligibility and delayed explicit confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.

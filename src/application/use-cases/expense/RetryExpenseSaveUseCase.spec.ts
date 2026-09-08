@@ -13,7 +13,14 @@ const createLog = vi.fn();
 const retryPayload = {
   expense: {
     rawMessage: 'Café 200 EUR',
-    extracted: { monto: 200, moneda: 'EUR' },
+    extracted: {
+      monto: 200,
+      moneda: 'EUR',
+      categoriaRaw: 'café',
+      fechaRaw: '2026-08-05',
+      medioPago: null,
+      confianzaCategoria: 'alta',
+    },
     resolvedDate: '2026-08-05',
     resolvedCategory: 'Comida',
     resolvedCategoryId: null,
@@ -51,7 +58,7 @@ describe('RetryExpenseSaveUseCase', () => {
     });
 
     expect(save).toHaveBeenCalledOnce();
-    expect(save).toHaveBeenCalledWith('user-123', retryPayload.expense, '');
+    expect(save).toHaveBeenCalledWith('user-123', normalizedRetryExpense(), '');
     expect(sendMessage).toHaveBeenNthCalledWith(1, 'chat-123', expenseCopies.saving());
     expect(sendMessage).toHaveBeenNthCalledWith(
       2,
@@ -114,4 +121,30 @@ describe('RetryExpenseSaveUseCase', () => {
     });
     expect(sendMessage).toHaveBeenCalledWith('chat-123', expenseCopies.saveRetryExpired());
   });
+
+  it('normalizes a valid legacy review before replaying it without NLP', async () => {
+    await buildUseCase().execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      statePayload: retryPayload,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    expect(save).toHaveBeenCalledWith('user-123', normalizedRetryExpense(), '');
+  });
 });
+
+function normalizedRetryExpense() {
+  return {
+    ...retryPayload.expense,
+    extracted: {
+      ...retryPayload.expense.extracted,
+      subcategoriaRaw: null,
+      confianzaSubcategoria: 'nula' as const,
+    },
+    resolvedSubcategory: null,
+    resolvedSubcategoryId: null,
+    subcategoryStatus: 'none' as const,
+    subcategoryEnabled: false,
+  };
+}

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Allow a user reviewing an expense summary to correct the amount, currency, category, or date by replying in natural language. The correction is applied to the pending review payload, shown again for confirmation, and is not saved to the spreadsheet until the user explicitly confirms it.
+Allow a user reviewing an expense summary to correct the amount, currency, category, optional linked subcategory, or date by replying in natural language. The correction is applied atomically to the pending review payload, shown again for confirmation, and is not saved to the spreadsheet until the user explicitly confirms it.
 
 ## Behavior (Implemented)
 
@@ -15,13 +15,19 @@ Allow a user reviewing an expense summary to correct the amount, currency, categ
   - amount (`monto`),
   - currency (`moneda`),
   - category (`categoria`), resolved through the user's active spreadsheet vocabulary, and
+  - linked subcategory (`subcategoria`), resolved only beneath the selected active parent, and
   - date (`fecha`), including supported relative values such as `ayer`, `hoy`, and `mañana`.
 - Multiple fields in one message are applied atomically and produce one updated summary presentation.
+- A combined category/subcategory correction is accepted only when both selections resolve to one active relationship. A child-only correction is scoped to the current active parent and never searches another branch.
+- A category-only correction preserves the current child only while its stable ID still belongs to the resolved parent; otherwise every child selection and extraction field is cleared to canonical no-child values.
+- An invalid child returns parent-specific guidance with the ordered active child names. It does not advance correction cycles, reset the review timeout, enqueue a message, persist a partial category update, or present an updated summary.
 - An unrelated message produces the existing orientation prompt: `¿Querías confirmar, corregir o cancelar el registro?`; it does not transition or save the expense.
 - A corrected amount above the user's historical-average threshold is presented with the existing high-amount warning and explicit confirmation prompt. The corrected value remains pending review data until confirmation.
 - Correction cycles are counted in `ExpenseCorrectionState`. After five completed cycles, the sixth correction returns the cycle-limit copy and keeps the current correction state instead of presenting another summary.
 - Invalid or corrupted correction state is logged with structured context, reset to `IDLE`, and answered with the generic fallback copy.
 - Successful corrections reset the review TTL and transition back to `EXPENSE_REVIEW` with the updated payload.
+- Persisted legacy extraction, clarification, review, correction, and retry payloads are normalized at the domain boundary. Missing hierarchy fields become explicit `null`, `nula`, `none`, and `false` values; malformed or contradictory canonical payloads are rejected and safely reset by the worker.
+- Save retries consume the normalized reviewed expense and never invoke natural-language interpretation. Pending queue rows remain raw messages and enter canonical clarification/review state only after normal FIFO dequeue processing.
 
 ## Behavior (TODO)
 
@@ -34,6 +40,8 @@ No HTTP endpoints are added. The feature is driven by the `process-message` Bull
 ### Application and domain contracts
 
 - `ExpenseCorrectionState`: immutable, validated, JSONB-serializable state with the review payload and correction-cycle counter.
+- `normalizeExtractedExpensePayload(value)` and `normalizeExpenseReviewPayload(value)`: shared domain validation and legacy-upgrade boundaries used by conversational state consumers.
+- `parseExpenseSaveRetryPayload(value)`: validates the retry envelope and normalizes its nested reviewed expense before replay.
 - `LLMPort.interpretCorrection(rawMessage, currentExtracted, userContext)`: provider-neutral follow-up interpretation contract returning `intent: 'correction' | 'new_expense' | 'unrelated'` plus corrected values only for the `correction` branch.
 - `CorrectExpenseUseCase.execute(input)`: interprets and applies corrections, returns a typed `new_expense` outcome without mutating the review, resolves categories and dates, enforces high-amount and cycle rules, and transitions the FSM.
 - `ResolveExpenseReviewReplyUseCase.execute(input)`: preserves confirm/cancel precedence and delegates only a typed `new_expense` outcome to `QueuePendingExpense`.
@@ -42,6 +50,7 @@ No HTTP endpoints are added. The feature is driven by the `process-message` Bull
 ### Architectural boundary
 
 - The worker deserializes and validates state, delegates to `CorrectExpenseUseCase`, and presents the returned payload.
+- The worker parses every review before confirmation, cancellation, direct correction, callback handling, timeout-related routing, immediate undo re-presentation, or summary presentation. Invalid review data is logged structurally, reset to `IDLE`, and never cast through permissive guards.
 - `CorrectExpenseUseCase` owns correction business rules and does not depend on Telegram, WhatsApp, or messaging adapters.
 - LLM providers are accessed only through `LLMPort`; OpenAI, Claude, and NVIDIA implementations share the strict correction schema and contextual prompt contract.
 - Category resolution uses the existing `ICategoryClassifier` port and spreadsheet vocabulary repositories.
@@ -52,25 +61,28 @@ No HTTP endpoints are added. The feature is driven by the `process-message` Bull
 - `conversation_states.state_payload` stores the review payload or the serialized `ExpenseCorrectionState` JSONB payload.
 - No new database table or migration is required.
 - `expense_records` is written only by the existing confirmation flow, after explicit confirmation; correction itself does not persist an expense.
+- This compatibility phase does not write subcategories externally, consume review hierarchy IDs in `expense_records`, change undo semantics, or otherwise activate the deferred persistence behavior.
 
 ## Tests
 
 The E1-US-07 scenarios map to these tests:
 
-| User-story scenario | Covering tests |
-| --- | --- |
-| Amount correction | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `updates amount when the user corrects it`; `src/interfaces/workers/message.worker.spec.ts` - `applies a direct natural-language correction and presents one updated summary` |
-| Category correction | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `updates category through the classifier` |
-| Date correction | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `updates date to previous day when the user says "ayer"` |
-| Several fields in one message | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `updates multiple fields in a single execution`; `src/interfaces/workers/message.worker.spec.ts` - `presents exactly one updated summary for an atomic multi-field correction` |
-| Unusually high corrected amount | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `requests explicit confirmation for unusually high corrected amounts`; `src/interfaces/workers/message.worker.spec.ts` - `presents a high-amount correction once and keeps it unsaved for confirmation` |
-| Uninterpretable correction | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `returns not_interpretable for unrelated messages and does not transition`; `src/interfaces/workers/message.worker.spec.ts` - `sends the ambiguity copy without changing data for an uninterpretable correction` |
+| User-story scenario             | Covering tests                                                                                                                                                                                                                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Amount correction               | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `updates amount when the user corrects it`; `src/interfaces/workers/message.worker.spec.ts` - `applies a direct natural-language correction and presents one updated summary`                                    |
+| Category correction             | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `updates category through the classifier`                                                                                                                                                                        |
+| Date correction                 | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `updates date to previous day when the user says "ayer"`                                                                                                                                                         |
+| Several fields in one message   | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `updates multiple fields in a single execution`; `src/interfaces/workers/message.worker.spec.ts` - `presents exactly one updated summary for an atomic multi-field correction`                                   |
+| Unusually high corrected amount | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `requests explicit confirmation for unusually high corrected amounts`; `src/interfaces/workers/message.worker.spec.ts` - `presents a high-amount correction once and keeps it unsaved for confirmation`          |
+| Uninterpretable correction      | `src/application/use-cases/expense/CorrectExpenseUseCase.spec.ts` - `returns not_interpretable for unrelated messages and does not transition`; `src/interfaces/workers/message.worker.spec.ts` - `sends the ambiguity copy without changing data for an uninterpretable correction` |
 
 Additional Definition of Done coverage:
 
 - Currency correction: `CorrectExpenseUseCase.spec.ts` - `updates currency while preserving the original expense context`.
 - Five-cycle limit: `CorrectExpenseUseCase.spec.ts` - `returns cycle_limit when the correction exceeds the maximum cycles`; worker coverage - `sends the cycle-limit copy and does not present another summary`.
 - State serialization and validation: `src/domain/value-objects/expense-correction-state.spec.ts`.
+- Legacy extraction/review and retry normalization: `src/domain/value-objects/expense-review-payload.spec.ts`, `expense-save-retry-payload.spec.ts`, `expense-clarification-state.spec.ts`, and `RetryExpenseSaveUseCase.spec.ts`.
+- Atomic linked-subcategory acceptance/rejection and non-mutation: `CorrectExpenseUseCase.spec.ts`, `ResolveExpenseReviewReplyUseCase.spec.ts`, `ResolveExpenseSummaryActionUseCase.spec.ts`, and `message.worker.spec.ts`.
 - Provider schema and contextual prompts: `src/infrastructure/adapters/llm/OpenAIAdapter.spec.ts`, `ClaudeAdapter.spec.ts`, and `NvidiaAdapter.spec.ts`.
 - Correction-versus-queue regression: provider, application, and worker tests cover `eran 35 EUR y la categoria es transporte`, `Taxi 12 EUR`, unrelated input, and rejection of correction fields on non-correction intents.
 - Inline action and dependency wiring: `src/application/use-cases/expense/ResolveExpenseSummaryActionUseCase.spec.ts`, `src/bootstrap/buildDependencies.spec.ts`, and `src/bootstrap/registerWorkers.spec.ts`.

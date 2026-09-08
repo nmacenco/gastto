@@ -124,6 +124,31 @@ describe('ExpenseClarificationState', () => {
       expect(() => ExpenseClarificationState.fromPayload(payload)).toThrow();
     });
 
+    it('normalizes legacy partial extraction fields and preserves queue metadata', () => {
+      const {
+        subcategoriaRaw: _subcategoriaRaw,
+        confianzaSubcategoria: _confianzaSubcategoria,
+        ...legacyExtracted
+      } = buildExtractedExpense({ moneda: null });
+
+      const state = ExpenseClarificationState.fromPayload({
+        _type: 'ExpenseClarificationState',
+        missingField: 'moneda',
+        partialExtracted: legacyExtracted,
+        rawMessage: 'Gasté 100',
+        queueRegisteredCount: 2,
+      });
+
+      expect(state.partialExtracted).toMatchObject({
+        subcategoriaRaw: null,
+        confianzaSubcategoria: 'nula',
+      });
+      expect(state.toPayload()).toMatchObject({
+        partialExtracted: state.partialExtracted,
+        queueRegisteredCount: 2,
+      });
+    });
+
     it('throws when rawMessage is empty', () => {
       const payload = {
         _type: 'ExpenseClarificationState',

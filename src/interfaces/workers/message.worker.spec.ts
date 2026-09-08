@@ -859,6 +859,10 @@ describe('processMessageJob', () => {
       resolvedCategory: 'Comida',
       resolvedCategoryId: null,
       categoryStatus: 'confirmed',
+      resolvedSubcategory: null,
+      resolvedSubcategoryId: null,
+      subcategoryStatus: 'none',
+      subcategoryEnabled: false,
       ...overrides,
     };
   }
@@ -1023,6 +1027,56 @@ describe('processMessageJob', () => {
       });
       expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('normalizes a legacy review before confirmation', async () => {
+      const deps = buildMockDeps();
+      const legacyPayload = buildReviewStatePayload();
+      delete legacyPayload.resolvedSubcategory;
+      delete legacyPayload.resolvedSubcategoryId;
+      delete legacyPayload.subcategoryStatus;
+      delete legacyPayload.subcategoryEnabled;
+      const extracted = legacyPayload.extracted as Record<string, unknown>;
+      delete extracted.subcategoriaRaw;
+      delete extracted.confianzaSubcategoria;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: legacyPayload,
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+      expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'sí',
+        payload: buildReviewStatePayload(),
+        chatId: '123456789',
+        channel: 'telegram',
+      });
+    });
+
+    it('logs and safely resets a malformed review before text resolution', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_REVIEW',
+          statePayload: { rawMessage: 'incomplete' },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'INVALID_REVIEW_PAYLOAD', userId: 'user-123' }),
+      );
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.fallbackError());
     });
 
     it('delegates a regional text confirmation to the application resolver', async () => {
@@ -3661,7 +3715,18 @@ describe('processMessageJob', () => {
     const payload = {
       expense: {
         rawMessage: 'Café 200 EUR',
-        extracted: { monto: 200, moneda: 'EUR' },
+        extracted: {
+          monto: 200,
+          moneda: 'EUR',
+          categoriaRaw: 'café',
+          fechaRaw: '2026-08-05',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+        },
+        resolvedDate: '2026-08-05',
+        resolvedCategory: 'Comida',
+        resolvedCategoryId: null,
+        categoryStatus: 'confirmed',
       },
       failureCode: 'NETWORK_ERROR',
       firstAttemptAt: '2026-08-05T10:00:00.000Z',

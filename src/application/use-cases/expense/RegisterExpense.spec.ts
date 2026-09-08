@@ -479,6 +479,35 @@ describe('RegisterExpenseUseCase', () => {
       expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
     });
 
+    it('canonicalizes unmatched child extraction before persisting a no-child review', async () => {
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Food'),
+        ),
+      );
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({
+          subcategoriaRaw: 'Invented child',
+          confianzaSubcategoria: 'alta',
+        }),
+      );
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
+      expect(result.payload).toMatchObject({
+        resolvedSubcategory: null,
+        resolvedSubcategoryId: null,
+        subcategoryStatus: 'none',
+        extracted: {
+          subcategoriaRaw: null,
+          confianzaSubcategoria: 'nula',
+        },
+      });
+    });
+
     it('enables subcategories when a confirmed subcategory mapping exists', async () => {
       mockFindBySpreadsheetId.mockResolvedValue([
         {
