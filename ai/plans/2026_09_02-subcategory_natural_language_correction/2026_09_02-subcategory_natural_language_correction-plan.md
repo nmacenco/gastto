@@ -72,20 +72,20 @@ Resolve category and subcategory changes as one hierarchy selection. A valid cor
 
 #### To-do actions
 
-- [ ] Refactor `CorrectExpenseUseCase.applySuggestion()` to collect requested category/subcategory changes before mutating a payload and invoke the hierarchical classifier once with both suggestions when both fields are present.
-- [ ] For a child-only correction, classify against the current resolved active category and never search another parent's children; reject the attempt if the current parent is unresolved or stale.
-- [ ] For a category-only correction, preserve the existing child only when its stable ID still belongs to the resolved parent; otherwise clear `resolvedSubcategory`, `resolvedSubcategoryId`, `subcategoryStatus`, `extracted.subcategoriaRaw`, and child confidence to canonical no-child values.
-- [ ] For a combined category/subcategory correction, apply both selections only when the resolved active child belongs to the newly resolved parent; never expose a partial parent update when the child is invalid.
-- [ ] Add the `invalid_subcategory` correction outcome with the attempted child, selected parent name, and that parent's ordered active child names; return it before `ExpenseCorrectionState.next()`, high-amount evaluation, or any FSM transition.
-- [ ] Preserve the complete stored review on rejection, including category/subcategory fields, correction-cycle count, review TTL, pending high-amount flag, queue count, and undo metadata.
-- [ ] Add an `expenseCopies` guidance message that identifies the selected parent and lists its allowed active children, including an explicit no-configured-children variant, without presenting an updated summary.
-- [ ] Extend `renderExpenseReviewReplyOutcome()` for the typed rejection branch and ensure both direct `EXPENSE_REVIEW` correction and inline `EXPENSE_CORRECTING` correction send exactly one guidance message with no state mutation or queue admission.
-- [ ] Preserve confirm/cancel precedence, `new_expense` versus `unrelated` routing, the five-cycle limit, review timeout reset after accepted corrections, corrected high-amount checks, and the existing one-summary presentation path.
-- [ ] Extend `CorrectExpenseUseCase.spec.ts` for valid combined correction, category-only child preservation/clearing, child-only correction, equal child names under different parents, inactive/stale parents and children, empty allowed-child lists, atomic rejection, one classifier call, cycle counting, timeout, and high-amount behavior.
-- [ ] Extend `ResolveExpenseReviewReplyUseCase.spec.ts`, summary-action tests, and `message.worker.spec.ts` for direct and inline accepted/rejected corrections, unchanged payloads, no queue calls on invalid children, confirmation precedence, and exactly one presentation or guidance message.
-- [ ] Run the focused correction use-case, review-reply, summary-action, copy, worker, classifier, and dependency-wiring test suites.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Refactor `CorrectExpenseUseCase.applySuggestion()` to collect requested category/subcategory changes before mutating a payload and invoke the hierarchical classifier once with both suggestions when both fields are present.
+- [x] For a child-only correction, classify against the current resolved active category and never search another parent's children; reject the attempt if the current parent is unresolved or stale.
+- [x] For a category-only correction, preserve the existing child only when its stable ID still belongs to the resolved parent; otherwise clear `resolvedSubcategory`, `resolvedSubcategoryId`, `subcategoryStatus`, `extracted.subcategoriaRaw`, and child confidence to canonical no-child values.
+- [x] For a combined category/subcategory correction, apply both selections only when the resolved active child belongs to the newly resolved parent; never expose a partial parent update when the child is invalid.
+- [x] Add the `invalid_subcategory` correction outcome with the attempted child, selected parent name, and that parent's ordered active child names; return it before `ExpenseCorrectionState.next()`, high-amount evaluation, or any FSM transition.
+- [x] Preserve the complete stored review on rejection, including category/subcategory fields, correction-cycle count, review TTL, pending high-amount flag, queue count, and undo metadata.
+- [x] Add an `expenseCopies` guidance message that identifies the selected parent and lists its allowed active children, including an explicit no-configured-children variant, without presenting an updated summary.
+- [x] Extend `renderExpenseReviewReplyOutcome()` for the typed rejection branch and ensure both direct `EXPENSE_REVIEW` correction and inline `EXPENSE_CORRECTING` correction send exactly one guidance message with no state mutation or queue admission.
+- [x] Preserve confirm/cancel precedence, `new_expense` versus `unrelated` routing, the five-cycle limit, review timeout reset after accepted corrections, corrected high-amount checks, and the existing one-summary presentation path.
+- [x] Extend `CorrectExpenseUseCase.spec.ts` for valid combined correction, category-only child preservation/clearing, child-only correction, equal child names under different parents, inactive/stale parents and children, empty allowed-child lists, atomic rejection, one classifier call, cycle counting, timeout, and high-amount behavior.
+- [x] Extend `ResolveExpenseReviewReplyUseCase.spec.ts`, summary-action tests, and `message.worker.spec.ts` for direct and inline accepted/rejected corrections, unchanged payloads, no queue calls on invalid children, confirmation precedence, and exactly one presentation or guidance message.
+- [x] Run the focused correction use-case, review-reply, summary-action, copy, worker, classifier, and dependency-wiring test suites.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Centralize legacy state normalization and close compatibility
 
@@ -117,4 +117,4 @@ Normalize hierarchy fields at every persisted conversational boundary so pre-dep
 
 ## Next step
 
-Execute Phase 2 to apply parent-aware category/subcategory corrections atomically and reject invalid child selections without mutating review state.
+Execute Phase 3 to centralize legacy state normalization, close persisted-payload compatibility, synchronize documentation, and run the full regression suite.

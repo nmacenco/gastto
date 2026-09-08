@@ -118,6 +118,8 @@ describe('expenseCopies', () => {
 
       expect(result).toContain('no, fueron 15');
       expect(result).toContain('ponlo en transporte');
+      expect(result).toContain('subcategoría restaurante');
+      expect(result).toContain('subcategoría es supermercado');
       expect(result).toContain('fue ayer');
       expect(result).toContain('varios campos en un solo mensaje');
     });
@@ -146,6 +148,30 @@ describe('expenseCopies', () => {
       expect(result).toContain('límite de correcciones');
       expect(result).toContain('Confirmamos');
       expect(result).toContain('cancelamos');
+    });
+  });
+
+  describe('invalidSubcategory', () => {
+    it('identifies the parent and lists its active children', () => {
+      const result = expenseCopies.invalidSubcategory({
+        parentCategory: 'Comida',
+        attemptedSubcategory: 'Peajes',
+        allowedSubcategories: ['Restaurante', 'Supermercado'],
+      });
+
+      expect(result).toContain('"Peajes"');
+      expect(result).toContain('"Comida"');
+      expect(result).toContain('Restaurante, Supermercado');
+    });
+
+    it('explains when the selected parent has no configured children', () => {
+      const result = expenseCopies.invalidSubcategory({
+        parentCategory: 'Otros',
+        attemptedSubcategory: 'Varios',
+        allowedSubcategories: [],
+      });
+
+      expect(result).toContain('no tiene subcategorías configuradas');
     });
   });
 

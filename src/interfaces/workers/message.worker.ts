@@ -1189,6 +1189,9 @@ async function renderExpenseReviewReplyOutcome(
     case 'cycle_limit':
       await messaging.sendMessage(externalId, expenseCopies.correctionCycleLimitReached());
       return;
+    case 'invalid_subcategory':
+      await messaging.sendMessage(externalId, expenseCopies.invalidSubcategory(outcome));
+      return;
     case 'high_amount_confirmation':
     case 'corrected':
       await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);

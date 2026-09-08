@@ -93,6 +93,8 @@ export const expenseCopies = {
     'Por ejemplo:\n' +
     '• "no, fueron 15"\n' +
     '• "ponlo en transporte"\n' +
+    '• "es comida, subcategoría restaurante"\n' +
+    '• "la subcategoría es supermercado"\n' +
     '• "fue ayer"\n' +
     '• "no, fueron 15 y es transporte" (varios campos en un solo mensaje)',
   correctionApplied: (field: string, value: string | number): string => {
@@ -106,6 +108,17 @@ export const expenseCopies = {
   },
   correctionCycleLimitReached: () =>
     'Llegamos al límite de correcciones. ¿Confirmamos el gasto como está o lo cancelamos?',
+  invalidSubcategory: (input: {
+    parentCategory: string;
+    attemptedSubcategory: string;
+    allowedSubcategories: string[];
+  }): string => {
+    const guidance =
+      input.allowedSubcategories.length === 0
+        ? 'Esa categoría no tiene subcategorías configuradas.'
+        : `Podés elegir: ${input.allowedSubcategories.join(', ')}.`;
+    return `No encontré la subcategoría "${input.attemptedSubcategory}" dentro de "${input.parentCategory}". ${guidance}`;
+  },
   correctionHighAmountConfirmation: () =>
     'El monto corregido es inusualmente alto. ¿Confirmamos que es correcto? Respondé *sí* o *cancelar*.',
   clarificationReformulation: (options: string[]): string => {

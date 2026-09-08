@@ -334,6 +334,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       '123456789',
       expenseCopies.expenseCorrectionPrompt(),
     );
+    expect(sendMessageMock.mock.calls[0]?.[1]).toContain('subcategoría restaurante');
   });
 
   it('cancel transitions to IDLE and sends the cancellation copy', async () => {

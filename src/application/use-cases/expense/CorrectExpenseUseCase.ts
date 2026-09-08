@@ -17,6 +17,7 @@ import { MAX_CORRECTION_CYCLES } from '../../../domain/value-objects/expense-cor
 import type { ExpenseCorrectionState } from '../../../domain/value-objects/expense-correction-state';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { Currency } from '../../../domain/entities/User';
+import type { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
 
 export interface CorrectExpenseInput {
   userId: string;
@@ -28,6 +29,12 @@ export interface CorrectExpenseInput {
 export type CorrectExpenseOutcome =
   | { status: 'not_interpretable' }
   | { status: 'new_expense' }
+  | {
+      status: 'invalid_subcategory';
+      parentCategory: string;
+      attemptedSubcategory: string;
+      allowedSubcategories: string[];
+    }
   | { status: 'cycle_limit'; payload: ExpenseReviewPayload }
   | { status: 'high_amount_confirmation'; payload: ExpenseReviewPayload }
   | { status: 'corrected'; payload: ExpenseReviewPayload };
@@ -50,6 +57,15 @@ interface CorrectionSuggestionValues {
   fechaRaw: string | null;
 }
 
+interface CorrectionHierarchyContext {
+  spreadsheetId: string | null;
+  vocabulary: CategoryVocabulary | null;
+}
+
+type ApplySuggestionOutcome =
+  | { status: 'applied'; payload: ExpenseReviewPayload }
+  | Extract<CorrectExpenseOutcome, { status: 'invalid_subcategory' }>;
+
 export class CorrectExpenseUseCase {
   private readonly reviewTimeoutMinutes: number;
 
@@ -63,10 +79,11 @@ export class CorrectExpenseUseCase {
   async execute(input: CorrectExpenseInput): Promise<CorrectExpenseOutcome> {
     const { userId, rawMessage, state } = input;
 
+    const hierarchy = await this.loadHierarchy(userId);
     const suggestion = await this.deps.llm.interpretCorrection(
       rawMessage,
       state.payload.extracted,
-      await this.buildUserContext(input),
+      this.buildUserContext(input, hierarchy.vocabulary),
     );
 
     if (suggestion.intent === 'new_expense') {
@@ -77,13 +94,16 @@ export class CorrectExpenseUseCase {
       return { status: 'not_interpretable' };
     }
 
-    // A subcategory correction must never be partially applied without its
-    // parent-aware atomic resolution path.
-    if (suggestion.changedFields.includes('subcategoria')) {
+    if (
+      suggestion.changedFields.includes('subcategoria') &&
+      suggestion.subcategoriaRaw === null
+    ) {
       return { status: 'not_interpretable' };
     }
 
-    const updatedPayload = await this.applySuggestion(input, state.payload, suggestion);
+    const applied = await this.applySuggestion(input, state.payload, suggestion, hierarchy);
+    if (applied.status === 'invalid_subcategory') return applied;
+    const updatedPayload = applied.payload;
 
     const nextState = state.next(updatedPayload);
 
@@ -116,11 +136,20 @@ export class CorrectExpenseUseCase {
       : { status: 'corrected', payload: payloadForReview };
   }
 
-  private async buildUserContext(input: CorrectExpenseInput): Promise<UserContext> {
-    const config = await this.deps.spreadsheetConfigRepo.findByUserId(input.userId);
-    const vocabulary = config
-      ? await this.deps.categoryVocabularyRepo.findBySpreadsheetId(config.id)
-      : null;
+  private async loadHierarchy(userId: string): Promise<CorrectionHierarchyContext> {
+    const config = await this.deps.spreadsheetConfigRepo.findByUserId(userId);
+    return {
+      spreadsheetId: config?.id ?? null,
+      vocabulary: config
+        ? await this.deps.categoryVocabularyRepo.findBySpreadsheetId(config.id)
+        : null,
+    };
+  }
+
+  private buildUserContext(
+    input: CorrectExpenseInput,
+    vocabulary: CategoryVocabulary | null,
+  ): UserContext {
     const categories = vocabulary?.getCategories() ?? [];
 
     return {
@@ -141,12 +170,110 @@ export class CorrectExpenseUseCase {
     input: CorrectExpenseInput,
     current: ExpenseReviewPayload,
     suggestion: CorrectionSuggestionValues,
-  ): Promise<ExpenseReviewPayload> {
+    hierarchy: CorrectionHierarchyContext,
+  ): Promise<ApplySuggestionOutcome> {
     let extracted: ExtractedExpense = { ...current.extracted };
     let resolvedCategory = current.resolvedCategory;
     let resolvedCategoryId = current.resolvedCategoryId;
     let categoryStatus = current.categoryStatus;
+    let resolvedSubcategory = current.resolvedSubcategory;
+    let resolvedSubcategoryId = current.resolvedSubcategoryId;
+    let subcategoryStatus = current.subcategoryStatus;
     const dateWasCorrected = suggestion.changedFields.includes('fecha');
+    const categoryWasCorrected = suggestion.changedFields.includes('categoria');
+    const subcategoryWasCorrected = suggestion.changedFields.includes('subcategoria');
+
+    if (categoryWasCorrected || subcategoryWasCorrected) {
+      const attemptedSubcategory = suggestion.subcategoriaRaw;
+      const currentParent = hierarchy.vocabulary
+        ?.getCategories()
+        .find((category) => category.id === current.resolvedCategoryId);
+
+      if (subcategoryWasCorrected && current.subcategoryEnabled !== true) {
+        return this.invalidSubcategory(
+          current.resolvedCategory ?? suggestion.categoriaRaw ?? 'Sin categoría',
+          attemptedSubcategory!,
+          [],
+        );
+      }
+
+      if (subcategoryWasCorrected && !categoryWasCorrected && !currentParent) {
+        return this.invalidSubcategory(
+          current.resolvedCategory ?? 'Sin categoría',
+          attemptedSubcategory!,
+          [],
+        );
+      }
+
+      const classification = await this.deps.classifier.execute({
+        userId: input.userId,
+        spreadsheetId: hierarchy.spreadsheetId,
+        rawMessage: input.rawMessage,
+        llmCategory: categoryWasCorrected ? suggestion.categoriaRaw : currentParent!.name,
+        llmConfidence: 'alta',
+        llmSubcategory: subcategoryWasCorrected ? attemptedSubcategory : null,
+        llmSubcategoryConfidence: subcategoryWasCorrected ? 'alta' : 'nula',
+      });
+
+      const selectedParentId = classification.category.id;
+      const selectedParentName = classification.category.name;
+      const allowedSubcategories =
+        selectedParentId === null || hierarchy.vocabulary === null
+          ? []
+          : hierarchy.vocabulary
+              .getSubcategories(selectedParentId)
+              .map((subcategory) => subcategory.name);
+
+      if (
+        subcategoryWasCorrected &&
+        (selectedParentId === null ||
+          selectedParentName === null ||
+          classification.subcategory.id === null ||
+          classification.subcategory.name === null ||
+          classification.subcategory.categoryId !== selectedParentId)
+      ) {
+        return this.invalidSubcategory(
+          selectedParentName ?? suggestion.categoriaRaw ?? current.resolvedCategory ?? 'Sin categoría',
+          attemptedSubcategory!,
+          allowedSubcategories,
+        );
+      }
+
+      resolvedCategory = selectedParentName;
+      resolvedCategoryId = selectedParentId;
+      categoryStatus = classification.category.status;
+      if (categoryWasCorrected && suggestion.categoriaRaw !== null) {
+        extracted = { ...extracted, categoriaRaw: suggestion.categoriaRaw };
+      }
+
+      if (subcategoryWasCorrected) {
+        resolvedSubcategory = classification.subcategory.name;
+        resolvedSubcategoryId = classification.subcategory.id;
+        subcategoryStatus = classification.subcategory.status;
+        extracted = {
+          ...extracted,
+          subcategoriaRaw: attemptedSubcategory,
+          confianzaSubcategoria: classification.subcategory.confidence,
+        };
+      } else if (categoryWasCorrected) {
+        const preservedChild =
+          selectedParentId === null
+            ? undefined
+            : hierarchy.vocabulary
+                ?.getSubcategories(selectedParentId)
+                .find((subcategory) => subcategory.id === current.resolvedSubcategoryId);
+        if (!preservedChild || preservedChild.categoryId !== selectedParentId) {
+          resolvedSubcategory = null;
+          resolvedSubcategoryId = null;
+          subcategoryStatus = 'none';
+          extracted = {
+            ...extracted,
+            subcategoriaRaw: null,
+            confianzaSubcategoria: 'nula',
+          };
+        }
+      }
+    }
 
     for (const field of suggestion.changedFields) {
       switch (field) {
@@ -161,23 +288,6 @@ export class CorrectExpenseUseCase {
           }
           break;
         case 'categoria':
-          if (suggestion.categoriaRaw !== null) {
-            const config = await this.deps.spreadsheetConfigRepo.findByUserId(input.userId);
-            const classification = await this.deps.classifier.execute({
-              userId: input.userId,
-              spreadsheetId: config?.id ?? null,
-              rawMessage: input.rawMessage,
-              llmCategory: suggestion.categoriaRaw,
-              llmConfidence: 'alta',
-              llmSubcategory: null,
-              llmSubcategoryConfidence: 'nula',
-            });
-            resolvedCategory = classification.category.name;
-            resolvedCategoryId = classification.category.id;
-            categoryStatus = classification.category.status;
-            extracted = { ...extracted, categoriaRaw: suggestion.categoriaRaw };
-          }
-          break;
         case 'subcategoria':
           break;
         case 'fecha':
@@ -193,12 +303,31 @@ export class CorrectExpenseUseCase {
       : current.resolvedDate;
 
     return {
-      ...current,
-      extracted,
-      resolvedDate,
-      resolvedCategory,
-      resolvedCategoryId,
-      categoryStatus,
+      status: 'applied',
+      payload: {
+        ...current,
+        extracted,
+        resolvedDate,
+        resolvedCategory,
+        resolvedCategoryId,
+        categoryStatus,
+        ...(resolvedSubcategory === undefined ? {} : { resolvedSubcategory }),
+        ...(resolvedSubcategoryId === undefined ? {} : { resolvedSubcategoryId }),
+        ...(subcategoryStatus === undefined ? {} : { subcategoryStatus }),
+      },
+    };
+  }
+
+  private invalidSubcategory(
+    parentCategory: string,
+    attemptedSubcategory: string,
+    allowedSubcategories: string[],
+  ): Extract<CorrectExpenseOutcome, { status: 'invalid_subcategory' }> {
+    return {
+      status: 'invalid_subcategory',
+      parentCategory,
+      attemptedSubcategory,
+      allowedSubcategories,
     };
   }
 

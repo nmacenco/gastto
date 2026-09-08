@@ -1235,6 +1235,34 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
     });
 
+    it('sends one guidance message for a rejected direct child correction', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_REVIEW', statePayload: payload }),
+      );
+      const rejection = {
+        status: 'invalid_subcategory' as const,
+        parentCategory: 'Comida',
+        attemptedSubcategory: 'Peajes',
+        allowedSubcategories: ['Restaurante', 'Supermercado'],
+      };
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue(rejection);
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'la subcategoría es Peajes' }),
+        deps,
+      );
+
+      expect(mockSendMessage).toHaveBeenCalledOnce();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.invalidSubcategory(rejection),
+      );
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+    });
+
     it('re-presents one hierarchy-aware summary after zero-amount confirmation', async () => {
       const deps = buildMockDeps();
       const payload = buildReviewStatePayload({
@@ -1492,6 +1520,42 @@ describe('processMessageJob', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.ambiguousResponse());
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
+    it('sends one guidance message for a rejected inline child correction', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCorrectionState',
+            payload,
+            correctionCycles: 2,
+            pendingHighAmountConfirmation: false,
+          },
+        }),
+      );
+      const rejection = {
+        status: 'invalid_subcategory' as const,
+        parentCategory: 'Comida',
+        attemptedSubcategory: 'Peajes',
+        allowedSubcategories: ['Restaurante'],
+      };
+      mockCorrectExpenseExecute.mockResolvedValue(rejection);
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'la subcategoría es Peajes' }),
+        deps,
+      );
+
+      expect(mockSendMessage).toHaveBeenCalledOnce();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.invalidSubcategory(rejection),
+      );
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
     });
 
     it('recovers an invalid correction state and logs the validation failure', async () => {
