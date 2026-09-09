@@ -128,6 +128,7 @@ describe('DrizzleExpenseRecordRepository', () => {
         }),
       );
       expect(result).toMatchObject({
+        categoria: 'Comida',
         categoryId: null,
         subcategoryId: null,
         subcategoria: null,
@@ -189,6 +190,41 @@ describe('DrizzleExpenseRecordRepository', () => {
       expect(result).not.toBeNull();
       expect(result?.id).toBe('expense-123');
       expect(result?.monto).toBe(850);
+      expect(result).toMatchObject({
+        categoria: 'Comida',
+        categoryId: 'category-123',
+        subcategoryId: 'subcategory-123',
+        subcategoria: 'Cafeteria',
+      });
+    });
+
+    it('keeps text snapshots after vocabulary references are cleared', async () => {
+      const row = buildExpenseRecordRow({
+        categoria: 'Comida original',
+        categoryId: null,
+        subcategoryId: null,
+        subcategoria: 'Cafeteria original',
+      });
+      const db = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              orderBy: vi.fn().mockReturnValue({
+                limit: vi.fn().mockResolvedValue([row]),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const result = await new DrizzleExpenseRecordRepository(db).findLatestByUserId('user-123');
+
+      expect(result).toMatchObject({
+        categoria: 'Comida original',
+        categoryId: null,
+        subcategoryId: null,
+        subcategoria: 'Cafeteria original',
+      });
     });
 
     it('returns null when no non-deleted records exist', async () => {

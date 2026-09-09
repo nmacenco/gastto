@@ -213,11 +213,28 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     );
     const { useCase, sendMessageMock, transitionMock, operationLogCreate, advancePendingExpense } =
       buildUseCase({ save });
+    const payload = buildPayload({
+      extracted: {
+        monto: 850,
+        moneda: 'ARS',
+        categoriaRaw: 'comida',
+        subcategoriaRaw: 'Restaurante',
+        fechaRaw: '2026-07-25',
+        medioPago: 'Tarjeta',
+        confianzaCategoria: 'alta',
+        confianzaSubcategoria: 'alta',
+      },
+      resolvedCategoryId: 'category-food',
+      resolvedSubcategory: 'Restaurante',
+      resolvedSubcategoryId: 'subcategory-restaurant',
+      subcategoryStatus: 'confirmed',
+      subcategoryEnabled: true,
+    });
 
     await useCase.execute({
       userId: 'user-123',
       action: 'confirm',
-      payload: buildPayload(),
+      payload,
       chatId: '123456789',
     });
 
@@ -236,8 +253,10 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     expect(retryTransition.payload).toMatchObject({
       failureCode: 'NETWORK_ERROR',
       attemptCount: 1,
-      expense: { rawMessage: 'Cafe 850 ARS' },
     });
+    expect(retryTransition.payload?.expense).toEqual(payload);
+    expect(save).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledWith('user-123', payload, '');
     expect(operationLogCreate).toHaveBeenCalledWith(
       'user-123',
       'EXPENSE_SAVE_FAILED',
@@ -252,6 +271,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       '123456789',
       expect.stringContaining('Gasto guardado'),
     );
+    expect(sendMessageMock).toHaveBeenCalledTimes(2);
     expect(advancePendingExpense).not.toHaveBeenCalled();
   });
 

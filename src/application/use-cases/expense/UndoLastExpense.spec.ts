@@ -42,6 +42,10 @@ beforeEach(() => {
     concepto: 'Café',
     monto: 4.5,
     moneda: 'EUR',
+    categoria: 'Comida original',
+    categoryId: 'category-food',
+    subcategoryId: 'subcategory-cafe',
+    subcategoria: 'Cafetería original',
     sheetName: 'Gastos',
     rowIndex: 8,
     savedAt: new Date('2026-08-02T10:00:00Z'),
@@ -53,6 +57,46 @@ beforeEach(() => {
 });
 
 describe('UndoLastExpenseUseCase', () => {
+  it.each([
+    ['renamed vocabulary', 'category-food', 'subcategory-cafe'],
+    ['moved subcategory', 'category-food', 'subcategory-cafe'],
+    ['soft-disabled vocabulary', 'category-food', 'subcategory-cafe'],
+    ['hard-deleted vocabulary', null, null],
+  ])(
+    'targets the saved sheet row after %s regardless of nullable hierarchy references',
+    async (_scenario, categoryId, subcategoryId) => {
+      findLatest.mockResolvedValue({
+        id: 'expense-1',
+        concepto: 'Café',
+        monto: 4.5,
+        moneda: 'EUR',
+        categoria: 'Comida original',
+        categoryId,
+        subcategoryId,
+        subcategoria: 'Cafetería original',
+        sheetName: 'Gastos históricos',
+        rowIndex: 27,
+        savedAt: new Date('2026-08-02T10:00:00Z'),
+      });
+
+      await expect(
+        buildUseCase().execute({
+          userId: 'user-1',
+          action: 'request',
+          immediateExpenseId: 'expense-1',
+        }),
+      ).resolves.toMatchObject({ status: 'deleted' });
+
+      expect(findLatest).toHaveBeenCalledWith('user-1');
+      expect(deleteRow).toHaveBeenCalledWith('file-1', 'Gastos históricos', 27);
+      expect(softDeleteWithAudit).toHaveBeenCalledWith(
+        'expense-1',
+        'user-1',
+        expect.objectContaining({ sheet: 'Gastos históricos', row: 27 }),
+      );
+    },
+  );
+
   it('deletes externally before atomically soft-deleting and auditing locally', async () => {
     const result = await buildUseCase().execute({
       userId: 'user-1',

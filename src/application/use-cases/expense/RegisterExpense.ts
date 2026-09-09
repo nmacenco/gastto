@@ -281,9 +281,9 @@ export class RegisterExpenseUseCase {
       monto: payload.extracted.monto!,
       moneda: payload.extracted.moneda!,
       categoria: payload.resolvedCategory,
-      categoryId: null,
-      subcategoryId: null,
-      subcategoria: null,
+      categoryId: payload.resolvedCategoryId,
+      subcategoryId: payload.resolvedSubcategoryId ?? null,
+      subcategoria: payload.resolvedSubcategory ?? null,
       fechaGasto: new Date(payload.resolvedDate),
       medioPago: payload.extracted.medioPago,
       sheetName: result.sheet,
@@ -386,6 +386,9 @@ export class RegisterExpenseUseCase {
           break;
         case 'categoria':
           row[columnIndex] = payload.resolvedCategory;
+          break;
+        case 'subcategoria':
+          row[columnIndex] = payload.resolvedSubcategory ?? null;
           break;
         case 'fecha':
           row[columnIndex] = payload.resolvedDate;

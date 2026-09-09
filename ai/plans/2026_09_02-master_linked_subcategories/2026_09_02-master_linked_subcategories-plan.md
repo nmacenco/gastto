@@ -175,21 +175,21 @@ Plan spreadsheet and internal persistence, then close the feature with backward-
 
 #### To-do actions
 
-- [ ] Create `ai/plans/2026_09_02-subcategory_persistence_and_release/2026_09_02-subcategory_persistence_and_release-plan.md`.
-- [ ] Populate stable category and subcategory identifiers in all newly created review payloads.
-- [ ] Write a subcategory value only when a valid `subcategoria` column mapping exists.
-- [ ] Persist category/subcategory IDs and text snapshots only after the spreadsheet append succeeds.
-- [ ] Carry the new fields through save retry and pending-expense flows without replaying NLP.
-- [ ] Verify that undo remains based on the spreadsheet row and is independent of vocabulary renames or soft-disables.
-- [ ] Keep historical identifiers nullable and perform no fuzzy or destructive backfill.
-- [ ] Specify repository, save, retry, queue, undo, migration, integration, and end-to-end scenarios for spreadsheets with and without subcategory support.
-- [ ] Require negative assertions proving that append failures persist no local expense and send no success confirmation.
-- [ ] Complete the hierarchy feature documentation and synchronize expense confirmation, category confirmation, data model, ADR references, and documentation indexes.
-- [ ] Verify automatic rollout: legacy users retain current behavior and hierarchy behavior activates only from a mapped column or configured subcategories.
-- [ ] Require `pnpm test`, `pnpm run format:check`, migration integration checks, and all project ship gates in the subplan.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create `ai/plans/2026_09_02-subcategory_persistence_and_release/2026_09_02-subcategory_persistence_and_release-plan.md`.
+- [x] Populate stable category and subcategory identifiers in all newly created review payloads.
+- [x] Write a subcategory value only when a valid `subcategoria` column mapping exists.
+- [x] Persist category/subcategory IDs and text snapshots only after the spreadsheet append succeeds.
+- [x] Carry the new fields through save retry and pending-expense flows without replaying NLP.
+- [x] Verify that undo remains based on the spreadsheet row and is independent of vocabulary renames or soft-disables.
+- [x] Keep historical identifiers nullable and perform no fuzzy or destructive backfill.
+- [x] Specify repository, save, retry, queue, undo, migration, integration, and end-to-end scenarios for spreadsheets with and without subcategory support.
+- [x] Require negative assertions proving that append failures persist no local expense and send no success confirmation.
+- [x] Complete the hierarchy feature documentation and synchronize expense confirmation, category confirmation, data model, ADR references, and documentation indexes.
+- [x] Verify automatic rollout: legacy users retain current behavior and hierarchy behavior activates only from a mapped column or configured subcategories.
+- [x] Require `pnpm test`, `pnpm run format:check`, migration integration checks, and all project ship gates in the subplan.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Create the Phase 7 persistence, compatibility, and release subplan before making any application-code changes.
+All seven master-plan phases are complete; review and optionally commit the Phase 7 planning changes before implementing its first subphase.

@@ -31,6 +31,7 @@ import {
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
+import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
 
 const mockUserProfileGetDefaultCurrency = vi.fn();
 const mockClassifierExecute = vi.fn();
@@ -183,6 +184,21 @@ function buildInput(overrides: Partial<RegisterExpenseInput> = {}): RegisterExpe
   };
 }
 
+function buildMapping(
+  GasttoField: ColumnMapping['GasttoField'],
+  columnIndex: number,
+): ColumnMapping {
+  return {
+    id: `mapping-${GasttoField}`,
+    spreadsheetId: 'config-1',
+    GasttoField,
+    columnIndex,
+    columnHeader: GasttoField,
+    inferred: false,
+    confirmedAt: new Date(),
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetValidAccessToken.mockResolvedValue({
@@ -238,19 +254,161 @@ describe('RegisterExpenseUseCase', () => {
     };
 
     beforeEach(() => {
-      mockFindBySpreadsheetId.mockResolvedValue([
-        {
-          id: 'mapping-1',
-          spreadsheetId: 'config-1',
-          GasttoField: 'monto',
-          columnIndex: 0,
-          columnHeader: 'Monto',
-          inferred: false,
-          confirmedAt: new Date(),
-        },
-      ]);
+      mockFindBySpreadsheetId.mockResolvedValue([buildMapping('monto', 0)]);
       mockExpenseRecordCreate.mockResolvedValue({});
       mockOperationLogCreate.mockResolvedValue({});
+    });
+
+    it.each([
+      {
+        name: 'mapped child',
+        mappings: [
+          buildMapping('monto', 0),
+          buildMapping('categoria', 2),
+          buildMapping('subcategoria', 4),
+        ],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: 'Restaurante',
+          resolvedSubcategoryId: 'subcategory-restaurant',
+          subcategoryStatus: 'confirmed' as const,
+          subcategoryEnabled: true,
+        },
+        row: [100, null, 'Comida', null, 'Restaurante'],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: 'subcategory-restaurant',
+          subcategoria: 'Restaurante',
+        },
+      },
+      {
+        name: 'mapped valid no-child selection',
+        mappings: [buildMapping('monto', 0), buildMapping('subcategoria', 3)],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: null,
+          resolvedSubcategoryId: null,
+          subcategoryStatus: 'none' as const,
+          subcategoryEnabled: true,
+        },
+        row: [100, null, null, null],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: null,
+          subcategoria: null,
+        },
+      },
+      {
+        name: 'unmapped child',
+        mappings: [buildMapping('monto', 0), buildMapping('categoria', 2)],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: 'Restaurante',
+          resolvedSubcategoryId: 'subcategory-restaurant',
+          subcategoryStatus: 'confirmed' as const,
+          subcategoryEnabled: true,
+        },
+        row: [100, null, 'Comida'],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: 'subcategory-restaurant',
+          subcategoria: 'Restaurante',
+        },
+      },
+      {
+        name: 'configured hierarchy without a mapping',
+        mappings: [buildMapping('monto', 0)],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: null,
+          resolvedSubcategoryId: null,
+          subcategoryStatus: 'none' as const,
+          subcategoryEnabled: true,
+        },
+        row: [100],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: null,
+          subcategoria: null,
+        },
+      },
+      {
+        name: 'category-only selection',
+        mappings: [buildMapping('monto', 0), buildMapping('categoria', 1)],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: null,
+          resolvedSubcategoryId: null,
+          subcategoryStatus: 'none' as const,
+          subcategoryEnabled: false,
+        },
+        row: [100, 'Comida'],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: null,
+          subcategoria: null,
+        },
+      },
+      {
+        name: 'legacy normalized selection',
+        mappings: [buildMapping('monto', 0), buildMapping('subcategoria', 2)],
+        review: payload,
+        row: [100, null, null],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: null,
+          subcategoryId: null,
+          subcategoria: null,
+        },
+      },
+    ])(
+      'writes and persists the exact $name hierarchy values',
+      async ({ mappings, review, row, hierarchy }) => {
+        mockFindBySpreadsheetId.mockResolvedValue(mappings);
+        const { useCase } = buildUseCase();
+
+        await useCase.save('user-123', review, '');
+
+        expect(mockAppendRow).toHaveBeenCalledWith('file-1', 'Hoja 1', row);
+        expect(mockExpenseRecordCreate).toHaveBeenCalledWith(expect.objectContaining(hierarchy));
+      },
+    );
+
+    it('keeps append, local persistence, audit, and IDLE transition in strict order', async () => {
+      mockExpenseRecordCreate.mockResolvedValue({ id: 'expense-1' });
+      const { useCase } = buildUseCase();
+
+      await expect(useCase.save('user-123', payload, '')).resolves.toEqual({
+        sheetName: 'Hoja 1',
+        rowIndex: 2,
+        expenseId: 'expense-1',
+      });
+
+      expect(mockAppendRow.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockExpenseRecordCreate.mock.invocationCallOrder[0]!,
+      );
+      expect(mockExpenseRecordCreate.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockOperationLogCreate.mock.invocationCallOrder[0]!,
+      );
+      expect(mockOperationLogCreate.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockConversationTransition.mock.invocationCallOrder[0]!,
+      );
+      expect(mockConversationTransition).toHaveBeenCalledWith(
+        'user-123',
+        'IDLE',
+        { immediateUndoExpenseId: 'expense-1' },
+        null,
+      );
     });
 
     it('uses the access-token service to append and persists the confirmed location', async () => {
@@ -324,18 +482,55 @@ describe('RegisterExpenseUseCase', () => {
       });
     });
 
-    it('does not persist an expense record or transition to IDLE when appending fails', async () => {
-      mockAppendRow.mockRejectedValue(new SpreadsheetError('Network error during row append'));
-      const { useCase } = buildUseCase();
+    it.each([
+      {
+        failure: 'network',
+        configure: () =>
+          mockAppendRow.mockRejectedValue(
+            new SpreadsheetError('Network error during row append', {
+              code: 'NETWORK_ERROR',
+              retryable: true,
+            }),
+          ),
+        appendCount: 1,
+      },
+      {
+        failure: 'authorization',
+        configure: () =>
+          mockAppendRow.mockRejectedValue(
+            new SpreadsheetError('Access denied', { code: 'AUTH_ERROR' }),
+          ),
+        appendCount: 2,
+      },
+      {
+        failure: 'spreadsheet structure',
+        configure: () =>
+          mockAppendRow.mockRejectedValue(
+            new SpreadsheetError('Sheet changed', { code: 'STRUCTURE_ERROR' }),
+          ),
+        appendCount: 1,
+      },
+      {
+        failure: 'malformed mapping',
+        configure: () => mockFindBySpreadsheetId.mockResolvedValue([buildMapping('monto', -1)]),
+        appendCount: 0,
+      },
+    ])(
+      'does not expose success side effects after a $failure failure',
+      async ({ configure, appendCount }) => {
+        configure();
+        const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '')).rejects.toThrow(
-        'Network error during row append',
-      );
+        await expect(useCase.save('user-123', payload, '')).rejects.toBeInstanceOf(
+          SpreadsheetError,
+        );
 
-      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
-      expect(mockOperationLogCreate).not.toHaveBeenCalled();
-      expect(mockConversationTransition).not.toHaveBeenCalled();
-    });
+        expect(mockAppendRow).toHaveBeenCalledTimes(appendCount);
+        expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+        expect(mockOperationLogCreate).not.toHaveBeenCalled();
+        expect(mockConversationTransition).not.toHaveBeenCalled();
+      },
+    );
 
     it('forces one refresh after AUTH_ERROR and records only the single successful append', async () => {
       mockAppendRow

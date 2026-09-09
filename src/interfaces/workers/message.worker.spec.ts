@@ -1009,10 +1009,27 @@ describe('processMessageJob', () => {
 
     it('delegates a standard text confirmation to the application resolver', async () => {
       const deps = buildMockDeps();
+      const hierarchyPayload = buildReviewStatePayload({
+        extracted: {
+          monto: 850,
+          moneda: 'ARS',
+          categoriaRaw: 'comida',
+          subcategoriaRaw: 'Restaurante',
+          fechaRaw: '2026-07-25',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'alta',
+        },
+        resolvedCategoryId: 'category-food',
+        resolvedSubcategory: 'Restaurante',
+        resolvedSubcategoryId: 'subcategory-restaurant',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
+      });
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_REVIEW',
-          statePayload: buildReviewStatePayload(),
+          statePayload: hierarchyPayload,
         }),
       );
 
@@ -1021,7 +1038,7 @@ describe('processMessageJob', () => {
       expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         rawMessage: 'sí',
-        payload: buildReviewStatePayload(),
+        payload: hierarchyPayload,
         chatId: '123456789',
         channel: 'telegram',
       });
@@ -1385,10 +1402,27 @@ describe('processMessageJob', () => {
 
     it('resolves confirm callback via inline button', async () => {
       const deps = buildMockDeps();
+      const hierarchyPayload = buildReviewStatePayload({
+        extracted: {
+          monto: 850,
+          moneda: 'ARS',
+          categoriaRaw: 'comida',
+          subcategoriaRaw: 'Restaurante',
+          fechaRaw: '2026-07-25',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'alta',
+        },
+        resolvedCategoryId: 'category-food',
+        resolvedSubcategory: 'Restaurante',
+        resolvedSubcategoryId: 'subcategory-restaurant',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
+      });
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_REVIEW',
-          statePayload: buildReviewStatePayload(),
+          statePayload: hierarchyPayload,
         }),
       );
 
@@ -1400,7 +1434,7 @@ describe('processMessageJob', () => {
       expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'confirm',
-        payload: buildReviewStatePayload(),
+        payload: hierarchyPayload,
         chatId: '123456789',
         channel: 'telegram',
       });
@@ -3719,14 +3753,20 @@ describe('processMessageJob', () => {
           monto: 200,
           moneda: 'EUR',
           categoriaRaw: 'café',
+          subcategoriaRaw: 'Cafetería',
           fechaRaw: '2026-08-05',
           medioPago: null,
           confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'alta',
         },
         resolvedDate: '2026-08-05',
         resolvedCategory: 'Comida',
-        resolvedCategoryId: null,
+        resolvedCategoryId: 'category-food',
         categoryStatus: 'confirmed',
+        resolvedSubcategory: 'Cafetería',
+        resolvedSubcategoryId: 'subcategory-cafe',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
       },
       failureCode: 'NETWORK_ERROR',
       firstAttemptAt: '2026-08-05T10:00:00.000Z',
@@ -3749,6 +3789,7 @@ describe('processMessageJob', () => {
         expect.objectContaining({ userId: 'user-123', chatId: '123456789', statePayload: payload }),
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
     });
 
     it('delegates reconfigurar to the reconfiguration use case', async () => {
@@ -3789,6 +3830,30 @@ describe('processMessageJob', () => {
       });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saveRetryExpired());
       expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+    });
+
+    it('recovers a malformed legacy retry without append, NLP, or success messaging', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: { ...payload, expense: { rawMessage: 'missing review fields' } },
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'reintentar' }), deps);
+
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: null,
+      });
+      expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledOnce();
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saveRetryExpired());
     });
   });
 });

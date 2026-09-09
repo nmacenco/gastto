@@ -31,6 +31,40 @@ const retryPayload = {
   attemptCount: 1 as const,
 };
 
+const selectedChildRetryPayload = {
+  ...retryPayload,
+  expense: {
+    ...retryPayload.expense,
+    extracted: {
+      ...retryPayload.expense.extracted,
+      subcategoriaRaw: 'Restaurante',
+      confianzaSubcategoria: 'alta' as const,
+    },
+    resolvedCategoryId: 'category-food',
+    resolvedSubcategory: 'Restaurante',
+    resolvedSubcategoryId: 'subcategory-restaurant',
+    subcategoryStatus: 'confirmed' as const,
+    subcategoryEnabled: true,
+  },
+};
+
+const validNoChildRetryPayload = {
+  ...retryPayload,
+  expense: {
+    ...retryPayload.expense,
+    extracted: {
+      ...retryPayload.expense.extracted,
+      subcategoriaRaw: null,
+      confianzaSubcategoria: 'nula' as const,
+    },
+    resolvedCategoryId: 'category-food',
+    resolvedSubcategory: null,
+    resolvedSubcategoryId: null,
+    subcategoryStatus: 'none' as const,
+    subcategoryEnabled: true,
+  },
+};
+
 function buildUseCase() {
   return new RetryExpenseSaveUseCase({
     registerExpense: { save } as unknown as RegisterExpenseUseCase,
@@ -72,6 +106,23 @@ describe('RetryExpenseSaveUseCase', () => {
       }),
     );
     expect(transition).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['selected child', selectedChildRetryPayload],
+    ['valid no-child selection', validNoChildRetryPayload],
+  ])('replays the complete %s review exactly once', async (_name, statePayload) => {
+    await buildUseCase().execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      statePayload,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    expect(save).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledWith('user-123', statePayload.expense, '');
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it('clears retry state and sends manual-copy fallback after the second failure', async () => {
@@ -103,6 +154,9 @@ describe('RetryExpenseSaveUseCase', () => {
       'chat-123',
       expect.stringContaining('Gasto guardado'),
     );
+    expect(save).toHaveBeenCalledOnce();
+    expect(transition).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it('does not append malformed or expired retry state', async () => {
