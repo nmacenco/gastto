@@ -7,6 +7,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 import { eq } from 'drizzle-orm';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { readMigrationFiles, type MigrationMeta } from 'drizzle-orm/migrator';
 import postgres from 'postgres';
 import * as schema from '../../infrastructure/db/schema';
 import { CategoryVocabulary } from '../../domain/entities/CategoryVocabulary';
@@ -23,6 +24,20 @@ let client: postgres.Sql;
 let db: PostgresJsDatabase<typeof schema>;
 
 const describePostgres = process.env.RUN_POSTGRES_INTEGRATION === 'true' ? describe : describe.skip;
+const migrationsFolder = path.resolve(__dirname, '../../infrastructure/db/migrations');
+
+async function applyMigrations(
+  sqlClient: postgres.Sql,
+  migrations: MigrationMeta[],
+): Promise<void> {
+  for (const migration of migrations) {
+    await sqlClient.begin(async (transaction) => {
+      for (const statement of migration.sql) {
+        if (statement.trim().length > 0) await transaction.unsafe(statement);
+      }
+    });
+  }
+}
 
 beforeAll(async () => {
   container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -30,7 +45,7 @@ beforeAll(async () => {
   await client`CREATE EXTENSION IF NOT EXISTS pgcrypto`;
   db = drizzle(client, { schema });
   await migrate(db, {
-    migrationsFolder: path.resolve(__dirname, '../../infrastructure/db/migrations'),
+    migrationsFolder,
   });
 });
 
@@ -105,6 +120,42 @@ describePostgres('subcategory hierarchy persistence (PostgreSQL)', () => {
       categoryId: null,
       subcategoryId: null,
       subcategoria: null,
+    });
+  });
+
+  it('preserves snapshots when vocabulary rows are renamed or deactivated', async () => {
+    const expenseId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    await db.insert(schema.userSubcategories).values({
+      id: restaurantSubcategoryId,
+      categoryId: foodCategoryId,
+      rawValue: 'Restaurant',
+      normalizedValue: 'restaurant',
+    });
+    await db.insert(schema.expenseRecords).values({
+      ...legacyExpense(expenseId),
+      categoryId: foodCategoryId,
+      subcategoryId: restaurantSubcategoryId,
+      subcategoria: 'Restaurant',
+    });
+
+    await db
+      .update(schema.userCategories)
+      .set({ rawValue: 'Meals', normalizedValue: 'meals', isActive: false })
+      .where(eq(schema.userCategories.id, foodCategoryId));
+    await db
+      .update(schema.userSubcategories)
+      .set({ rawValue: 'Dining out', normalizedValue: 'dining out', isActive: false })
+      .where(eq(schema.userSubcategories.id, restaurantSubcategoryId));
+
+    const [expense] = await db
+      .select()
+      .from(schema.expenseRecords)
+      .where(eq(schema.expenseRecords.id, expenseId));
+    expect(expense).toMatchObject({
+      categoria: 'Food',
+      categoryId: foodCategoryId,
+      subcategoria: 'Restaurant',
+      subcategoryId: restaurantSubcategoryId,
     });
   });
 
@@ -293,5 +344,135 @@ describePostgres('subcategory hierarchy persistence (PostgreSQL)', () => {
       isActive: true,
     });
     await expect(db.select().from(schema.userSubcategories)).resolves.toEqual([]);
+  });
+});
+
+describePostgres('linked-subcategory generated migration chain (PostgreSQL)', () => {
+  it('upgrades pre-hierarchy history without backfill and installs the release constraints', async () => {
+    const databaseName = 'gastto_legacy_upgrade';
+    await client`CREATE DATABASE ${client(databaseName)}`;
+    const upgradeClient = postgres({
+      host: container.getHost(),
+      port: container.getPort(),
+      database: databaseName,
+      username: container.getUsername(),
+      password: container.getPassword(),
+      max: 1,
+    });
+
+    try {
+      await upgradeClient`CREATE EXTENSION IF NOT EXISTS pgcrypto`;
+      const migrations = readMigrationFiles({ migrationsFolder });
+      expect(migrations).toHaveLength(9);
+
+      await applyMigrations(upgradeClient, migrations.slice(0, 7));
+      await upgradeClient`INSERT INTO users (user_id, status) VALUES (${userId}, 'active')`;
+      await upgradeClient`
+        INSERT INTO spreadsheet_configs
+          (id, user_id, provider, file_id, file_name, sheet_name, access_verified_at)
+        VALUES
+          (${spreadsheetId}, ${userId}, 'google', 'legacy-file', 'Legacy expenses', 'Gastos', now())
+      `;
+      const legacyExpenseId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+      await upgradeClient`
+        INSERT INTO expense_records
+          (id, user_id, spreadsheet_id, concepto, monto, moneda, categoria, fecha_gasto,
+           medio_pago, sheet_name, row_index, categoria_confidence, raw_message)
+        VALUES
+          (${legacyExpenseId}, ${userId}, ${spreadsheetId}, 'Legacy dinner', 12.50, 'EUR',
+           'Food', '2026-09-01', 'Card', 'Gastos', 2, 'alta', 'Legacy dinner 12.50 EUR')
+      `;
+
+      await applyMigrations(upgradeClient, migrations.slice(7));
+
+      const [legacyRow] = await upgradeClient`
+        SELECT category_id, subcategory_id, subcategoria
+        FROM expense_records
+        WHERE id = ${legacyExpenseId}
+      `;
+      expect(legacyRow).toMatchObject({
+        category_id: null,
+        subcategory_id: null,
+        subcategoria: null,
+      });
+
+      const tables = await upgradeClient<{ table_name: string }[]>`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name IN ('user_subcategories', 'expense_records', 'column_mappings')
+      `;
+      expect(tables.map(({ table_name }) => table_name).sort()).toEqual([
+        'column_mappings',
+        'expense_records',
+        'user_subcategories',
+      ]);
+
+      const indexes = await upgradeClient<{ indexname: string }[]>`
+        SELECT indexname
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND indexname IN (
+            'idx_user_subcategories_category',
+            'uq_category_subcategory',
+            'idx_expense_records_category',
+            'idx_expense_records_subcategory'
+          )
+      `;
+      expect(indexes.map(({ indexname }) => indexname).sort()).toEqual([
+        'idx_expense_records_category',
+        'idx_expense_records_subcategory',
+        'idx_user_subcategories_category',
+        'uq_category_subcategory',
+      ]);
+
+      const foreignKeys = await upgradeClient`
+        SELECT conname, confdeltype
+        FROM pg_constraint
+        WHERE conname IN (
+          'user_subcategories_category_id_user_categories_id_fk',
+          'expense_records_category_id_user_categories_id_fk',
+          'expense_records_subcategory_id_user_subcategories_id_fk'
+        )
+        ORDER BY conname
+      `;
+      expect(foreignKeys).toEqual([
+        expect.objectContaining({
+          conname: 'expense_records_category_id_user_categories_id_fk',
+          confdeltype: 'n',
+        }),
+        expect.objectContaining({
+          conname: 'expense_records_subcategory_id_user_subcategories_id_fk',
+          confdeltype: 'n',
+        }),
+        expect.objectContaining({
+          conname: 'user_subcategories_category_id_user_categories_id_fk',
+          confdeltype: 'c',
+        }),
+      ]);
+
+      const [mappingConstraint] = await upgradeClient`
+        SELECT pg_get_constraintdef(oid) AS definition
+        FROM pg_constraint
+        WHERE conname = 'chk_gastto_field'
+      `;
+      expect(mappingConstraint?.definition).toContain("'subcategoria'::text");
+      await expect(
+        upgradeClient`
+          INSERT INTO column_mappings
+            (spreadsheet_id, gastto_field, column_index, column_header)
+          VALUES (${spreadsheetId}, 'subcategoria', 3, 'Subcategoría')
+        `,
+      ).resolves.toBeDefined();
+      await expect(
+        upgradeClient`
+          INSERT INTO column_mappings
+            (spreadsheet_id, gastto_field, column_index, column_header)
+          VALUES (${spreadsheetId}, 'merchant', 4, 'Merchant')
+        `,
+      ).rejects.toThrow();
+    } finally {
+      await upgradeClient.end();
+    }
   });
 });

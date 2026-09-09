@@ -29,6 +29,7 @@ After column mapping, Gastto proposes the spreadsheet's active category vocabula
 - The canonical proposal contains ordered category nodes, parent-scoped children, orphan warnings, and the mapping-capability flag.
 - Parent-aware add, rename, move, and remove commands update the complete aggregate and return a nested proposal for re-confirmation.
 - See [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) for payloads, commands, invariants, and QA cases.
+- After onboarding, expense hierarchy presentation/classification remains enabled by either a confirmed `subcategoria` mapping or active configured children. Spreadsheet child writes still require the mapping, so category-only row layouts remain unchanged.
 
 ### Confirmation and failure behavior
 
@@ -84,4 +85,5 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 ## Notes
 
 - `RegisterExpenseUseCase` consumes active vocabulary rows after onboarding.
+- Confirmed hierarchy capability does not make a child mandatory and does not change category-only spreadsheet row shape.
 - Linked hierarchy storage and soft-disable decisions are defined by ADR-022.

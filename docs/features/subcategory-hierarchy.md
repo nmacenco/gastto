@@ -116,11 +116,14 @@ An absent, empty, or malformed proposal remains in `ONBOARDING_CATEGORIES`, clea
 - The worker uses the shared review parser for text and callback confirmation/cancellation/correction, immediate undo re-presentation, and other review routing. Invalid payloads are logged with structured context, reset safely, and never reach application use cases through casts.
 - Queue storage remains a FIFO of raw message items with the existing capacity rules. Canonical clarification or review payloads are produced only after dequeue through normal registration.
 
-### Phase 5 persistence boundary
+### Save, retry, queue, history, and undo
 
-Master-plan Phase 5 ends after classification and review presentation. It does not change spreadsheet row construction, local expense persistence, retry, queue, cancellation, or undo semantics. Spreadsheet writes and local category/subcategory ID plus snapshot persistence remain deferred to the master plan's Phase 7 persistence and release subplan.
-
-The natural-language correction compatibility phase keeps this boundary unchanged: normalization and correction do not add spreadsheet columns, persist hierarchy IDs/snapshots, consume them during save, or replay NLP during retries.
+- `RegisterExpenseUseCase` adds the confirmed child name only at the configured `subcategoria` index. If that mapping is absent, no column is added or shifted, even when active configured children enabled hierarchy review.
+- After the spreadsheet provider confirms the append, the local expense stores nullable category/subcategory IDs and immutable category/subcategory text snapshots from the canonical review. Category-only, no-child, and legacy reviews store null child values.
+- A failed append never creates a local expense, advances immediate-undo identity, writes a success audit, or emits the save confirmation. Retryable failures retain the complete normalized review for one user-initiated replay without extraction, classification, or correction NLP.
+- The pending queue remains raw-message FIFO storage. A dequeued message enters the normal interpretation path once; after review, confirmation and retry reuse its canonical hierarchy selection.
+- Undo targets only the saved spreadsheet, sheet, row, and expense ID returned by the confirmed append. Vocabulary rename, move, deactivation, deletion, and snapshot text do not affect row selection.
+- Hierarchy rollout is automatic: presentation and classification activate when a confirmed child mapping or active configured children exist, while external child writing requires the mapping specifically. Missing hierarchy fields normalize to the category-only contract.
 
 ## API / Interface
 
@@ -149,6 +152,7 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - Removed parents and children are soft-disabled during aggregate reconciliation.
 - `conversation_states.state_payload` stores the transient canonical or legacy onboarding proposal.
 - During expense review, it also stores nullable stable category/subcategory selections and the hierarchy capability. Missing hierarchy fields continue to mean a legacy category-only review.
+- `expense_records` stores nullable stable references plus immutable `categoria` and `subcategoria` snapshots only after a confirmed append. Deleting vocabulary rows clears references through `ON DELETE SET NULL` without rewriting snapshot text.
 - `spreadsheet_configs.categories_confirmed_at` is written only after the complete hierarchy save succeeds.
 
 ## Tests
@@ -160,7 +164,8 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - Worker tests cover interrupted detection, modification, canonical/legacy confirmation, invalid recovery, both channels, and the unchanged FSM state.
 - Classification and review tests cover stable IDs, active-parent isolation, equal child names under different parents, absent children, independent status/confidence, enabled presentation, and legacy category-only output.
 - Correction and compatibility tests cover atomic combined changes, scoped child-only changes, invalid-child non-mutation, canonical/legacy state round trips, clarification completion, queue progression, retry without NLP, timeout recovery, and malformed-state reset.
-- PostgreSQL integration tests cover the production migration chain, atomic hierarchy persistence, orphan exclusion, same-name children under different parents, stable IDs, idempotency, reactivation, soft-disable, and induced transaction rollback.
+- PostgreSQL integration tests cover the production migration chain, pre-hierarchy rows without backfill, optional mapping constraints, hierarchy indexes and foreign-key actions, atomic hierarchy persistence, stable IDs, snapshots, soft-disable, deletion, and induced transaction rollback.
+- Worker-level end-to-end tests cover mapped child saves, mapped no-child saves, unmapped category-only spreadsheets, configured children without a child mapping, legacy reviews, one successful retry, terminal retry failure, single success messaging, and exact-row undo.
 
 ## QA cases
 
@@ -176,6 +181,10 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - Review a legacy payload or a category-only user and verify no subcategory row appears.
 - Correct both parent and child, then try a child from another parent and verify the second attempt changes no persisted review field.
 - Resume legacy clarification, review, correction, and retry payloads and verify they continue with canonical no-child values and no extra NLP on retry.
+- Save mapped child and mapped no-child reviews, then verify exact row arrays and matching local references/snapshots.
+- Save hierarchy-enabled and legacy reviews without a `subcategoria` mapping and verify the spreadsheet row shape is unchanged.
+- Fail the first append, retry successfully, then fail both attempts in a separate run; verify failed appends create no expense, undo token, success audit, or success message.
+- Rename, deactivate, and delete vocabulary after saving; verify snapshots remain unchanged, references follow `SET NULL`, and undo still deletes the exact confirmed row.
 
 ## Related User Stories
 
@@ -187,4 +196,4 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 
 - No new FSM state, database migration, or HTTP endpoint is required.
 - Category/subcategory vocabulary writes use soft-disable rather than destructive deletion.
-- Review-time stable identifiers are not yet consumed by spreadsheet or local expense persistence in this phase.
+- Migrations `0007_material_eternals.sql` and `0008_add_subcategory_mapping_field.sql` are additive and preserve existing rows as null hierarchy history without inferred backfill.

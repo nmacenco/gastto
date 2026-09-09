@@ -18,11 +18,13 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - An uninterpretable reply keeps the `EXPENSE_REVIEW` payload and FSM state unchanged and sends exactly: `¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?`.
 - Callback **Confirmar**, **Corregir**, and **Cancelar** actions remain on their existing action-resolver path.
 - A Google Sheets append is successful only after the provider confirms it. Only then does the system persist the expense record and send the E1-US-10 save confirmation.
+- When a confirmed `subcategoria` mapping exists, the append writes the reviewed child snapshot at that exact column index, or `null` for a valid no-child selection. Without the mapping, the row length and every existing mapped position remain unchanged.
+- The local record written after provider confirmation stores nullable category/subcategory stable IDs and immutable display snapshots. A configured hierarchy may therefore be retained locally even when the spreadsheet has no mapped child column.
 - Normal OAuth access-token expiration is recovered silently before the append. If Google returns `AUTH_ERROR` for a token considered valid, the save forces one refresh and replays the append exactly once; only the single provider-confirmed append is persisted.
 - Transparent refresh does not restart onboarding, replay expense interpretation/NLP, alter spreadsheet/category configuration, or emit authorization-failure copy.
 - Before a Google Sheets `USER_ENTERED` append, textual cell values whose first meaningful character is `=`, `+`, `-`, or `@` are prefixed with an apostrophe. This includes leading whitespace and control characters; numbers, null values, ordinary text, and already apostrophe-prefixed values are preserved.
 - A failed append creates an `EXPENSE_SAVE_FAILED` audit entry. It never creates an expense record or sends the successful-save confirmation.
-- Retryable network failures persist the confirmed review payload in `EXPENSE_SAVING_RETRY` for ten minutes. The recovery copy accepts `reintentar`; it causes exactly one user-initiated reattempt.
+- Retryable network failures persist the complete confirmed review payload, including hierarchy capability, statuses, IDs, and snapshots, in `EXPENSE_SAVING_RETRY` for ten minutes. The recovery copy accepts `reintentar`; it causes exactly one user-initiated reattempt without NLP.
 - A successful reattempt uses the normal E1-US-10 confirmation once. A second failed attempt clears the retry state and sends a manual-copy fallback containing the concept and amount.
 - Terminal authorization failures transition to contextual `ONBOARDING_START` with `promptShown: true` and direct the user to `empezar`. This occurs only when refresh credentials are missing, revoked, undecryptable, rejected by Google, or the one refreshed replay is still unauthorized. That next reply starts a fresh Google authorization flow without generic expense guidance or automatic replay of the failed expense. Structure failures direct the user to `reconfigurar`, which restarts access validation and column inference for the active Google spreadsheet.
 - Retry state that is expired or malformed is cleared and receives the restart/manual-resolution response. The commands `reintentar` and `reconfigurar` are only active in `EXPENSE_SAVING_RETRY`.
@@ -35,7 +37,7 @@ No HTTP route or external messaging contract is added. `ResolveExpenseReviewRepl
 
 ## Data Model
 
-The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conversation FSM state. Retryable failures persist an `ExpenseSaveRetryPayload` only in `EXPENSE_SAVING_RETRY`: the confirmed review payload, typed failure code, first-attempt timestamp, and an attempt count of one. Successful saves persist the confirmed destination sheet and an optional spreadsheet row index in `expense_records`; the row index is NULL only when the provider confirms the write without exposing it.
+The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conversation FSM state. Retryable failures persist an `ExpenseSaveRetryPayload` only in `EXPENSE_SAVING_RETRY`: the complete normalized confirmed review payload, typed failure code, first-attempt timestamp, and an attempt count of one. Successful saves persist the confirmed destination sheet, optional spreadsheet row index, nullable category/subcategory references, and immutable category/subcategory snapshots in `expense_records`; the row index is NULL only when the provider confirms the write without exposing it. Pre-hierarchy rows remain valid with null hierarchy columns and are never backfilled from display text.
 
 ## Tests
 
@@ -52,6 +54,9 @@ The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conve
 - `GoogleSheetsAdapter.spec.ts` verifies formula-prefix escaping and the final serialized append request body.
 - `OAuthAccessTokenService.spec.ts` covers fresh-token reuse, proactive and forced refresh, encrypted persistence with a new IV, terminal revocation, transient refresh failures, and a single replay after provider authorization failure.
 - `RegisterExpense.spec.ts` proves an expired token can save without NLP replay or onboarding transition, and that an authorization retry produces one successful append and one local expense record.
+- `RegisterExpense.spec.ts` also proves exact mapped-child, mapped-no-child, unmapped, configured-without-mapping, category-only, legacy, and append-failure row/persistence contracts.
+- `subcategory-expense-lifecycle.e2e.spec.ts` drives worker confirmation, retry, success messaging, local hierarchy persistence, category-only row compatibility, and exact-row undo through real application use cases with mocked provider boundaries.
+- PostgreSQL integration tests run the generated migration chain and verify null legacy history, immutable snapshots, hierarchy indexes, optional mapping validation, and `ON DELETE SET NULL` references.
 - `UndoLastExpense.spec.ts` proves delete works after proactive refresh and receives at most one forced-refresh replay.
 - A connected staging verification must measure the elapsed time from user confirmation to successful save confirmation against the normal-condition ≤3-second target. Unit tests intentionally do not assert that wall-clock threshold because they mock spreadsheet and messaging boundaries.
 

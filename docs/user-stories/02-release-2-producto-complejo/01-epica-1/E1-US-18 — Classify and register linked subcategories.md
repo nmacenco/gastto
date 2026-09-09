@@ -107,17 +107,17 @@ Feature: Classify and register linked subcategories
 
 ## Definition of Done
 
-- [ ] The structured selection contains stable identifiers, names, and independent category and subcategory statuses.
-- [ ] The category is resolved first, and every subcategory match is isolated to the selected active parent.
-- [ ] A category may exist without a subcategory; an unresolved category never produces a subcategory.
-- [ ] The summary displays the subcategory only when the hierarchy is enabled and preserves current output for legacy users.
-- [ ] Combined corrections are atomic; changing a parent clears an invalid child, and a child under another parent is rejected without mutating state.
-- [ ] The subcategory is written externally only when the optional mapping exists, and the local record is persisted only after a successful write.
-- [ ] Retries and the queue preserve reviewed fields without repeating NLP; cancellation and undo retain their existing guarantees.
-- [ ] Saved records retain nullable references and text snapshots; renaming, deactivating, or deleting vocabulary does not rewrite history.
-- [ ] JSONB payloads without subcategory fields validate and normalize as legacy payloads without a subcategory.
-- [ ] Unit, adapter, repository, integration, and end-to-end tests cover spreadsheets with and without subcategories, including append and persistence failures.
-- [ ] No HTTP route or FSM state is added.
+- [x] The structured selection contains stable identifiers, names, and independent category and subcategory statuses.
+- [x] The category is resolved first, and every subcategory match is isolated to the selected active parent.
+- [x] A category may exist without a subcategory; an unresolved category never produces a subcategory.
+- [x] The summary displays the subcategory only when the hierarchy is enabled and preserves current output for legacy users.
+- [x] Combined corrections are atomic; changing a parent clears an invalid child, and a child under another parent is rejected without mutating state.
+- [x] The subcategory is written externally only when the optional mapping exists, and the local record is persisted only after a successful write.
+- [x] Retries and the queue preserve reviewed fields without repeating NLP; cancellation and undo retain their existing guarantees.
+- [x] Saved records retain nullable references and text snapshots; renaming, deactivating, or deleting vocabulary does not rewrite history.
+- [x] JSONB payloads without subcategory fields validate and normalize as legacy payloads without a subcategory.
+- [x] Unit, adapter, repository, integration, and end-to-end tests cover spreadsheets with and without subcategories, including append and persistence failures.
+- [x] No HTTP route or FSM state is added.
 
 ## Dependencies
 

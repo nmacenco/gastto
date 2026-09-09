@@ -94,23 +94,23 @@ Prove the production migration chain and end-to-end behavior for mapped, unmappe
 
 #### To-do actions
 
-- [ ] Extend `DrizzleExpenseRecordRepository.integration.spec.ts` and `subcategory-hierarchy-persistence.integration.spec.ts` to save through the real schema with populated and null references, preserve snapshots after vocabulary rename/deactivation/deletion, and verify existing rows remain null without any inferred backfill.
-- [ ] Run the full generated migration chain, including `0007_material_eternals.sql` and `0008_add_subcategory_mapping_field.sql`, against a fresh PostgreSQL Testcontainer and verify every hierarchy table, optional mapping constraint, index, foreign key action, and legacy expense remains compatible; do not edit or reorder existing migrations.
-- [ ] Add an end-to-end worker-level scenario under `src/__tests__/e2e/` for a mapped hierarchy: classify or load a canonical reviewed parent/child selection, confirm it, append the child in the mapped column, persist matching IDs and snapshots, send one success confirmation, and undo the exact returned row.
-- [ ] Add the corresponding end-to-end scenarios for a mapped category with no child, an unmapped category-only spreadsheet, configured children without a mapping, and a legacy review payload; assert unchanged spreadsheet shape whenever `subcategoria` is unmapped.
-- [ ] Add end-to-end failure scenarios for first append failure, successful user-initiated retry, and second retry failure, with mandatory negatives proving no failed append creates a local expense, changes undo state, or sends a success confirmation.
-- [ ] Verify automatic rollout in tests: hierarchy presentation/classification remains enabled only by a confirmed `subcategoria` mapping or active configured children, while external child writing requires the mapping specifically and legacy users retain current output and persistence behavior.
-- [ ] Update `docs/features/subcategory-hierarchy.md` to replace the deferred persistence boundary with implemented spreadsheet, local record, retry, queue, undo, history, and rollout behavior plus final QA cases.
-- [ ] Update `docs/features/expense-confirmation.md` with optional child-column writes, stable local references/snapshots, preserved retry data, and explicit append-failure negative guarantees.
-- [ ] Update `docs/features/category-confirmation.md` only where needed to link confirmed hierarchy capability and preserve the category-only contract; synchronize every changed or added feature entry in `docs/features/README.md`.
-- [ ] Update `docs/architecture/data-model.md` with the final runtime write/read lifecycle, null legacy history, immutable snapshots, and no-backfill behavior; verify ADR-006 and ADR-022 references remain accurate and synchronize `docs/adr/README.md` only if an ADR document changes.
-- [ ] Check every satisfied Definition of Done item in `E1-US-18`; re-verify `HU-4.08` remains complete and do not close any criterion that lacks passing evidence.
-- [ ] Run the focused repository, save, retry, queue, worker, undo, migration integration, and end-to-end suites for spreadsheets with and without hierarchy support.
-- [ ] Run `pnpm test` to execute the complete project test suite after focused suites pass.
-- [ ] Run `pnpm run format:check` to verify source, tests, migration metadata, feature documentation, story updates, and indexes follow repository formatting.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Extend `DrizzleExpenseRecordRepository.integration.spec.ts` and `subcategory-hierarchy-persistence.integration.spec.ts` to save through the real schema with populated and null references, preserve snapshots after vocabulary rename/deactivation/deletion, and verify existing rows remain null without any inferred backfill.
+- [x] Run the full generated migration chain, including `0007_material_eternals.sql` and `0008_add_subcategory_mapping_field.sql`, against a fresh PostgreSQL Testcontainer and verify every hierarchy table, optional mapping constraint, index, foreign key action, and legacy expense remains compatible; do not edit or reorder existing migrations.
+- [x] Add an end-to-end worker-level scenario under `src/__tests__/e2e/` for a mapped hierarchy: classify or load a canonical reviewed parent/child selection, confirm it, append the child in the mapped column, persist matching IDs and snapshots, send one success confirmation, and undo the exact returned row.
+- [x] Add the corresponding end-to-end scenarios for a mapped category with no child, an unmapped category-only spreadsheet, configured children without a mapping, and a legacy review payload; assert unchanged spreadsheet shape whenever `subcategoria` is unmapped.
+- [x] Add end-to-end failure scenarios for first append failure, successful user-initiated retry, and second retry failure, with mandatory negatives proving no failed append creates a local expense, changes undo state, or sends a success confirmation.
+- [x] Verify automatic rollout in tests: hierarchy presentation/classification remains enabled only by a confirmed `subcategoria` mapping or active configured children, while external child writing requires the mapping specifically and legacy users retain current output and persistence behavior.
+- [x] Update `docs/features/subcategory-hierarchy.md` to replace the deferred persistence boundary with implemented spreadsheet, local record, retry, queue, undo, history, and rollout behavior plus final QA cases.
+- [x] Update `docs/features/expense-confirmation.md` with optional child-column writes, stable local references/snapshots, preserved retry data, and explicit append-failure negative guarantees.
+- [x] Update `docs/features/category-confirmation.md` only where needed to link confirmed hierarchy capability and preserve the category-only contract; synchronize every changed or added feature entry in `docs/features/README.md`.
+- [x] Update `docs/architecture/data-model.md` with the final runtime write/read lifecycle, null legacy history, immutable snapshots, and no-backfill behavior; verify ADR-006 and ADR-022 references remain accurate and synchronize `docs/adr/README.md` only if an ADR document changes.
+- [x] Check every satisfied Definition of Done item in `E1-US-18`; re-verify `HU-4.08` remains complete and do not close any criterion that lacks passing evidence.
+- [x] Run the focused repository, save, retry, queue, worker, undo, migration integration, and end-to-end suites for spreadsheets with and without hierarchy support.
+- [x] Run `pnpm test` to execute the complete project test suite after focused suites pass.
+- [x] Run `pnpm run format:check` to verify source, tests, migration metadata, feature documentation, story updates, and indexes follow repository formatting.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Implement Phase 3 to validate compatibility and complete the release contract.
+All phases are complete; review and commit the Phase 3 release-validation changes.

@@ -80,54 +80,54 @@ FIFO queue of pending expense messages while a user is in a blocking conversatio
 
 Encrypted OAuth 2.0 tokens for Google Drive and OneDrive access.
 
-| Column                    | Type          | Constraints                     | Description                                            |
-| ------------------------- | ------------- | ------------------------------- | ------------------------------------------------------ |
-| `id`                      | `UUID`        | PK, default `gen_random_uuid()` | Row identifier.                                        |
-| `user_id`                 | `UUID`        | FK → `users(user_id)`, CASCADE  | Token owner.                                           |
-| `provider`                | `TEXT`        | NOT NULL, CHECK                 | `'google'` or `'microsoft'`.                           |
-| `access_token_enc`        | `BYTEA`       | NOT NULL                        | AES-256-GCM encrypted access token.                    |
-| `refresh_token_enc`       | `BYTEA`       | NOT NULL                        | AES-256-GCM encrypted refresh token.                   |
-| `iv`                      | `BYTEA`       | NOT NULL                        | Initialization vector for the access token ciphertext. |
-| `refresh_iv`              | `BYTEA`       | NOT NULL                        | Initialization vector for the refresh token ciphertext.|
-| `access_token_expires_at` | `TIMESTAMPTZ` | NOT NULL                        | Plaintext expiry used for proactive refresh decisions. |
-| `scope`                   | `TEXT[]`      | NOT NULL, default `'{}'`        | Granted OAuth scopes.                                  |
-| `granted_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Consent timestamp.                                     |
-| `last_refreshed_at`       | `TIMESTAMPTZ` | NULL                            | Last refresh timestamp.                                |
-| `revoked_at`              | `TIMESTAMPTZ` | NULL                            | NULL = active; set = revoked.                          |
-| **UNIQUE**                | —             | `(user_id, provider)`           | One token set per provider.                            |
+| Column                    | Type          | Constraints                     | Description                                             |
+| ------------------------- | ------------- | ------------------------------- | ------------------------------------------------------- |
+| `id`                      | `UUID`        | PK, default `gen_random_uuid()` | Row identifier.                                         |
+| `user_id`                 | `UUID`        | FK → `users(user_id)`, CASCADE  | Token owner.                                            |
+| `provider`                | `TEXT`        | NOT NULL, CHECK                 | `'google'` or `'microsoft'`.                            |
+| `access_token_enc`        | `BYTEA`       | NOT NULL                        | AES-256-GCM encrypted access token.                     |
+| `refresh_token_enc`       | `BYTEA`       | NOT NULL                        | AES-256-GCM encrypted refresh token.                    |
+| `iv`                      | `BYTEA`       | NOT NULL                        | Initialization vector for the access token ciphertext.  |
+| `refresh_iv`              | `BYTEA`       | NOT NULL                        | Initialization vector for the refresh token ciphertext. |
+| `access_token_expires_at` | `TIMESTAMPTZ` | NOT NULL                        | Plaintext expiry used for proactive refresh decisions.  |
+| `scope`                   | `TEXT[]`      | NOT NULL, default `'{}'`        | Granted OAuth scopes.                                   |
+| `granted_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Consent timestamp.                                      |
+| `last_refreshed_at`       | `TIMESTAMPTZ` | NULL                            | Last refresh timestamp.                                 |
+| `revoked_at`              | `TIMESTAMPTZ` | NULL                            | NULL = active; set = revoked.                           |
+| **UNIQUE**                | —             | `(user_id, provider)`           | One token set per provider.                             |
 
 ### spreadsheet_configs
 
 Linked spreadsheet configuration per user.
 
-| Column               | Type          | Constraints                            | Description                                 |
-| -------------------- | ------------- | -------------------------------------- | ------------------------------------------- |
-| `id`                 | `UUID`        | PK, default `gen_random_uuid()`        | Row identifier.                             |
-| `user_id`            | `UUID`        | FK → `users(user_id)`, CASCADE, UNIQUE | One active spreadsheet per user in the MVP. |
-| `provider`           | `TEXT`        | NOT NULL, CHECK                        | `'google'` or `'microsoft'`.                |
-| `file_id`            | `TEXT`        | NOT NULL                               | External file identifier.                   |
-| `file_name`          | `TEXT`        | NOT NULL                               | Human-readable file name for display.       |
-| `sheet_name`         | `TEXT`        | NOT NULL                               | Target sheet within the file.               |
-| `access_verified_at`  | `TIMESTAMPTZ` | NOT NULL                               | Last read/write permission check.           |
-| `categories_confirmed_at` | `TIMESTAMPTZ` | NULL                               | Timestamp when the user confirmed their category vocabulary. NULL until confirmation. |
-| `created_at`         | `TIMESTAMPTZ` | NOT NULL, default `now()`              | Creation timestamp.                         |
-| `updated_at`         | `TIMESTAMPTZ` | NOT NULL, default `now()`              | Last update timestamp.                      |
+| Column                    | Type          | Constraints                            | Description                                                                           |
+| ------------------------- | ------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
+| `id`                      | `UUID`        | PK, default `gen_random_uuid()`        | Row identifier.                                                                       |
+| `user_id`                 | `UUID`        | FK → `users(user_id)`, CASCADE, UNIQUE | One active spreadsheet per user in the MVP.                                           |
+| `provider`                | `TEXT`        | NOT NULL, CHECK                        | `'google'` or `'microsoft'`.                                                          |
+| `file_id`                 | `TEXT`        | NOT NULL                               | External file identifier.                                                             |
+| `file_name`               | `TEXT`        | NOT NULL                               | Human-readable file name for display.                                                 |
+| `sheet_name`              | `TEXT`        | NOT NULL                               | Target sheet within the file.                                                         |
+| `access_verified_at`      | `TIMESTAMPTZ` | NOT NULL                               | Last read/write permission check.                                                     |
+| `categories_confirmed_at` | `TIMESTAMPTZ` | NULL                                   | Timestamp when the user confirmed their category vocabulary. NULL until confirmation. |
+| `created_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`              | Creation timestamp.                                                                   |
+| `updated_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`              | Last update timestamp.                                                                |
 
 ### column_mappings
 
 Maps canonical Gastto fields to real spreadsheet column indices.
 
-| Column           | Type          | Constraints                             | Description                                                                         |
-| ---------------- | ------------- | --------------------------------------- | ----------------------------------------------------------------------------------- |
-| `id`             | `UUID`        | PK, default `gen_random_uuid()`         | Row identifier.                                                                     |
-| `spreadsheet_id` | `UUID`        | FK → `spreadsheet_configs(id)`, CASCADE | Parent spreadsheet.                                                                 |
+| Column           | Type          | Constraints                             | Description                                                                                         |
+| ---------------- | ------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `id`             | `UUID`        | PK, default `gen_random_uuid()`         | Row identifier.                                                                                     |
+| `spreadsheet_id` | `UUID`        | FK → `spreadsheet_configs(id)`, CASCADE | Parent spreadsheet.                                                                                 |
 | `gastto_field`   | `TEXT`        | NOT NULL, CHECK                         | Canonical field: `monto`, `moneda`, `categoria`, `fecha`, `concepto`, `medio_pago`, `subcategoria`. |
-| `column_index`   | `SMALLINT`    | NOT NULL                                | Zero-based column index in the sheet.                                               |
-| `column_header`  | `TEXT`        | NOT NULL                                | Detected header name for display and debugging.                                     |
-| `inferred`       | `BOOLEAN`     | NOT NULL, default `true`                | `true` = LLM inferred; `false` = user corrected.                                    |
-| `confirmed_at`   | `TIMESTAMPTZ` | NULL                                    | NULL = pending confirmation.                                                        |
-| **UNIQUE**       | —             | `(spreadsheet_id, gastto_field)`        | One mapping per field.                                                              |
-| **UNIQUE**       | —             | `(spreadsheet_id, column_index)`        | One field per column index.                                                         |
+| `column_index`   | `SMALLINT`    | NOT NULL                                | Zero-based column index in the sheet.                                                               |
+| `column_header`  | `TEXT`        | NOT NULL                                | Detected header name for display and debugging.                                                     |
+| `inferred`       | `BOOLEAN`     | NOT NULL, default `true`                | `true` = LLM inferred; `false` = user corrected.                                                    |
+| `confirmed_at`   | `TIMESTAMPTZ` | NULL                                    | NULL = pending confirmation.                                                                        |
+| **UNIQUE**       | —             | `(spreadsheet_id, gastto_field)`        | One mapping per field.                                                                              |
+| **UNIQUE**       | —             | `(spreadsheet_id, column_index)`        | One field per column index.                                                                         |
 
 Migration `0008_add_subcategory_mapping_field.sql` additively replaces only `chk_gastto_field` so it admits optional `subcategoria`; existing category-only mappings remain valid. The migration was generated with Drizzle's custom-migration scaffold because the pinned Drizzle Kit version does not diff PostgreSQL `CHECK` expressions, and its snapshot and journal entry remain part of the generated migration history.
 
@@ -157,7 +157,7 @@ Per-category subcategory vocabulary. Every configured subcategory belongs to exa
 | `raw_value`        | `TEXT`        | NOT NULL                            | Exact display and spreadsheet value.              |
 | `normalized_value` | `TEXT`        | NOT NULL                            | Normalized value used for parent-scoped matching. |
 | `usage_count`      | `INTEGER`     | NOT NULL, default `0`               | Usage counter for ranking.                        |
-| `is_active`        | `BOOLEAN`     | NOT NULL, default `true`            | Soft-disable without deleting historical links.  |
+| `is_active`        | `BOOLEAN`     | NOT NULL, default `true`            | Soft-disable without deleting historical links.   |
 | `created_at`       | `TIMESTAMPTZ` | NOT NULL, default `now()`           | Record creation timestamp.                        |
 | **UNIQUE**         | —             | `(category_id, normalized_value)`   | One normalized child per parent category.         |
 
@@ -165,28 +165,39 @@ Per-category subcategory vocabulary. Every configured subcategory belongs to exa
 
 Immutable record of every successfully saved expense. Enables undo and future query features.
 
-| Column                 | Type            | Constraints                               | Description                                       |
-| ---------------------- | --------------- | ----------------------------------------- | ------------------------------------------------- |
-| `id`                   | `UUID`          | PK, default `gen_random_uuid()`           | Row identifier.                                   |
-| `user_id`              | `UUID`          | FK → `users(user_id)`, CASCADE            | Expense owner.                                    |
-| `spreadsheet_id`       | `UUID`          | FK → `spreadsheet_configs(id)`, NO ACTION | Preserves history if the spreadsheet is unlinked. |
-| `concepto`             | `TEXT`          | NOT NULL                                  | Expense description.                              |
-| `monto`                | `NUMERIC(14,2)` | NOT NULL, CHECK `>= 0`                    | Expense amount.                                   |
-| `moneda`               | `TEXT`          | NOT NULL, CHECK                           | `ARS`, `EUR`, `USD`, `MXN`, `GBP`, `BRL`.         |
-| `categoria`            | `TEXT`          | NULL                                      | Category text snapshot at save time.              |
-| `category_id`          | `UUID`          | NULL, FK → `user_categories(id)`, SET NULL | Stable category reference when available.         |
-| `subcategory_id`       | `UUID`          | NULL, FK → `user_subcategories(id)`, SET NULL | Stable subcategory reference when available.   |
-| `subcategoria`         | `TEXT`          | NULL                                      | Subcategory text snapshot at save time.           |
-| `fecha_gasto`          | `DATE`          | NOT NULL                                  | User-facing expense date.                         |
-| `medio_pago`           | `TEXT`          | NULL                                      | Payment method.                                   |
-| `sheet_name`           | `TEXT`          | NOT NULL                                  | Target sheet at save time.                        |
-| `row_index`            | `INTEGER`       | NULL                                      | Sheet row index returned by `appendRow`, when the provider exposes it. |
-| `categoria_confidence` | `TEXT`          | NULL, CHECK                               | `alta`, `baja`, `nula`, or NULL.                  |
-| `raw_message`          | `TEXT`          | NOT NULL                                  | Original user message for audit.                  |
-| `is_deleted`           | `BOOLEAN`       | NOT NULL, default `false`                 | Soft delete flag.                                 |
-| `deleted_at`           | `TIMESTAMPTZ`   | NULL                                      | Undo timestamp.                                   |
-| `created_at`           | `TIMESTAMPTZ`   | NOT NULL, default `now()`                 | Internal creation timestamp.                      |
-| `saved_at`             | `TIMESTAMPTZ`   | NOT NULL, default `now()`                 | Successful sheet append timestamp.                |
+| Column                 | Type            | Constraints                                   | Description                                                            |
+| ---------------------- | --------------- | --------------------------------------------- | ---------------------------------------------------------------------- |
+| `id`                   | `UUID`          | PK, default `gen_random_uuid()`               | Row identifier.                                                        |
+| `user_id`              | `UUID`          | FK → `users(user_id)`, CASCADE                | Expense owner.                                                         |
+| `spreadsheet_id`       | `UUID`          | FK → `spreadsheet_configs(id)`, NO ACTION     | Preserves history if the spreadsheet is unlinked.                      |
+| `concepto`             | `TEXT`          | NOT NULL                                      | Expense description.                                                   |
+| `monto`                | `NUMERIC(14,2)` | NOT NULL, CHECK `>= 0`                        | Expense amount.                                                        |
+| `moneda`               | `TEXT`          | NOT NULL, CHECK                               | `ARS`, `EUR`, `USD`, `MXN`, `GBP`, `BRL`.                              |
+| `categoria`            | `TEXT`          | NULL                                          | Category text snapshot at save time.                                   |
+| `category_id`          | `UUID`          | NULL, FK → `user_categories(id)`, SET NULL    | Stable category reference when available.                              |
+| `subcategory_id`       | `UUID`          | NULL, FK → `user_subcategories(id)`, SET NULL | Stable subcategory reference when available.                           |
+| `subcategoria`         | `TEXT`          | NULL                                          | Subcategory text snapshot at save time.                                |
+| `fecha_gasto`          | `DATE`          | NOT NULL                                      | User-facing expense date.                                              |
+| `medio_pago`           | `TEXT`          | NULL                                          | Payment method.                                                        |
+| `sheet_name`           | `TEXT`          | NOT NULL                                      | Target sheet at save time.                                             |
+| `row_index`            | `INTEGER`       | NULL                                          | Sheet row index returned by `appendRow`, when the provider exposes it. |
+| `categoria_confidence` | `TEXT`          | NULL, CHECK                                   | `alta`, `baja`, `nula`, or NULL.                                       |
+| `raw_message`          | `TEXT`          | NOT NULL                                      | Original user message for audit.                                       |
+| `is_deleted`           | `BOOLEAN`       | NOT NULL, default `false`                     | Soft delete flag.                                                      |
+| `deleted_at`           | `TIMESTAMPTZ`   | NULL                                          | Undo timestamp.                                                        |
+| `created_at`           | `TIMESTAMPTZ`   | NOT NULL, default `now()`                     | Internal creation timestamp.                                           |
+| `saved_at`             | `TIMESTAMPTZ`   | NOT NULL, default `now()`                     | Successful sheet append timestamp.                                     |
+
+#### Expense hierarchy lifecycle
+
+1. Interpretation and correction carry nullable stable category/subcategory IDs, display names, independent statuses, and the hierarchy capability in the canonical review payload.
+2. Confirmation builds the spreadsheet row from confirmed mappings. `subcategoria` is written only when that optional mapping exists; otherwise the row shape is unchanged.
+3. The provider-confirmed append happens before local persistence. A failed append writes no `expense_records` row and establishes no immediate-undo identity.
+4. A successful append creates one local row with the reviewed IDs and immutable `categoria`/`subcategoria` snapshots, then records the returned sheet and optional row index for deterministic undo.
+5. Vocabulary rename, move, or deactivation does not rewrite expense history. Hard deletion clears nullable references through `ON DELETE SET NULL`; snapshots remain the save-time text.
+6. Rows created before migration `0007_material_eternals.sql` remain null in `category_id`, `subcategory_id`, and `subcategoria`. No display-text inference or backfill is performed.
+
+Retry envelopes preserve and normalize the complete reviewed hierarchy before replay, while the pending-expense queue stores raw messages only. Undo selects by the persisted expense ID and confirmed spreadsheet location, never by category/subcategory vocabulary or snapshots. These ordering and history rules remain aligned with ADR-006 and ADR-022.
 
 ### operation_logs
 
@@ -256,17 +267,17 @@ Immutable audit trail of critical operations.
 
 Aggregate root that encapsulates the complete category/subcategory hierarchy for one spreadsheet. Category names are unique after normalization across the spreadsheet. Subcategory names are unique only within their parent, so the same normalized child name may exist under different categories.
 
-| Method                  | Arguments                                      | Behavior                                                                                     |
-| ----------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `addCategory`           | `name: string`                                 | Creates a category with a stable generated UUID after rejecting blank or duplicate names.    |
-| `removeCategory`        | `id: string`                                   | Removes the category and every child in its active branch.                                   |
-| `renameCategory`        | `id: string`, `newName: string`                | Preserves the category UUID and applies the category-level name invariants.                   |
-| `getSubcategories`      | `categoryId?: string`                          | Returns immutable copies of every child or only the children of one parent.                  |
-| `findSubcategory`       | `categoryId: string`, `name: string`           | Performs an exact normalized lookup isolated to one parent.                                  |
-| `addSubcategory`        | `categoryId: string`, `name: string`           | Requires an existing parent and creates a child with a stable generated UUID.                 |
-| `renameSubcategory`     | `id: string`, `newName: string`                | Preserves the child UUID and parent while enforcing uniqueness within that parent.            |
-| `moveSubcategory`       | `id: string`, `targetCategoryId: string`       | Preserves the child UUID and name, requires the target parent, and rejects target collisions. |
-| `removeSubcategory`     | `id: string`                                   | Removes only the selected child from the active aggregate.                                   |
+| Method              | Arguments                                | Behavior                                                                                      |
+| ------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `addCategory`       | `name: string`                           | Creates a category with a stable generated UUID after rejecting blank or duplicate names.     |
+| `removeCategory`    | `id: string`                             | Removes the category and every child in its active branch.                                    |
+| `renameCategory`    | `id: string`, `newName: string`          | Preserves the category UUID and applies the category-level name invariants.                   |
+| `getSubcategories`  | `categoryId?: string`                    | Returns immutable copies of every child or only the children of one parent.                   |
+| `findSubcategory`   | `categoryId: string`, `name: string`     | Performs an exact normalized lookup isolated to one parent.                                   |
+| `addSubcategory`    | `categoryId: string`, `name: string`     | Requires an existing parent and creates a child with a stable generated UUID.                 |
+| `renameSubcategory` | `id: string`, `newName: string`          | Preserves the child UUID and parent while enforcing uniqueness within that parent.            |
+| `moveSubcategory`   | `id: string`, `targetCategoryId: string` | Preserves the child UUID and name, requires the target parent, and rejects target collisions. |
+| `removeSubcategory` | `id: string`                             | Removes only the selected child from the active aggregate.                                    |
 
 `ICategoryVocabularyRepository` loads only active parents and active children attached to those parents. Its `save` operation reads and mutates both tables inside one database transaction: parents are inserted, renamed, or reactivated before children; missing aggregate entries are soft-disabled; moves update the existing child row; and any child failure rolls back the complete hierarchy mutation.
 

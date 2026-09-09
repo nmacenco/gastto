@@ -132,6 +132,73 @@ describePostgres('DrizzleExpenseRecordRepository (PostgreSQL)', () => {
     });
   });
 
+  it('round-trips null hierarchy references and snapshots for category-only history', async () => {
+    const saved = await repository.create({
+      userId,
+      spreadsheetId,
+      concepto: 'Bus ticket',
+      monto: 3.5,
+      moneda: 'EUR',
+      categoria: null,
+      categoryId: null,
+      subcategoryId: null,
+      subcategoria: null,
+      fechaGasto: new Date('2026-08-03'),
+      medioPago: null,
+      sheetName: 'Gastos',
+      rowIndex: 3,
+      categoriaConfidence: 'nula',
+      rawMessage: 'Bus ticket 3.50 EUR',
+      isDeleted: false,
+      deletedAt: null,
+    });
+
+    await expect(repository.findLatestByUserId(userId)).resolves.toMatchObject({
+      id: saved.id,
+      categoria: null,
+      categoryId: null,
+      subcategoryId: null,
+      subcategoria: null,
+    });
+  });
+
+  it('preserves save-time snapshots after vocabulary rename and deactivation', async () => {
+    const saved = await repository.create({
+      userId,
+      spreadsheetId,
+      concepto: 'Dinner',
+      monto: 24.5,
+      moneda: 'EUR',
+      categoria: 'Food',
+      categoryId,
+      subcategoryId,
+      subcategoria: 'Restaurant',
+      fechaGasto: new Date('2026-08-02'),
+      medioPago: 'Card',
+      sheetName: 'Gastos',
+      rowIndex: 2,
+      categoriaConfidence: 'alta',
+      rawMessage: 'Dinner 24.50 EUR',
+      isDeleted: false,
+      deletedAt: null,
+    });
+
+    await db
+      .update(userCategories)
+      .set({ rawValue: 'Meals', normalizedValue: 'meals', isActive: false });
+    await db
+      .update(userSubcategories)
+      .set({ rawValue: 'Dining out', normalizedValue: 'dining out', isActive: false });
+
+    await expect(repository.findLatestByUserId(userId)).resolves.toMatchObject({
+      id: saved.id,
+      categoria: 'Food',
+      categoryId,
+      subcategoryId,
+      subcategoria: 'Restaurant',
+    });
+  });
+
   it('clears only the subcategory reference when the subcategory is deleted', async () => {
     const record = expense(
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
