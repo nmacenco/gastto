@@ -13,7 +13,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
   - Header-row detection across the first 20 rows, with rule-based scanning and LLM fallback.
   - Rule-based column inference using multi-language synonym dictionaries (ES/EN/PT).
   - Optional `subcategoria` inference without changing completeness for the six legacy fields.
-  - LLM-powered column inference fallback when rule-based inference has low confidence or unmapped fields.
+  - LLM-powered column inference fallback when rule-based inference has low confidence, unmapped legacy fields, or an unmapped optional subcategory with a remaining non-empty candidate column.
   - Hybrid merging that keeps high-confidence rule-based mappings and fills gaps with LLM proposals.
   - High-confidence (`alta`) proposals for exact and synonym matches.
   - Low-confidence (`baja`) proposals for fuzzy matches (Levenshtein ratio ≥ 0.75).
@@ -32,9 +32,9 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 
 ## FSM States
 
-| State              | Description                                          | Next                                                               |
-| ------------------ | ---------------------------------------------------- | ------------------------------------------------------------------ |
-| `ONBOARDING_MAPPING` | User is reviewing the proposed column mapping       | `ONBOARDING_CATEGORIES` (mapping accepted), self-transition (re-prompt / no-header) |
+| State                | Description                                   | Next                                                                                |
+| -------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `ONBOARDING_MAPPING` | User is reviewing the proposed column mapping | `ONBOARDING_CATEGORIES` (mapping accepted), self-transition (re-prompt / no-header) |
 
 ## Flow Sequence
 
@@ -48,7 +48,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 6. `RuleBasedColumnInferenceAdapter` normalizes each header and matches it against the synonym dictionary.
 7. Exact or synonym matches produce mappings with `confidence: 'alta'`.
 8. Content-type validation on sample rows confirms the expected type (date, number, currency) and keeps confidence high.
-9. Because all mapped legacy fields have `confidence: 'alta'` and no legacy field is unmapped, the LLM inference fallback is skipped. An absent optional `subcategoria` does not invoke the LLM.
+9. Because all mapped legacy fields have `confidence: 'alta'`, no legacy field is unmapped, and no non-empty unassigned column remains, the LLM inference fallback is skipped. An absent optional `subcategoria` alone does not invoke the LLM on a category-only sheet.
 10. Mappings are persisted via `IColumnMappingRepository.upsertMany()` with `inferred: true` and `confirmedAt: null`.
 11. A proposal message is built with distinct emoji indicators (including 🏷️ for category and 🔖 for subcategory) and column letters, ending with "Is this correct?".
 12. The message is sent via `MessagingOutputPort` and the FSM self-transitions to `ONBOARDING_MAPPING` with `mappings` and `unmappedFields` in the payload.
@@ -65,8 +65,8 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 ### Scenario 3: LLM fallback for ambiguous or non-dictionary headers
 
 1. Steps 1-6 from Scenario 1 are executed.
-2. `RuleBasedColumnInferenceAdapter` returns some mappings with `confidence: 'baja'` or leaves one or more legacy Gastto fields in `unmappedFields`. An absent `subcategoria` alone is not a fallback condition.
-3. `InferColumnMapping` invokes `LLMColumnInferenceAdapter` with the detected headers and sample rows.
+2. `RuleBasedColumnInferenceAdapter` returns some mappings with `confidence: 'baja'`, leaves one or more legacy Gastto fields in `unmappedFields`, or leaves `subcategoria` unmapped while a non-empty spreadsheet column remains unassigned.
+3. `InferColumnMapping` invokes `LLMColumnInferenceAdapter` with the detected headers and sample rows. This lets a semantically valid but non-dictionary subcategory header participate in hierarchy onboarding while avoiding this fallback for sheets with no candidate subcategory column.
 4. The LLM returns a JSON mapping for the columns it can identify.
 5. `InferColumnMapping` merges the rule-based and LLM results: high-confidence rule-based mappings are kept, low-confidence or missing fields are filled from the LLM proposal.
 6. The merged mappings are persisted and a proposal message is sent, using low-confidence copy if any mapping remains `baja`.
@@ -242,17 +242,17 @@ interface IColumnMappingRepository {
 
 ## Error Handling
 
-| Scenario                                      | Behavior                                                                 |
-| --------------------------------------------- | ------------------------------------------------------------------------ |
-| Missing OAuth token                           | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Expired / revoked token                       | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Token decryption failure                      | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Missing `SpreadsheetConfig`                   | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Missing or empty preview in state payload     | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Microsoft (`onedrive`) provider               | `comingSoon('OneDrive')` message sent; stays in `ONBOARDING_MAPPING`.    |
-| Inference adapter failure                     | Error propagated; no mappings persisted; no state transition is written. |
-| `columnMappingRepository.upsertMany` failure  | Error propagated; no message sent; state payload is not updated.         |
-| Malformed or invalid LLM mapping output       | Safe empty inference result; no mappings are persisted from that output. |
+| Scenario                                     | Behavior                                                                 |
+| -------------------------------------------- | ------------------------------------------------------------------------ |
+| Missing OAuth token                          | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
+| Expired / revoked token                      | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
+| Token decryption failure                     | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
+| Missing `SpreadsheetConfig`                  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
+| Missing or empty preview in state payload    | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
+| Microsoft (`onedrive`) provider              | `comingSoon('OneDrive')` message sent; stays in `ONBOARDING_MAPPING`.    |
+| Inference adapter failure                    | Error propagated; no mappings persisted; no state transition is written. |
+| `columnMappingRepository.upsertMany` failure | Error propagated; no message sent; state payload is not updated.         |
+| Malformed or invalid LLM mapping output      | Safe empty inference result; no mappings are persisted from that output. |
 
 ## QA Checklist
 
@@ -287,7 +287,7 @@ interface IColumnMappingRepository {
 - [x] High-confidence mapping: message includes emoji indicators, mappings persisted with `inferred: true` and `confirmedAt: null`.
 - [x] Low-confidence mapping: message includes uncertainty indicator and triggers LLM fallback.
 - [x] LLM fallback merges results while preserving high-confidence rule-based mappings.
-- [x] A mapped subcategory survives hybrid merging, while an absent subcategory alone does not invoke the LLM or produce a no-header outcome.
+- [x] A mapped subcategory survives hybrid merging; an unrecognized candidate subcategory column invokes the LLM, while a category-only sheet with no remaining candidate does not.
 - [x] Invalid LLM field names and invalid column/header claims are rejected at the structured boundary.
 - [x] Header-row detection works for headers beyond row 1.
 - [x] LLM header detection fallback runs when rule-based detection is uncertain.

@@ -373,7 +373,7 @@ describe('InferColumnMapping', () => {
       expect(mockLLMInfer).not.toHaveBeenCalled();
     });
 
-    it('does not call LLM or block a category-only proposal when only subcategory is unmapped', async () => {
+    it('does not call LLM or block a category-only proposal when no candidate column remains', async () => {
       mockInfer.mockResolvedValue({
         mappings: [
           { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
@@ -399,6 +399,89 @@ describe('InferColumnMapping', () => {
       expect(result.message).toContain('Es opcional');
       expect(result.message).not.toContain('No estoy seguro');
       expect(result.payload).not.toEqual(expect.objectContaining({ step: 'no-header' }));
+    });
+
+    it('uses LLM inference for an unmapped subcategory when a candidate column remains', async () => {
+      const headers = [
+        'Fecha',
+        'Monto',
+        'Moneda',
+        'Categoria',
+        'Concepto',
+        'Medio de pago',
+        'Clasificación secundaria',
+      ];
+      const statePayload = {
+        ...mockStatePayload,
+        preview: {
+          ...mockPreview,
+          rows: [
+            { index: 1, values: headers },
+            {
+              index: 2,
+              values: ['01/01/2026', '100.50', 'EUR', 'Comida', 'Cena', 'Tarjeta', 'Restaurante'],
+            },
+          ],
+        },
+      };
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          { gasttoField: 'moneda', columnIndex: 2, columnHeader: 'Moneda', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 3,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+          {
+            gasttoField: 'concepto',
+            columnIndex: 4,
+            columnHeader: 'Concepto',
+            confidence: 'alta',
+          },
+          {
+            gasttoField: 'medio_pago',
+            columnIndex: 5,
+            columnHeader: 'Medio de pago',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['subcategoria'],
+      });
+      mockLLMInfer.mockResolvedValue({
+        mappings: [
+          {
+            gasttoField: 'subcategoria',
+            columnIndex: 6,
+            columnHeader: 'Clasificación secundaria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const result = await new InferColumnMapping(buildMockDeps()).execute({
+        ...baseInput,
+        statePayload,
+      });
+
+      expect(mockLLMInfer).toHaveBeenCalledWith(headers, [
+        ['01/01/2026', '100.50', 'EUR', 'Comida', 'Cena', 'Tarjeta', 'Restaurante'],
+      ]);
+      expect(mockUpsertMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            GasttoField: 'subcategoria',
+            columnIndex: 6,
+            columnHeader: 'Clasificación secundaria',
+          }),
+        ]),
+      );
+      expect(result.payload).toEqual(expect.objectContaining({ unmappedFields: [] }));
     });
 
     it('retains a mapped subcategory when merging required fields from the LLM', async () => {

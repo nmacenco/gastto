@@ -59,6 +59,18 @@ function cellToString(value: unknown): string {
   return '';
 }
 
+function hasUnmappedSubcategoryCandidate(
+  headers: string[],
+  result: ColumnInferenceResult,
+): boolean {
+  if (!result.unmappedFields.includes('subcategoria')) return false;
+
+  const mappedColumns = new Set(result.mappings.map((mapping) => mapping.columnIndex));
+  return headers.some(
+    (header, columnIndex) => header.trim() !== '' && !mappedColumns.has(columnIndex),
+  );
+}
+
 export class InferColumnMapping {
   constructor(private readonly deps: InferColumnMappingDeps) {}
 
@@ -165,6 +177,7 @@ export class InferColumnMapping {
       result.unmappedFields.some((field) =>
         LEGACY_GASTTO_FIELDS.some((legacyField) => legacyField === field),
       ) ||
+      hasUnmappedSubcategoryCandidate(headers, result) ||
       result.mappings.some((m) => m.confidence === 'baja');
 
     if (shouldRunLLM) {

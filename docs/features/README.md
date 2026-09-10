@@ -10,7 +10,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, search, and selection for spreadsheet records.
 - [`select-sheet.md`](./select-sheet.md) — Sheet selection within the chosen spreadsheet file.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation before expense recording, with one transparent OAuth refresh/replay for provider authorization failures.
-- [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference with untrusted-data boundaries, optional multilingual subcategory mapping, and category-only compatibility.
+- [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + candidate-aware LLM hybrid inference with untrusted-data boundaries, optional multilingual subcategory mapping, and category-only compatibility.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message correction for legacy and optional subcategory mappings, preserving the detected header row for category detection.
 - [`category-confirmation.md`](./category-confirmation.md) — Confirms flat or linked category vocabulary only after transactional aggregate persistence, preserving legacy payloads and category-only row layouts.
 - [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, manages, classifies, reviews, saves, retries, and undoes parent-scoped subcategories with stable references, immutable snapshots, and legacy compatibility.
