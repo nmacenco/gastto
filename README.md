@@ -24,6 +24,29 @@ pnpm dev
 
 The server will be available at `http://localhost:3000`.
 
+### Test Telegram locally
+
+A public HTTPS tunnel is required for Telegram webhook testing because Telegram
+cannot send updates directly to `localhost`. It is not required for automated
+tests, Swagger, or the health endpoint.
+
+Start ngrok in a separate terminal:
+
+```bash
+ngrok http 3000
+```
+
+Copy the generated HTTPS URL into `.env`:
+
+```env
+WEBHOOK_BASE_URL=https://your-address.ngrok-free.app
+```
+
+Then restart `pnpm dev`. On startup, the app automatically registers the Telegram
+webhook at `<WEBHOOK_BASE_URL>/webhook/telegram`. Free ngrok URLs may change when
+ngrok restarts, so update `WEBHOOK_BASE_URL` and restart the app whenever the URL
+changes.
+
 ## Documentation
 
 - **[Local Development Setup](docs/development/local-setup.md)** — Complete step-by-step guide for running the project locally.
