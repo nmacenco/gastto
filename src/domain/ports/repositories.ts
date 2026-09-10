@@ -11,6 +11,7 @@ import type {
   SpreadsheetConfig,
   ColumnMapping,
   UserCategory,
+  UserSubcategory,
   OAuthToken,
 } from '../entities/SpreadsheetConfig';
 import type {
@@ -141,7 +142,13 @@ export interface IMappingCorrectionStateRepository {
 
 export interface IUserCategoryRepository {
   findActiveBySpreadsheetId(spreadsheetId: string): Promise<UserCategory[]>;
-  upsertMany(categories: Omit<UserCategory, 'id' | 'createdAt'>[]): Promise<void>;
+  upsertMany(categories: Omit<UserCategory, 'createdAt'>[]): Promise<void>;
+  incrementUsage(id: string): Promise<void>;
+}
+
+export interface IUserSubcategoryRepository {
+  findActiveByCategoryId(categoryId: string): Promise<UserSubcategory[]>;
+  upsertMany(subcategories: Omit<UserSubcategory, 'createdAt'>[]): Promise<void>;
   incrementUsage(id: string): Promise<void>;
 }
 

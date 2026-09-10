@@ -4,8 +4,20 @@
 
 export type SpreadsheetProvider = 'google' | 'microsoft';
 
-// Campos que Gastto mapea a columnas de la planilla del usuario
-export type GasttoField = 'monto' | 'moneda' | 'categoria' | 'fecha' | 'concepto' | 'medio_pago';
+// Campos históricos usados para evaluar completitud y decidir el fallback de inferencia.
+export const LEGACY_GASTTO_FIELDS = [
+  'monto',
+  'moneda',
+  'categoria',
+  'fecha',
+  'concepto',
+  'medio_pago',
+] as const;
+
+// Todos los campos que Gastto puede mapear a columnas de la planilla del usuario.
+export const SUPPORTED_GASTTO_FIELDS = [...LEGACY_GASTTO_FIELDS, 'subcategoria'] as const;
+
+export type GasttoField = (typeof SUPPORTED_GASTTO_FIELDS)[number];
 
 export interface SpreadsheetConfig {
   id: string;
@@ -35,6 +47,16 @@ export interface UserCategory {
   spreadsheetId: string;
   rawValue: string; // value as it appears in the spreadsheet ("Delivery", "food", etc.)
   normalizedValue: string; // normalized for comparison ("food")
+  usageCount: number;
+  isActive: boolean;
+  createdAt: Date;
+}
+
+export interface UserSubcategory {
+  id: string;
+  categoryId: string;
+  rawValue: string;
+  normalizedValue: string;
   usageCount: number;
   isActive: boolean;
   createdAt: Date;

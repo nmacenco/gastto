@@ -46,6 +46,7 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
   private formatSummary(summary: ExpenseSummary): string {
     const categoryLabel = summary.category || '❓ Sin categoría';
     const statusMarker = this.categoryStatusMarker(summary.categoryStatus);
+    const subcategoryLine = this.formatSubcategory(summary);
     const dateLabel = summary.date === 'today' ? 'Hoy' : summary.date;
 
     return [
@@ -53,6 +54,7 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
       `• Concepto: ${summary.concept.slice(0, 80)}`,
       `• Monto: ${summary.amount} ${summary.currency}`,
       `• Categoría: ${categoryLabel}${statusMarker}`,
+      ...(subcategoryLine ? [subcategoryLine] : []),
       `• Fecha: ${dateLabel}`,
       '',
       '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.',
@@ -72,6 +74,28 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
   private categoryStatusMarker(status: ExpenseSummary['categoryStatus']): string {
     if (status === 'ambiguous') return ' (¿correcto?)';
     if (status === 'fallback') return ' (sugerida)';
+    return '';
+  }
+
+  private formatSubcategory(summary: ExpenseSummary): string | null {
+    if (!summary.subcategoryEnabled) return null;
+
+    const label = summary.subcategory || '❓ Sin subcategoría';
+    const marker = this.subcategoryStatusMarker(
+      summary.subcategoryStatus,
+      summary.subcategoryConfidence,
+    );
+    return `• Subcategoría: ${label}${marker}`;
+  }
+
+  private subcategoryStatusMarker(
+    status: ExpenseSummary['subcategoryStatus'],
+    confidence: ExpenseSummary['subcategoryConfidence'],
+  ): string {
+    if (status === 'fallback') return ' (sugerida)';
+    if (status === 'ambiguous' || (status === 'confirmed' && confidence === 'baja')) {
+      return ' (¿correcto?)';
+    }
     return '';
   }
 

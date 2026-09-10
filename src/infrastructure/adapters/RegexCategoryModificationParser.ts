@@ -10,23 +10,100 @@ import {
 
 function normalizeInput(input: string): string {
   return input
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/^[¡!¿?.,;:\s]+|[¡!¿?.,;:\s]+$/gu, '')
     .trim();
+}
+
+function cleanName(value: string | undefined): string | null {
+  const name = value?.trim();
+  return name ? name : null;
+}
+
+function matchParts(
+  input: string,
+  patterns: readonly RegExp[],
+  keys: readonly string[],
+): Record<string, string> | null {
+  for (const pattern of patterns) {
+    const match = input.match(pattern);
+    if (!match) continue;
+
+    const result: Record<string, string> = {};
+    let complete = true;
+    for (const key of keys) {
+      const value = cleanName(match.groups?.[key]);
+      if (!value) {
+        complete = false;
+        break;
+      }
+      result[key] = value;
+    }
+    if (complete) return result;
+  }
+  return null;
+}
+
+function extractMoveSubcategory(input: string) {
+  return matchParts(
+    input,
+    [
+      /^(?:move)\s+(?:the\s+)?(?:subcategory\s+)?(?<name>.+?)\s+from\s+(?:category\s+)?(?<fromParent>.+?)\s+to\s+(?:category\s+)?(?<toParent>.+)$/iu,
+      /^(?:mover|mueve)\s+(?:la\s+)?(?:subcategor[ií]a\s+)?(?<name>.+?)\s+de\s+(?:la\s+categor[ií]a\s+)?(?<fromParent>.+?)\s+a\s+(?:la\s+categor[ií]a\s+)?(?<toParent>.+)$/iu,
+    ],
+    ['name', 'fromParent', 'toParent'],
+  );
+}
+
+function extractRenameSubcategory(input: string) {
+  return matchParts(
+    input,
+    [
+      /^(?:under|in)\s+(?:category\s+)?(?<parent>.+?)(?:\s*[,;:]\s*|\s+)rename\s+(?:the\s+)?(?:subcategory\s+)?(?<from>.+?)\s+to\s+(?<to>.+)$/iu,
+      /^(?:bajo|en)\s+(?:la\s+categor[ií]a\s+)?(?<parent>.+?)(?:\s*[,;:]\s*|\s+)(?:renombra|renombrar|cambia)\s+(?:la\s+)?(?:subcategor[ií]a\s+)?(?<from>.+?)\s+(?:a|por)\s+(?<to>.+)$/iu,
+    ],
+    ['parent', 'from', 'to'],
+  );
+}
+
+function extractRemoveSubcategory(input: string) {
+  return matchParts(
+    input,
+    [
+      /^(?:remove|delete)\s+(?:the\s+)?(?:subcategory\s+)?(?<name>.+?)\s+from\s+(?:category\s+)?(?<parent>.+)$/iu,
+      /^(?:quitar|quita|eliminar|elimina|borrar|borra)\s+(?:la\s+)?(?:subcategor[ií]a\s+)?(?<name>.+?)\s+de\s+(?:la\s+categor[ií]a\s+)?(?<parent>.+)$/iu,
+    ],
+    ['name', 'parent'],
+  );
+}
+
+function extractAddSubcategory(input: string) {
+  return matchParts(
+    input,
+    [
+      /^(?:add)\s+(?:the\s+)?(?:subcategory\s+)?(?<name>.+?)\s+(?:to|under)\s+(?:the\s+)?(?:category\s+)?(?<parent>.+)$/iu,
+      /^(?:agregar|agrega|a[nñ]adir|a[nñ]ade)\s+(?:la\s+)?(?:subcategor[ií]a\s+)?(?<name>.+?)\s+(?:a|en|bajo)\s+(?:la\s+)?(?:categor[ií]a\s+)?(?<parent>.+)$/iu,
+    ],
+    ['name', 'parent'],
+  );
+}
+
+function looksLikeIncompleteSubcategoryCommand(input: string): boolean {
+  return (
+    /\b(?:subcategory|subcategor[ií]a|under|bajo|from|move|mover|mueve)\b/iu.test(input) ||
+    /\b(?:to|a|en|de)\s*$/iu.test(input)
+  );
 }
 
 // Extract the category name after common add-prefix phrases
 function extractAddName(normalized: string): string | null {
   const addPatterns = [
-    /^falta\s+(la\s+)?(categoria\s+)?(.+)$/,
-    /^agregar\s+(la\s+)?(categoria\s+)?(.+)$/,
-    /^agrega\s+(la\s+)?(categoria\s+)?(.+)$/,
-    /^anadir\s+(la\s+)?(categoria\s+)?(.+)$/,
-    /^add\s+(the\s+)?(category\s+)?(.+)$/,
-    /^missing\s+(the\s+)?(category\s+)?(.+)$/,
+    /^falta\s+(la\s+)?(categor[ií]a\s+)?(.+)$/iu,
+    /^agregar\s+(la\s+)?(categor[ií]a\s+)?(.+)$/iu,
+    /^agrega\s+(la\s+)?(categor[ií]a\s+)?(.+)$/iu,
+    /^a[nñ]adir\s+(la\s+)?(categor[ií]a\s+)?(.+)$/iu,
+    /^add\s+(the\s+)?(category\s+)?(.+)$/iu,
+    /^missing\s+(the\s+)?(category\s+)?(.+)$/iu,
   ];
 
   for (const pattern of addPatterns) {
@@ -42,8 +119,8 @@ function extractAddName(normalized: string): string | null {
 
 function extractRemoveName(normalized: string): string | null {
   const removePatterns = [
-    /^(?:quitar|quita|eliminar|elimina|borrar|borra)\s+(?:la\s+)?(?:categoria\s+)?(.+)$/,
-    /^(?:remove|delete)\s+(?:the\s+)?(?:category\s+)?(.+)$/,
+    /^(?:quitar|quita|eliminar|elimina|borrar|borra)\s+(?:la\s+)?(?:categor[ií]a\s+)?(.+)$/iu,
+    /^(?:remove|delete)\s+(?:the\s+)?(?:category\s+)?(.+)$/iu,
   ];
 
   for (const pattern of removePatterns) {
@@ -59,14 +136,14 @@ function extractRemoveName(normalized: string): string | null {
 function extractRenameParts(normalized: string): { from: string; to: string } | null {
   const renamePatterns = [
     // Spanish: "ocio se llama entretenimiento", "la categoria ocio es entretenimiento"
-    /^(la\s+)?(categoria\s+)?(.+?)\s+se\s+llama\s+(.+)$/,
-    /^(la\s+)?(categoria\s+)?(.+?)\s+es\s+(.+)$/,
-    /^(la\s+)?(categoria\s+)?(.+?)\s+deberia\s+ser\s+(.+)$/,
+    /^(la\s+)?(categor[ií]a\s+)?(.+?)\s+se\s+llama\s+(.+)$/iu,
+    /^(la\s+)?(categor[ií]a\s+)?(.+?)\s+es\s+(.+)$/iu,
+    /^(la\s+)?(categor[ií]a\s+)?(.+?)\s+deber[ií]a\s+ser\s+(.+)$/iu,
     // English: "leisure is actually entertainment", "leisure should be entertainment"
-    /^(the\s+)?(category\s+)?(.+?)\s+is\s+actually\s+(.+)$/,
-    /^(the\s+)?(category\s+)?(.+?)\s+should\s+be\s+(.+)$/,
-    /^(the\s+)?(category\s+)?(.+?)\s+is\s+(.+)$/,
-    /^rename\s+(the\s+)?(category\s+)?(.+?)\s+to\s+(.+)$/,
+    /^(the\s+)?(category\s+)?(.+?)\s+is\s+actually\s+(.+)$/iu,
+    /^(the\s+)?(category\s+)?(.+?)\s+should\s+be\s+(.+)$/iu,
+    /^(the\s+)?(category\s+)?(.+?)\s+is\s+(.+)$/iu,
+    /^rename\s+(the\s+)?(category\s+)?(.+?)\s+to\s+(.+)$/iu,
   ];
 
   for (const pattern of renamePatterns) {
@@ -86,6 +163,48 @@ function extractRenameParts(normalized: string): { from: string; to: string } | 
 export class RegexCategoryModificationParser implements CategoryModificationParserPort {
   parse(input: string): Promise<CategoryModificationIntent> {
     const normalized = normalizeInput(input);
+
+    const move = extractMoveSubcategory(normalized);
+    if (move) {
+      return Promise.resolve({
+        kind: 'move-subcategory',
+        name: move.name!,
+        fromParent: move.fromParent!,
+        toParent: move.toParent!,
+      });
+    }
+
+    const childRename = extractRenameSubcategory(normalized);
+    if (childRename) {
+      return Promise.resolve({
+        kind: 'rename-subcategory',
+        from: childRename.from!,
+        to: childRename.to!,
+        parent: childRename.parent!,
+      });
+    }
+
+    const childRemove = extractRemoveSubcategory(normalized);
+    if (childRemove) {
+      return Promise.resolve({
+        kind: 'remove-subcategory',
+        name: childRemove.name!,
+        parent: childRemove.parent!,
+      });
+    }
+
+    const childAdd = extractAddSubcategory(normalized);
+    if (childAdd) {
+      return Promise.resolve({
+        kind: 'add-subcategory',
+        name: childAdd.name!,
+        parent: childAdd.parent!,
+      });
+    }
+
+    if (looksLikeIncompleteSubcategoryCommand(normalized)) {
+      return Promise.resolve({ kind: 'unknown' });
+    }
 
     // Try rename first (more specific patterns)
     const renameParts = extractRenameParts(normalized);

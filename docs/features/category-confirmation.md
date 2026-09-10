@@ -2,71 +2,88 @@
 
 ## Purpose
 
-After the user confirms the column mapping, Gastto reads the values already present in the category column and presents them as the user's category vocabulary. The user can then confirm, add, or correct categories before the onboarding flow completes.
+After column mapping, Gastto proposes the spreadsheet's active category vocabulary for review. Category-only spreadsheets retain the flat HU-4.07 behavior, while spreadsheets with a confirmed subcategory mapping use the linked hierarchy behavior documented in [`subcategory-hierarchy.md`](./subcategory-hierarchy.md).
 
 ## Behavior (Implemented)
 
-- When a successful mapping confirmation enters `ONBOARDING_CATEGORIES`, the worker immediately delegates to `DetectCategories` in the same job; no additional user message is required to start detection.
-- If a conversation is already in `ONBOARDING_CATEGORIES` without categories in its payload (for example, recovery from an interrupted execution), the next worker pass also delegates to `DetectCategories`.
-- `DetectCategories` loads the active spreadsheet config and the decrypted OAuth token.
-- It finds the column mapping for the `categoria` Gastto field.
-- It reads unique values through `SpreadsheetCategoryReader` beginning at `headerRowIndex + 1` when mapping detected a valid header row. If no header position is available, it defaults to row 2 for backward compatibility.
-- Values are normalized (trimmed and lowercased), deduplicated, and empty cells are filtered out.
-- If no categories are found, a default set is used: `Alimentacion`, `Transporte`, `Servicios`, `Ocio`, `Salud`, `Otros`.
-- A confirmation prompt is sent to the user and the FSM payload stores the detected/default categories.
-- When the user replies with a confirmation intent ("sí", "yes", etc.), `ConfirmCategories` marks the vocabulary as confirmed in `spreadsheet_configs.categories_confirmed_at` when needed, transitions the user status to `active`, and persists the FSM as `IDLE` with `statePayload` and `expiresAt` cleared.
-- The final welcome message is sent only after user activation and the `IDLE` transition succeed, so a reported completion always reflects persisted finalization.
-- Re-confirmation is idempotent: an existing `categories_confirmed_at` skips only the redundant timestamp update. User activation and the cleared `IDLE` transition still run, allowing interrupted re-onboarding and reconnection flows to restore all final-state invariants.
+### Shared onboarding routing
 
-## Behavior (Implemented)
+- Entering `ONBOARDING_CATEGORIES` immediately delegates to detection in the same worker job.
+- An interrupted state with an absent, empty, or malformed proposal delegates to detection again.
+- Confirmation intent has precedence over natural-language modification.
+- No HTTP route or additional FSM state is used.
+- Telegram and WhatsApp use the same payload and copy contracts.
 
-- Natural-language commands to add a missing category (e.g. "agregar cine" or "falta Salud").
-- Natural-language commands to remove a category (e.g. "quitar ocio"), persisted as a soft-delete.
-- Natural-language commands to rename a category (e.g. "Ocio se llama Entretenimiento").
-- Handle re-onboarding by merging previously persisted categories with newly detected ones.
+### Retained flat category path
 
-See [`docs/user-stories/01-mvp/01-Vinculacion de planilla · Release 1 MVP/HU-4.07 — Confirmar las categorias de la planilla.md`](../user-stories/01-mvp/01-Vinculacion%20de%20planilla%20%C2%B7%20Release%201%20MVP/HU-4.07%20%E2%80%94%20Confirmar%20las%20categorias%20de%20la%20planilla.md).
+- When no confirmed `subcategoria` mapping exists, `DetectCategories` reads unique values from the `categoria` column beginning at `headerRowIndex + 1`, or row 2 when that metadata is absent.
+- Values are trimmed, normalized, deduplicated, and empty cells are excluded.
+- An empty category column produces the defaults `Alimentacion`, `Transporte`, `Servicios`, `Ocio`, `Salud`, and `Otros`.
+- The user sees the existing flat confirmation prompt.
+- Flat add, rename, and remove commands remain supported.
+- Legacy `{ categories: string[] }` state payloads remain valid and are upgraded in memory without a database migration.
+
+### Hierarchy-enabled path
+
+- When both `categoria` and `subcategoria` mappings exist, `DetectCategories` consumes `SpreadsheetCategoryHierarchyReader` and reads linked rows once.
+- The canonical proposal contains ordered category nodes, parent-scoped children, orphan warnings, and the mapping-capability flag.
+- Parent-aware add, rename, move, and remove commands update the complete aggregate and return a nested proposal for re-confirmation.
+- See [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) for payloads, commands, invariants, and QA cases.
+- After onboarding, expense hierarchy presentation/classification remains enabled by either a confirmed `subcategoria` mapping or active configured children. Spreadsheet child writes still require the mapping, so category-only row layouts remain unchanged.
+
+### Confirmation and failure behavior
+
+- `ConfirmCategories` validates canonical or legacy state and requires at least one valid category.
+- It reconciles the reviewed proposal with the active aggregate to preserve stable identifiers.
+- It saves the complete aggregate transactionally before writing `categories_confirmed_at`, activating the user, clearing the FSM into `IDLE`, or sending completion.
+- Orphan warning values are never persisted as vocabulary rows.
+- Re-confirmation always re-saves the hierarchy idempotently, skips only a redundant timestamp write, and restores active/`IDLE` final-state invariants.
+- A hierarchy save failure advances no finalization step and sends no completion.
+- Activation or FSM transition failures also send no false completion.
+- An invalid proposal remains in `ONBOARDING_CATEGORIES` with a cleared payload so detection can recover.
+- A missing spreadsheet configuration follows the account reconnection path.
 
 ## API / Interface
 
-No HTTP endpoints. The feature is triggered by the `ONBOARDING_CATEGORIES` FSM state inside the `process-message` BullMQ worker.
+No HTTP endpoint is exposed. The feature is driven by `ONBOARDING_CATEGORIES` in the `process-message` BullMQ worker.
 
 ### Application services
 
-- `DetectCategories.execute(input: DetectCategoriesInput): Promise<DetectCategoriesOutput>` — orchestrates token retrieval, column lookup, category reading, vocabulary persistence, and user messaging.
-- `ConfirmCategories.execute(input: ConfirmCategoriesInput): Promise<ConfirmCategoriesOutput>` — marks vocabulary confirmed, activates user, transitions FSM to `IDLE`, and sends welcome message.
-- `ModifyCategoryVocabulary.execute(input: ModifyCategoryVocabularyInput): Promise<ModifyCategoryVocabularyOutput>` — parses natural-language add/remove/rename instructions, updates the persisted vocabulary, and returns the updated list for re-confirmation.
+- `DetectCategories.execute(input): Promise<DetectCategoriesOutput>` detects and persists the flat or hierarchy proposal.
+- `ModifyCategoryVocabulary.execute(input): Promise<ModifyCategoryVocabularyOutput>` applies flat or parent-aware changes and returns both canonical state and a flat compatibility projection.
+- `ConfirmCategories.execute(input): Promise<ConfirmCategoriesOutput>` persists the complete reviewed aggregate before finalizing onboarding.
 
 ### Infrastructure
 
-- `SpreadsheetCategoryReader.readCategories(fileId, columnIndex, sheetName, dataStartRow?): Promise<string[]>` — reads and normalizes category values from a spreadsheet column, defaulting to row 2.
-- `SpreadsheetPort.getUniqueValues(fileId, columnIndex, sheetName, dataStartRow?): Promise<string[]>` — adapter-level method that returns deduplicated non-empty values from a column beginning at the supplied 1-based positive row, defaulting to row 2.
-- `RegexCategoryModificationParser.parse(input: string): Promise<CategoryModificationIntent>` — lightweight rule-based parser supporting Spanish and English add/remove/rename patterns.
-- `DrizzleCategoryVocabularyRepository` — persists `CategoryVocabulary` aggregates to `user_categories` with soft-delete of removed categories and upsert of new ones.
+- `SpreadsheetCategoryReader.readCategories(...)` supports the retained flat path.
+- `SpreadsheetCategoryHierarchyReader.readHierarchy(...)` supports the row-preserving linked path through Google or Microsoft spreadsheet adapters.
+- `RegexCategoryModificationParser.parse(...)` recognizes deterministic Spanish/English category and parent-aware child commands.
+- `DrizzleCategoryVocabularyRepository.save(...)` reconciles parents and children inside one transaction and soft-disables omitted rows.
 
 ## Data Model
 
-- `expense_records` — not directly used by this feature.
-- `user_categories` — stores the confirmed vocabulary per spreadsheet. New categories are inserted; removed ones are soft-deleted (`isActive = false`).
-- `spreadsheet_configs` — provides `fileId`, `sheetName`, and `provider`. Also tracks `categoriesConfirmedAt`.
-- `column_mappings` — provides the index of the category column for the active spreadsheet. The detected header position remains transient in the onboarding FSM payload; no new database column is required.
+See [`docs/architecture/data-model.md`](../architecture/data-model.md).
+
+- `user_categories` stores active and soft-disabled category vocabulary rows.
+- `user_subcategories` stores parent-scoped child rows with stable identifiers.
+- `spreadsheet_configs.categories_confirmed_at` records successful finalization after hierarchy persistence.
+- `conversation_states.state_payload` temporarily stores canonical or legacy proposals and is cleared on completion.
 
 ## Tests
 
-- `src/application/use-cases/spreadsheet/DetectCategories.spec.ts` — covers detection, default fallback, missing-config path, and vocabulary persistence.
-- `src/application/use-cases/spreadsheet/ConfirmCategories.spec.ts` — covers happy path, idempotent re-confirmation, and missing-config fallback.
-- `src/application/use-cases/spreadsheet/ModifyCategoryVocabulary.spec.ts` — covers add, remove, rename, unknown intent, duplicate rejection, missing config, and missing targets.
-- `src/infrastructure/adapters/RegexCategoryModificationParser.spec.ts` — covers Spanish and English add/remove/rename/unknown patterns with normalization.
-- `src/infrastructure/adapters/sheets/SpreadsheetCategoryReader.spec.ts` — covers normalization, deduplication, and empty filtering.
-- `src/infrastructure/adapters/sheets/GoogleSheetsAdapter.spec.ts` — covers `getUniqueValues` header skip and error handling.
-- `src/infrastructure/adapters/sheets/ExcelOnlineAdapter.spec.ts` — covers `getUniqueValues` header skip and error handling.
-- `src/interfaces/workers/message.worker.spec.ts` — covers `ONBOARDING_CATEGORIES` delegation to DetectCategories, ConfirmCategories, ModifyCategoryVocabulary, and fallback branches.
+- Detection tests cover flat compatibility and linked hierarchy behavior.
+- Parser/modification tests cover flat and parent-aware commands plus rejection paths.
+- Confirmation tests cover canonical/legacy reconciliation, ordering, idempotency, recovery, and failures.
+- Worker tests cover detection, modification, confirmation, interrupted recovery, both channels, and the unchanged FSM.
+- PostgreSQL integration tests cover atomic hierarchy persistence and rollback through the production migration chain.
 
 ## Related User Stories
 
-- `docs/user-stories/01-mvp/01-Vinculacion de planilla · Release 1 MVP/HU-4.07 — Confirmar las categorias de la planilla.md`
+- [`HU-4.07 - Confirm spreadsheet categories`](../user-stories/01-mvp/01-Vinculacion%20de%20planilla%20%C2%B7%20Release%201%20MVP/HU-4.07%20%E2%80%94%20Confirmar%20las%20categorias%20de%20la%20planilla.md)
+- [`HU-4.08 - Configure linked categories and subcategories`](../user-stories/02-release-2-producto-complejo/02-epica-4/HU-4.08%20%E2%80%94%20Configure%20linked%20categories%20and%20subcategories.md)
 
 ## Notes
 
-- `RegisterExpenseUseCase` already reads active categories from `user_categories`, so completing the confirmation persistence will immediately improve category resolution.
-- The current `DetectCategories` use case sends the prompt and stores categories in the FSM payload, but does not yet wait for or process the user's response.
+- `RegisterExpenseUseCase` consumes active vocabulary rows after onboarding.
+- Confirmed hierarchy capability does not make a child mandatory and does not change category-only spreadsheet row shape.
+- Linked hierarchy storage and soft-disable decisions are defined by ADR-022.

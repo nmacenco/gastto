@@ -16,6 +16,9 @@ function buildExpenseRecordRow(overrides: Partial<typeof schema.expenseRecords.$
     monto: '850.00',
     moneda: 'ARS',
     categoria: 'Comida',
+    categoryId: 'category-123',
+    subcategoryId: 'subcategory-123',
+    subcategoria: 'Cafeteria',
     fechaGasto: new Date('2026-01-15'),
     medioPago: 'Efectivo',
     sheetName: 'Gastos',
@@ -34,11 +37,12 @@ describe('DrizzleExpenseRecordRepository', () => {
   describe('create', () => {
     it('inserts a record and returns mapped entity', async () => {
       const row = buildExpenseRecordRow();
+      const values = vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([row]),
+      });
       const db = {
         insert: vi.fn().mockReturnValue({
-          values: vi.fn().mockReturnValue({
-            returning: vi.fn().mockResolvedValue([row]),
-          }),
+          values,
         }),
       } as unknown as PostgresJsDatabase<typeof schema>;
 
@@ -50,6 +54,9 @@ describe('DrizzleExpenseRecordRepository', () => {
         monto: 850,
         moneda: 'ARS',
         categoria: 'Comida',
+        categoryId: 'category-123',
+        subcategoryId: 'subcategory-123',
+        subcategoria: 'Cafeteria',
         fechaGasto: new Date('2026-01-15'),
         medioPago: 'Efectivo',
         sheetName: 'Gastos',
@@ -63,6 +70,69 @@ describe('DrizzleExpenseRecordRepository', () => {
       expect(result.id).toBe('expense-123');
       expect(result.monto).toBe(850);
       expect(result.moneda).toBe('ARS');
+      expect(result).toMatchObject({
+        categoria: 'Comida',
+        categoryId: 'category-123',
+        subcategoryId: 'subcategory-123',
+        subcategoria: 'Cafeteria',
+      });
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          categoria: 'Comida',
+          categoryId: 'category-123',
+          subcategoryId: 'subcategory-123',
+          subcategoria: 'Cafeteria',
+        }),
+      );
+    });
+
+    it('inserts and maps explicit null hierarchy fields', async () => {
+      const row = buildExpenseRecordRow({
+        categoryId: null,
+        subcategoryId: null,
+        subcategoria: null,
+      });
+      const values = vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([row]),
+      });
+      const db = {
+        insert: vi.fn().mockReturnValue({ values }),
+      } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const repo = new DrizzleExpenseRecordRepository(db);
+      const result = await repo.create({
+        userId: 'user-123',
+        spreadsheetId: 'sheet-123',
+        concepto: 'Cafe',
+        monto: 850,
+        moneda: 'ARS',
+        categoria: 'Comida',
+        categoryId: null,
+        subcategoryId: null,
+        subcategoria: null,
+        fechaGasto: new Date('2026-01-15'),
+        medioPago: null,
+        sheetName: 'Gastos',
+        rowIndex: 42,
+        categoriaConfidence: null,
+        rawMessage: 'Cafe 850',
+        isDeleted: false,
+        deletedAt: null,
+      });
+
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          categoryId: null,
+          subcategoryId: null,
+          subcategoria: null,
+        }),
+      );
+      expect(result).toMatchObject({
+        categoria: 'Comida',
+        categoryId: null,
+        subcategoryId: null,
+        subcategoria: null,
+      });
     });
 
     it('throws when insert returns no row', async () => {
@@ -83,6 +153,9 @@ describe('DrizzleExpenseRecordRepository', () => {
           monto: 850,
           moneda: 'ARS',
           categoria: 'Comida',
+          categoryId: null,
+          subcategoryId: null,
+          subcategoria: null,
           fechaGasto: new Date('2026-01-15'),
           medioPago: null,
           sheetName: 'Gastos',
@@ -117,6 +190,41 @@ describe('DrizzleExpenseRecordRepository', () => {
       expect(result).not.toBeNull();
       expect(result?.id).toBe('expense-123');
       expect(result?.monto).toBe(850);
+      expect(result).toMatchObject({
+        categoria: 'Comida',
+        categoryId: 'category-123',
+        subcategoryId: 'subcategory-123',
+        subcategoria: 'Cafeteria',
+      });
+    });
+
+    it('keeps text snapshots after vocabulary references are cleared', async () => {
+      const row = buildExpenseRecordRow({
+        categoria: 'Comida original',
+        categoryId: null,
+        subcategoryId: null,
+        subcategoria: 'Cafeteria original',
+      });
+      const db = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              orderBy: vi.fn().mockReturnValue({
+                limit: vi.fn().mockResolvedValue([row]),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as PostgresJsDatabase<typeof schema>;
+
+      const result = await new DrizzleExpenseRecordRepository(db).findLatestByUserId('user-123');
+
+      expect(result).toMatchObject({
+        categoria: 'Comida original',
+        categoryId: null,
+        subcategoryId: null,
+        subcategoria: 'Cafeteria original',
+      });
     });
 
     it('returns null when no non-deleted records exist', async () => {

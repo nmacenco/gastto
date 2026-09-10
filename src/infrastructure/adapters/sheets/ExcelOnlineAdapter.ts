@@ -8,8 +8,41 @@ import type { SpreadsheetAccessResult } from '../../../domain/value-objects/Spre
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
 import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { encodeUrlComponent, parseSpreadsheetRange } from './spreadsheetRange';
 
 const GRAPH_API_URL = 'https://graph.microsoft.com/v1.0';
+
+function networkError(operation: string, error: unknown): SpreadsheetError {
+  return new SpreadsheetError(`Network error during ${operation}: ${String(error)}`, {
+    code: 'NETWORK_ERROR',
+    retryable: true,
+  });
+}
+
+function providerHttpError(operation: string, status: number): SpreadsheetError {
+  if (status === 401 || status === 403) {
+    return new SpreadsheetError(
+      `Microsoft authorization error during ${operation}: HTTP ${status}`,
+      {
+        code: 'AUTH_ERROR',
+      },
+    );
+  }
+  if (status >= 500) {
+    return new SpreadsheetError(`Microsoft Graph error during ${operation}: HTTP ${status}`, {
+      code: 'NETWORK_ERROR',
+      retryable: true,
+    });
+  }
+  if (status === 400 || status === 404) {
+    return new SpreadsheetError(`Microsoft structure error during ${operation}: HTTP ${status}`, {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+  return new SpreadsheetError(`Microsoft Graph error during ${operation}: HTTP ${status}`, {
+    code: 'UNKNOWN',
+  });
+}
 
 export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetAccessPort {
   constructor(private readonly accessToken: string) {}
@@ -69,8 +102,35 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     return parseGetHeadersResponse(data);
   }
 
-  readRows(_fileId: string, _range: string): Promise<Row[]> {
-    return Promise.reject(new SpreadsheetError('readRows not yet implemented'));
+  async readRows(fileId: string, range: string): Promise<Row[]> {
+    const requestedRange = parseSpreadsheetRange(range);
+    const encodedSheetName = encodeUrlComponent(requestedRange.sheetName);
+    const encodedAddress = encodeUrlComponent(requestedRange.address);
+    const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets/${encodedSheetName}/range(address='${encodedAddress}')`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+    } catch (error) {
+      throw networkError('row retrieval', error);
+    }
+
+    if (!response.ok) {
+      throw providerHttpError('row retrieval', response.status);
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new SpreadsheetError(`Invalid JSON response from Graph API: HTTP ${response.status}`, {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+
+    return parseRowsResponse(data, requestedRange.startRow);
   }
 
   appendRow(_fileId: string, _sheetName: string, _values: CellValue[]): Promise<AppendResult> {
@@ -307,6 +367,65 @@ function parseGetHeadersResponse(data: unknown): string[] {
   }
 
   return firstRow.map((cell) => (typeof cell === 'string' ? cell : String(cell)));
+}
+
+function parseRowsResponse(data: unknown, requestedStartRow: number): Row[] {
+  if (!isRecord(data) || !Array.isArray(data.values)) {
+    throw new SpreadsheetError('Unexpected row response format from Graph API', {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+
+  let startRow = requestedStartRow;
+  if ('rowIndex' in data) {
+    if (!Number.isSafeInteger(data.rowIndex) || (data.rowIndex as number) < 0) {
+      throw new SpreadsheetError('Invalid row index in Graph API response', {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+    startRow = (data.rowIndex as number) + 1;
+  } else if ('address' in data) {
+    if (typeof data.address !== 'string') {
+      throw new SpreadsheetError('Invalid address in Graph API response', {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+    startRow = parseSpreadsheetRange(data.address).startRow;
+  }
+
+  return parseCellRows(data.values, startRow);
+}
+
+function parseCellRows(values: unknown[], startRow: number): Row[] {
+  return values.map((row, rowOffset) => {
+    if (!Array.isArray(row)) {
+      throw new SpreadsheetError('Invalid row in Graph API response', {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+
+    const cells = Array.from({ length: row.length }, (_, columnIndex): CellValue => {
+      if (!(columnIndex in row)) return null;
+      const cell: unknown = row[columnIndex];
+      if (
+        cell === null ||
+        typeof cell === 'string' ||
+        typeof cell === 'number' ||
+        typeof cell === 'boolean'
+      ) {
+        return cell;
+      }
+      throw new SpreadsheetError('Invalid cell value in Graph API response', {
+        code: 'STRUCTURE_ERROR',
+      });
+    });
+
+    return { index: startRow + rowOffset, values: cells };
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function parsePreviewRows(data: unknown): Row[] {

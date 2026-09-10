@@ -17,20 +17,28 @@ import type {
   ISpreadsheetConfigRepository,
   IColumnMappingRepository,
   IUserCategoryRepository,
+  ICategoryVocabularyRepository,
   IConversationStateRepository,
   IOperationLogRepository,
 } from '../../../domain/ports/repositories';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
-import { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
+import {
+  ClassificationSelection,
+  HierarchicalClassificationResult,
+  SubcategoryClassificationSelection,
+} from '../../../domain/value-objects/ClassificationResult';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
+import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
 
 const mockUserProfileGetDefaultCurrency = vi.fn();
 const mockClassifierExecute = vi.fn();
 const mockLLMExtractExpense = vi.fn();
 const mockSpreadsheetConfigFindByUserId = vi.fn();
 const mockCategoryFindActiveBySpreadsheetId = vi.fn();
+const mockVocabularyFindBySpreadsheetId = vi.fn();
 const mockConversationTransition = vi.fn();
 const mockExpenseRecordCreate = vi.fn();
 const mockOperationLogCreate = vi.fn();
@@ -110,6 +118,10 @@ function buildMockDependencies() {
       upsertMany: vi.fn(),
       incrementUsage: vi.fn(),
     } as unknown as IUserCategoryRepository,
+    categoryVocabularyRepo: {
+      findBySpreadsheetId: mockVocabularyFindBySpreadsheetId,
+      save: vi.fn(),
+    } as unknown as ICategoryVocabularyRepository,
     conversationRepo: {
       findByUserId: vi.fn(),
       create: vi.fn(),
@@ -138,6 +150,7 @@ function buildUseCase(overrides: Partial<ReturnType<typeof buildMockDependencies
       overrides.spreadsheetConfigRepo ?? deps.spreadsheetConfigRepo,
       overrides.columnMappingRepo ?? deps.columnMappingRepo,
       overrides.categoryRepo ?? deps.categoryRepo,
+      overrides.categoryVocabularyRepo ?? deps.categoryVocabularyRepo,
       overrides.conversationRepo ?? deps.conversationRepo,
       overrides.logRepo ?? deps.logRepo,
       overrides.userProfilePort ?? deps.userProfilePort,
@@ -153,9 +166,11 @@ function buildExtractedExpense(overrides: Partial<ExtractedExpense> = {}): Extra
     monto: 100,
     moneda: 'EUR',
     categoriaRaw: 'café',
+    subcategoriaRaw: null,
     fechaRaw: '2026-07-25',
     medioPago: null,
     confianzaCategoria: 'alta',
+    confianzaSubcategoria: 'nula',
     ...overrides,
   };
 }
@@ -166,6 +181,21 @@ function buildInput(overrides: Partial<RegisterExpenseInput> = {}): RegisterExpe
     rawMessage: 'Café con leche 100 EUR',
     channel: 'telegram',
     ...overrides,
+  };
+}
+
+function buildMapping(
+  GasttoField: ColumnMapping['GasttoField'],
+  columnIndex: number,
+): ColumnMapping {
+  return {
+    id: `mapping-${GasttoField}`,
+    spreadsheetId: 'config-1',
+    GasttoField,
+    columnIndex,
+    columnHeader: GasttoField,
+    inferred: false,
+    confirmedAt: new Date(),
   };
 }
 
@@ -195,10 +225,12 @@ beforeEach(() => {
     updatedAt: new Date(),
   });
   mockCategoryFindActiveBySpreadsheetId.mockResolvedValue([]);
+  mockVocabularyFindBySpreadsheetId.mockResolvedValue(null);
+  mockFindBySpreadsheetId.mockResolvedValue([]);
   mockConversationTransition.mockResolvedValue(null);
   mockAppendRow.mockResolvedValue({ sheet: 'Hoja 1', row: 2 });
   mockSpreadsheetPortFactoryCreate.mockReturnValue(buildMockSpreadsheetPort());
-  mockClassifierExecute.mockResolvedValue(ClassificationResult.noMatch());
+  mockClassifierExecute.mockResolvedValue(HierarchicalClassificationResult.none());
 });
 
 describe('RegisterExpenseUseCase', () => {
@@ -209,9 +241,11 @@ describe('RegisterExpenseUseCase', () => {
         monto: 100,
         moneda: 'EUR',
         categoriaRaw: 'café',
+        subcategoriaRaw: null,
         fechaRaw: '2026-07-25',
         medioPago: null,
         confianzaCategoria: 'alta',
+        confianzaSubcategoria: 'nula',
       },
       resolvedDate: '2026-07-25',
       resolvedCategory: 'Comida',
@@ -220,19 +254,161 @@ describe('RegisterExpenseUseCase', () => {
     };
 
     beforeEach(() => {
-      mockFindBySpreadsheetId.mockResolvedValue([
-        {
-          id: 'mapping-1',
-          spreadsheetId: 'config-1',
-          GasttoField: 'monto',
-          columnIndex: 0,
-          columnHeader: 'Monto',
-          inferred: false,
-          confirmedAt: new Date(),
-        },
-      ]);
+      mockFindBySpreadsheetId.mockResolvedValue([buildMapping('monto', 0)]);
       mockExpenseRecordCreate.mockResolvedValue({});
       mockOperationLogCreate.mockResolvedValue({});
+    });
+
+    it.each([
+      {
+        name: 'mapped child',
+        mappings: [
+          buildMapping('monto', 0),
+          buildMapping('categoria', 2),
+          buildMapping('subcategoria', 4),
+        ],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: 'Restaurante',
+          resolvedSubcategoryId: 'subcategory-restaurant',
+          subcategoryStatus: 'confirmed' as const,
+          subcategoryEnabled: true,
+        },
+        row: [100, null, 'Comida', null, 'Restaurante'],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: 'subcategory-restaurant',
+          subcategoria: 'Restaurante',
+        },
+      },
+      {
+        name: 'mapped valid no-child selection',
+        mappings: [buildMapping('monto', 0), buildMapping('subcategoria', 3)],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: null,
+          resolvedSubcategoryId: null,
+          subcategoryStatus: 'none' as const,
+          subcategoryEnabled: true,
+        },
+        row: [100, null, null, null],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: null,
+          subcategoria: null,
+        },
+      },
+      {
+        name: 'unmapped child',
+        mappings: [buildMapping('monto', 0), buildMapping('categoria', 2)],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: 'Restaurante',
+          resolvedSubcategoryId: 'subcategory-restaurant',
+          subcategoryStatus: 'confirmed' as const,
+          subcategoryEnabled: true,
+        },
+        row: [100, null, 'Comida'],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: 'subcategory-restaurant',
+          subcategoria: 'Restaurante',
+        },
+      },
+      {
+        name: 'configured hierarchy without a mapping',
+        mappings: [buildMapping('monto', 0)],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: null,
+          resolvedSubcategoryId: null,
+          subcategoryStatus: 'none' as const,
+          subcategoryEnabled: true,
+        },
+        row: [100],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: null,
+          subcategoria: null,
+        },
+      },
+      {
+        name: 'category-only selection',
+        mappings: [buildMapping('monto', 0), buildMapping('categoria', 1)],
+        review: {
+          ...payload,
+          resolvedCategoryId: 'category-food',
+          resolvedSubcategory: null,
+          resolvedSubcategoryId: null,
+          subcategoryStatus: 'none' as const,
+          subcategoryEnabled: false,
+        },
+        row: [100, 'Comida'],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: 'category-food',
+          subcategoryId: null,
+          subcategoria: null,
+        },
+      },
+      {
+        name: 'legacy normalized selection',
+        mappings: [buildMapping('monto', 0), buildMapping('subcategoria', 2)],
+        review: payload,
+        row: [100, null, null],
+        hierarchy: {
+          categoria: 'Comida',
+          categoryId: null,
+          subcategoryId: null,
+          subcategoria: null,
+        },
+      },
+    ])(
+      'writes and persists the exact $name hierarchy values',
+      async ({ mappings, review, row, hierarchy }) => {
+        mockFindBySpreadsheetId.mockResolvedValue(mappings);
+        const { useCase } = buildUseCase();
+
+        await useCase.save('user-123', review, '');
+
+        expect(mockAppendRow).toHaveBeenCalledWith('file-1', 'Hoja 1', row);
+        expect(mockExpenseRecordCreate).toHaveBeenCalledWith(expect.objectContaining(hierarchy));
+      },
+    );
+
+    it('keeps append, local persistence, audit, and IDLE transition in strict order', async () => {
+      mockExpenseRecordCreate.mockResolvedValue({ id: 'expense-1' });
+      const { useCase } = buildUseCase();
+
+      await expect(useCase.save('user-123', payload, '')).resolves.toEqual({
+        sheetName: 'Hoja 1',
+        rowIndex: 2,
+        expenseId: 'expense-1',
+      });
+
+      expect(mockAppendRow.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockExpenseRecordCreate.mock.invocationCallOrder[0]!,
+      );
+      expect(mockExpenseRecordCreate.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockOperationLogCreate.mock.invocationCallOrder[0]!,
+      );
+      expect(mockOperationLogCreate.mock.invocationCallOrder[0]!).toBeLessThan(
+        mockConversationTransition.mock.invocationCallOrder[0]!,
+      );
+      expect(mockConversationTransition).toHaveBeenCalledWith(
+        'user-123',
+        'IDLE',
+        { immediateUndoExpenseId: 'expense-1' },
+        null,
+      );
     });
 
     it('uses the access-token service to append and persists the confirmed location', async () => {
@@ -250,7 +426,13 @@ describe('RegisterExpenseUseCase', () => {
       expect(mockSpreadsheetPortFactoryCreate).toHaveBeenCalledWith('access-token');
       expect(mockAppendRow).toHaveBeenCalledWith('file-1', 'Hoja 1', [100]);
       expect(mockExpenseRecordCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ sheetName: 'Hoja 1', rowIndex: 2 }),
+        expect.objectContaining({
+          sheetName: 'Hoja 1',
+          rowIndex: 2,
+          categoryId: null,
+          subcategoryId: null,
+          subcategoria: null,
+        }),
       );
     });
 
@@ -300,18 +482,55 @@ describe('RegisterExpenseUseCase', () => {
       });
     });
 
-    it('does not persist an expense record or transition to IDLE when appending fails', async () => {
-      mockAppendRow.mockRejectedValue(new SpreadsheetError('Network error during row append'));
-      const { useCase } = buildUseCase();
+    it.each([
+      {
+        failure: 'network',
+        configure: () =>
+          mockAppendRow.mockRejectedValue(
+            new SpreadsheetError('Network error during row append', {
+              code: 'NETWORK_ERROR',
+              retryable: true,
+            }),
+          ),
+        appendCount: 1,
+      },
+      {
+        failure: 'authorization',
+        configure: () =>
+          mockAppendRow.mockRejectedValue(
+            new SpreadsheetError('Access denied', { code: 'AUTH_ERROR' }),
+          ),
+        appendCount: 2,
+      },
+      {
+        failure: 'spreadsheet structure',
+        configure: () =>
+          mockAppendRow.mockRejectedValue(
+            new SpreadsheetError('Sheet changed', { code: 'STRUCTURE_ERROR' }),
+          ),
+        appendCount: 1,
+      },
+      {
+        failure: 'malformed mapping',
+        configure: () => mockFindBySpreadsheetId.mockResolvedValue([buildMapping('monto', -1)]),
+        appendCount: 0,
+      },
+    ])(
+      'does not expose success side effects after a $failure failure',
+      async ({ configure, appendCount }) => {
+        configure();
+        const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '')).rejects.toThrow(
-        'Network error during row append',
-      );
+        await expect(useCase.save('user-123', payload, '')).rejects.toBeInstanceOf(
+          SpreadsheetError,
+        );
 
-      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
-      expect(mockOperationLogCreate).not.toHaveBeenCalled();
-      expect(mockConversationTransition).not.toHaveBeenCalled();
-    });
+        expect(mockAppendRow).toHaveBeenCalledTimes(appendCount);
+        expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+        expect(mockOperationLogCreate).not.toHaveBeenCalled();
+        expect(mockConversationTransition).not.toHaveBeenCalled();
+      },
+    );
 
     it('forces one refresh after AUTH_ERROR and records only the single successful append', async () => {
       mockAppendRow
@@ -353,6 +572,272 @@ describe('RegisterExpenseUseCase', () => {
   });
 
   describe('interpret()', () => {
+    it('builds a ready payload with stable parent and child selections', async () => {
+      mockVocabularyFindBySpreadsheetId.mockResolvedValue(
+        new CategoryVocabulary(
+          'config-1',
+          [{ id: 'category-food', name: 'Food', normalizedName: 'food' }],
+          [
+            {
+              id: 'subcategory-restaurant',
+              categoryId: 'category-food',
+              name: 'Restaurant',
+              normalizedName: 'restaurant',
+            },
+          ],
+        ),
+      );
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Food'),
+          SubcategoryClassificationSelection.confirmed(
+            'subcategory-restaurant',
+            'Restaurant',
+            'category-food',
+          ),
+        ),
+      );
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({
+          categoriaRaw: 'Food',
+          subcategoriaRaw: 'Restaurant',
+          confianzaSubcategoria: 'alta',
+        }),
+      );
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
+      expect(result.payload).toMatchObject({
+        resolvedCategory: 'Food',
+        resolvedCategoryId: 'category-food',
+        categoryStatus: 'confirmed',
+        resolvedSubcategory: 'Restaurant',
+        resolvedSubcategoryId: 'subcategory-restaurant',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
+      });
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+    });
+
+    it('serializes explicit null child values for a hierarchy-disabled zero-amount review', async () => {
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Food'),
+        ),
+      );
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ monto: 0 }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result.status).toBe('needs_zero_confirmation');
+      if (result.status !== 'needs_zero_confirmation') {
+        throw new Error('Expected needs_zero_confirmation');
+      }
+      expect(result.payload).toMatchObject({
+        resolvedCategory: 'Food',
+        resolvedCategoryId: 'category-food',
+        resolvedSubcategory: null,
+        resolvedSubcategoryId: null,
+        subcategoryStatus: 'none',
+        subcategoryEnabled: false,
+      });
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+    });
+
+    it('keeps category-only review data and defaults a missing date without persistence', async () => {
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Food'),
+        ),
+      );
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ fechaRaw: null }));
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
+      expect(result.payload.resolvedDate).toBe(new Date().toISOString().slice(0, 10));
+      expect(result.payload).toMatchObject({
+        resolvedCategoryId: 'category-food',
+        resolvedSubcategory: null,
+        resolvedSubcategoryId: null,
+        subcategoryStatus: 'none',
+      });
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+    });
+
+    it('canonicalizes unmatched child extraction before persisting a no-child review', async () => {
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Food'),
+        ),
+      );
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({
+          subcategoriaRaw: 'Invented child',
+          confianzaSubcategoria: 'alta',
+        }),
+      );
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
+      expect(result.payload).toMatchObject({
+        resolvedSubcategory: null,
+        resolvedSubcategoryId: null,
+        subcategoryStatus: 'none',
+        extracted: {
+          subcategoriaRaw: null,
+          confianzaSubcategoria: 'nula',
+        },
+      });
+    });
+
+    it('enables subcategories when a confirmed subcategory mapping exists', async () => {
+      mockFindBySpreadsheetId.mockResolvedValue([
+        {
+          id: 'mapping-subcategory',
+          spreadsheetId: 'config-1',
+          GasttoField: 'subcategoria',
+          columnIndex: 4,
+          columnHeader: 'Subcategoría',
+          inferred: false,
+          confirmedAt: new Date(),
+        },
+      ]);
+      mockVocabularyFindBySpreadsheetId.mockResolvedValue(
+        new CategoryVocabulary('config-1', [
+          { id: 'category-food', name: 'Food', normalizedName: 'food' },
+        ]),
+      );
+      mockCategoryFindActiveBySpreadsheetId.mockResolvedValue([{ normalizedValue: 'food' }]);
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense());
+
+      const { useCase } = buildUseCase();
+      await useCase.interpret(buildInput());
+
+      expect(mockLLMExtractExpense).toHaveBeenCalledWith(
+        'Café con leche 100 EUR',
+        expect.objectContaining({
+          categories: ['food'],
+          categoryHierarchy: [{ name: 'Food', subcategories: [] }],
+          subcategoryEnabled: true,
+        }),
+      );
+    });
+
+    it('enables subcategories from configured children and preserves parent relationships', async () => {
+      mockVocabularyFindBySpreadsheetId.mockResolvedValue(
+        new CategoryVocabulary(
+          'config-1',
+          [
+            { id: 'category-leisure', name: 'Leisure', normalizedName: 'leisure' },
+            { id: 'category-food', name: 'Food', normalizedName: 'food' },
+          ],
+          [
+            {
+              id: 'subcategory-leisure-restaurant',
+              categoryId: 'category-leisure',
+              name: 'Restaurant',
+              normalizedName: 'restaurant',
+            },
+            {
+              id: 'subcategory-food-supermarket',
+              categoryId: 'category-food',
+              name: 'Supermarket',
+              normalizedName: 'supermarket',
+            },
+            {
+              id: 'subcategory-food-restaurant',
+              categoryId: 'category-food',
+              name: 'Restaurant',
+              normalizedName: 'restaurant',
+            },
+          ],
+        ),
+      );
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense());
+
+      const { useCase } = buildUseCase();
+      await useCase.interpret(buildInput());
+
+      expect(mockLLMExtractExpense).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          categoryHierarchy: [
+            { name: 'Food', subcategories: ['Restaurant', 'Supermarket'] },
+            { name: 'Leisure', subcategories: ['Restaurant'] },
+          ],
+          subcategoryEnabled: true,
+        }),
+      );
+    });
+
+    it('keeps flat users hierarchy-disabled without inventing children', async () => {
+      mockCategoryFindActiveBySpreadsheetId.mockResolvedValue([
+        { normalizedValue: 'food' },
+        { normalizedValue: 'transport' },
+      ]);
+      mockVocabularyFindBySpreadsheetId.mockResolvedValue(
+        new CategoryVocabulary('config-1', [
+          { id: 'category-food', name: 'Food', normalizedName: 'food' },
+          { id: 'category-transport', name: 'Transport', normalizedName: 'transport' },
+        ]),
+      );
+      mockFindBySpreadsheetId.mockResolvedValue([
+        {
+          GasttoField: 'subcategoria',
+          confirmedAt: null,
+        },
+      ]);
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense());
+
+      const { useCase } = buildUseCase();
+      await useCase.interpret(buildInput());
+
+      expect(mockLLMExtractExpense).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          categories: ['food', 'transport'],
+          categoryHierarchy: [
+            { name: 'Food', subcategories: [] },
+            { name: 'Transport', subcategories: [] },
+          ],
+          subcategoryEnabled: false,
+        }),
+      );
+    });
+
+    it('uses empty hierarchy context when the user has no spreadsheet configuration', async () => {
+      mockSpreadsheetConfigFindByUserId.mockResolvedValue(null);
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense());
+
+      const { useCase } = buildUseCase();
+      await useCase.interpret(buildInput());
+
+      expect(mockCategoryFindActiveBySpreadsheetId).not.toHaveBeenCalled();
+      expect(mockVocabularyFindBySpreadsheetId).not.toHaveBeenCalled();
+      expect(mockFindBySpreadsheetId).not.toHaveBeenCalled();
+      expect(mockLLMExtractExpense).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          categories: [],
+          categoryHierarchy: [],
+          subcategoryEnabled: false,
+        }),
+      );
+    });
+
     it('LLM succeeds with amount and currency -> ready_for_review', async () => {
       const extracted = buildExtractedExpense({ monto: 100, moneda: 'EUR' });
       mockLLMExtractExpense.mockResolvedValue(extracted);
@@ -371,9 +856,12 @@ describe('RegisterExpenseUseCase', () => {
       expect(result.payload.categoryStatus).toBe('none');
       expect(mockClassifierExecute).toHaveBeenCalledWith({
         userId: 'user-123',
+        spreadsheetId: 'config-1',
         rawMessage: 'Café con leche 100 EUR',
         llmCategory: 'café',
         llmConfidence: 'alta',
+        llmSubcategory: null,
+        llmSubcategoryConfidence: 'nula',
       });
       expect(mockConversationTransition).toHaveBeenCalledTimes(1);
       expect(mockConversationTransition).toHaveBeenCalledWith(
@@ -393,7 +881,11 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('propagates a confirmed classification as categoryStatus confirmed', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.highConfidence('Comida'));
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('category-food', 'Comida'),
+        ),
+      );
       mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: 'comida' }));
 
       const { useCase } = buildUseCase();
@@ -408,7 +900,11 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('propagates an ambiguous classification as categoryStatus ambiguous', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.ambiguous('Ocio'));
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.ambiguous('category-leisure', 'Ocio'),
+        ),
+      );
       mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: 'ocio' }));
 
       const { useCase } = buildUseCase();
@@ -423,7 +919,11 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('propagates a fallback classification as categoryStatus fallback', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.fallback('Comida'));
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.fallback('category-food', 'Comida'),
+        ),
+      );
       mockLLMExtractExpense.mockResolvedValue(
         buildExtractedExpense({ categoriaRaw: 'restaurante' }),
       );
@@ -440,7 +940,7 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('propagates a no-match classification as categoryStatus none', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.noMatch());
+      mockClassifierExecute.mockResolvedValue(HierarchicalClassificationResult.none());
       mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ categoriaRaw: null }));
 
       const { useCase } = buildUseCase();
@@ -595,7 +1095,12 @@ describe('RegisterExpenseUseCase', () => {
     });
 
     it('proceeds to review when category is ambiguous instead of asking for clarification', async () => {
-      mockClassifierExecute.mockResolvedValue(ClassificationResult.ambiguous('Ocio'));
+      mockClassifierExecute.mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.ambiguous('category-leisure', 'Ocio'),
+          SubcategoryClassificationSelection.none(),
+        ),
+      );
       mockLLMExtractExpense.mockResolvedValue(
         buildExtractedExpense({ categoriaRaw: 'ocio', confianzaCategoria: 'baja' }),
       );

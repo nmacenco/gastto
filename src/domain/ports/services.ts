@@ -13,7 +13,14 @@ import type { Currency } from '../entities/User';
 export interface UserContext {
   defaultCurrency: Currency | null;
   categories: string[]; // active categories from the user's spreadsheet
+  categoryHierarchy: CategoryHierarchyContext[];
+  subcategoryEnabled: boolean;
   channel: 'telegram' | 'whatsapp';
+}
+
+export interface CategoryHierarchyContext {
+  name: string;
+  subcategories: string[];
 }
 
 export interface ConversationContext {
@@ -22,7 +29,7 @@ export interface ConversationContext {
   statePayload: Record<string, unknown> | null;
 }
 
-export type CorrectionField = 'monto' | 'moneda' | 'categoria' | 'fecha';
+export type CorrectionField = 'monto' | 'moneda' | 'categoria' | 'subcategoria' | 'fecha';
 export type ExpenseFollowUpIntent = 'correction' | 'new_expense' | 'unrelated';
 
 export interface ExpenseCorrectionSuggestion {
@@ -31,6 +38,7 @@ export interface ExpenseCorrectionSuggestion {
   monto: number | null;
   moneda: Currency | null;
   categoriaRaw: string | null;
+  subcategoriaRaw: string | null;
   fechaRaw: string | null;
 }
 
@@ -65,7 +73,8 @@ export interface AppendResult {
 }
 
 export interface SpreadsheetPort {
-  // Lee filas de un rango (ej. "Gastos!A:F")
+  // Reads a worksheet-qualified A1 range whose first cell has a 1-based row
+  // (for example, "Gastos!A2:F" or "'Gastos 2026'!A2:F50").
   readRows(fileId: string, range: string): Promise<Row[]>;
 
   // Appends a row and returns the location reference (ADR-006)

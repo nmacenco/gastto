@@ -9,23 +9,30 @@ import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense
 import type { LLMPort } from '../../../domain/ports/services';
 import type { CorrectExpenseOutcome } from './CorrectExpenseUseCase';
 import type {
+  ICategoryVocabularyRepository,
   IExpenseRecordRepository,
   ISpreadsheetConfigRepository,
-  IUserCategoryRepository,
 } from '../../../domain/ports/repositories';
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
-import { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
+import {
+  ClassificationSelection,
+  HierarchicalClassificationResult,
+  SubcategoryClassificationSelection,
+} from '../../../domain/value-objects/ClassificationResult';
+import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
 
 function buildExtractedExpense(overrides: Partial<ExtractedExpense> = {}): ExtractedExpense {
   return {
     monto: 12,
     moneda: 'EUR',
     categoriaRaw: 'Comida',
+    subcategoriaRaw: null,
     fechaRaw: '2026-07-25',
     medioPago: null,
     confianzaCategoria: 'alta',
+    confianzaSubcategoria: 'nula',
     ...overrides,
   };
 }
@@ -62,8 +69,8 @@ function buildDeps(
       typeof vi.fn<IExpenseRecordRepository['findAverageAmountByUserId']>
     >;
     findByUserId?: ReturnType<typeof vi.fn<ISpreadsheetConfigRepository['findByUserId']>>;
-    findActiveBySpreadsheetId?: ReturnType<
-      typeof vi.fn<IUserCategoryRepository['findActiveBySpreadsheetId']>
+    findCategoryVocabulary?: ReturnType<
+      typeof vi.fn<ICategoryVocabularyRepository['findBySpreadsheetId']>
     >;
     transition?: ReturnType<typeof vi.fn<TransitionConversationState['execute']>>;
   } = {},
@@ -76,12 +83,15 @@ function buildDeps(
       monto: 15,
       moneda: null,
       categoriaRaw: null,
+      subcategoriaRaw: null,
       fechaRaw: null,
     });
 
   const classifierMock: ReturnType<typeof vi.fn<ICategoryClassifier['execute']>> =
     overrides.classifier ??
-    vi.fn<ICategoryClassifier['execute']>().mockResolvedValue(ClassificationResult.noMatch());
+    vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(HierarchicalClassificationResult.none());
 
   const findAverageAmountByUserIdMock: ReturnType<
     typeof vi.fn<IExpenseRecordRepository['findAverageAmountByUserId']>
@@ -104,30 +114,39 @@ function buildDeps(
       updatedAt: new Date(),
     });
 
-  const findActiveBySpreadsheetIdMock: ReturnType<
-    typeof vi.fn<IUserCategoryRepository['findActiveBySpreadsheetId']>
+  const findCategoryVocabularyMock: ReturnType<
+    typeof vi.fn<ICategoryVocabularyRepository['findBySpreadsheetId']>
   > =
-    overrides.findActiveBySpreadsheetId ??
-    vi.fn<IUserCategoryRepository['findActiveBySpreadsheetId']>().mockResolvedValue([
-      {
-        id: 'cat-1',
-        spreadsheetId: 'sheet-1',
-        rawValue: 'Comida',
-        normalizedValue: 'Comida',
-        usageCount: 1,
-        isActive: true,
-        createdAt: new Date(),
-      },
-      {
-        id: 'cat-2',
-        spreadsheetId: 'sheet-1',
-        rawValue: 'Transporte',
-        normalizedValue: 'Transporte',
-        usageCount: 1,
-        isActive: true,
-        createdAt: new Date(),
-      },
-    ]);
+    overrides.findCategoryVocabulary ??
+    vi.fn<ICategoryVocabularyRepository['findBySpreadsheetId']>().mockResolvedValue(
+      new CategoryVocabulary(
+        'sheet-1',
+        [
+          { id: 'cat-1', name: 'Comida', normalizedName: 'comida' },
+          { id: 'cat-2', name: 'Transporte', normalizedName: 'transporte' },
+        ],
+        [
+          {
+            id: 'sub-1',
+            categoryId: 'cat-1',
+            name: 'Restaurante',
+            normalizedName: 'restaurante',
+          },
+          {
+            id: 'sub-2',
+            categoryId: 'cat-1',
+            name: 'Supermercado',
+            normalizedName: 'supermercado',
+          },
+          {
+            id: 'sub-3',
+            categoryId: 'cat-2',
+            name: 'Peajes',
+            normalizedName: 'peajes',
+          },
+        ],
+      ),
+    );
 
   const transitionMock: ReturnType<typeof vi.fn<TransitionConversationState['execute']>> =
     overrides.transition ??
@@ -152,9 +171,9 @@ function buildDeps(
   const spreadsheetConfigRepo = {
     findByUserId: findByUserIdMock,
   } as unknown as ISpreadsheetConfigRepository;
-  const categoryRepo = {
-    findActiveBySpreadsheetId: findActiveBySpreadsheetIdMock,
-  } as unknown as IUserCategoryRepository;
+  const categoryVocabularyRepo = {
+    findBySpreadsheetId: findCategoryVocabularyMock,
+  } as unknown as ICategoryVocabularyRepository;
   const transitionState = { execute: transitionMock } as unknown as TransitionConversationState;
 
   return {
@@ -164,7 +183,7 @@ function buildDeps(
         classifier,
         expenseRepo,
         spreadsheetConfigRepo,
-        categoryRepo,
+        categoryVocabularyRepo,
         transitionState,
       },
       10,
@@ -173,7 +192,7 @@ function buildDeps(
     classifierMock,
     findAverageAmountByUserIdMock,
     findByUserIdMock,
-    findActiveBySpreadsheetIdMock,
+    findCategoryVocabularyMock,
     transitionMock,
   };
 }
@@ -214,6 +233,7 @@ describe('CorrectExpenseUseCase', () => {
         monto: null,
         moneda: 'USD',
         categoriaRaw: null,
+        subcategoriaRaw: null,
         fechaRaw: null,
       }),
     });
@@ -251,11 +271,16 @@ describe('CorrectExpenseUseCase', () => {
         monto: null,
         moneda: null,
         categoriaRaw: 'transporte',
+        subcategoriaRaw: null,
         fechaRaw: null,
       }),
       classifier: vi
         .fn<ICategoryClassifier['execute']>()
-        .mockResolvedValue(ClassificationResult.highConfidence('Transporte')),
+        .mockResolvedValue(
+          HierarchicalClassificationResult.create(
+            ClassificationSelection.confirmed('category-transport', 'Transporte'),
+          ),
+        ),
     });
     const state = buildCorrectionState();
 
@@ -276,6 +301,8 @@ describe('CorrectExpenseUseCase', () => {
         rawMessage: 'ponlo en transporte',
         llmCategory: 'transporte',
         llmConfidence: 'alta',
+        llmSubcategory: null,
+        llmSubcategoryConfidence: 'nula',
       }),
     );
     expect(transitionMock).toHaveBeenCalledWith(
@@ -291,6 +318,7 @@ describe('CorrectExpenseUseCase', () => {
         monto: null,
         moneda: null,
         categoriaRaw: null,
+        subcategoriaRaw: null,
         fechaRaw: 'ayer',
       }),
     });
@@ -320,11 +348,16 @@ describe('CorrectExpenseUseCase', () => {
         monto: 15,
         moneda: null,
         categoriaRaw: 'transporte',
+        subcategoriaRaw: null,
         fechaRaw: null,
       }),
       classifier: vi
         .fn<ICategoryClassifier['execute']>()
-        .mockResolvedValue(ClassificationResult.highConfidence('Transporte')),
+        .mockResolvedValue(
+          HierarchicalClassificationResult.create(
+            ClassificationSelection.confirmed('category-transport', 'Transporte'),
+          ),
+        ),
     });
     const state = buildCorrectionState();
 
@@ -351,6 +384,7 @@ describe('CorrectExpenseUseCase', () => {
         monto: null,
         moneda: null,
         categoriaRaw: null,
+        subcategoriaRaw: null,
         fechaRaw: null,
       }),
     });
@@ -380,6 +414,7 @@ describe('CorrectExpenseUseCase', () => {
         monto: null,
         moneda: null,
         categoriaRaw: null,
+        subcategoriaRaw: null,
         fechaRaw: null,
       }),
     });
@@ -397,6 +432,390 @@ describe('CorrectExpenseUseCase', () => {
     expect(transitionMock).not.toHaveBeenCalled();
   });
 
+  it('applies a parent and child correction atomically with one classifier call', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['categoria', 'subcategoria'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: 'Transporte',
+      subcategoriaRaw: 'Peajes',
+      fechaRaw: null,
+    });
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-2', 'Transporte'),
+          SubcategoryClassificationSelection.confirmed('sub-3', 'Peajes', 'cat-2'),
+        ),
+      );
+    const { useCase, classifierMock, transitionMock } = buildDeps({
+      interpretCorrection,
+      classifier,
+    });
+    const state = buildCorrectionState(
+      buildReviewPayload({
+        resolvedCategory: 'Comida',
+        resolvedCategoryId: 'cat-1',
+        resolvedSubcategory: 'Restaurante',
+        resolvedSubcategoryId: 'sub-1',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
+      }),
+    );
+
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'es Transporte, subcategoría Peajes',
+      state,
+      channel: 'telegram',
+    });
+
+    expect(result.status).toBe('corrected');
+    expect(getPayload(result)).toEqual(
+      expect.objectContaining({
+        resolvedCategory: 'Transporte',
+        resolvedCategoryId: 'cat-2',
+        resolvedSubcategory: 'Peajes',
+        resolvedSubcategoryId: 'sub-3',
+        subcategoryStatus: 'confirmed',
+      }),
+    );
+    expect(getPayload(result).extracted).toEqual(
+      expect.objectContaining({
+        categoriaRaw: 'Transporte',
+        subcategoriaRaw: 'Peajes',
+        confianzaSubcategoria: 'alta',
+      }),
+    );
+    expect(classifierMock).toHaveBeenCalledOnce();
+    expect(classifierMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        llmCategory: 'Transporte',
+        llmSubcategory: 'Peajes',
+        llmSubcategoryConfidence: 'alta',
+      }),
+    );
+    expect(transitionMock).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an invalid combined child atomically and preserves the complete state', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['monto', 'categoria', 'subcategoria'],
+      monto: 99,
+      moneda: null,
+      categoriaRaw: 'Transporte',
+      subcategoriaRaw: 'Restaurante',
+      fechaRaw: null,
+    });
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-2', 'Transporte'),
+        ),
+      );
+    const { useCase, transitionMock, findAverageAmountByUserIdMock } = buildDeps({
+      interpretCorrection,
+      classifier,
+    });
+    const payload = buildReviewPayload({
+      resolvedCategoryId: 'cat-1',
+      resolvedSubcategory: 'Restaurante',
+      resolvedSubcategoryId: 'sub-1',
+      subcategoryStatus: 'confirmed',
+      subcategoryEnabled: true,
+      pendingHighAmountConfirmation: true,
+      queueRegisteredCount: 2,
+      immediateUndoExpenseId: 'expense-previous',
+    });
+    const state = buildCorrectionState(payload, 4);
+    const snapshot = state.toPayload();
+
+    await expect(
+      useCase.execute({
+        userId: 'user-123',
+        rawMessage: 'fueron 99, Transporte, Restaurante',
+        state,
+        channel: 'telegram',
+      }),
+    ).resolves.toEqual({
+      status: 'invalid_subcategory',
+      parentCategory: 'Transporte',
+      attemptedSubcategory: 'Restaurante',
+      allowedSubcategories: ['Peajes'],
+    });
+
+    expect(state.toPayload()).toEqual(snapshot);
+    expect(transitionMock).not.toHaveBeenCalled();
+    expect(findAverageAmountByUserIdMock).not.toHaveBeenCalled();
+  });
+
+  it('resolves a child-only correction under the current active parent', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['subcategoria'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: null,
+      subcategoriaRaw: 'Restaurante',
+      fechaRaw: null,
+    });
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-1', 'Comida'),
+          SubcategoryClassificationSelection.confirmed('sub-1', 'Restaurante', 'cat-1'),
+        ),
+      );
+    const { useCase, classifierMock } = buildDeps({ interpretCorrection, classifier });
+    const state = buildCorrectionState(
+      buildReviewPayload({
+        resolvedCategoryId: 'cat-1',
+        subcategoryEnabled: true,
+      }),
+    );
+
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'la subcategoría es Restaurante',
+      state,
+      channel: 'telegram',
+    });
+
+    expect(result.status).toBe('corrected');
+    expect(getPayload(result).resolvedSubcategoryId).toBe('sub-1');
+    expect(classifierMock).toHaveBeenCalledWith(
+      expect.objectContaining({ llmCategory: 'Comida', llmSubcategory: 'Restaurante' }),
+    );
+  });
+
+  it('rejects a child-only correction when the stored parent is stale', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['subcategoria'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: null,
+      subcategoriaRaw: 'Restaurante',
+      fechaRaw: null,
+    });
+    const { useCase, classifierMock, transitionMock } = buildDeps({ interpretCorrection });
+    const state = buildCorrectionState(
+      buildReviewPayload({
+        resolvedCategory: 'Archivada',
+        resolvedCategoryId: 'cat-stale',
+        subcategoryEnabled: true,
+      }),
+      3,
+    );
+
+    await expect(
+      useCase.execute({
+        userId: 'user-123',
+        rawMessage: 'la subcategoría es Restaurante',
+        state,
+        channel: 'telegram',
+      }),
+    ).resolves.toEqual({
+      status: 'invalid_subcategory',
+      parentCategory: 'Archivada',
+      attemptedSubcategory: 'Restaurante',
+      allowedSubcategories: [],
+    });
+    expect(classifierMock).not.toHaveBeenCalled();
+    expect(transitionMock).not.toHaveBeenCalled();
+    expect(state.correctionCycles).toBe(3);
+  });
+
+  it('rejects an equal-named child resolved under a different parent', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['subcategoria'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: null,
+      subcategoriaRaw: 'Común',
+      fechaRaw: null,
+    });
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-1', 'Comida'),
+          SubcategoryClassificationSelection.confirmed('sub-other', 'Común', 'cat-2'),
+        ),
+      );
+    const { useCase, transitionMock } = buildDeps({ interpretCorrection, classifier });
+    const state = buildCorrectionState(
+      buildReviewPayload({ resolvedCategoryId: 'cat-1', subcategoryEnabled: true }),
+    );
+
+    await expect(
+      useCase.execute({
+        userId: 'user-123',
+        rawMessage: 'la subcategoría es Común',
+        state,
+        channel: 'telegram',
+      }),
+    ).resolves.toEqual({
+      status: 'invalid_subcategory',
+      parentCategory: 'Comida',
+      attemptedSubcategory: 'Común',
+      allowedSubcategories: ['Restaurante', 'Supermercado'],
+    });
+    expect(transitionMock).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty allowed-child list for an active parent without children', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['categoria', 'subcategoria'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: 'Otros',
+      subcategoriaRaw: 'Varios',
+      fechaRaw: null,
+    });
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-other', 'Otros'),
+        ),
+      );
+    const vocabulary = new CategoryVocabulary('sheet-1', [
+      { id: 'cat-other', name: 'Otros', normalizedName: 'otros' },
+    ]);
+    const { useCase } = buildDeps({
+      interpretCorrection,
+      classifier,
+      findCategoryVocabulary: vi
+        .fn<ICategoryVocabularyRepository['findBySpreadsheetId']>()
+        .mockResolvedValue(vocabulary),
+    });
+    const state = buildCorrectionState(
+      buildReviewPayload({ resolvedCategoryId: 'cat-1', subcategoryEnabled: true }),
+    );
+
+    await expect(
+      useCase.execute({
+        userId: 'user-123',
+        rawMessage: 'Otros, Varios',
+        state,
+        channel: 'telegram',
+      }),
+    ).resolves.toEqual({
+      status: 'invalid_subcategory',
+      parentCategory: 'Otros',
+      attemptedSubcategory: 'Varios',
+      allowedSubcategories: [],
+    });
+  });
+
+  it('preserves a child on category-only correction only when its stable ID belongs to the parent', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['categoria'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: 'Comida',
+      subcategoriaRaw: null,
+      fechaRaw: null,
+    });
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-1', 'Comida'),
+        ),
+      );
+    const { useCase } = buildDeps({ interpretCorrection, classifier });
+    const state = buildCorrectionState(
+      buildReviewPayload({
+        resolvedCategoryId: 'cat-1',
+        resolvedSubcategory: 'Restaurante',
+        resolvedSubcategoryId: 'sub-1',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
+        extracted: buildExtractedExpense({
+          subcategoriaRaw: 'Restaurante',
+          confianzaSubcategoria: 'alta',
+        }),
+      }),
+    );
+
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'la categoría es Comida',
+      state,
+      channel: 'telegram',
+    });
+
+    expect(getPayload(result)).toEqual(
+      expect.objectContaining({
+        resolvedSubcategory: 'Restaurante',
+        resolvedSubcategoryId: 'sub-1',
+        subcategoryStatus: 'confirmed',
+      }),
+    );
+    expect(getPayload(result).extracted.confianzaSubcategoria).toBe('alta');
+  });
+
+  it('clears a child to canonical no-child values when changing to another parent', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['categoria'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: 'Transporte',
+      subcategoriaRaw: null,
+      fechaRaw: null,
+    });
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-2', 'Transporte'),
+        ),
+      );
+    const { useCase } = buildDeps({ interpretCorrection, classifier });
+    const state = buildCorrectionState(
+      buildReviewPayload({
+        resolvedCategoryId: 'cat-1',
+        resolvedSubcategory: 'Restaurante',
+        resolvedSubcategoryId: 'sub-1',
+        subcategoryStatus: 'confirmed',
+        subcategoryEnabled: true,
+        extracted: buildExtractedExpense({
+          subcategoriaRaw: 'Restaurante',
+          confianzaSubcategoria: 'alta',
+        }),
+      }),
+    );
+
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'la categoría es Transporte',
+      state,
+      channel: 'telegram',
+    });
+
+    expect(getPayload(result)).toEqual(
+      expect.objectContaining({
+        resolvedSubcategory: null,
+        resolvedSubcategoryId: null,
+        subcategoryStatus: 'none',
+      }),
+    );
+    expect(getPayload(result).extracted).toEqual(
+      expect.objectContaining({ subcategoriaRaw: null, confianzaSubcategoria: 'nula' }),
+    );
+  });
+
   it('requests explicit confirmation for unusually high corrected amounts', async () => {
     const { useCase, transitionMock, findAverageAmountByUserIdMock } = buildDeps({
       interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
@@ -405,6 +824,7 @@ describe('CorrectExpenseUseCase', () => {
         monto: 1_000_000,
         moneda: null,
         categoriaRaw: null,
+        subcategoriaRaw: null,
         fechaRaw: null,
       }),
       findAverageAmountByUserId: vi
@@ -461,9 +881,9 @@ describe('CorrectExpenseUseCase', () => {
     );
   });
 
-  it('builds the user context from the spreadsheet config', async () => {
-    const { useCase, interpretCorrectionMock } = buildDeps();
-    const state = buildCorrectionState();
+  it('builds ordered hierarchy context and preserves the enabled capability', async () => {
+    const { useCase, interpretCorrectionMock, findCategoryVocabularyMock } = buildDeps();
+    const state = buildCorrectionState(buildReviewPayload({ subcategoryEnabled: true }));
 
     await useCase.execute({
       userId: 'user-123',
@@ -478,7 +898,37 @@ describe('CorrectExpenseUseCase', () => {
       expect.objectContaining({
         defaultCurrency: 'EUR',
         categories: ['Comida', 'Transporte'],
+        categoryHierarchy: [
+          { name: 'Comida', subcategories: ['Restaurante', 'Supermercado'] },
+          { name: 'Transporte', subcategories: ['Peajes'] },
+        ],
+        subcategoryEnabled: true,
         channel: 'telegram',
+      }),
+    );
+    expect(findCategoryVocabularyMock).toHaveBeenCalledWith('sheet-1');
+  });
+
+  it('treats a legacy review payload as hierarchy-disabled while retaining context', async () => {
+    const { useCase, interpretCorrectionMock } = buildDeps();
+    const state = buildCorrectionState();
+
+    await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'no, fueron 15',
+      state,
+      channel: 'telegram',
+    });
+
+    expect(interpretCorrectionMock).toHaveBeenCalledWith(
+      expect.any(String),
+      state.payload.extracted,
+      expect.objectContaining({
+        categoryHierarchy: [
+          { name: 'Comida', subcategories: ['Restaurante', 'Supermercado'] },
+          { name: 'Transporte', subcategories: ['Peajes'] },
+        ],
+        subcategoryEnabled: false,
       }),
     );
   });
@@ -504,7 +954,7 @@ describe('CorrectExpenseUseCase', () => {
   });
 
   it('uses an empty category list when the user has no spreadsheet config', async () => {
-    const { useCase, interpretCorrectionMock } = buildDeps({
+    const { useCase, interpretCorrectionMock, findCategoryVocabularyMock } = buildDeps({
       findByUserId: vi.fn<ISpreadsheetConfigRepository['findByUserId']>().mockResolvedValue(null),
     });
     const state = buildCorrectionState();
@@ -519,8 +969,13 @@ describe('CorrectExpenseUseCase', () => {
     expect(interpretCorrectionMock).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Object),
-      expect.objectContaining({ categories: [] }),
+      expect.objectContaining({
+        categories: [],
+        categoryHierarchy: [],
+        subcategoryEnabled: false,
+      }),
     );
+    expect(findCategoryVocabularyMock).not.toHaveBeenCalled();
   });
 
   it('resets the review TTL on successful correction', async () => {

@@ -14,7 +14,11 @@ import type {
   ColumnInferenceMapping,
 } from '../../../domain/ports/columnInference';
 import type { HeaderDetectionPort } from '../../../domain/ports/headerDetection';
-import type { GasttoField } from '../../../domain/entities/SpreadsheetConfig';
+import {
+  LEGACY_GASTTO_FIELDS,
+  SUPPORTED_GASTTO_FIELDS,
+  type GasttoField,
+} from '../../../domain/entities/SpreadsheetConfig';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
@@ -158,7 +162,9 @@ export class InferColumnMapping {
 
     const shouldRunLLM =
       result.noHeaderFound ||
-      result.unmappedFields.length > 0 ||
+      result.unmappedFields.some((field) =>
+        LEGACY_GASTTO_FIELDS.some((legacyField) => legacyField === field),
+      ) ||
       result.mappings.some((m) => m.confidence === 'baja');
 
     if (shouldRunLLM) {
@@ -247,14 +253,6 @@ export class InferColumnMapping {
     ruleBased: ColumnInferenceResult,
     llm: ColumnInferenceResult,
   ): ColumnInferenceResult {
-    const allFields: GasttoField[] = [
-      'monto',
-      'moneda',
-      'categoria',
-      'fecha',
-      'concepto',
-      'medio_pago',
-    ];
     const llmByField = new Map(llm.mappings.map((m) => [m.gasttoField, m]));
 
     const mergedMappings: ColumnInferenceMapping[] = [];
@@ -288,7 +286,7 @@ export class InferColumnMapping {
     }
 
     // Third pass: add LLM mappings for fields that rule-based did not map at all.
-    for (const field of allFields) {
+    for (const field of SUPPORTED_GASTTO_FIELDS) {
       if (mappedFields.has(field)) continue;
 
       const llmMapping = llmByField.get(field);
@@ -299,7 +297,7 @@ export class InferColumnMapping {
       }
     }
 
-    const unmappedFields = allFields.filter((f) => !mappedFields.has(f));
+    const unmappedFields = SUPPORTED_GASTTO_FIELDS.filter((f) => !mappedFields.has(f));
 
     return {
       mappings: mergedMappings,

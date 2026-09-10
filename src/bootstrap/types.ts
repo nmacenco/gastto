@@ -22,6 +22,7 @@ import type { GoogleDriveFileDiscoveryAdapter } from '../infrastructure/adapters
 import type { GoogleSheetsAdapterFactory } from '../infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
 import type { SpreadsheetAccessAdapterFactory } from '../infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import type { SpreadsheetCategoryReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryReaderFactory';
+import type { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
 import type { RuleBasedColumnInferenceAdapter } from '../infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
 import type { RuleBasedHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
 import type { LLMHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/LLMHeaderDetectionAdapter';
@@ -40,6 +41,8 @@ import type { UndoLastExpenseUseCase } from '../application/use-cases/expense/Un
 import type { RetryExpenseSaveUseCase } from '../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { QueuePendingExpense } from '../application/use-cases/expense/QueuePendingExpense';
 import type { AdvancePendingExpense } from '../application/use-cases/expense/AdvancePendingExpense';
+import type { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
+import type { SubcategoryFallbackMatcher } from '../infrastructure/adapters/category/SubcategoryFallbackMatcher';
 import type { ExpenseSummaryPresenter } from '../application/ports/output/expense-summary.presenter';
 import type { ResolveUserIdentityUseCase } from '../application/use-cases/user/ResolveUserIdentity';
 import type { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
@@ -112,6 +115,8 @@ export interface GoogleOAuthFeature {
   sheetsAdapterFactory: GoogleSheetsAdapterFactory;
   /** Factory for creating spreadsheet readers from an access token. */
   categoryReaderFactory: SpreadsheetCategoryReaderFactory;
+  /** Factory for reading linked category/subcategory rows from Google Sheets. */
+  categoryHierarchyReaderFactory: SpreadsheetCategoryHierarchyReaderFactory;
   /** Selects a spreadsheet file and advances to sheet selection. */
   handleSpreadsheetFileSelection: HandleSpreadsheetFileSelection;
   /** Selects a sheet within a spreadsheet and advances to validation. */
@@ -185,6 +190,8 @@ export interface Dependencies {
   userProcessingLock: RedisUserProcessingLock;
 
   // Expense registration use cases
+  categoryClassifier?: ClassifyExpenseCategory;
+  subcategoryFallbackMatcher?: SubcategoryFallbackMatcher;
   registerExpense: RegisterExpenseUseCase;
   queuePendingExpense: QueuePendingExpense;
   advancePendingExpense: AdvancePendingExpense;

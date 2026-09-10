@@ -12,9 +12,13 @@ export interface ExpenseSummary {
   amount: number;
   currency: string;
   category: string;
+  subcategory: string;
   date: string;
   categoryConfidence: CategoryConfidence;
   categoryStatus: CategoryStatus;
+  subcategoryConfidence: CategoryConfidence;
+  subcategoryStatus: CategoryStatus;
+  subcategoryEnabled: boolean;
   actions: {
     confirm: true;
     correct: true;

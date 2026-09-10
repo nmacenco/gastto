@@ -21,12 +21,14 @@ import { DrizzleExpenseRecordRepository } from '../infrastructure/db/repositorie
 import { DrizzleExpenseQueueRepository } from '../infrastructure/db/repositories/DrizzleExpenseQueueRepository';
 import { TelegramMessengerAdapter } from '../infrastructure/adapters/telegram/TelegramMessengerAdapter';
 import { CategoryFallbackMapper } from '../infrastructure/adapters/category/CategoryFallbackMapper';
+import { SubcategoryFallbackMatcher } from '../infrastructure/adapters/category/SubcategoryFallbackMatcher';
 import { GoogleDriveOAuthAdapter } from '../infrastructure/adapters/oauth';
 import { GoogleDriveFileDiscoveryAdapter } from '../infrastructure/adapters/drive/GoogleDriveFileDiscoveryAdapter';
 import { GoogleSheetsAdapterFactory } from '../infrastructure/adapters/sheets/GoogleSheetsAdapterFactory';
 import { SpreadsheetAccessAdapterFactory } from '../infrastructure/adapters/sheets/SpreadsheetAccessAdapterFactory';
 import { GoogleSheetsAdapter } from '../infrastructure/adapters/sheets/GoogleSheetsAdapter';
 import { SpreadsheetCategoryReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryReaderFactory';
+import { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
 import { RegexCategoryModificationParser } from '../infrastructure/adapters/RegexCategoryModificationParser';
 import { RuleBasedColumnInferenceAdapter } from '../infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
 import { RuleBasedHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
@@ -218,6 +220,9 @@ function buildGoogleOAuthFeature(
   const driveFileDiscovery = new GoogleDriveFileDiscoveryAdapter(infra.rootLogger);
   const sheetsAdapterFactory = new GoogleSheetsAdapterFactory();
   const categoryReaderFactory = new SpreadsheetCategoryReaderFactory(sheetsAdapterFactory);
+  const categoryHierarchyReaderFactory = new SpreadsheetCategoryHierarchyReaderFactory(
+    sheetsAdapterFactory,
+  );
 
   const inferColumnMapping = new InferColumnMapping({
     oauthAccessTokenService: core.oauthAccessTokenService,
@@ -306,6 +311,7 @@ function buildGoogleOAuthFeature(
 
   const detectCategories = new DetectCategories({
     categoryReaderPortFactory: categoryReaderFactory,
+    categoryHierarchyReaderPortFactory: categoryHierarchyReaderFactory,
     oauthAccessTokenService: core.oauthAccessTokenService,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     columnMappingRepository: core.columnMappingRepo,
@@ -316,6 +322,7 @@ function buildGoogleOAuthFeature(
 
   const confirmCategories = new ConfirmCategories({
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    categoryVocabularyRepository: core.categoryVocabularyRepo,
     userRepository: core.userRepo,
     messagingPort,
     transitionState: core.transitionState,
@@ -338,6 +345,7 @@ function buildGoogleOAuthFeature(
     driveFileDiscovery,
     sheetsAdapterFactory,
     categoryReaderFactory,
+    categoryHierarchyReaderFactory,
     handleSpreadsheetFileSelection,
     handleSheetSelection,
     validateSpreadsheetAccess,
@@ -481,9 +489,12 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     userCategoryRepo,
   );
   const categoryFallbackMapper = new CategoryFallbackMapper();
+  const subcategoryFallbackMatcher = new SubcategoryFallbackMatcher();
   const categoryClassifier = new ClassifyExpenseCategory(
     categoryKeywordVocabularyRepo,
+    categoryVocabularyRepo,
     categoryFallbackMapper,
+    subcategoryFallbackMatcher,
     env.CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD,
   );
   const spreadsheetPortFactory = new GoogleSheetsAdapterFactory();
@@ -495,6 +506,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     spreadsheetConfigRepo,
     columnMappingRepo,
     userCategoryRepo,
+    categoryVocabularyRepo,
     conversationRepo,
     operationLogRepo,
     userProfileRepo,
@@ -521,7 +533,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       classifier: categoryClassifier,
       expenseRepo: expenseRecordRepo,
       spreadsheetConfigRepo,
-      categoryRepo: userCategoryRepo,
+      categoryVocabularyRepo,
       transitionState,
     },
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
@@ -623,6 +635,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     ruleBasedHeaderDetectionAdapter,
     mappingCorrectionStateRepository,
     userProcessingLock,
+    categoryClassifier,
+    subcategoryFallbackMatcher,
     registerExpense,
     queuePendingExpense,
     advancePendingExpense,

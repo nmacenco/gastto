@@ -17,9 +17,11 @@ function buildPayload(): ExpenseReviewPayload {
       monto: 850,
       moneda: 'ARS',
       categoriaRaw: 'café',
+      subcategoriaRaw: null,
       fechaRaw: '2026-08-01',
       medioPago: null,
       confianzaCategoria: 'alta',
+      confianzaSubcategoria: 'nula',
     },
     resolvedDate: '2026-08-01',
     resolvedCategory: 'Comida',
@@ -144,6 +146,24 @@ describe('ResolveExpenseReviewReplyUseCase', () => {
     expect(request.payload).toEqual(payloadBefore);
     expect(resolveActionExecute).not.toHaveBeenCalled();
     expect(queuePendingExpenseExecute).not.toHaveBeenCalled();
+  });
+
+  it('returns invalid child guidance without queue admission or payload mutation', async () => {
+    const request = { ...input(), rawMessage: 'la subcategoría es Peajes' };
+    const payloadBefore = structuredClone(request.payload);
+    const rejection = {
+      status: 'invalid_subcategory' as const,
+      parentCategory: 'Comida',
+      attemptedSubcategory: 'Peajes',
+      allowedSubcategories: ['Restaurante'],
+    };
+    correctExpenseExecute.mockResolvedValue(rejection);
+
+    await expect(useCase.execute(request)).resolves.toEqual(rejection);
+
+    expect(request.payload).toEqual(payloadBefore);
+    expect(queuePendingExpenseExecute).not.toHaveBeenCalled();
+    expect(resolveActionExecute).not.toHaveBeenCalled();
   });
 
   it('queues only a reply interpreted as a genuine new expense', async () => {

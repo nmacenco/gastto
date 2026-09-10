@@ -342,6 +342,42 @@ describe('CorrectColumnMapping', () => {
     );
   });
 
+  it('manually assigns an optional subcategory and removes it from unmapped fields', async () => {
+    mockParse.mockReturnValue({ kind: 'success', field: 'subcategoria', columnRef: 'D' });
+
+    const result = await new CorrectColumnMapping(buildMockDeps()).execute({
+      ...baseInput,
+      statePayload: {
+        ...baseInput.statePayload,
+        unmappedFields: ['subcategoria', 'unknown-field'],
+      },
+    });
+
+    expect(result.kind).toBe('updated');
+    expect(mockSaveCorrectionState).toHaveBeenCalledWith(
+      'user-123',
+      expect.objectContaining({
+        corrections: [
+          {
+            field: 'subcategoria',
+            columnIndex: 3,
+            columnHeader: 'Descripción',
+          },
+        ],
+      }),
+      1800,
+    );
+    expect(mockTransitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ unmappedFields: [] }) as Record<string, unknown>,
+      }),
+    );
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      expect.stringContaining('🔖 Subcategoría → columna D'),
+    );
+  });
+
   it('returns invalid-column when the referenced column does not exist', async () => {
     mockParse.mockReturnValue({ kind: 'success', field: 'categoria', columnRef: 'Z' });
 
@@ -407,6 +443,21 @@ describe('CorrectColumnMapping', () => {
       '987654321',
       onboardingCopies.multipleMappingCorrectionsPrompt(),
     );
+  });
+
+  it('rejects category and subcategory corrections in the same message', async () => {
+    const useCase = new CorrectColumnMapping(
+      buildMockDeps({ correctionParser: new RuleBasedColumnMappingCorrectionParser() }),
+    );
+
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'categoría en C y subcategoría en D',
+    });
+
+    expect(result.kind).toBe('parse-failure');
+    expect(mockListAvailableColumns).not.toHaveBeenCalled();
+    expect(mockSaveCorrectionState).not.toHaveBeenCalled();
   });
 
   it('guides the user to manual correction when they reject the proposal', async () => {

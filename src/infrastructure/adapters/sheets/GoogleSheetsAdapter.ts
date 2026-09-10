@@ -12,6 +12,7 @@ import type { SpreadsheetAccessResult } from '../../../domain/value-objects/Spre
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
 import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { encodeUrlComponent, parseSpreadsheetRange } from './spreadsheetRange';
 
 const GOOGLE_SHEETS_API_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
 const GOOGLE_DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
@@ -144,10 +145,34 @@ export class GoogleSheetsAdapter
     return headers.map((columnHeader, index) => ({ index, columnHeader }));
   }
 
-  readRows(_fileId: string, _range: string): Promise<Row[]> {
-    return Promise.reject(
-      new SpreadsheetError('readRows not yet implemented', { code: 'STRUCTURE_ERROR' }),
-    );
+  async readRows(fileId: string, range: string): Promise<Row[]> {
+    const requestedRange = parseSpreadsheetRange(range);
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodeUrlComponent(range)}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+    } catch (error) {
+      throw networkError('row retrieval', error);
+    }
+
+    if (!response.ok) {
+      throw providerHttpError('row retrieval', response.status);
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new SpreadsheetError(
+        `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
+        { code: 'STRUCTURE_ERROR' },
+      );
+    }
+
+    return parseRowsResponse(data, requestedRange.startRow);
   }
 
   async appendRow(fileId: string, sheetName: string, values: CellValue[]): Promise<AppendResult> {
@@ -535,6 +560,63 @@ function parseGetHeadersResponse(data: unknown): string[] {
   }
 
   return firstRow.map((cell) => (typeof cell === 'string' ? cell : String(cell)));
+}
+
+function parseRowsResponse(data: unknown, requestedStartRow: number): Row[] {
+  if (!isRecord(data)) {
+    throw new SpreadsheetError('Unexpected row response format from Google Sheets API', {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+
+  let startRow = requestedStartRow;
+  if ('range' in data) {
+    if (typeof data.range !== 'string') {
+      throw new SpreadsheetError('Invalid range in Google Sheets row response', {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+    startRow = parseSpreadsheetRange(data.range).startRow;
+  }
+
+  if (!('values' in data)) {
+    return [];
+  }
+  if (!Array.isArray(data.values)) {
+    throw new SpreadsheetError('Invalid values in Google Sheets row response', {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+
+  return parseCellRows(data.values, startRow, 'Google Sheets');
+}
+
+function parseCellRows(values: unknown[], startRow: number, provider: string): Row[] {
+  return values.map((row, rowOffset) => {
+    if (!Array.isArray(row)) {
+      throw new SpreadsheetError(`Invalid row in ${provider} response`, {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+
+    const cells = Array.from({ length: row.length }, (_, columnIndex): CellValue => {
+      if (!(columnIndex in row)) return null;
+      const cell: unknown = row[columnIndex];
+      if (
+        cell === null ||
+        typeof cell === 'string' ||
+        typeof cell === 'number' ||
+        typeof cell === 'boolean'
+      ) {
+        return cell;
+      }
+      throw new SpreadsheetError(`Invalid cell value in ${provider} response`, {
+        code: 'STRUCTURE_ERROR',
+      });
+    });
+
+    return { index: startRow + rowOffset, values: cells };
+  });
 }
 
 function parsePreviewRows(data: unknown): Row[] {

@@ -29,23 +29,48 @@ describe('RuleBasedColumnInferenceAdapter', () => {
       expect(montoMapping?.columnIndex).toBe(1);
     });
 
-    it('maps all 6 GasttoField values with exact match', async () => {
+    it('keeps all 6 legacy fields mapped when subcategory is absent', async () => {
       const headers = ['fecha', 'monto', 'moneda', 'categoria', 'concepto', 'medio_pago'];
       const result = await adapter.infer(headers, []);
 
       expect(result.mappings).toHaveLength(6);
       expect(result.mappings.every((m) => m.confidence === 'alta')).toBe(true);
-      expect(result.unmappedFields).toHaveLength(0);
+      expect(result.unmappedFields).toEqual(['subcategoria']);
+    });
+
+    it('maps category and subcategory as distinct fields', async () => {
+      const result = await adapter.infer(
+        ['Categoría', 'Subcategoría'],
+        [['Comida', 'Restaurante']],
+      );
+
+      expect(result.mappings).toEqual([
+        {
+          gasttoField: 'categoria',
+          columnIndex: 0,
+          columnHeader: 'Categoría',
+          confidence: 'alta',
+        },
+        {
+          gasttoField: 'subcategoria',
+          columnIndex: 1,
+          columnHeader: 'Subcategoría',
+          confidence: 'alta',
+        },
+      ]);
     });
   });
 
   describe('Scenario 2: Ambiguous headers — low-confidence mapping', () => {
     it('maps fuzzy matches with baja confidence', async () => {
-      const headers = ['Fcha', 'Mnto', 'Ctegoria'];
+      const headers = ['Fcha', 'Mnto', 'Ctegoria', 'Subcategria'];
       const result = await adapter.infer(headers, []);
 
       expect(result.mappings.length).toBeGreaterThan(0);
       expect(result.mappings.some((m) => m.confidence === 'baja')).toBe(true);
+      expect(result.mappings).toContainEqual(
+        expect.objectContaining({ gasttoField: 'subcategoria', confidence: 'baja' }),
+      );
     });
 
     it('boosts confidence to alta when content-type validation passes', async () => {
@@ -72,7 +97,7 @@ describe('RuleBasedColumnInferenceAdapter', () => {
 
       expect(result.noHeaderFound).toBe(true);
       expect(result.mappings).toHaveLength(0);
-      expect(result.unmappedFields).toHaveLength(6);
+      expect(result.unmappedFields).toHaveLength(7);
     });
 
     it('does not detect no-header when at least one header is a string label', async () => {
@@ -101,16 +126,23 @@ describe('RuleBasedColumnInferenceAdapter', () => {
       const result = await adapter.infer(headers, []);
 
       expect(result.mappings).toHaveLength(0);
-      expect(result.unmappedFields).toHaveLength(6);
+      expect(result.unmappedFields).toHaveLength(7);
     });
   });
 
   describe('Scenario 5: Spreadsheet with columns in a language other than Spanish', () => {
     it('recognizes English headers correctly', async () => {
-      const headers = ['Date', 'Amount', 'Category', 'Description', 'Payment method'];
+      const headers = [
+        'Date',
+        'Amount',
+        'Category',
+        'Subcategory',
+        'Description',
+        'Payment method',
+      ];
       const result = await adapter.infer(headers, []);
 
-      expect(result.mappings).toHaveLength(5);
+      expect(result.mappings).toHaveLength(6);
       expect(result.mappings.every((m) => m.confidence === 'alta')).toBe(true);
 
       const dateMapping = result.mappings.find((m) => m.gasttoField === 'fecha');
@@ -118,13 +150,23 @@ describe('RuleBasedColumnInferenceAdapter', () => {
 
       const amountMapping = result.mappings.find((m) => m.gasttoField === 'monto');
       expect(amountMapping?.columnHeader).toBe('Amount');
+      expect(result.mappings).toContainEqual(
+        expect.objectContaining({ gasttoField: 'subcategoria', columnHeader: 'Subcategory' }),
+      );
     });
 
     it('recognizes Portuguese headers correctly', async () => {
-      const headers = ['Data', 'Valor', 'Categoria', 'Descricao', 'Meio de pagamento'];
+      const headers = [
+        'Data',
+        'Valor',
+        'Categoria',
+        'Sub categoria',
+        'Descricao',
+        'Meio de pagamento',
+      ];
       const result = await adapter.infer(headers, []);
 
-      expect(result.mappings).toHaveLength(5);
+      expect(result.mappings).toHaveLength(6);
       expect(result.mappings.every((m) => m.confidence === 'alta')).toBe(true);
 
       const dataMapping = result.mappings.find((m) => m.gasttoField === 'fecha');
@@ -132,6 +174,9 @@ describe('RuleBasedColumnInferenceAdapter', () => {
 
       const valorMapping = result.mappings.find((m) => m.gasttoField === 'monto');
       expect(valorMapping?.columnHeader).toBe('Valor');
+      expect(result.mappings).toContainEqual(
+        expect.objectContaining({ gasttoField: 'subcategoria', columnHeader: 'Sub categoria' }),
+      );
     });
   });
 
@@ -190,7 +235,7 @@ describe('RuleBasedColumnInferenceAdapter', () => {
 
       expect(result.mappings).toHaveLength(0);
       expect(result.noHeaderFound).toBe(false);
-      expect(result.unmappedFields).toHaveLength(6);
+      expect(result.unmappedFields).toHaveLength(7);
     });
 
     it('does not map the same field twice', async () => {

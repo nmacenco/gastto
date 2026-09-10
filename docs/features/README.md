@@ -10,15 +10,16 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, search, and selection for spreadsheet records.
 - [`select-sheet.md`](./select-sheet.md) — Sheet selection within the chosen spreadsheet file.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation before expense recording, with one transparent OAuth refresh/replay for provider authorization failures.
-- [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference engine with untrusted spreadsheet-data boundaries that ranks recognized header rows below titles or summaries and proposes column mappings for Gastto fields.
-- [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message natural-language correction, including preservation of the detected header row for immediate category detection.
-- [`category-confirmation.md`](./category-confirmation.md) — Immediately reads the category vocabulary below the detected header, supports persisted add/remove/rename commands, and idempotently finalizes repeated confirmation as an active user in `IDLE`.
+- [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference with untrusted-data boundaries, optional multilingual subcategory mapping, and category-only compatibility.
+- [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message correction for legacy and optional subcategory mappings, preserving the detected header row for category detection.
+- [`category-confirmation.md`](./category-confirmation.md) — Confirms flat or linked category vocabulary only after transactional aggregate persistence, preserving legacy payloads and category-only row layouts.
+- [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, manages, classifies, reviews, saves, retries, and undoes parent-scoped subcategories with stable references, immutable snapshots, and legacy compatibility.
 - [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation, accent-insensitive expense routing, and command-aware bypass of non-financial guidance.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow for missing or ambiguous expense amount/currency data.
-- [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with confirm / correct / cancel options before saving.
+- [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with optional hierarchy-aware subcategory display and confirm / correct / cancel options before saving.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Global safe cancellation of in-progress expense registrations.
-- [`expense-correction.md`](./expense-correction.md) — Contextual natural-language correction of amount, currency, category, or date with typed separation from genuine additional expenses.
-- [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with typed correction-versus-queue precedence, Spanish queue feedback, safe single-success Google Sheets writes, transparent OAuth refresh, save-location confirmation, and terminal Google reauthorization recovery.
+- [`expense-correction.md`](./expense-correction.md) — Contextual natural-language correction of amount, currency, category, linked subcategory, or date with atomic hierarchy validation and legacy state normalization.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with typed correction-versus-queue precedence, hierarchy-aware optional writes and snapshots, safe single-success Google Sheets persistence, retry, transparent OAuth refresh, and terminal recovery.
 - [`undo-last-expense.md`](./undo-last-expense.md) — Safe one-record Google Sheets undo with immediate eligibility and delayed explicit confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM with complete onboarding timeout exits, Spanish queue-aware feedback, and contextual spreadsheet-reconnection transitions.

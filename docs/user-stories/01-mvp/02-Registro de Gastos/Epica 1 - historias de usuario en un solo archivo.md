@@ -1023,3 +1023,100 @@ user_state: {
 ```
 
 Cuando `active_flow` se resuelve (confirmación, cancelación o timeout), el orquestador revisa `expense_queue`, extrae el primero en orden de llegada e inicia un nuevo `active_flow` con él. La cola nunca procesa dos gastos en paralelo.
+
+---
+
+# Release 2
+
+## E1-US-18 - Classify and register linked subcategories
+
+### User story
+
+As a user with a configured category hierarchy, I want Gastto to classify, display, let me correct, and save a subcategory linked to its parent category, so that I can record the correct detail without losing traceability or compatibility with earlier expenses.
+
+### Acceptance criteria
+
+```gherkin
+Feature: Classify and register linked subcategories
+
+  Scenario: Classification is isolated to the parent
+    Given the same subcategory name exists under different parents
+    When the system classifies an expense
+    Then it resolves the category first
+    And it searches only among that category's active subcategories
+    And it returns stable identifiers, names, and statuses for both selections
+
+  Scenario: No valid subcategory exists
+    Given the parent category was resolved
+    And no child under that parent is a valid match
+    When the review is prepared
+    Then it preserves the category without a subcategory
+    And it never selects a child under another parent
+
+  Scenario: The summary remains backward-compatible
+    Given hierarchy support is enabled for the user
+    When the system presents the summary
+    Then it displays the category and subcategory with independent confidence
+    But if hierarchy support is not enabled
+    Then it preserves the existing summary without a subcategory field
+
+  Scenario: Correcting parent and child is atomic
+    Given an expense is pending confirmation
+    When the user corrects the category and subcategory in one message
+    Then it applies both values only if they form an active relationship
+    And changing only the parent clears any child that is no longer valid
+    And a child under another parent is rejected without mutating the summary
+
+  Scenario: Saving respects the optional mapping
+    Given the user confirmed an expense with a subcategory
+    When the spreadsheet has a mapped `subcategoria` column
+    Then it writes the value to that column
+    But when the column is not mapped
+    Then it omits that write and preserves current behavior
+    And in both cases it persists local references and snapshots only after a successful append
+
+  Scenario: The append fails and is retried
+    Given writing an expense with a subcategory failed
+    Then it does not persist a local expense or send a success message
+    And it retains the reviewed data for retry
+    When the user retries
+    Then it reuses the data without repeating NLP
+
+  Scenario: The vocabulary changes after saving
+    Given a saved expense contains references and snapshots
+    When the category or subcategory is renamed, deactivated, or deleted
+    Then it preserves the historical snapshots
+    And it permits null references without fuzzy or destructive backfills
+
+  Scenario: A legacy payload is loaded
+    Given a review, correction, queue, or retry JSONB payload contains no subcategory fields
+    When the system validates it
+    Then it treats it as an expense without a subcategory
+    And it preserves the existing confirmation, save, cancellation, and undo behavior
+```
+
+### Definition of Done
+
+- [ ] Classification resolves the parent first and isolates every child match to that parent.
+- [ ] Category and subcategory use stable identifiers, names, and independent confidence.
+- [ ] The summary and legacy payloads remain compatible when the subcategory is absent.
+- [ ] Corrections are atomic and never preserve an invalid parent/child relationship.
+- [ ] The optional column is written only when it is mapped.
+- [ ] The local record is persisted after the append and retains nullable references and snapshots.
+- [ ] Retry, queue, cancellation, and undo retain their guarantees without repeating NLP.
+- [ ] Unit, integration, and end-to-end tests cover spreadsheets with and without subcategories and save failures.
+- [ ] No HTTP routes or FSM states are added.
+
+### Story Points: 8
+
+The story spans structured extraction, hierarchical classification, durable state, correction, external writing, and audit behavior. Compatibility with existing payloads and spreadsheets expands the test surface and justifies 8 points.
+
+### Dependencies
+
+- **HU-4.08 and HU-4.07:** Confirmed hierarchy and vocabulary.
+- **E1-US-04:** Category classification.
+- **E1-US-06 and E1-US-07:** Review and correction.
+- **E1-US-08 and E1-US-10:** Confirmation and save result.
+- **E1-US-12 and E1-US-13:** Failure recovery and the pending queue.
+
+> **Traceability note:** The historical Release 2 file that uses `E1-US-13` for multiple expenses remains unchanged. The consolidated summary reserves `E1-US-13` for the implemented MVP pending-expense queue story and avoids counting the conflicting identifier twice.

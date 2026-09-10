@@ -9,22 +9,16 @@ import type {
   ColumnInferenceMapping,
   ConfidenceLevel,
 } from '../../../domain/ports/columnInference';
-import type { GasttoField } from '../../../domain/entities/SpreadsheetConfig';
+import {
+  SUPPORTED_GASTTO_FIELDS,
+  type GasttoField,
+} from '../../../domain/entities/SpreadsheetConfig';
 import {
   COLUMN_HEADER_DICTIONARY,
   getExactGasttoField,
   NORMALIZED_COLUMN_HEADER_KEYS,
   normalizeColumnHeader,
 } from './columnHeaderVocabulary';
-
-const ALL_GASTTO_FIELDS: GasttoField[] = [
-  'monto',
-  'moneda',
-  'categoria',
-  'fecha',
-  'concepto',
-  'medio_pago',
-];
 
 const DATE_REGEX = /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/;
 const NUMERIC_REGEX = /^[+-]?\s*[\$€£R]?\s*\d{1,3}([.,]\d{3})*([.,]\d+)?\s*[\$€£R]?$/;
@@ -119,7 +113,7 @@ export class RuleBasedColumnInferenceAdapter implements ColumnInferencePort {
       return Promise.resolve({
         mappings: [],
         noHeaderFound: false,
-        unmappedFields: [...ALL_GASTTO_FIELDS],
+        unmappedFields: [...SUPPORTED_GASTTO_FIELDS],
       });
     }
 
@@ -127,7 +121,7 @@ export class RuleBasedColumnInferenceAdapter implements ColumnInferencePort {
       return Promise.resolve({
         mappings: [],
         noHeaderFound: true,
-        unmappedFields: [...ALL_GASTTO_FIELDS],
+        unmappedFields: [...SUPPORTED_GASTTO_FIELDS],
       });
     }
 
@@ -179,7 +173,7 @@ export class RuleBasedColumnInferenceAdapter implements ColumnInferencePort {
       }
     }
 
-    const unmappedFields = ALL_GASTTO_FIELDS.filter((f) => !mappedFields.has(f));
+    const unmappedFields = SUPPORTED_GASTTO_FIELDS.filter((f) => !mappedFields.has(f));
 
     return Promise.resolve({ mappings, noHeaderFound: false, unmappedFields });
   }

@@ -16,10 +16,11 @@ import type {
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
-import type {
-  ColumnMapping,
-  GasttoField,
-  SpreadsheetConfig,
+import {
+  SUPPORTED_GASTTO_FIELDS,
+  type ColumnMapping,
+  type GasttoField,
+  type SpreadsheetConfig,
 } from '../../../domain/entities/SpreadsheetConfig';
 import { ColumnMappingCorrectionState } from '../../../domain/value-objects/ColumnMappingCorrectionState';
 import {
@@ -343,17 +344,9 @@ export class CorrectColumnMapping {
     const value = statePayload?.unmappedFields;
     if (!Array.isArray(value)) return [];
 
-    const validFields: GasttoField[] = [
-      'monto',
-      'moneda',
-      'categoria',
-      'fecha',
-      'concepto',
-      'medio_pago',
-    ];
     return value.filter(
       (field): field is GasttoField =>
-        typeof field === 'string' && validFields.includes(field as GasttoField),
+        typeof field === 'string' && SUPPORTED_GASTTO_FIELDS.includes(field as GasttoField),
     );
   }
 

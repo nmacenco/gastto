@@ -9,6 +9,7 @@ import type {
   ISpreadsheetConfigRepository,
   IColumnMappingRepository,
   IUserCategoryRepository,
+  ICategoryVocabularyRepository,
   IOperationLogRepository,
   IConversationStateRepository,
 } from '../../../domain/ports/repositories';
@@ -28,7 +29,7 @@ import {
   ExpenseClarificationState,
   type MissingClarificationField,
 } from '../../../domain/value-objects/expense-clarification-state';
-import type { ClassificationResult } from '../../../domain/value-objects/ClassificationResult';
+import type { HierarchicalClassificationResult } from '../../../domain/value-objects/ClassificationResult';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import {
@@ -54,6 +55,7 @@ export class RegisterExpenseUseCase {
     private readonly spreadsheetConfigRepo: ISpreadsheetConfigRepository,
     private readonly columnMappingRepo: IColumnMappingRepository,
     private readonly categoryRepo: IUserCategoryRepository,
+    private readonly categoryVocabularyRepo: ICategoryVocabularyRepository,
     private readonly conversationRepo: IConversationStateRepository,
     private readonly logRepo: IOperationLogRepository,
     private readonly userProfilePort: IUserProfilePort,
@@ -75,13 +77,34 @@ export class RegisterExpenseUseCase {
 
     // Load active user categories to give context to the LLM
     const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
-    const categories = config
-      ? (await this.categoryRepo.findActiveBySpreadsheetId(config.id)).map((c) => c.normalizedValue)
+    const [activeCategories, categoryVocabulary, columnMappings] = config
+      ? await Promise.all([
+          this.categoryRepo.findActiveBySpreadsheetId(config.id),
+          this.categoryVocabularyRepo.findBySpreadsheetId(config.id),
+          this.columnMappingRepo.findBySpreadsheetId(config.id),
+        ])
+      : [[], null, []];
+    const categories = activeCategories.map((category) => category.normalizedValue);
+    const categoryHierarchy = categoryVocabulary
+      ? [...categoryVocabulary.getCategories()]
+          .sort((left, right) => left.normalizedName.localeCompare(right.normalizedName))
+          .map((category) => ({
+            name: category.name,
+            subcategories: [...categoryVocabulary.getSubcategories(category.id)]
+              .sort((left, right) => left.normalizedName.localeCompare(right.normalizedName))
+              .map((subcategory) => subcategory.name),
+          }))
       : [];
+    const subcategoryEnabled =
+      columnMappings.some(
+        (mapping) => mapping.GasttoField === 'subcategoria' && mapping.confirmedAt !== null,
+      ) || categoryHierarchy.some((category) => category.subcategories.length > 0);
 
     const userContext: UserContext = {
       defaultCurrency,
       categories,
+      categoryHierarchy,
+      subcategoryEnabled,
       channel: input.channel,
     };
 
@@ -156,20 +179,31 @@ export class RegisterExpenseUseCase {
     // Resolve category through the keyword classifier (E1-US-04)
     const classification = await this.classifier.execute({
       userId: input.userId,
+      spreadsheetId: config?.id ?? null,
       rawMessage: input.rawMessage,
       llmCategory: finalExtracted.categoriaRaw,
       llmConfidence: finalExtracted.confianzaCategoria,
+      llmSubcategory: finalExtracted.subcategoriaRaw,
+      llmSubcategoryConfidence: finalExtracted.confianzaSubcategoria,
     });
-    const { resolvedCategory, categoryStatus } = this.toReviewCategory(classification);
+    const basePayload = this.buildReviewPayload(
+      finalExtracted,
+      input.rawMessage,
+      classification,
+      subcategoryEnabled,
+    );
 
     // Zero-amount confirmation path (E1-US-03)
     if (finalExtracted.monto === 0) {
-      const payload = this.buildReviewPayload(
-        finalExtracted,
-        input.rawMessage,
-        resolvedCategory,
-        categoryStatus,
-      );
+      const payload: ExpenseReviewPayload = {
+        ...basePayload,
+        ...(input.queueRegisteredCount === undefined
+          ? {}
+          : { queueRegisteredCount: input.queueRegisteredCount }),
+        ...(input.immediateUndoExpenseId === undefined
+          ? {}
+          : { immediateUndoExpenseId: input.immediateUndoExpenseId }),
+      };
       await this.conversationRepo.transition(
         input.userId,
         'EXPENSE_REVIEW',
@@ -186,18 +220,8 @@ export class RegisterExpenseUseCase {
       return { status: 'needs_zero_confirmation', payload };
     }
 
-    // Resolve date: today if LLM didn't detect any
-    const resolvedDate = finalExtracted.fechaRaw
-      ? new Date(finalExtracted.fechaRaw).toISOString().slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
-
     const payload: ExpenseReviewPayload = {
-      extracted: finalExtracted,
-      rawMessage: input.rawMessage,
-      resolvedDate,
-      resolvedCategory,
-      resolvedCategoryId: null,
-      categoryStatus,
+      ...basePayload,
       ...(input.queueRegisteredCount === undefined
         ? {}
         : { queueRegisteredCount: input.queueRegisteredCount }),
@@ -257,6 +281,9 @@ export class RegisterExpenseUseCase {
       monto: payload.extracted.monto!,
       moneda: payload.extracted.moneda!,
       categoria: payload.resolvedCategory,
+      categoryId: payload.resolvedCategoryId,
+      subcategoryId: payload.resolvedSubcategoryId ?? null,
+      subcategoria: payload.resolvedSubcategory ?? null,
       fechaGasto: new Date(payload.resolvedDate),
       medioPago: payload.extracted.medioPago,
       sheetName: result.sheet,
@@ -287,39 +314,31 @@ export class RegisterExpenseUseCase {
   private buildReviewPayload(
     extracted: ExtractedExpense,
     rawMessage: string,
-    resolvedCategory: string | null,
-    categoryStatus: ExpenseReviewPayload['categoryStatus'],
+    classification: HierarchicalClassificationResult,
+    subcategoryEnabled: boolean,
   ): ExpenseReviewPayload {
     const resolvedDate = extracted.fechaRaw
       ? new Date(extracted.fechaRaw).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10);
 
+    const canonicalExtracted =
+      classification.subcategory.id === null
+        ? { ...extracted, subcategoriaRaw: null, confianzaSubcategoria: 'nula' as const }
+        : extracted;
+
     return {
-      extracted,
+      extracted: canonicalExtracted,
       rawMessage,
       resolvedDate,
-      resolvedCategory,
-      resolvedCategoryId: null,
-      categoryStatus,
+      resolvedCategory: classification.category.name,
+      resolvedCategoryId: classification.category.id,
+      categoryStatus: classification.category.status,
+      resolvedSubcategory: classification.subcategory.name,
+      resolvedSubcategoryId: classification.subcategory.id,
+      subcategoryStatus: classification.subcategory.status,
+      subcategoryEnabled,
       reminderSent: false,
     };
-  }
-
-  private toReviewCategory(classification: ClassificationResult): {
-    resolvedCategory: string | null;
-    categoryStatus: ExpenseReviewPayload['categoryStatus'];
-  } {
-    switch (classification.kind) {
-      case 'high-confidence':
-        return { resolvedCategory: classification.category, categoryStatus: 'confirmed' };
-      case 'ambiguous':
-        return { resolvedCategory: classification.category, categoryStatus: 'ambiguous' };
-      case 'fallback':
-        return { resolvedCategory: classification.category, categoryStatus: 'fallback' };
-      case 'no-match':
-      default:
-        return { resolvedCategory: null, categoryStatus: 'none' };
-    }
   }
 
   private async transitionToClarifying(
@@ -367,6 +386,9 @@ export class RegisterExpenseUseCase {
           break;
         case 'categoria':
           row[columnIndex] = payload.resolvedCategory;
+          break;
+        case 'subcategoria':
+          row[columnIndex] = payload.resolvedSubcategory ?? null;
           break;
         case 'fecha':
           row[columnIndex] = payload.resolvedDate;

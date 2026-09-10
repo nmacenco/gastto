@@ -13,7 +13,14 @@ const createLog = vi.fn();
 const retryPayload = {
   expense: {
     rawMessage: 'Café 200 EUR',
-    extracted: { monto: 200, moneda: 'EUR' },
+    extracted: {
+      monto: 200,
+      moneda: 'EUR',
+      categoriaRaw: 'café',
+      fechaRaw: '2026-08-05',
+      medioPago: null,
+      confianzaCategoria: 'alta',
+    },
     resolvedDate: '2026-08-05',
     resolvedCategory: 'Comida',
     resolvedCategoryId: null,
@@ -22,6 +29,40 @@ const retryPayload = {
   failureCode: 'NETWORK_ERROR' as const,
   firstAttemptAt: '2026-08-05T10:00:00.000Z',
   attemptCount: 1 as const,
+};
+
+const selectedChildRetryPayload = {
+  ...retryPayload,
+  expense: {
+    ...retryPayload.expense,
+    extracted: {
+      ...retryPayload.expense.extracted,
+      subcategoriaRaw: 'Restaurante',
+      confianzaSubcategoria: 'alta' as const,
+    },
+    resolvedCategoryId: 'category-food',
+    resolvedSubcategory: 'Restaurante',
+    resolvedSubcategoryId: 'subcategory-restaurant',
+    subcategoryStatus: 'confirmed' as const,
+    subcategoryEnabled: true,
+  },
+};
+
+const validNoChildRetryPayload = {
+  ...retryPayload,
+  expense: {
+    ...retryPayload.expense,
+    extracted: {
+      ...retryPayload.expense.extracted,
+      subcategoriaRaw: null,
+      confianzaSubcategoria: 'nula' as const,
+    },
+    resolvedCategoryId: 'category-food',
+    resolvedSubcategory: null,
+    resolvedSubcategoryId: null,
+    subcategoryStatus: 'none' as const,
+    subcategoryEnabled: true,
+  },
 };
 
 function buildUseCase() {
@@ -51,7 +92,7 @@ describe('RetryExpenseSaveUseCase', () => {
     });
 
     expect(save).toHaveBeenCalledOnce();
-    expect(save).toHaveBeenCalledWith('user-123', retryPayload.expense, '');
+    expect(save).toHaveBeenCalledWith('user-123', normalizedRetryExpense(), '');
     expect(sendMessage).toHaveBeenNthCalledWith(1, 'chat-123', expenseCopies.saving());
     expect(sendMessage).toHaveBeenNthCalledWith(
       2,
@@ -65,6 +106,23 @@ describe('RetryExpenseSaveUseCase', () => {
       }),
     );
     expect(transition).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['selected child', selectedChildRetryPayload],
+    ['valid no-child selection', validNoChildRetryPayload],
+  ])('replays the complete %s review exactly once', async (_name, statePayload) => {
+    await buildUseCase().execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      statePayload,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    expect(save).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledWith('user-123', statePayload.expense, '');
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it('clears retry state and sends manual-copy fallback after the second failure', async () => {
@@ -96,6 +154,9 @@ describe('RetryExpenseSaveUseCase', () => {
       'chat-123',
       expect.stringContaining('Gasto guardado'),
     );
+    expect(save).toHaveBeenCalledOnce();
+    expect(transition).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it('does not append malformed or expired retry state', async () => {
@@ -114,4 +175,30 @@ describe('RetryExpenseSaveUseCase', () => {
     });
     expect(sendMessage).toHaveBeenCalledWith('chat-123', expenseCopies.saveRetryExpired());
   });
+
+  it('normalizes a valid legacy review before replaying it without NLP', async () => {
+    await buildUseCase().execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      statePayload: retryPayload,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    expect(save).toHaveBeenCalledWith('user-123', normalizedRetryExpense(), '');
+  });
 });
+
+function normalizedRetryExpense() {
+  return {
+    ...retryPayload.expense,
+    extracted: {
+      ...retryPayload.expense.extracted,
+      subcategoriaRaw: null,
+      confianzaSubcategoria: 'nula' as const,
+    },
+    resolvedSubcategory: null,
+    resolvedSubcategoryId: null,
+    subcategoryStatus: 'none' as const,
+    subcategoryEnabled: false,
+  };
+}

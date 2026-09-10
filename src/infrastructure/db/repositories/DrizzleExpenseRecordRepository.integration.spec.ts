@@ -8,11 +8,20 @@ import postgres from 'postgres';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import * as schema from '../schema';
-import { expenseRecords, operationLogs, spreadsheetConfigs, users } from '../schema';
+import {
+  expenseRecords,
+  operationLogs,
+  spreadsheetConfigs,
+  userCategories,
+  userSubcategories,
+  users,
+} from '../schema';
 import { DrizzleExpenseRecordRepository } from './DrizzleExpenseRecordRepository';
 
 const userId = '11111111-1111-4111-8111-111111111111';
 const spreadsheetId = '22222222-2222-4222-8222-222222222222';
+const categoryId = '33333333-3333-4333-8333-333333333333';
+const subcategoryId = '44444444-4444-4444-8444-444444444444';
 
 let container: StartedPostgreSqlContainer;
 let client: postgres.Sql;
@@ -34,6 +43,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   await db.delete(operationLogs);
   await db.delete(expenseRecords);
+  await db.delete(userSubcategories);
+  await db.delete(userCategories);
   await db.delete(spreadsheetConfigs);
   await db.delete(users);
 
@@ -46,6 +57,18 @@ beforeEach(async () => {
     fileName: 'Expenses',
     sheetName: 'Gastos',
     accessVerifiedAt: new Date('2026-08-02T09:00:00Z'),
+  });
+  await db.insert(userCategories).values({
+    id: categoryId,
+    spreadsheetId,
+    rawValue: 'Food',
+    normalizedValue: 'food',
+  });
+  await db.insert(userSubcategories).values({
+    id: subcategoryId,
+    categoryId,
+    rawValue: 'Restaurant',
+    normalizedValue: 'restaurant',
   });
 });
 
@@ -63,6 +86,9 @@ function expense(id: string, savedAt: Date, isDeleted = false) {
     monto: '10.00',
     moneda: 'EUR' as const,
     categoria: null,
+    categoryId: null,
+    subcategoryId: null,
+    subcategoria: null,
     fechaGasto: '2026-08-02',
     medioPago: null,
     sheetName: 'Gastos',
@@ -76,6 +102,149 @@ function expense(id: string, savedAt: Date, isDeleted = false) {
 }
 
 describePostgres('DrizzleExpenseRecordRepository (PostgreSQL)', () => {
+  it('persists and reloads hierarchy references and text snapshots', async () => {
+    const saved = await repository.create({
+      userId,
+      spreadsheetId,
+      concepto: 'Dinner',
+      monto: 24.5,
+      moneda: 'EUR',
+      categoria: 'Food',
+      categoryId,
+      subcategoryId,
+      subcategoria: 'Restaurant',
+      fechaGasto: new Date('2026-08-02'),
+      medioPago: 'Card',
+      sheetName: 'Gastos',
+      rowIndex: 2,
+      categoriaConfidence: 'alta',
+      rawMessage: 'Dinner 24.50 EUR',
+      isDeleted: false,
+      deletedAt: null,
+    });
+
+    await expect(repository.findLatestByUserId(userId)).resolves.toMatchObject({
+      id: saved.id,
+      categoria: 'Food',
+      categoryId,
+      subcategoryId,
+      subcategoria: 'Restaurant',
+    });
+  });
+
+  it('round-trips null hierarchy references and snapshots for category-only history', async () => {
+    const saved = await repository.create({
+      userId,
+      spreadsheetId,
+      concepto: 'Bus ticket',
+      monto: 3.5,
+      moneda: 'EUR',
+      categoria: null,
+      categoryId: null,
+      subcategoryId: null,
+      subcategoria: null,
+      fechaGasto: new Date('2026-08-03'),
+      medioPago: null,
+      sheetName: 'Gastos',
+      rowIndex: 3,
+      categoriaConfidence: 'nula',
+      rawMessage: 'Bus ticket 3.50 EUR',
+      isDeleted: false,
+      deletedAt: null,
+    });
+
+    await expect(repository.findLatestByUserId(userId)).resolves.toMatchObject({
+      id: saved.id,
+      categoria: null,
+      categoryId: null,
+      subcategoryId: null,
+      subcategoria: null,
+    });
+  });
+
+  it('preserves save-time snapshots after vocabulary rename and deactivation', async () => {
+    const saved = await repository.create({
+      userId,
+      spreadsheetId,
+      concepto: 'Dinner',
+      monto: 24.5,
+      moneda: 'EUR',
+      categoria: 'Food',
+      categoryId,
+      subcategoryId,
+      subcategoria: 'Restaurant',
+      fechaGasto: new Date('2026-08-02'),
+      medioPago: 'Card',
+      sheetName: 'Gastos',
+      rowIndex: 2,
+      categoriaConfidence: 'alta',
+      rawMessage: 'Dinner 24.50 EUR',
+      isDeleted: false,
+      deletedAt: null,
+    });
+
+    await db
+      .update(userCategories)
+      .set({ rawValue: 'Meals', normalizedValue: 'meals', isActive: false });
+    await db
+      .update(userSubcategories)
+      .set({ rawValue: 'Dining out', normalizedValue: 'dining out', isActive: false });
+
+    await expect(repository.findLatestByUserId(userId)).resolves.toMatchObject({
+      id: saved.id,
+      categoria: 'Food',
+      categoryId,
+      subcategoryId,
+      subcategoria: 'Restaurant',
+    });
+  });
+
+  it('clears only the subcategory reference when the subcategory is deleted', async () => {
+    const record = expense(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      new Date('2026-08-02T12:00:00Z'),
+    );
+    await db.insert(expenseRecords).values({
+      ...record,
+      categoria: 'Food',
+      categoryId,
+      subcategoryId,
+      subcategoria: 'Restaurant',
+    });
+
+    await db.delete(userSubcategories);
+
+    await expect(repository.findLatestByUserId(userId)).resolves.toMatchObject({
+      categoria: 'Food',
+      categoryId,
+      subcategoryId: null,
+      subcategoria: 'Restaurant',
+    });
+  });
+
+  it('clears the category reference without changing either text snapshot', async () => {
+    const record = expense(
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      new Date('2026-08-02T12:00:00Z'),
+    );
+    await db.insert(expenseRecords).values({
+      ...record,
+      categoria: 'Food',
+      categoryId,
+      subcategoryId,
+      subcategoria: 'Restaurant',
+    });
+
+    await db.delete(userCategories);
+
+    await expect(repository.findLatestByUserId(userId)).resolves.toMatchObject({
+      categoria: 'Food',
+      categoryId: null,
+      subcategoryId: null,
+      subcategoria: 'Restaurant',
+    });
+  });
+
   it('selects only the latest non-deleted expense', async () => {
     await db
       .insert(expenseRecords)

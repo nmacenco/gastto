@@ -1,85 +1,117 @@
 // LAYER: Domain
-// Discriminated union representing the outcome of a category classification attempt.
-// Avoids nullable business semantics by using explicit result states.
+// Stable parent-first category/subcategory classification result.
 
 import type { CategoryConfidence } from '../entities/ExpenseRecord';
 
-export type ClassificationResult =
-  | {
-      readonly kind: 'high-confidence';
-      readonly category: string;
-      readonly confidence: CategoryConfidence;
-    }
-  | {
-      readonly kind: 'ambiguous';
-      readonly category: string;
-      readonly confidence: CategoryConfidence;
-    }
-  | {
-      readonly kind: 'fallback';
-      readonly category: string;
-      readonly confidence: CategoryConfidence;
-    }
-  | { readonly kind: 'no-match'; readonly category: null; readonly confidence: CategoryConfidence };
+export type ClassificationStatus = 'confirmed' | 'ambiguous' | 'fallback' | 'none';
 
-export function isHighConfidenceResult(result: ClassificationResult): result is {
-  readonly kind: 'high-confidence';
-  readonly category: string;
+export interface ClassificationSelection {
+  readonly id: string | null;
+  readonly name: string | null;
+  readonly status: ClassificationStatus;
   readonly confidence: CategoryConfidence;
-} {
-  return result.kind === 'high-confidence';
 }
 
-export function isAmbiguousResult(result: ClassificationResult): result is {
-  readonly kind: 'ambiguous';
-  readonly category: string;
-  readonly confidence: CategoryConfidence;
-} {
-  return result.kind === 'ambiguous';
+export interface SubcategoryClassificationSelection extends ClassificationSelection {
+  readonly categoryId: string | null;
 }
 
-export function isFallbackResult(result: ClassificationResult): result is {
-  readonly kind: 'fallback';
-  readonly category: string;
-  readonly confidence: CategoryConfidence;
-} {
-  return result.kind === 'fallback';
+export interface HierarchicalClassificationResult {
+  readonly category: ClassificationSelection;
+  readonly subcategory: SubcategoryClassificationSelection;
 }
 
-export function isNoMatchResult(result: ClassificationResult): result is {
-  readonly kind: 'no-match';
-  readonly category: null;
-  readonly confidence: CategoryConfidence;
-} {
-  return result.kind === 'no-match';
-}
-
-export const ClassificationResult = {
-  highConfidence(category: string): ClassificationResult {
-    return { kind: 'high-confidence', category, confidence: 'alta' };
+export const ClassificationSelection = {
+  confirmed(
+    id: string,
+    name: string,
+    confidence: CategoryConfidence = 'alta',
+  ): ClassificationSelection {
+    return { id, name, status: 'confirmed', confidence };
   },
 
-  ambiguous(category: string): ClassificationResult {
-    return { kind: 'ambiguous', category, confidence: 'baja' };
+  ambiguous(
+    id: string,
+    name: string,
+    confidence: CategoryConfidence = 'baja',
+  ): ClassificationSelection {
+    return { id, name, status: 'ambiguous', confidence };
   },
 
-  fallback(category: string): ClassificationResult {
-    return { kind: 'fallback', category, confidence: 'baja' };
+  fallback(
+    id: string,
+    name: string,
+    confidence: CategoryConfidence = 'baja',
+  ): ClassificationSelection {
+    return { id, name, status: 'fallback', confidence };
   },
 
-  noMatch(): ClassificationResult {
-    return { kind: 'no-match', category: null, confidence: 'nula' };
+  none(): ClassificationSelection {
+    return { id: null, name: null, status: 'none', confidence: 'nula' };
   },
 };
 
-export function getClassificationResultCategory(result: ClassificationResult): string | null {
-  return result.category;
+export const SubcategoryClassificationSelection = {
+  confirmed(
+    id: string,
+    name: string,
+    categoryId: string,
+    confidence: CategoryConfidence = 'alta',
+  ): SubcategoryClassificationSelection {
+    return { ...ClassificationSelection.confirmed(id, name, confidence), categoryId };
+  },
+
+  ambiguous(
+    id: string,
+    name: string,
+    categoryId: string,
+    confidence: CategoryConfidence = 'baja',
+  ): SubcategoryClassificationSelection {
+    return { ...ClassificationSelection.ambiguous(id, name, confidence), categoryId };
+  },
+
+  fallback(
+    id: string,
+    name: string,
+    categoryId: string,
+    confidence: CategoryConfidence = 'baja',
+  ): SubcategoryClassificationSelection {
+    return { ...ClassificationSelection.fallback(id, name, confidence), categoryId };
+  },
+
+  none(): SubcategoryClassificationSelection {
+    return { ...ClassificationSelection.none(), categoryId: null };
+  },
+};
+
+export const HierarchicalClassificationResult = {
+  create(
+    category: ClassificationSelection,
+    subcategory: SubcategoryClassificationSelection = SubcategoryClassificationSelection.none(),
+  ): HierarchicalClassificationResult {
+    return { category, subcategory };
+  },
+
+  none(): HierarchicalClassificationResult {
+    return {
+      category: ClassificationSelection.none(),
+      subcategory: SubcategoryClassificationSelection.none(),
+    };
+  },
+};
+
+export function isConfirmedSelection(selection: ClassificationSelection): boolean {
+  return selection.status === 'confirmed';
 }
 
-export function isClassificationResultAmbiguous(result: ClassificationResult): boolean {
-  return result.kind === 'ambiguous';
+export function isAmbiguousSelection(selection: ClassificationSelection): boolean {
+  return selection.status === 'ambiguous';
 }
 
-export function isClassificationResultFallback(result: ClassificationResult): boolean {
-  return result.kind === 'fallback';
+export function isFallbackSelection(selection: ClassificationSelection): boolean {
+  return selection.status === 'fallback';
+}
+
+export function isNoneSelection(selection: ClassificationSelection): boolean {
+  return selection.status === 'none';
 }

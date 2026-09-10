@@ -32,8 +32,12 @@ import {
   type ProcessMessageJobData,
 } from '../../application/ports/ProcessMessageJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { parseCategoryOnboardingState } from '../../application/dtos/CategoryOnboardingState';
 import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
-import type { ExpenseReviewPayload } from '../../domain/value-objects/expense-review-payload';
+import {
+  tryNormalizeExpenseReviewPayload,
+  type ExpenseReviewPayload,
+} from '../../domain/value-objects/expense-review-payload';
 import type {
   IUserRepository,
   IMappingCorrectionStateRepository,
@@ -71,7 +75,7 @@ import {
 } from '../../application/utils/clarification';
 import { ExpenseClarificationState } from '../../domain/value-objects/expense-clarification-state';
 import { ExpenseCorrectionState } from '../../domain/value-objects/expense-correction-state';
-import { isExpenseSaveRetryPayload } from '../../domain/value-objects/expense-save-retry-payload';
+import { parseExpenseSaveRetryPayload } from '../../domain/value-objects/expense-save-retry-payload';
 import { isExpenseLikeIntent } from '../../domain/value-objects/FreeTextIntent';
 
 // Lock TTL must exceed the longest possible job duration (LLM + side effects).
@@ -222,16 +226,15 @@ async function routeByState(
       : isCancelIntent(rawMessage)
         ? 'text'
         : null;
+  const normalizedReviewPayload = tryNormalizeExpenseReviewPayload(conversationState?.statePayload);
   if (
     currentState === 'EXPENSE_REVIEW' &&
     isUndoIntent(rawMessage) &&
-    typeof conversationState?.statePayload?.immediateUndoExpenseId === 'string' &&
+    normalizedReviewPayload?.immediateUndoExpenseId !== undefined &&
     opts.undoLastExpense &&
-    isValidExpenseReviewPayload(conversationState.statePayload)
+    conversationState !== null
   ) {
-    const immediateUndoExpenseId = conversationState.statePayload.immediateUndoExpenseId;
-    const reviewPayload = { ...conversationState.statePayload };
-    delete reviewPayload.immediateUndoExpenseId;
+    const { immediateUndoExpenseId, ...reviewPayload } = normalizedReviewPayload;
     await opts.transitionState.execute({
       userId,
       targetState: 'EXPENSE_REVIEW',
@@ -255,13 +258,7 @@ async function routeByState(
       });
       await messaging.sendMessage(externalId, expenseCopies.undoDeletionFailed());
     }
-    await presentExpenseSummary(
-      userId,
-      reviewPayload as unknown as ExpenseReviewPayload,
-      messaging,
-      externalId,
-      opts,
-    );
+    await presentExpenseSummary(userId, reviewPayload, messaging, externalId, opts);
     return;
   }
   // Review replies retain their existing resolver so text and inline actions
@@ -522,9 +519,8 @@ async function routeByState(
 
     case 'ONBOARDING_CATEGORIES': {
       const categoryPayload = conversationState?.statePayload ?? null;
-      const hasCategories =
-        Array.isArray(categoryPayload?.categories) &&
-        (categoryPayload.categories as string[]).length > 0;
+      const categoryState = parseCategoryOnboardingState(categoryPayload);
+      const hasCategories = categoryState !== null && categoryState.categories.length > 0;
 
       if (!hasCategories) {
         await enterOnboardingCategories(
@@ -559,7 +555,14 @@ async function routeByState(
           // Re-send the confirmation prompt for any non-confirm reply.
           await messaging.sendMessage(
             externalId,
-            onboardingCopies.categoryConfirmationPrompt(categoryPayload.categories as string[]),
+            categoryState.subcategoryColumnMapped
+              ? onboardingCopies.categoryHierarchyConfirmationPrompt(
+                  categoryState.categories,
+                  categoryState.orphanSubcategories,
+                )
+              : onboardingCopies.categoryConfirmationPrompt(
+                  categoryState.categories.map((category) => category.name),
+                ),
           );
         }
       }
@@ -615,7 +618,7 @@ async function handleExpenseSavingRetry(
 ): Promise<void> {
   const { userId, rawMessage, externalId, channel } = jobData;
   if (
-    !isExpenseSaveRetryPayload(statePayload) ||
+    parseExpenseSaveRetryPayload(statePayload) === null ||
     expiresAt === null ||
     expiresAt.getTime() <= Date.now()
   ) {
@@ -1051,6 +1054,7 @@ async function handleExpenseReview(
   messaging: MessagingOutputPort,
 ): Promise<void> {
   const { userId, rawMessage, externalId, callbackData } = jobData;
+  const reviewPayload = tryNormalizeExpenseReviewPayload(statePayload);
 
   // Inline-button actions (Phase 3) take precedence over legacy text intents.
   if (callbackData !== undefined) {
@@ -1059,7 +1063,7 @@ async function handleExpenseReview(
       return;
     }
 
-    if (!isValidExpenseReviewPayload(statePayload)) {
+    if (reviewPayload === null) {
       opts.logger.error({
         msg: 'Missing or invalid expense review payload for callback action',
         endpoint: 'handleExpenseReview',
@@ -1075,7 +1079,7 @@ async function handleExpenseReview(
     await opts.resolveExpenseSummaryAction.execute({
       userId,
       action: callbackData.action,
-      payload: statePayload as unknown as ExpenseReviewPayload,
+      payload: reviewPayload,
       chatId: externalId,
       channel: jobData.channel,
       ...(callbackData.action === 'cancel' ? { cancellationSource: 'callback' as const } : {}),
@@ -1093,15 +1097,26 @@ async function handleExpenseReview(
   //     awaitingZeroConfirmation?: boolean, // true when amount is 0 and needs explicit confirmation
   //   }
 
-  if (!opts.resolveExpenseReviewReply || !isValidExpenseReviewPayload(statePayload)) {
+  if (!opts.resolveExpenseReviewReply) {
     await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+    return;
+  }
+  if (reviewPayload === null) {
+    opts.logger.error({
+      msg: 'Missing or invalid expense review payload for text reply',
+      endpoint: 'handleExpenseReview',
+      code: 'INVALID_REVIEW_PAYLOAD',
+      userId,
+    });
+    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
     return;
   }
 
   const outcome = await opts.resolveExpenseReviewReply.execute({
     userId,
     rawMessage,
-    payload: statePayload as unknown as ExpenseReviewPayload,
+    payload: reviewPayload,
     chatId: externalId,
     channel: jobData.channel,
   });
@@ -1182,21 +1197,14 @@ async function renderExpenseReviewReplyOutcome(
     case 'cycle_limit':
       await messaging.sendMessage(externalId, expenseCopies.correctionCycleLimitReached());
       return;
+    case 'invalid_subcategory':
+      await messaging.sendMessage(externalId, expenseCopies.invalidSubcategory(outcome));
+      return;
     case 'high_amount_confirmation':
     case 'corrected':
       await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
       return;
   }
-}
-
-function isValidExpenseReviewPayload(
-  statePayload: Record<string, unknown> | null,
-): statePayload is Record<string, unknown> & { rawMessage: string; extracted: unknown } {
-  if (statePayload === null) {
-    return false;
-  }
-
-  return typeof statePayload.rawMessage === 'string' && statePayload.extracted !== undefined;
 }
 
 async function handleClarification(
@@ -1306,13 +1314,6 @@ async function handleClarification(
   } else if (result.status === 'needs_zero_confirmation') {
     await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
   } else {
-    const summary = expenseCopies.updatedSummary({
-      monto: result.payload.extracted.monto,
-      moneda: result.payload.extracted.moneda,
-      category: result.payload.resolvedCategory ?? '❓ Sin categoría',
-      categoryStatus: result.payload.categoryStatus,
-      date: result.payload.resolvedDate,
-    });
-    await messaging.sendMessage(externalId, summary);
+    await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
   }
 }

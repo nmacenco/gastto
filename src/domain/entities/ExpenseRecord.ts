@@ -14,6 +14,9 @@ export interface ExpenseRecord {
   monto: number; // NUMERIC(14,2) — siempre >= 0
   moneda: Currency;
   categoria: string | null;
+  categoryId: string | null;
+  subcategoryId: string | null;
+  subcategoria: string | null;
   fechaGasto: Date; // DATE en BD
   medioPago: string | null;
   sheetName: string;
@@ -31,7 +34,9 @@ export interface ExtractedExpense {
   monto: number | null;
   moneda: Currency | null;
   categoriaRaw: string | null;
+  subcategoriaRaw: string | null;
   fechaRaw: string | null;
   medioPago: string | null;
   confianzaCategoria: CategoryConfidence;
+  confianzaSubcategoria: CategoryConfidence;
 }

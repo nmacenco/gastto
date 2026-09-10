@@ -142,6 +142,7 @@ describe('registerRoutes', () => {
         driveFileDiscovery: {} as GoogleOAuthFeature['driveFileDiscovery'],
         sheetsAdapterFactory: {} as GoogleOAuthFeature['sheetsAdapterFactory'],
         categoryReaderFactory: {} as GoogleOAuthFeature['categoryReaderFactory'],
+        categoryHierarchyReaderFactory: {} as GoogleOAuthFeature['categoryHierarchyReaderFactory'],
         handleSpreadsheetFileSelection: {} as GoogleOAuthFeature['handleSpreadsheetFileSelection'],
         handleSheetSelection: {} as GoogleOAuthFeature['handleSheetSelection'],
         validateSpreadsheetAccess: {} as GoogleOAuthFeature['validateSpreadsheetAccess'],

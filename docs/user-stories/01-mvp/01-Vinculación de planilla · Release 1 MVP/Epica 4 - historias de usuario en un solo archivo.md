@@ -407,3 +407,82 @@ Escenario 5: La columna de categoría está vacía (planilla nueva)
 **Story Points: 3** _Justificación: La lectura de valores únicos y el matching de lenguaje natural para agregar/corregir son la complejidad principal. El set de defaults reduce el riesgo del caso vacío. Sin ramificaciones técnicas nuevas respecto a HUs anteriores._
 
 **Dependencias:** HU-4.06 (mapeo confirmado). Bloqueante para HU-1.01 (Épica 1 MVP).
+
+---
+
+# Release 2
+
+## HU-4.08 - Configure linked categories and subcategories
+
+**As a** user who organizes expenses with categories and subcategories in a spreadsheet, **I want** Gastto to detect, let me adjust, and confirm those relationships, **so that** it preserves my actual hierarchy without inventing associations or breaking spreadsheets that use categories only.
+
+### Acceptance Criteria (Gherkin)
+
+```gherkin
+Feature: Configure linked categories and subcategories
+
+  Scenario: The subcategory column is optional
+    Given the confirmed mapping includes a category column
+    When no subcategory column is mapped
+    Then the system preserves the flat flow from HU-4.07
+    And it completes onboarding without requiring subcategories
+
+  Scenario: The system preserves pairs from each row
+    Given "Food | Restaurant" and "Leisure | Restaurant" appear on different rows
+    When the system detects the hierarchy
+    Then it preserves both relationships under their respective parents
+    And it does not combine categories and subcategories as independent lists
+
+  Scenario: The hierarchy is empty
+    Given the mapped columns contain no categories or subcategories
+    When the system prepares the confirmation
+    Then it offers the default categories from HU-4.07
+    And it does not invent subcategories
+
+  Scenario: The system finds an orphan subcategory
+    Given a row contains "Streaming" without a parent category
+    When the system detects the hierarchy
+    Then it excludes that value
+    And it reports it to the user without assigning an invented parent
+
+  Scenario: Duplicate rules are scoped to each parent
+    Given "Food > Restaurant" already exists
+    When the same normalized name appears under "Food"
+    Then the system preserves only one relationship
+    But if it appears under "Leisure"
+    Then it also preserves "Leisure > Restaurant"
+
+  Scenario: The user manages a subcategory with its parent
+    Given the involved parent categories exist and are active
+    When the user adds, renames, moves, or removes a subcategory while specifying its parent
+    Then the system applies only the requested relationship change
+    And it rejects ambiguous or missing parents and duplicates under the same parent
+    And it presents the complete updated hierarchy
+
+  Scenario: The user removes a category
+    Given a category contains configured subcategories
+    When the user removes the category
+    Then the system also deactivates its subcategories
+    And it presents the resulting hierarchy before confirmation
+
+  Scenario: The user confirms the hierarchy
+    Given the user reviewed the hierarchy and the reported orphan values
+    When the user replies "yes" or an equivalent confirmation
+    Then the system saves the complete hierarchy atomically
+    And it completes onboarding without adding an FSM state
+```
+
+### Definition of Done
+
+- [ ] `subcategoria` is optional, and its absence preserves the behavior of HU-4.07.
+- [ ] Detection preserves, normalizes, and deduplicates pairs by row.
+- [ ] Orphan values are excluded and reported without invented parents.
+- [ ] An empty hierarchy does not create default subcategories.
+- [ ] Add, rename, move, and remove operations respect active parents and uniqueness within each parent.
+- [ ] Confirmation persists the hierarchy atomically and is idempotent.
+- [ ] Tests cover every scenario, persistence errors, and existing flat payloads.
+- [ ] No HTTP routes or FSM states are added.
+
+**Story Points: 8** _Rationale: Preserving row pairs, enforcing parent-scoped uniqueness, supporting parent-aware mutations, and confirming transactionally expand several onboarding layers and require compatibility and failure coverage._
+
+**Dependencies:** HU-4.06 and HU-4.07. Blocks E1-US-18.
