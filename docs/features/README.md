@@ -6,6 +6,8 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
+- [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone offline/live proposal evaluator with strict OpenAI output, a frozen 200-case development/held-out corpus, lexical comparisons and explicit measurement limits.
+
 - [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, encrypted token lifecycle, and transparent Google access-token refresh (MVP), with OneDrive planned for the future.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, search, and selection for spreadsheet records.
 - [`select-sheet.md`](./select-sheet.md) — Sheet selection within the chosen spreadsheet file.

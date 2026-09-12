@@ -1,0 +1,75 @@
+{
+  "01ba1401a35f5f0a54b32d062fb9e42355554ccc2e20d8d8cb788353de7d77a1": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "fbca5cb0094eb239aabe17938202b8358ef12e242278f1582d112885c222b900": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "ed826f3b4931b2c80a22e3f81e8d4913680510d1ebe56853eb8477164436b5e6": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "991fcf1ac3f9f8275fcfb11ecae7b94770cbb342d3b155f02b5b412cc6f0b61d": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "139a0d8d0e42c3aa8ce1ab5ecc59254d35a909ab4d70efa44289b1c7649a1a42": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "0a7bd22d40b78b5a7ba59ddce77b9f84320d5098c77cc09282f9f51aaeba0f94": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
+  },
+  "b6b92552bc645bf8d25accaed85da49fe5262fb385f8927a0eca7fbc0dee6033": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "079e11bc47bf7c4af52a9facbcf7362f079e5fcc2be6343d3df7fc18e1ec2437": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "3691cda687ac0bc0fef097e620b93a3e6a398e31797b9ac735ab79adf2790424": {
+    "status": "response",
+    "content": {
+      "action": "confirm"
+    }
+  },
+  "19bcecfd73c644690d997316e5c6816a728e2ff43507eb81bcdb47d497bb98d8": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "89622751c0c34bd525b76187989eb9e825c176bc3dd364157b59bf812713ed33": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
+  },
+  "f7ee9265b62e1d27ab4a7143194177a00ce7b11e0542c729eb9ed38a86edb023": {
+    "status": "failed",
+    "code": "TIMEOUT"
+  }
+}

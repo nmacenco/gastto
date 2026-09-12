@@ -1,0 +1,1234 @@
+{
+  "01ba1401a35f5f0a54b32d062fb9e42355554ccc2e20d8d8cb788353de7d77a1": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "fbca5cb0094eb239aabe17938202b8358ef12e242278f1582d112885c222b900": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "ed826f3b4931b2c80a22e3f81e8d4913680510d1ebe56853eb8477164436b5e6": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "991fcf1ac3f9f8275fcfb11ecae7b94770cbb342d3b155f02b5b412cc6f0b61d": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "139a0d8d0e42c3aa8ce1ab5ecc59254d35a909ab4d70efa44289b1c7649a1a42": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "0a7bd22d40b78b5a7ba59ddce77b9f84320d5098c77cc09282f9f51aaeba0f94": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
+  },
+  "b6b92552bc645bf8d25accaed85da49fe5262fb385f8927a0eca7fbc0dee6033": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "079e11bc47bf7c4af52a9facbcf7362f079e5fcc2be6343d3df7fc18e1ec2437": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "3691cda687ac0bc0fef097e620b93a3e6a398e31797b9ac735ab79adf2790424": {
+    "status": "response",
+    "content": {
+      "action": "confirm"
+    }
+  },
+  "19bcecfd73c644690d997316e5c6816a728e2ff43507eb81bcdb47d497bb98d8": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "89622751c0c34bd525b76187989eb9e825c176bc3dd364157b59bf812713ed33": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
+  },
+  "f7ee9265b62e1d27ab4a7143194177a00ce7b11e0542c729eb9ed38a86edb023": {
+    "status": "failed",
+    "code": "TIMEOUT"
+  },
+  "403d95a5b7d98153a5003a3ac523161689734cfaed6b6a9414cc74b2ae08f049": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "bc693f643065eac0fcb96c6413eb00be0760774a61a07f210fc1903406f34922": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "1f3903251eecc167801d4afbe93f747181490d41c04e482bf55c8f0a161205ed": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "b8aafb8d000179fd47dffe73d669883c1b54c94bb8c1f46d6ad2fba58752551d": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "5ea0c05d7a2474e3352f583dadd22c0b4d52027f28cf5a1d58c9c66bcb9c4123": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "a061ade11b437031a86325fd4a0ba666c9cdf4dff23718e57b390d4e4ccd10d9": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "2fcea7ee471fd64170a6dae26d7ad02f451126cc4298c657f5449c1a4b814e79": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "686faf22f99495a6ac4f52a0cb98ef6ccb08d3b01033b248206a0ba75768082b": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "d97ee5593ada1367932084096fff11fda192876936fbbbfcb4dd6e2f69b16f04": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "6c899a52dc6d1c84077510b0323f172a986053a21a53b77559ccb78522649196": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "4727c54b9dba2b42eae7dc84e02797a52cdcab65b7d04d102ba850498e268671": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "1412498ebb6b42255fe39cc4686d02202e3c56cbca0025e30b3c3145a45adece": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "99d7e18327958c0bb950eb93daf4fe13920678c30dfc2c4a1491fc2969e99530": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "3d136fc459b5c0bf2b3f679c13eb9c035989e90fe942dd8782c866eb07e4aaea": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "a4be796da1250a6ba7e615598ec5254f102b9225150de17d3bd704af492eafa8": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "a8a9cd0746c873761ad5605af6979cc07338b1af0987f4f4dcd280406b8a7e6d": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
+  },
+  "192f5820a1e54cdab2026391520018100b9551af937713816e34b4bb9004151d": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
+  },
+  "6b5279c28998298491e71ccf840459eba0610fb9ad9bfd442977dcdf6763d4ed": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "a54d2ce5402cb78fd76d070cae38930cde0c419356acdaae70cd9362aca8afff": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "acd754f6d7909f4c3729424c226030ee56cedf251856f187b772f41c103c2b29": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "5e6a2bce304653e2013f13c59c6595666569dfd152c48df33b1a7879ef763f89": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "e4d2ddcb7bed30254cf6af37f76a63039c61e2acd6034e6dccb102601757827f": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "937373ed5d10fd2ac2875ac787bb015fd22ba77bc8faafccdfdc31815422a6b1": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "0d8f3d12c376a8c95e08a21675701a09cd46fd1a6d1ec43d0ab7d8c2841cd717": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "mixed_intents"
+    }
+  },
+  "6be208bb8b153f57f6bffd1e147636f47cfc11454623fe831076d1ab3fb21a38": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "1d38e915cb1d7c28a2fb06717a7d5610ffd7531335613cb614dc22f57c01ba8d": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "9b6847cf0578f7e0b20d8cb330dde5130b6c91499fdc413b111308cb8edd063a": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "64024802190ea422dc52604b283634c4394ad48749b48a61008b565e56d59f2d": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "5b0f8e3a469a9b1cbc63a743954dede1a41cab3a072db8e5bbf3c886bcc7df9d": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "ffb2a032e9e519faf20ea9c935dc04a147c6433fd3cd80f9cf73f5b5279e5dce": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "f6dca50c3f84497505d62c76302663ca04f48a9fb6f82c2f14a3aa0961211366": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
+  },
+  "74643c4ade151b9e4f57ead8dd272c69aa519b60ef14e5fab52ec29a385dad65": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "mixed_intents"
+    }
+  },
+  "720b719fa1cded0e445368d41954cb5703fcde0d56e33e681f18497202c381e4": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "2ba86ac4516cc89b905c3f5db91d1dd7153e6689d98ec4240fc322064690dae2": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "84ab540b17a9bc10ec718915f808f8744ac3695ec654cfe7713e77089bd5d53f": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "c473c86c1cc6fa915fd23f63d8bf4f065cb2e72116ef3c987817e02fc3fade52": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "025d6762a8a7b26c363c3a595b30a8e773352cdd978774c824760da5c5791cdf": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "bff92739dbf948a90dd1a5742944016e8dd8db5c92dd754689c979bf57cf7bb6": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "2b17db7dfd7e5aab24c9525b935f88b6e229592565f5d712572c3e3674756371": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "dc752ae646a10e31fd1f1c01a41f880a47584d5690af478909b4898d4bdda7fd": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "7a2d15565f3d24d7eba72b163e235b47b677d1dac3a29876fc217d85086d8a83": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "a2d377d3e216cf92c0ef1aae1b46b3970640525d1b2f895e7722e66a23f8cb23": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "7836a55e7b81b7d7e5888200541d6b9d7b99d5fbbb219f8cfbd8c14833c03842": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
+  },
+  "25049aee86383589157d285b8c807ee16257242b89addc5c45185224cad1c405": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "b596e530c542421a9d43ea391258303fa21e4ed39665b6af4bd2fb43643555dc": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "mixed_intents"
+    }
+  },
+  "7707d8a2421ca663a8575dde616c70d7c357de41ba2833e3536edf7c0e76eb32": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
+  },
+  "f859b0e33a4a0c0338fd40568b7454ef8063b74313c111ad180e5a1dbdfa6e1c": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
+  },
+  "035d6bfec6d4ab9be20d00b38051d60300431968872abcb204167d073005dd87": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "bee52f064b1017a8d600e03dd717f699e0f2720a84a673ea075ed5368e38d081": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "4dee6eb00427215fea4d21eb2a824f9e8a34ba8f2ca6bafb2ba940e6ef8bbf42": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "340fab4858e87c5641d31b3ea828d2dd5bbe6c4ba397f86f936c249fafe8112b": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "d8d99c70363b6afd256f78e541818013d26df534361a17934a0de27fc7408eaa": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "061d91796fe1ffc88490e31dff2e6a0a0f453e9ee781d773de0aef1a9eccac41": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
+  },
+  "5c310b096828267ac6b57a464e1a924206046899a268428b7d7c17b01eddb574": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
+  },
+  "67e1e9d5b034b312df1924167f724523d1053fe52014573706df805a0e3a99a5": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "102127d80db0e1baa899462c13e009bcc1836c24fc0987f256ffdb93580372bb": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "4da63ca1d39a4279c7b20fb7f3d1af56bb2a09f5ce08e59c28d61ae5da75c942": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "061f5a97e396ff3669ce8b8c5b6955a2f5f82162c806dd1b871cd19d2ce07538": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "068de32c455fe36d4e8c873aadad3dbeab764fbe0879bf84ee1b4f375e0acc2f": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "80e1c700d15104382a205a19ca7bf755002d6df6e332b7d562e81d42857f93d7": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "b54948fea6b7d00fc605e7244dff1ccd4f11fbffdfbf73d1b3818170d0ce2422": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "eea98ed18630967ec3b26f55c3916880a4acfee90c17de4fff005f8bb9a1d8c2": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
+  },
+  "22f4b569264b6a12768fb5f1f563791b8d0e0a2941f9d94950b1f7a3a31bbb38": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "f96b70c5853325bfdaae095627dca608289b6aa4afda88860a0e79b984905360": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "be1d904927f57bfb68e8222d10e2b51739bbac999d144cfb858769d18f75ad57": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "591aec2ca6e2a0ac945eabc8a0c47401364a0a1f0a8d592682700ecc9e34c9da": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "bdc12d20b907ccfc268d220d4faa7cf2858889fa73fab77d0c4d506ca9e0044f": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "4dcf4a8015eccd49f061332b8d0340b143bf7b1bf4839742ef2e439ee4360e18": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "4614d03f36568b554821b6a2e64dada34a1ab0ebc09de31e838fa38f46d765da": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "0d3038cd7af26fa2bad5a5f559319042c72a19993ed84f76c1e54b0e1ef552f4": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "2d1f95faf7097cb84d488f21bd9717751ba244455e7195dd2451b601ad311baa": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "1033d4c704db8d34729f6263b68a6e20762325886d4693333f1e2c6ab7de479c": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "467c817e2adef66c0b1f7daae29f1366bf9629d7579346deb142ce58ed2dab03": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "Viajes"
+    }
+  },
+  "48adc0c4232ea3494d168501122daf224b76804d1c57538013c798ab8753d5a1": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "Viajes"
+    }
+  },
+  "cff6083cde25099d3c86d05a8a11c390a8f03ab43f5ead8994936e1c9c7c1324": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
+  },
+  "056b8d521750543a7248704015a318fcaabc1938587fbd937bafa93816a7874f": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "b38c36f5c30b1d800599dde3431ba7d6eb924f128d35c56723a7abf53ec9e387": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "39b0218d6cd6bb9cd4dd1f18f95be42d8b52dd302fcbc866a68e2cbf808183a4": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "f582984f4416553a8292523bf8c7b03a322d571fd1866d64a6b8f4b7ce18463c": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "d74c7f09799ce6556a1e4a02a58d5c41e92fff3da76562e65aabcd933064d40a": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "9482253f0bd92bcbfdd908c21408d94be9a12a79dd3a34b3755a0bb6a7da579a": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "c2ee57f1fd52367212fae0893b8077583af9fedd1a76da7fe2326b4d0942a34f": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "55c1040cd691730d24f3e99430edc919699876482a83a4c6ec53eef04711a083": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "0179001f5cf21986019f850c7331e365ee37ee17cd4479ca66d8c2efb9d15d30": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "7d13f78f9eb1ea3de281d19eb73e153384f1200a91f1729abcd3d3c270e5ef55": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "d79bb4c30ceabffda6bcb74d2ae1f938c32e166e2fa736463b39c49739a9721c": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "c886762c8c15390d908ee676f6e7ea87b239e50619c3b97d984242f0799de7a8": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "dbffcc45825efe4a449062aaec3fb320ae18827e40983d145f098d2ce61e64af": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "3ff94985c8d49cf90e1edf0215c712671018e6558dc680828076eab567ca436f": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "e99fa79e8891366939bac81b90fb67c0bf6fd68b32dbef7e1c677fa4ebd01707": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "e3f8fd975b1f7ab424f71def7283b2e6ee8b2ead188fa6f83c5c72f3b49508e8": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "47e89360567a4989baddca2107e903bac0e9843e74882f5fda2c48882ddb8190": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "bf53e8a9e2def758be18911a20aa308a159ec83a63c09fc6daaf31f52bddc7ef": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "6eea4b46e6fa27d211289adbbcb6e6f4d85bb10a3e8bd8d7d251fd13bcccc842": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "a120304b1d03e415ccdd3cd7017e73c0cf28a3ae92d0be89f6afbf92b3bb905f": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "992dfe665fe20d7ffd8892777ba194f692e4e7e71754db69aa7c1a84ea766a3a": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "c279a83cacc636f19337057e43fdf3874a8c571e999ee55c258ec6e929dd040f": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "807b34fcb5b56a37b4a96d844f780d6f4e43f6f70006f5fa96b1d2ee204ee4ad": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "e80064a98bfb4dd9e6a1c2cdfb1de263f04c4dab2c5564bd9e92b3b10a98d5a1": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "8884d2a80f40052b9e706fe8b756aaa611bd58cf424f3ad19882425edcb11e7a": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "c21b3ddcb53e75478bc77253fbea5ba6403dd8cde9a450e45d91146de699859e": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "b61e5c9dcaea20c5f8470ebe93f1044d6d0efed5c608178c93d63790f7ab3c53": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "e74db27bc14f7fcc69f8bc4c034317e9e6dd8429bb0df0e28f635b64515f6548": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "ddefca227129eca1427e0504807b2126fd6d628d1381e8634175f40be79da57f": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "aba8d7f7307e12b28f70e2b74ffb40e9acaa4dbe58e2907f6fc5171844247343": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "fee16ad55dbd4ddcc19c8a81b67a1bedf38e09829b8244624241c185b14d9441": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "1c2a1812f0a95946875ca08fd7dffe4e57a1244bc36cfad9070720aa3cfe0435": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "dcd99e11517f255c87104d6ebae9bdd30253ab6a0c40c915acade2961a6df757": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "8aedb265f9d653701c0658900ac301db9665cec57ab6f5eae9d1cea78c458738": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "1f18fffc1fb079501eac211e4f766327e8477fff27e3bb6b369b38ba15653a96": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "d3fe6271e8014dd2e868e3b1c76e5f88aa27b40d2ca82c660eedb500dfa42259": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "85586eaa9671dda1959dd1bb6f009513187b8c1208bc6a68c2bfef4228591c08": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "0fbdd6e9378db302486eabcbf2d0deb5bbe718e502435139c9f365d04a2f46f2": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "21f6a0ad7e8ed1135be2c87ba534673ba8d395b020c2a5fbae52f536fdde7fc1": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "861bf2a2e91836bad8af7d8ca38b5d2d629153382120156da21a0754c7d24b8a": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "59fa4edd9609d8c28081f928bd7da90c2c3cbcbdb353ee8874f3f1801f14f486": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "2504b2c95a34e970c86d4185e49566cd6c8731880982639c70b79a9428c30076": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "de68c103f2ecf24c9cf4afc600ea3b565203ca795b0883c0548830fbadfe0537": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "0f8413be47e3a80552abcaea7ece50edf3235031ab87a3da7a5908ba1eb47f31": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "53970114cb959cbd81715521bec9c1e5a29837d3286dd353d508b3a6b64a066e": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "b3319f9903bfba94b0b3dac59bd57b124be09315e57837bc1ffa018c6a0e9555": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "5cf54508d370f86693a9f3a5d2673965172af74b57698e71cb02ad12e705c4a2": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "1e592950000c05b44506a22c94d666d149b06291e1e1e67f104a4d075a111ca5": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "bb08f706d0e19124ed16cd7fce2f5b8a42fb1afcc6e68fd2ca0eca37706093ea": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "8242055ce9aa54472a794b3495110d6196bb632411514a6f648e1d867d7b0b28": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "14d3acde6908456d57fd3cb01fd1d06c7e63432cc2681831eb8be4e2998df18b": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "dfd4a0c28b274a6e66fcfc6ab0eec046d29d8fb9cfef348900d57ab5619e5d09": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "a732c934245f3ecca288bc8c5fabe466c6048c03c15a9b13534696d2839a9424": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "c9f3e4f403d7f55c835fbbd86ef44ea3278747fd5c803100c9eb72565cacac4b": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "c93595fb8f33f32c597989071aea14b98faeaaacf4207c8adbc7ebe9cbc12e19": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "c548f3ad393573ff1138be93186ba043953cbb0332f59e8fd386551883bc4db7": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "bf503caac1fbcdd9b55be6b36808dd46c163e68a0c08594770e4b294605bb53a": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "2eedcda3cf3ee7c9a3413a24ae08dba14db4dbe059d09bbba8e5ab0f88ba5f5e": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "18d1d25af4c2b9c165462c63c8f097621c500c9b0cab0541eae3e6407ff53109": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "41a87cff6922d65939d382ef0ff435389fa615354f69610af2049b38167253d0": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "ef019661214effd1b7fda68f0c7de38694f98ecb3d7b2299f7d3958e8f7db2fb": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "7d0f54452609d17e1d944caaa00e29f660a57a6a4559d376155751eb13e9e3fd": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "de0ab3e2356618a375db8584fe5033060714827fb5bb1bd965d254319b43d377": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "ffb47770d0c0fa9a8b58e3e433b8ebae866132426e8269631d4420778d3c4c5f": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "38c0dff42e8945579fb6201a79e4a6d21d8486cf8fe5baeeec9e275bbe5008cc": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "d202a9410f544dc269260fab63cce778d12ceb282d8d48cafaedaa2c73b8fd2b": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "5c51483da41d0b5439edc9e02e5a38a4cfc9719a04055e9b78477748086c3827": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "b7714cd812c9b72a839da9bb8fbd88c2ae3ab07e4bb720b8cf1f587d4c129608": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "2780f30da2fa08e4d5a6cd242afbe72d08a5fa16bce8db485df47b63aa634ff5": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "c02c8689e591e331d53fdd402ea06735a274d6fe0bcd287b330f60daaadaf997": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "16294b9130c0fded1ba36072cf4e7def759f1f7150d0ca8fa56980860dd9b145": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "a058b1806e05c755800bb38b97ff151177627eb27c66f73efa1968d3ecaf9803": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "e55c306ac5fa261a9dd6c6921f314f3489db4b01ab8d3b2a99e173e7e1272824": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "a96e49f9518b76cf44acc5b638a9b1ac6013bca4d9f9df0c4d2b1462ea56c746": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "f51932c57098115feb9fe1b887eb349fd470b0dc8145ba3d9c7cc4bc551b4ebb": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "96182049fb859ad324108f45f196a025eb0ed27e97bcdd111a5e9dca95e9df31": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "467e1994932d660813128a397186141b589859b7955f44594018686ea65c558b": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "4a8b2c1435135fac5ae1958cb68048faf93faa19401af2ec8baadde30bff2a9f": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "fbb7766125a948990bc34b0c87d224fb82a95d5a624b97a9c50f1ae49e576556": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "b8471ffb4ac0a9daa48cbbff20d7fbd9638478f31d3745218b93c3903edd58ca": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "a7eed73e476d0abbd7d5394c6df1f5ef799423c0181d4db3aeb2990d8229e22e": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "803dd24e5f81e2ec65112be855102a40c17a21c393ed1ffe2ef34321beb9d459": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "50c17a8b9fa9cdedaaf95bfe2c420b2e8f085659775f42da490fc831a1534a3d": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "fddb00b52ebca5f8f5b577db9010accadb79a4e166c20273949e0931b3bd0565": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "a8a6a68f9dd3b1bd6ba470e6541940ca1b0a6ba19d06316bf5482db79a872445": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "0e19450e163ac0ca2964c0f81f757879cb5acba2884abf16dc6218c44a9db5a4": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "373007cf32b308a7369a87fe03e9a1a4f0d1287d5ec1368ba4bb1c9d54aa519f": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "25679bb22daa8f2742b1744b72dae0863d2dc75215500d1c3485b07cd8b0b6ed": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "65728c93c49a62ef3990f05cc7c9eaa0c6cbfedce1c6aadb46b353e6c7efc965": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "40eed79721df6d469a3e1e479777534d352cf30512d71aaacaf8d1529c8a9036": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "6621070ba399857faef362e310f4888058a3bca38847298401700e36dd5a65b9": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "a1f4916d7138fff4a157670338a8131645f977a0c21f519c2a525b5ce1491b3c": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "7fc4af279677a776bb09d780d171cc75283ed9b45e3fabd7d5e95b9bf19d4bec": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "9aeee724d9ca232967d381908840a99942731fb391a3af2b11a7a10b1ccd8fc3": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "9d930c3d7eb9a418c3aa77356d65ecd6e222cf3956739ea88cb80d47c9b215fe": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "4fa897fa2acf9804fa9404f21a600346be8e8e471b833fab20a3d1a678dcf3e2": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "c63757adb62ebd83f1e2152121f63e6b1c4f6fd3ecb66016e2157429602b4148": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "9621d6c88526f375fa7043ecd802acb6f002ef006b67bf3e9099080cede743ed": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "313378f1224bc37db65f930d1ee8f3added6ee5596552e07f77dfa0e75600472": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "f0d239386907f856173085cd807728bc037dce2ffbeada38f875883e0b23bd80": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "2"
+    }
+  },
+  "5489e3dbfee1d614be13d4fd422624d316c64511b8a7d5d6317194d67a324320": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "072d482c9aeedcbec4585a2a4eac817eecf3be7d8705707c9ef67a671ecd378a": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "ed4e549d3086cf622c5869f22ded206af076423e4cdaa2ca3660a249bf9def4b": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "8130ee11b084f42f08b09cb54345f8af5bb05b5767a5bebbdfbeefe32fa9200c": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
+  },
+  "4584060d76d0d087356f6cbd9ae51ed5026d7b5995882ada40ebfbad0605c32e": {
+    "status": "failed",
+    "code": "INVALID_INPUT"
+  },
+  "80563753ece3561795cecd8cebec92ff303a55e22eef36a36095aded7922c23d": {
+    "status": "failed",
+    "code": "INPUT_TOO_LARGE"
+  },
+  "cbfc26a77ef8799f1f4416d776d906411bd3cc6701f20a6f8cc260bc11d83546": {
+    "status": "failed",
+    "code": "UNSUPPORTED_CONFIGURATION"
+  },
+  "d84df94b8eac22e1eaaf61563a6360a2fcf87422576f1de15be3e09b6021e5dc": {
+    "status": "failed",
+    "code": "TIMEOUT"
+  },
+  "6e4feedce3cd0b99a77a588b377b65486abdeddc0214241f4b2caf21fed36642": {
+    "status": "failed",
+    "code": "PROVIDER_ERROR"
+  },
+  "15095ac0fdd461cc3b4c6ce0085e1c4b987a022726c41167cdfe91c456a4e85d": {
+    "status": "failed",
+    "code": "MODEL_REFUSAL"
+  },
+  "b6aebc00de05811c835b011b935cf021845f5d69e8cf8c0131bc9e0b38bce0b4": {
+    "status": "failed",
+    "code": "INVALID_OUTPUT"
+  },
+  "6c5008970dd56692d5049fc4064aea2845e910c4e19d491a4a171ddb511cf9f6": {
+    "status": "failed",
+    "code": "OUTPUT_TOO_LARGE"
+  }
+}

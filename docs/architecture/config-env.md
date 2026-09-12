@@ -1,6 +1,6 @@
 ---
 title: 'Configuration & Environment'
-last_updated: '2026-08-23'
+last_updated: '2026-09-12'
 source_of_truth: ['src/config/env.schema.ts']
 tags: ['architecture', 'config', 'env']
 ---
@@ -124,3 +124,14 @@ previous provider URI in an approved password manager for rollback.
 | `pnpm db:generate`   | Generate Drizzle migration files                     |
 | `pnpm db:migrate`    | Run pending migrations                               |
 | `pnpm db:studio`     | Open Drizzle Studio                                  |
+
+
+## Standalone semantic evaluator
+
+`pnpm eval:semantic-router` defaults to offline fixtures and never loads dotenv or
+application bootstrap. Explicit live mode uses only the caller-provided
+`OPENAI_API_KEY` and requires model, provider, case, timeout and output-token limits
+on the command line. It does not use the application's provider preference or
+initialize DB/Redis clients. See [Semantic Router Evaluation](../features/semantic-router-evaluation.md)
+for supported snapshots, bounds and optional live commands. Do not read environment
+files or print key values to run evaluations.

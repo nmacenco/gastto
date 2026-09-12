@@ -45,7 +45,7 @@ Master checkboxes track planning requirements: checking one means the child plan
 
 | Phase | Stable child-plan slug | Implementation prerequisites | Plan created | Implementation verified |
 | --- | --- | --- | --- | --- |
-| 1 | `semantic_router_evaluation` | None | Pending | Pending |
+| 1 | `semantic_router_evaluation` | None | [Created](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md) | [Deliveries 1–3 verified](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md); live evidence and activation pending |
 | 2 | `semantic_router_confirmation_safety` | Phase 1 contracts | Pending | Pending |
 | 3 | `semantic_router_shadow_pipeline` | Phases 1 and 2 | Pending | Pending |
 | 4 | `semantic_router_expense_flows` | Phases 1 through 3 | Pending | Pending |
@@ -78,17 +78,20 @@ Plan a runnable evaluation tool that compares deterministic routing and validate
 
 #### To-do actions
 
-- [ ] Create and link the normal plan, recording the approved contract names and concrete signatures.
-- [ ] Define the strict decision schema, state/substep action matrix, input projection, and error taxonomy from ADR-023; disabled actions remain unavailable.
-- [ ] Plan one initial provider adapter compatible with existing composition, with bounded input/output sizes, timeout, strict output validation, and no autonomous iterations. Document capability checks and explicit fallback for unsupported provider configurations.
-- [ ] Define the evaluator command and fixtures with raw example text, state/substep, safe context, expected intent or accepted outcomes, authorization expectation, and scenario labels.
-- [ ] Separate development and held-out cases, record dataset versions and counts, and make reports distinguish action accuracy from actual task completion.
-- [ ] Cover regional Spanish, typos, negation, mixed intents, corrections containing amounts, new expenses, ambiguous references, injection, malformed output, unknown actions, forbidden actions, and provider failures.
-- [ ] Measure the current router's baseline and specify reporting for per-state accuracy, ambiguity, unnecessary clarification, schema failures, latency, and model usage/cost. Do not present fixture timing as production latency.
-- [ ] Keep normal automated evaluation offline; specify a separate opt-in real-provider evaluation workflow that does not read secret files or persist raw financial conversations in reports.
-- [ ] Require documentation of the implemented evaluator and its limitations, plus the corresponding feature index update.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create and link the normal plan, recording the approved contract names and concrete signatures.
+- [x] Define the strict decision schema, state/substep action matrix, input projection, and error taxonomy from ADR-023; disabled actions remain unavailable.
+- [x] Plan one initial provider adapter compatible with existing composition, with bounded input/output sizes, timeout, strict output validation, and no autonomous iterations. Document capability checks and explicit fallback for unsupported provider configurations.
+- [x] Define the evaluator command and fixtures with raw example text, state/substep, safe context, expected intent or accepted outcomes, authorization expectation, and scenario labels.
+- [x] Separate development and held-out cases, record dataset versions and counts, and make reports distinguish action accuracy from actual task completion.
+- [x] Cover regional Spanish, typos, negation, mixed intents, corrections containing amounts, new expenses, ambiguous references, injection, malformed output, unknown actions, forbidden actions, and provider failures.
+- [x] Measure the current router's baseline and specify reporting for per-state accuracy, ambiguity, unnecessary clarification, schema failures, latency, and model usage/cost. Do not present fixture timing as production latency.
+- [x] Keep normal automated evaluation offline; specify a separate opt-in real-provider evaluation workflow that does not read secret files or persist raw financial conversations in reports.
+- [x] Require documentation of the implemented evaluator and its limitations, plus the corresponding feature index update.
+
+The linked evaluator subplan is implemented and verified as of 2026-09-12: strict provider-neutral contracts, offline evaluator, opt-in bounded OpenAI adapter, and a frozen 200-case corpus (175 development, 25 held-out). `pnpm lint`, `pnpm typecheck` and `pnpm test` passed (1,814 passed, 52 skipped); both expanded offline splits passed. Current lexical observations and measurement limits are recorded in [the feature document](../../../docs/features/semantic-router-evaluation.md). The exact Mercadona notification is preserved with state-aware and ambiguous variants. No live model calls occurred; model-quality evidence, independent human label adjudication, end-to-end safety and activation remain pending. No chatbot integration or automatic commit is included.
+
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 2: Create the confirmation and context-validity subplan
 
@@ -158,6 +161,7 @@ Plan the first conversational capability: recognizing expenses, answering missin
 
 - [ ] Create and link the normal plan with explicit allowed actions for `IDLE`, `EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, and `EXPENSE_REVIEW`, plus any internal substeps.
 - [ ] Route expense recognition to existing interpretation, missing-data replies to contextual completion, and corrections to the active review using application-retained original text.
+- [ ] Carry the Phase 1 bank-notification regression into extraction and review: one Mercadona expense for `16.55 EUR` on `2026-09-11`, original multiline text preserved, card/bank labels treated as payment context, no inferred timezone, and explicit confirmation before saving. Cover state-dependent queueing, correction, and clarification variants.
 - [ ] Define `register_expense` in an active review as additional-expense queue admission rather than immediate replacement or saving; preserve existing clarification interruption rules separately.
 - [ ] Resolve ownership between semantic intent classification and existing correction interpretation so conflicting second classifications cannot redirect an already validated action. Bound and measure necessary extraction calls.
 - [ ] Preserve category/subcategory invariants, zero/high-amount confirmations, correction-cycle limits, pending-queue capacity and ordering, and save/retry payload continuity.
@@ -250,4 +254,4 @@ Plan integrated acceptance evidence and staged activation across delivered capab
 
 ## Next step
 
-Create the Phase 1 normal plan using its trigger after the user requests it.
+When separately requested, revalidate the delivered evaluator contracts and create the Phase 2 confirmation-safety subplan; retain pending live evaluation evidence and activation gates.
