@@ -151,12 +151,16 @@ function buildDeps(
   const transitionMock: ReturnType<typeof vi.fn<TransitionConversationState['execute']>> =
     overrides.transition ??
     vi.fn<TransitionConversationState['execute']>().mockResolvedValue({
-      userId: 'user-123',
-      currentState: 'EXPENSE_REVIEW',
-      statePayload: null,
-      expiresAt: null,
-      enteredAt: new Date(),
-      updatedAt: new Date(),
+      status: 'updated',
+      state: {
+        userId: 'user-123',
+        revision: '1',
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: null,
+        expiresAt: null,
+        enteredAt: new Date(),
+        updatedAt: new Date(),
+      },
     });
 
   const llm = {

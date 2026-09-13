@@ -11,6 +11,8 @@ import {
 } from '../../../domain/value-objects/expense-save-retry-payload';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { expenseCopies } from '../../copies/expense.copies';
+import { randomUUID } from 'node:crypto';
+import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
 
 export interface RetryExpenseSaveInput {
   userId: string;
@@ -36,12 +38,32 @@ export class RetryExpenseSaveUseCase {
       return;
     }
 
+    const claimId = randomUUID();
+    const executionClaim = {
+      claimId,
+      kind: 'retry' as const,
+      operationId: `${input.userId}:${this.deps.transitionState.currentState(input.userId)?.revision ?? 'unknown'}:retry`,
+      sourceMessageId: null,
+      status: 'in_flight' as const,
+      target: { expense: retryPayload.expense, attemptCount: 2 },
+    };
+    await this.deps.transitionState.execute({
+      userId: input.userId,
+      targetState: 'EXPENSE_SAVING_RETRY',
+      payload: {
+        ...retryPayload,
+        executionClaim,
+      },
+      expiresAt: input.expiresAt,
+      claimId,
+    });
     await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.saving());
     try {
       const saveResult = await this.deps.registerExpense.save(
         input.userId,
         retryPayload.expense,
         '',
+        claimId,
       );
       await this.deps.messagingPort.sendMessage(
         input.chatId,
@@ -54,6 +76,7 @@ export class RetryExpenseSaveUseCase {
         }),
       );
     } catch (error) {
+      if (error instanceof StaleConversationStateError) throw error;
       const spreadsheetError =
         error instanceof SpreadsheetError
           ? error
@@ -64,7 +87,28 @@ export class RetryExpenseSaveUseCase {
         { failureCode: spreadsheetError.code, attemptCount: 2 },
         spreadsheetError.code,
       );
-      await this.deps.transitionState.execute({ userId: input.userId, targetState: 'IDLE' });
+      if (spreadsheetError.outcomeUnknown) {
+        await this.deps.transitionState.finalizeClaim({
+          userId: input.userId,
+          targetState: 'EXPENSE_SAVING_RETRY',
+          payload: {
+            ...retryPayload,
+            executionClaim: { ...executionClaim, status: 'outcome_unknown' },
+          },
+          expiresAt: input.expiresAt,
+          claimId,
+        });
+        await this.deps.messagingPort.sendMessage(
+          input.chatId,
+          expenseCopies.financialOutcomeUnknown(),
+        );
+        return;
+      }
+      await this.deps.transitionState.finalizeClaim({
+        userId: input.userId,
+        targetState: 'IDLE',
+        claimId,
+      });
       await this.deps.messagingPort.sendMessage(
         input.chatId,
         expenseCopies.saveManualCopyFallback({

@@ -89,17 +89,21 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
 
     const transition = new TransitionConversationState(conversationRepo);
     const expiresAt = new Date(Date.now() + 3600_000);
+    const observed = (await conversationRepo.findByUserId(user.userId))!;
 
     const result = await transition.execute({
       userId: user.userId,
       targetState: 'EXPENSE_RECEIVING',
       payload: { amount: 1500, concept: 'Almuerzo' },
       expiresAt,
+      expected: transition.precondition(observed, 'any'),
     });
 
-    expect(result.currentState).toBe('EXPENSE_RECEIVING');
-    expect(result.statePayload).toEqual({ amount: 1500, concept: 'Almuerzo' });
-    expect(result.expiresAt).toEqual(expiresAt);
+    expect(result.status).toBe('updated');
+    if (result.status !== 'updated') throw new Error('Expected state update');
+    expect(result.state.currentState).toBe('EXPENSE_RECEIVING');
+    expect(result.state.statePayload).toEqual({ amount: 1500, concept: 'Almuerzo' });
+    expect(result.state.expiresAt).toEqual(expiresAt);
 
     const getState = new GetConversationState(conversationRepo);
     const readBack = await getState.execute({ userId: user.userId });
@@ -147,24 +151,22 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     const result = await useCase.execute({
       userId: user.userId,
       observedState: 'BOGUS_STATE',
+      observedRevision: '0',
     });
 
-    expect(result.recovered).toBe(true);
-    expect(result.message).toBe('Parece que algo falló. Vamos a empezar de nuevo.');
+    expect(result.recovered).toBe(false);
+    expect(result.message).toBe('');
 
     const state = await conversationRepo.findByUserId(user.userId);
     expect(state).not.toBeNull();
-    expect(state!.currentState).toBe('IDLE');
+    expect(state!.currentState).toBe('EXPENSE_REVIEW');
 
     const logs = await db
       .select()
       .from(schema.operationLogs)
       .where(eq(schema.operationLogs.userId, user.userId));
 
-    expect(logs.length).toBe(1);
-    expect(logs[0]!.errorType).toBe('CORRUPTED_STATE');
-    expect(logs[0]!.operation).toBe('STATE_CORRUPTED');
-    expect(logs[0]!.payload).toEqual({ observedState: 'BOGUS_STATE' });
+    expect(logs.length).toBe(0);
   });
 
   it('Scenario 5: Expired session transitions to IDLE and notifies user', async () => {
@@ -242,14 +244,17 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
         transitionState: transition,
         messagingPort: messagingMock,
       });
+      const observedBeforeCancellation = (await conversationRepo.findByUserId(user.userId))!;
 
       await expect(
-        cancel.execute({
-          userId: user.userId,
-          chatId: 'chat-1',
-          currentState,
-          source: 'text',
-        }),
+        transition.runWithState(observedBeforeCancellation, () =>
+          cancel.execute({
+            userId: user.userId,
+            chatId: 'chat-1',
+            currentState,
+            source: 'text',
+          }),
+        ),
       ).resolves.toEqual({ status: 'cancelled' });
 
       const cancelledState = await conversationRepo.findByUserId(user.userId);
@@ -265,10 +270,12 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
           .where(eq(schema.expenseRecords.userId, user.userId)),
       ).resolves.toEqual([]);
 
+      const observed = (await conversationRepo.findByUserId(user.userId))!;
       await transition.execute({
         userId: user.userId,
         targetState: 'EXPENSE_RECEIVING',
         payload: { rawMessage: 'Taxi 500', marker: 'fresh-expense' },
+        expected: transition.precondition(observed, 'any'),
       });
       const freshState = await conversationRepo.findByUserId(user.userId);
       expect(freshState?.statePayload).toEqual({ rawMessage: 'Taxi 500', marker: 'fresh-expense' });

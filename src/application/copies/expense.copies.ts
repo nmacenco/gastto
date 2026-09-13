@@ -19,6 +19,8 @@ export const expenseCopies = {
   saving: () => 'Guardando tu gasto…',
   saveNetworkFailure: () =>
     'No pude confirmar el guardado por un problema de conexión. Respondé *reintentar* dentro de los próximos 10 minutos.',
+  financialOutcomeUnknown: () =>
+    'El resultado de esa operación todavía no está confirmado. Revisá la planilla antes de volver a intentarlo.',
   saveAuthorizationFailure: () =>
     'No pude acceder a tu planilla. Respondé *empezar* para volver a conectar tu cuenta.',
   saveStructureFailure: () =>

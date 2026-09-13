@@ -13,6 +13,7 @@ Allow a user to remove only their most recently saved expense from a Google Shee
 - Confirmation deletes only the offered record if it remains the current latest non-deleted expense. Cancellation and expiry return safely to `IDLE` without a deletion.
 - If no undoable record exists, or deletion cannot be completed, the user receives a safe response without provider details. A failed external deletion leaves the local expense active and records no successful deletion audit event.
 - The scope excludes repeated or batch undo. Only the latest non-deleted expense can be selected.
+- Before external deletion, undo persists a unique execution claim bound to the exact latest expense ID, sheet, and row. The delete begins only while that claim and the user lease remain owned. Only the same claim can finalize the local soft delete/audit; an ambiguous provider failure remains `outcome_unknown` for manual resolution and blocks automatic replay.
 
 ## API / Interface
 

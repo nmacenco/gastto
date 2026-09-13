@@ -124,6 +124,8 @@ function buildTelegramFeature(
     resolveIdentity: ResolveUserIdentityUseCase;
     getConversationState: GetConversationState;
     conversationRepo: DrizzleConversationStateRepository;
+    transitionState: TransitionConversationState;
+    userProcessingLock: RedisUserProcessingLock;
   },
 ): TelegramFeature | null {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -131,7 +133,13 @@ function buildTelegramFeature(
   }
 
   const adapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN, infra.rootLogger);
-  const handleStartCommand = new HandleStartCommand(adapter, core.conversationRepo);
+  const handleStartCommand = new HandleStartCommand(
+    adapter,
+    core.conversationRepo,
+    core.transitionState,
+    core.userProcessingLock,
+    infra.rootLogger,
+  );
   const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(adapter);
   const handleUnsupportedMessage = new HandleUnsupportedMessage(adapter);
   const classifyFreeTextExpenseIntent = new ClassifyFreeTextExpenseIntent();
@@ -207,6 +215,8 @@ function buildGoogleOAuthFeature(
     reminderQueue: core.reminderQueue,
     transitionState: core.transitionState,
     messagingPort,
+    userProcessingLock: new RedisUserProcessingLock(infra.redis),
+    logger: infra.rootLogger,
   });
 
   const cancelCloudConnection = new CancelCloudConnection({
@@ -282,6 +292,8 @@ function buildGoogleOAuthFeature(
     messagingPort,
     tokenEncryption: core.tokenEncryption,
     handleSpreadsheetFileSelection,
+    conversationRepo: core.conversationRepo,
+    userProcessingLock: new RedisUserProcessingLock(infra.redis),
   });
 
   const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
@@ -507,7 +519,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     columnMappingRepo,
     userCategoryRepo,
     categoryVocabularyRepo,
-    conversationRepo,
+    transitionState,
     operationLogRepo,
     userProfileRepo,
     categoryClassifier,
@@ -526,6 +538,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     spreadsheetConfigRepo,
     operationLogRepo,
     oauthAccessTokenService,
+    transitionState,
   );
   const correctExpense = new CorrectExpenseUseCase(
     {
@@ -544,6 +557,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     resolveIdentity,
     getConversationState,
     conversationRepo,
+    transitionState,
+    userProcessingLock,
   });
 
   const googleOAuth = buildGoogleOAuthFeature(env, infra, {

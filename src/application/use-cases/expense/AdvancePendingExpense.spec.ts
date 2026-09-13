@@ -76,6 +76,7 @@ describe('AdvancePendingExpense', () => {
     });
     sendMessage.mockResolvedValue({ status: 'success' });
     generateSummary.mockResolvedValue(undefined);
+    dequeueFirst.mockResolvedValue({ id: 'queue-1' });
   });
 
   it('dequeues the oldest expense, then sends the notice before its review summary', async () => {
@@ -105,7 +106,7 @@ describe('AdvancePendingExpense', () => {
     expect(generateSummary).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-1', payload: hierarchyReview }),
     );
-    expect(dequeueFirst).toHaveBeenCalledWith('user-1');
+    expect(dequeueFirst).toHaveBeenCalledWith('user-1', 'queue-1');
   });
 
   it.each([

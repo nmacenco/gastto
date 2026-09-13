@@ -23,6 +23,14 @@ const RELEASE_SCRIPT = `
   end
 `;
 
+const RENEW_SCRIPT = `
+  if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("pexpire", KEYS[1], ARGV[2])
+  else
+    return 0
+  end
+`;
+
 export class RedisUserProcessingLock implements IUserProcessingLock {
   constructor(private readonly redis: Redis) {}
 
@@ -34,5 +42,10 @@ export class RedisUserProcessingLock implements IUserProcessingLock {
 
   async release(userId: string, token: string): Promise<void> {
     await this.redis.eval(RELEASE_SCRIPT, 1, lockKey(userId), token);
+  }
+
+  async renew(userId: string, token: string, ttlMs: number): Promise<boolean> {
+    const result = await this.redis.eval(RENEW_SCRIPT, 1, lockKey(userId), token, ttlMs);
+    return result === 1;
   }
 }

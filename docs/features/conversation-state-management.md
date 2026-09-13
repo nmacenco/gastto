@@ -8,7 +8,9 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 
 - Each user has exactly one row in `conversation_states`, referenced by `user_id` with `ON DELETE CASCADE`.
 - The FSM defines **15 states** and valid transitions between them (see ADR-003 and ADR-017).
-- State transitions are atomic: `DrizzleConversationStateRepository.transition` wraps the UPDATE in a transaction.
+- State transitions are atomic compare-and-swap writes over user ID, decimal-string `revision`, observed state, and database-time expiry. Each successful mutation increments the `BIGINT` revision, including self-transitions.
+- `TransitionConversationState` requires an explicit observed precondition unless a shared async execution context owns the latest committed snapshot. Nested use cases reuse that context; it is invalidated if lease renewal fails.
+- Per-user Redis leases are renewed every 30 seconds with token-safe comparison. Timeout, OAuth callback/reminder, recovery, onboarding, and message-processing entries share this ownership boundary.
 - `HandleStartCommand` ensures every new user has a valid conversation state. If missing, it creates `IDLE`.
 - `TransitionConversationState` validates transitions against `FSM_TRANSITIONS`. Invalid transitions throw `InvalidStateTransitionError`.
 - `GetConversationState` reads the current state for a user, returning `null` only if the user has never interacted with the system.
@@ -17,7 +19,9 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 - Category confirmation always finalizes the persisted conversation as `IDLE` with `statePayload` and `expiresAt` cleared before sending completion copy. If categories were confirmed previously, only the redundant confirmation-timestamp write is skipped; user activation and the FSM transition are repeated idempotently.
 - **Session timeout:** `conversation_states.expires_at` stores an absolute expiration timestamp. `HandleExpiredSessions` (run by a periodic worker) finds all expired states via the partial index `idx_conversation_states_expires`, transitions them back to `IDLE`, and notifies the user via their messaging identities with the copy: `"Tu sesion expiro. Queres continuar o empezar de nuevo?"`.
 - Every onboarding state (`ONBOARDING_START`, `ONBOARDING_DRIVE`, `ONBOARDING_FILE`, `ONBOARDING_SHEET`, `ONBOARDING_VALIDATING_ACCESS`, `ONBOARDING_MAPPING`, and `ONBOARDING_CATEGORIES`) explicitly permits that timeout transition to `IDLE`; the generic handler clears `statePayload` and `expiresAt` through the strict validator before notifying the user.
-- **Corrupted-state recovery:** `RecoverCorruptedState` detects an invalid state string (outside the 13 known states), logs an anomaly to `operation_logs` with `error_type = 'CORRUPTED_STATE'`, and resets the user to `IDLE`.
+- **Corrupted-state recovery:** `RecoverCorruptedState` resets only the exact invalid state/revision it observed. If another writer already advanced the row, recovery has no effect and records no false recovery audit.
+- Save, retry, and undo reserve `state_payload.executionClaim` before starting a spreadsheet effect. Only the matching claim can finalize; unknown outcomes remain claimed for manual investigation and are not automatically replayed.
+- Timeout reminders/cancellations are sent only after the expired snapshot transition commits. Queue advancement removes only the exact item used to create the committed successor.
 - Clean Architecture boundary is enforced: HTTP routes and BullMQ workers delegate to use cases; use cases own the FSM logic and call repository ports. No infrastructure adapter is accessed directly from the interface layer.
 
 ## Behavior (TODO)
@@ -35,8 +39,8 @@ This feature is not exposed via public HTTP endpoints. It is driven internally b
 | ----------------------------- | ----------------------------------------------- | --------------------------- | -------------------------------------------------------- |
 | `HandleStartCommand`          | `{ userId, chatId, username? }`                 | `{ replyText }`             | Send welcome message and ensure an `IDLE` state exists.  |
 | `GetConversationState`        | `{ userId }`                                    | `ConversationState \| null` | Read current state from the repository.                  |
-| `TransitionConversationState` | `{ userId, targetState, payload?, expiresAt? }` | `ConversationState`         | Validate and execute a state transition.                 |
-| `RecoverCorruptedState`       | `{ userId, observedState }`                     | `{ message, recovered }`    | Detect invalid state, log anomaly, reset to `IDLE`.      |
+| `TransitionConversationState` | `{ userId, targetState, payload?, expiresAt?, expected? }` | `{ status: 'updated', state }` | Validate and execute a CAS transition. `expected` may be omitted only inside an owned async execution context. |
+| `RecoverCorruptedState`       | `{ userId, observedState, observedRevision }`             | `{ message, recovered }`      | Reset only the exact corrupted snapshot to `IDLE`.                                              |
 | `HandleExpiredSessions`       | —                                               | `void`                      | Find expired states, transition to `IDLE`, notify users. |
 
 ### Ports (Domain / Application)
@@ -55,6 +59,7 @@ Primary table: `conversation_states` (1:1 with `users`).
 | --------------- | ------------- | ---------------------------------- | ---------------------------------------- |
 | `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | Owner of the state.                      |
 | `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 15 FSM states.                    |
+| `revision`      | `BIGINT`      | NOT NULL, default `0`              | Monotonic CAS token serialized as text.  |
 | `state_payload` | `JSONB`       | NULL                               | Contextual data for the active flow.     |
 | `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.      |
 | `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute timeout; NULL means no timeout. |
@@ -83,8 +88,8 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 | `EXPENSE_CLARIFYING`           | Waiting for user clarification                             | `EXPENSE_REVIEW`, `IDLE`                                                       |
 | `EXPENSE_REVIEW`               | Summary sent, awaiting confirmation                        | `EXPENSE_SAVING`, `EXPENSE_CORRECTING`, `IDLE`                                 |
 | `EXPENSE_CORRECTING`           | Applying user correction                                   | `EXPENSE_REVIEW`, `IDLE`                                                       |
-| `EXPENSE_SAVING`               | Writing to spreadsheet                                     | `IDLE`, `EXPENSE_SAVING_RETRY`, `ONBOARDING_START`                             |
-| `EXPENSE_SAVING_RETRY`         | Retry failed save (TTL: 10 min)                            | `IDLE`                                                                         |
+| `EXPENSE_SAVING`               | Writing to spreadsheet or retaining an unresolved save claim | `EXPENSE_SAVING`, `IDLE`, `EXPENSE_SAVING_RETRY`, `ONBOARDING_START`         |
+| `EXPENSE_SAVING_RETRY`         | Retry failed save (TTL: 10 min)                            | `EXPENSE_SAVING_RETRY`, `IDLE`, `ONBOARDING_VALIDATING_ACCESS`                 |
 | `EXPENSE_UNDO_CONFIRMING`      | Waiting for explicit delayed-undo confirmation (short TTL) | `IDLE`                                                                         |
 
 ## Tests

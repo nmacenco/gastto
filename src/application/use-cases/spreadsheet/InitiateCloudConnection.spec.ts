@@ -50,6 +50,18 @@ describe('InitiateCloudConnection', () => {
       'https://accounts.google.com/o/oauth2/v2/auth?state=test-state-123',
     );
     mockQueueAdd.mockResolvedValue({ id: 'job-123' } as Job);
+    mockTransitionExecute.mockResolvedValue({
+      status: 'updated',
+      state: {
+        userId: 'user-123',
+        revision: '1',
+        currentState: 'ONBOARDING_DRIVE',
+        statePayload: { provider: 'google', state: 'test-state-123' },
+        enteredAt: new Date(),
+        expiresAt: null,
+        updatedAt: new Date(),
+      },
+    });
   });
 
   describe('valid Google Drive selection', () => {
@@ -73,6 +85,7 @@ describe('InitiateCloudConnection', () => {
           externalId: '123456789',
           channel: 'telegram',
           reminderJobId: 'job-123',
+          revision: '1',
         }),
       );
       expect(mockSendMessage).toHaveBeenCalledWith(

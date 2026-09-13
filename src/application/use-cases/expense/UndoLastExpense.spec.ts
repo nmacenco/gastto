@@ -5,6 +5,7 @@ import type {
   ISpreadsheetConfigRepository,
 } from '../../../domain/ports/repositories';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 
 const findLatest = vi.fn();
 const softDeleteWithAudit = vi.fn();
@@ -14,6 +15,8 @@ const getValidAccessToken = vi.fn();
 const forceRefreshAccessToken = vi.fn();
 const deleteRow = vi.fn();
 const createPort = vi.fn();
+const transition = vi.fn();
+const finalizeClaim = vi.fn();
 
 function buildUseCase() {
   return new UndoLastExpenseUseCase(
@@ -22,6 +25,11 @@ function buildUseCase() {
     { findByUserId: findConfig } as unknown as ISpreadsheetConfigRepository,
     { create: logCreate },
     { getValidAccessToken, forceRefreshAccessToken },
+    {
+      execute: transition,
+      assertCanStartFinancialEffect: vi.fn(),
+      finalizeClaim,
+    } as unknown as TransitionConversationState,
   );
 }
 
@@ -54,6 +62,8 @@ beforeEach(() => {
   createPort.mockReturnValue({ deleteRow });
   deleteRow.mockResolvedValue(undefined);
   softDeleteWithAudit.mockResolvedValue(undefined);
+  transition.mockResolvedValue({ status: 'updated' });
+  finalizeClaim.mockResolvedValue({ status: 'updated' });
 });
 
 describe('UndoLastExpenseUseCase', () => {
@@ -140,6 +150,45 @@ describe('UndoLastExpenseUseCase', () => {
       'EXPENSE_SAVE_FAILED',
       { phase: 'undo' },
       'AUTH_ERROR',
+    );
+    expect(finalizeClaim).toHaveBeenLastCalledWith(
+      expect.objectContaining({ payload: null }),
+    );
+  });
+
+  it('retains an unresolved claim when row deletion may have reached Sheets', async () => {
+    deleteRow.mockRejectedValue(
+      new SpreadsheetError('Connection closed after deletion request', {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+        outcomeUnknown: true,
+      }),
+    );
+
+    await buildUseCase().execute({
+      userId: 'user-1',
+      action: 'request',
+      immediateExpenseId: 'expense-1',
+    });
+
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
+    expect(JSON.stringify(finalizeClaim.mock.lastCall?.[0])).toContain(
+      '"status":"outcome_unknown"',
+    );
+  });
+
+  it('retains an unresolved claim when local finalization fails after remote deletion', async () => {
+    softDeleteWithAudit.mockRejectedValue(new Error('database unavailable'));
+
+    await buildUseCase().execute({
+      userId: 'user-1',
+      action: 'request',
+      immediateExpenseId: 'expense-1',
+    });
+
+    expect(deleteRow).toHaveBeenCalledOnce();
+    expect(JSON.stringify(finalizeClaim.mock.lastCall?.[0])).toContain(
+      '"status":"outcome_unknown"',
     );
   });
 

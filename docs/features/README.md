@@ -21,9 +21,9 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with optional hierarchy-aware subcategory display and confirm / correct / cancel options before saving.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Global safe cancellation of in-progress expense registrations.
 - [`expense-correction.md`](./expense-correction.md) — Contextual natural-language correction of amount, currency, category, linked subcategory, or date with atomic hierarchy validation and legacy state normalization.
-- [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with typed correction-versus-queue precedence, hierarchy-aware optional writes and snapshots, safe single-success Google Sheets persistence, retry, transparent OAuth refresh, and terminal recovery.
-- [`undo-last-expense.md`](./undo-last-expense.md) — Safe one-record Google Sheets undo with immediate eligibility and delayed explicit confirmation.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with guarded persistent save/retry claims, hierarchy-aware writes, transparent OAuth refresh, and terminal recovery.
+- [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo with exact-target execution claims, immediate eligibility, and delayed explicit confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
-- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed FSM with complete onboarding timeout exits, Spanish queue-aware feedback, and contextual spreadsheet-reconnection transitions.
+- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM, renewable per-user ownership, guarded timeout/queue effects, and persistent financial claims.
 - [`deployment.md`](./deployment.md) — Merge-protected multi-environment Fly.io deployment with provider-independent Redis-compatible brokers, persistent BullMQ worker Machines, secure cutover and rollback, graceful shutdown, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).

@@ -49,7 +49,7 @@ export class DrizzleExpenseQueueRepository implements IExpenseQueueRepository {
     });
   }
 
-  async dequeueFirst(userId: string): Promise<ExpenseQueueItem | null> {
+  async dequeueFirst(userId: string, expectedItemId: string): Promise<ExpenseQueueItem | null> {
     return this.db.transaction(async (tx) => {
       const [first] = await tx
         .select()
@@ -59,6 +59,7 @@ export class DrizzleExpenseQueueRepository implements IExpenseQueueRepository {
         .limit(1);
 
       if (!first) return null;
+      if (first.id !== expectedItemId) return null;
 
       await tx.delete(expenseQueue).where(eq(expenseQueue.id, first.id));
       await tx

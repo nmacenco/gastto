@@ -10,6 +10,7 @@ import type { IOperationLogRepository } from '../../../domain/ports/repositories
 export interface RecoverCorruptedStateInput {
   userId: string;
   observedState: string;
+  observedRevision: string;
 }
 
 export interface RecoveryMessageDto {
@@ -27,13 +28,26 @@ export class RecoverCorruptedState {
     const isValid = FSM_STATES.includes(input.observedState as FsmState);
 
     if (!isValid) {
+      const result = await this.conversationRepo.transition({
+        userId: input.userId,
+        expected: {
+          revision: input.observedRevision,
+          currentState: input.observedState,
+          expiry: 'any',
+        },
+        nextState: 'IDLE',
+        payload: null,
+        expiresAt: null,
+      });
+      if (result.status !== 'updated') {
+        return { message: '', recovered: false };
+      }
       await this.logRepo.create(
         input.userId,
         'STATE_CORRUPTED',
-        { observedState: input.observedState },
+        { observedState: input.observedState, observedRevision: input.observedRevision },
         'CORRUPTED_STATE',
       );
-      await this.conversationRepo.transition(input.userId, 'IDLE', null, null);
 
       return {
         message: 'Parece que algo falló. Vamos a empezar de nuevo.',

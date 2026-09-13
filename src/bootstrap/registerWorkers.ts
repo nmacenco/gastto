@@ -173,6 +173,7 @@ export async function registerWorkers(
       deps.rootLogger,
       deps.expenseQueueRepo,
       deps.advancePendingExpense,
+      deps.userProcessingLock,
     );
 
     const sessionTimeoutWorker = createSessionTimeoutWorker({

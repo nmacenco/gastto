@@ -11,7 +11,6 @@ import type {
   IUserCategoryRepository,
   ICategoryVocabularyRepository,
   IOperationLogRepository,
-  IConversationStateRepository,
 } from '../../../domain/ports/repositories';
 import type { IUserProfilePort } from '../../../domain/ports/IUserProfilePort';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
@@ -32,10 +31,12 @@ import {
 import type { HierarchicalClassificationResult } from '../../../domain/value-objects/ClassificationResult';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
 import {
   executeWithOAuthAccessToken,
   type OAuthAccessTokenProvider,
 } from '../../services/OAuthAccessTokenService';
+import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 
 export interface RegisterExpenseInput {
   userId: string;
@@ -56,7 +57,7 @@ export class RegisterExpenseUseCase {
     private readonly columnMappingRepo: IColumnMappingRepository,
     private readonly categoryRepo: IUserCategoryRepository,
     private readonly categoryVocabularyRepo: ICategoryVocabularyRepository,
-    private readonly conversationRepo: IConversationStateRepository,
+    private readonly transitionState: TransitionConversationState,
     private readonly logRepo: IOperationLogRepository,
     private readonly userProfilePort: IUserProfilePort,
     private readonly classifier: ICategoryClassifier,
@@ -204,10 +205,10 @@ export class RegisterExpenseUseCase {
           ? {}
           : { immediateUndoExpenseId: input.immediateUndoExpenseId }),
       };
-      await this.conversationRepo.transition(
-        input.userId,
-        'EXPENSE_REVIEW',
-        {
+      await this.transitionState.execute({
+        userId: input.userId,
+        targetState: 'EXPENSE_REVIEW',
+        payload: {
           ...payload,
           awaitingZeroConfirmation: true,
           reminderSent: false,
@@ -215,8 +216,8 @@ export class RegisterExpenseUseCase {
             ? {}
             : { queueRegisteredCount: input.queueRegisteredCount }),
         },
-        new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
-      );
+        expiresAt: new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
+      });
       return { status: 'needs_zero_confirmation', payload };
     }
 
@@ -231,12 +232,12 @@ export class RegisterExpenseUseCase {
     };
 
     // Transiciona a EXPENSE_REVIEW con TTL de 10 min (E1-US-06)
-    await this.conversationRepo.transition(
-      input.userId,
-      'EXPENSE_REVIEW',
-      { ...payload, reminderSent: false },
-      new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
-    );
+    await this.transitionState.execute({
+      userId: input.userId,
+      targetState: 'EXPENSE_REVIEW',
+      payload: { ...payload, reminderSent: false },
+      expiresAt: new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
+    });
 
     return { status: 'ready_for_review', payload };
   }
@@ -246,6 +247,7 @@ export class RegisterExpenseUseCase {
     userId: string,
     payload: ExpenseReviewPayload,
     spreadsheetId: string,
+    claimId: string,
   ): Promise<{ sheetName: string; rowIndex?: number | undefined; expenseId?: string }> {
     const _spreadsheetId = spreadsheetId; // TODO: use when implementing multi-spreadsheet support
     const config = await this.spreadsheetConfigRepo.findByUserId(userId);
@@ -264,6 +266,7 @@ export class RegisterExpenseUseCase {
 
     const mappings = await this.columnMappingRepo.findBySpreadsheetId(config.id);
     const row = this.buildRow(payload, mappings);
+    await this.transitionState.assertCanStartFinancialEffect(userId, claimId);
     const result = await executeWithOAuthAccessToken(
       this.oauthAccessTokenService,
       { userId, provider: config.provider },
@@ -273,42 +276,51 @@ export class RegisterExpenseUseCase {
           .appendRow(config.fileId, config.sheetName, row),
     );
 
-    // Persists internally for auditing and for E1-US-11 (undo)
-    const savedExpense = await this.expenseRepo.create({
-      userId,
-      spreadsheetId: config.id,
-      concepto: payload.extracted.categoriaRaw ?? payload.rawMessage.slice(0, 100),
-      monto: payload.extracted.monto!,
-      moneda: payload.extracted.moneda!,
-      categoria: payload.resolvedCategory,
-      categoryId: payload.resolvedCategoryId,
-      subcategoryId: payload.resolvedSubcategoryId ?? null,
-      subcategoria: payload.resolvedSubcategory ?? null,
-      fechaGasto: new Date(payload.resolvedDate),
-      medioPago: payload.extracted.medioPago,
-      sheetName: result.sheet,
-      rowIndex: result.row ?? null,
-      categoriaConfidence: payload.extracted.confianzaCategoria,
-      rawMessage: payload.rawMessage,
-      isDeleted: false,
-      deletedAt: null,
-    });
+    try {
+      // Persists internally for auditing and for E1-US-11 (undo).
+      const savedExpense = await this.expenseRepo.create({
+        userId,
+        spreadsheetId: config.id,
+        concepto: payload.extracted.categoriaRaw ?? payload.rawMessage.slice(0, 100),
+        monto: payload.extracted.monto!,
+        moneda: payload.extracted.moneda!,
+        categoria: payload.resolvedCategory,
+        categoryId: payload.resolvedCategoryId,
+        subcategoryId: payload.resolvedSubcategoryId ?? null,
+        subcategoria: payload.resolvedSubcategory ?? null,
+        fechaGasto: new Date(payload.resolvedDate),
+        medioPago: payload.extracted.medioPago,
+        sheetName: result.sheet,
+        rowIndex: result.row ?? null,
+        categoriaConfidence: payload.extracted.confianzaCategoria,
+        rawMessage: payload.rawMessage,
+        isDeleted: false,
+        deletedAt: null,
+      });
 
-    await this.logRepo.create(userId, 'EXPENSE_SAVED', {
-      sheet: result.sheet,
-      ...(result.row === undefined ? {} : { row: result.row }),
-    });
+      await this.logRepo.create(userId, 'EXPENSE_SAVED', {
+        sheet: result.sheet,
+        ...(result.row === undefined ? {} : { row: result.row }),
+      });
 
-    await this.conversationRepo.transition(
-      userId,
-      'IDLE',
-      { immediateUndoExpenseId: savedExpense.id },
-      null,
-    );
+      await this.transitionState.finalizeClaim({
+        userId,
+        targetState: 'IDLE',
+        payload: { immediateUndoExpenseId: savedExpense.id },
+        expiresAt: null,
+        claimId,
+      });
 
-    return result.row === undefined
-      ? { sheetName: result.sheet, expenseId: savedExpense.id }
-      : { sheetName: result.sheet, rowIndex: result.row, expenseId: savedExpense.id };
+      return result.row === undefined
+        ? { sheetName: result.sheet, expenseId: savedExpense.id }
+        : { sheetName: result.sheet, rowIndex: result.row, expenseId: savedExpense.id };
+    } catch (error) {
+      if (error instanceof StaleConversationStateError) throw error;
+      throw new SpreadsheetError('Expense append completed but local finalization failed', {
+        code: 'UNKNOWN',
+        outcomeUnknown: true,
+      });
+    }
   }
 
   private buildReviewPayload(
@@ -354,12 +366,12 @@ export class RegisterExpenseUseCase {
       rawMessage,
       queueRegisteredCount,
     );
-    await this.conversationRepo.transition(
+    await this.transitionState.execute({
       userId,
-      'EXPENSE_CLARIFYING',
-      state.toPayload(),
-      new Date(Date.now() + 30 * 60 * 1000), // 30 min timeout
-    );
+      targetState: 'EXPENSE_CLARIFYING',
+      payload: state.toPayload(),
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 min timeout
+    });
   }
 
   private buildRow(

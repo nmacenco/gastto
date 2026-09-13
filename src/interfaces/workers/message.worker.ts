@@ -59,6 +59,7 @@ import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
+import { StaleConversationStateError } from '../../domain/errors/StaleConversationStateError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import {
@@ -82,6 +83,7 @@ import { isExpenseLikeIntent } from '../../domain/value-objects/FreeTextIntent';
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
 // without renewal complexity.
 const USER_LOCK_TTL_MS = 180_000;
+const USER_LOCK_RENEW_MS = 30_000;
 const UNDO_CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface MessageWorkerDeps {
@@ -152,6 +154,39 @@ export async function processMessageJob(
     throw new UserAlreadyProcessingError(userId);
   }
 
+  let renewalInFlight = false;
+  const renewalTimer = setInterval(() => {
+    if (renewalInFlight) return;
+    renewalInFlight = true;
+    void opts.userProcessingLock
+      .renew(userId, lockToken, USER_LOCK_TTL_MS)
+      .then((renewed) => {
+        if (!renewed) {
+          opts.transitionState.invalidateExecution(userId);
+          opts.logger.error({
+            msg: 'Lost per-user processing lock during renewal',
+            endpoint: 'processMessageJob',
+            code: 'LOCK_RENEW_LOST',
+            userId,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        opts.transitionState.invalidateExecution(userId);
+        opts.logger.error({
+          msg: 'Failed to renew per-user processing lock',
+          endpoint: 'processMessageJob',
+          code: 'LOCK_RENEW_FAILED',
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        renewalInFlight = false;
+      });
+  }, USER_LOCK_RENEW_MS);
+  renewalTimer.unref();
+
   try {
     const messaging = opts.messagingAdapters[channel];
 
@@ -163,8 +198,14 @@ export async function processMessageJob(
     // unexpected throws so BullMQ does not retry side-effectful handlers and
     // re-send the same messages on every attempt (ADR-005).
     try {
-      await routeByState(currentState, data, conversationState, opts, messaging);
+      const route = () => routeByState(currentState, data, conversationState, opts, messaging);
+      if (conversationState) {
+        await opts.transitionState.runWithState(conversationState, route);
+      } else {
+        await opts.transitionState.runForUser(userId, route);
+      }
     } catch (err) {
+      if (err instanceof StaleConversationStateError) return;
       opts.logger.error({
         msg: 'process-message handler threw unexpectedly',
         endpoint: 'processMessageJob',
@@ -186,6 +227,7 @@ export async function processMessageJob(
       }
     }
   } finally {
+    clearInterval(renewalTimer);
     try {
       await opts.userProcessingLock.release(userId, lockToken);
     } catch (releaseErr) {
@@ -574,6 +616,7 @@ async function routeByState(
       const recovery = await opts.recoverCorruptedState.execute({
         userId,
         observedState: currentState,
+        observedRevision: conversationState?.revision ?? '0',
       });
       if (recovery.recovered) {
         await messaging.sendMessage(externalId, recovery.message);

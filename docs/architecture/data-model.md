@@ -51,14 +51,15 @@ Maps external channel identifiers to the internal `user_id`.
 
 Persisted finite-state machine (FSM) state for each user. One row per user.
 
-| Column          | Type          | Constraints                        | Description                                                    |
-| --------------- | ------------- | ---------------------------------- | -------------------------------------------------------------- |
-| `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | 1:1 with the user.                                             |
-| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 14 FSM states defined in ADR-003.                       |
-| `state_payload` | `JSONB`       | NULL                               | State context: expense in progress, onboarding data, etc.      |
-| `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.                            |
-| `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute expiration for timed states (e.g., `EXPENSE_REVIEW`). |
-| `updated_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | Last state mutation.                                           |
+| Column          | Type          | Constraints                        | Description                                                      |
+| --------------- | ------------- | ---------------------------------- | ---------------------------------------------------------------- |
+| `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | 1:1 with the user.                                               |
+| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 14 FSM states defined in ADR-003.                         |
+| `revision`      | `BIGINT`      | NOT NULL, default `0`              | Monotonic optimistic-concurrency token; exposed as decimal text. |
+| `state_payload` | `JSONB`       | NULL                               | State context: expense in progress, onboarding data, etc.        |
+| `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.                              |
+| `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute expiration for timed states (e.g., `EXPENSE_REVIEW`).   |
+| `updated_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | Last state mutation.                                             |
 
 ### expense_queue
 
@@ -74,7 +75,9 @@ FIFO queue of pending expense messages while a user is in a blocking conversatio
 | `channel`     | `TEXT`        | NOT NULL, CHECK                   | `'telegram'` or `'whatsapp'`.                      |
 | **UNIQUE**    | —             | `(user_id, position)`             | Optimistic lock against double enqueue.            |
 
-`expense_queue` is independent from `conversation_states`: it stores at most two pending messages while the FSM stores exactly one active expense flow. Dequeueing shifts the remaining positions in the same transaction so the next item is always FIFO.
+`expense_queue` is independent from `conversation_states`: it stores at most two pending messages while the FSM stores exactly one active expense flow. Dequeueing compares the expected first item ID before deleting and shifts remaining positions in the same transaction, so a stale worker cannot remove a successor item.
+
+Every conversation-state mutation compares `user_id`, `revision`, the observed state, and its expiry policy before incrementing `revision`. Financial execution ownership is stored inside `state_payload.executionClaim`; competing writers cannot replace the state until the same claim finalizes or an operator resolves an unknown outcome. No revision-only index is needed because `user_id` is the lookup key.
 
 ### oauth_tokens
 

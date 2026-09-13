@@ -13,6 +13,9 @@ import {
   executeWithOAuthAccessToken,
   type OAuthAccessTokenProvider,
 } from '../../services/OAuthAccessTokenService';
+import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import { randomUUID } from 'node:crypto';
+import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
 
 export interface UndoLastExpenseOutput {
   status: 'deleted' | 'confirmation_required' | 'not_found' | 'deletion_failed';
@@ -34,6 +37,7 @@ export class UndoLastExpenseUseCase {
     private readonly spreadsheetConfigRepo: ISpreadsheetConfigRepository,
     private readonly logRepo: IOperationLogRepository,
     private readonly oauthAccessTokenService: OAuthAccessTokenProvider,
+    private readonly transitionState: TransitionConversationState,
   ) {}
 
   async execute(input: UndoLastExpenseInput): Promise<UndoLastExpenseOutput> {
@@ -56,12 +60,36 @@ export class UndoLastExpenseUseCase {
       return { status: 'not_found' };
     }
 
+    const claimId = randomUUID();
+    const executionClaim = {
+      claimId,
+      kind: 'undo' as const,
+      operationId: `${input.userId}:${last.id}:undo`,
+      sourceMessageId: null,
+      status: 'in_flight' as const,
+      target: { expenseId: last.id, sheetName: last.sheetName, rowIndex: last.rowIndex },
+    };
+    await this.transitionState.execute({
+      userId: input.userId,
+      targetState: 'IDLE',
+      payload: { executionClaim },
+      claimId,
+    });
+
     const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
     if (!config || last.rowIndex === null || config.provider !== 'google') {
+      await this.transitionState.finalizeClaim({
+        userId: input.userId,
+        targetState: 'IDLE',
+        payload: null,
+        claimId,
+      });
       return { status: 'deletion_failed', errorType: 'STRUCTURE_ERROR' };
     }
 
+    let remoteDeletionCompleted = false;
     try {
+      await this.transitionState.assertCanStartFinancialEffect(input.userId, claimId);
       // 2. Elimina la fila de la planilla real
       await executeWithOAuthAccessToken(
         this.oauthAccessTokenService,
@@ -71,6 +99,7 @@ export class UndoLastExpenseUseCase {
             .create(accessToken)
             .deleteRow(config.fileId, last.sheetName, last.rowIndex!),
       );
+      remoteDeletionCompleted = true;
 
       // 3. Soft delete and audit are one local transaction.
       await this.expenseRepo.softDeleteWithAudit(last.id, input.userId, {
@@ -82,11 +111,39 @@ export class UndoLastExpenseUseCase {
         row: last.rowIndex,
       });
 
+      await this.transitionState.finalizeClaim({
+        userId: input.userId,
+        targetState: 'IDLE',
+        payload: null,
+        claimId,
+      });
+
       return { status: 'deleted', expense };
     } catch (error: unknown) {
+      if (error instanceof StaleConversationStateError) throw error;
       const errorType = this.classifyError(error);
 
       await this.logRepo.create(input.userId, 'EXPENSE_SAVE_FAILED', { phase: 'undo' }, errorType);
+
+      const outcomeUnknown =
+        remoteDeletionCompleted || (error instanceof SpreadsheetError && error.outcomeUnknown);
+      await this.transitionState.finalizeClaim(
+        outcomeUnknown
+          ? {
+              userId: input.userId,
+              targetState: 'IDLE',
+              payload: {
+                executionClaim: { ...executionClaim, status: 'outcome_unknown' },
+              },
+              claimId,
+            }
+          : {
+              userId: input.userId,
+              targetState: 'IDLE',
+              payload: null,
+              claimId,
+            },
+      );
 
       return { status: 'deletion_failed', errorType };
     }

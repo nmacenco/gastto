@@ -10,6 +10,7 @@ import type * as schema from '../schema';
 function buildStateRow(overrides: Partial<typeof schema.conversationStates.$inferSelect> = {}) {
   return {
     userId: 'user-123',
+    revision: 0n,
     currentState: 'IDLE',
     statePayload: null,
     enteredAt: new Date('2026-01-01T00:00:00Z'),
@@ -38,6 +39,7 @@ describe('DrizzleConversationStateRepository', () => {
 
       expect(result).toEqual({
         userId: 'user-123',
+        revision: '0',
         currentState: 'EXPENSE_REVIEW',
         statePayload: null,
         enteredAt: row.enteredAt,
@@ -70,7 +72,9 @@ describe('DrizzleConversationStateRepository', () => {
       const db = {
         insert: vi.fn().mockReturnValue({
           values: vi.fn().mockReturnValue({
-            returning: vi.fn().mockResolvedValue([row]),
+            onConflictDoNothing: vi.fn().mockReturnValue({
+              returning: vi.fn().mockResolvedValue([row]),
+            }),
           }),
         }),
       } as unknown as PostgresJsDatabase<typeof schema>;
@@ -88,7 +92,14 @@ describe('DrizzleConversationStateRepository', () => {
       const db = {
         insert: vi.fn().mockReturnValue({
           values: vi.fn().mockReturnValue({
-            returning: vi.fn().mockResolvedValue([]),
+            onConflictDoNothing: vi.fn().mockReturnValue({
+              returning: vi.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([]) }),
           }),
         }),
       } as unknown as PostgresJsDatabase<typeof schema>;
@@ -99,6 +110,76 @@ describe('DrizzleConversationStateRepository', () => {
   });
 
   describe('transition', () => {
+    it('rejects a malformed outgoing execution claim', async () => {
+      const update = vi.fn();
+      const db = { update } as unknown as PostgresJsDatabase<typeof schema>;
+      const repo = new DrizzleConversationStateRepository(db);
+
+      await expect(
+        repo.transition({
+          userId: 'user-123',
+          expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'any' },
+          nextState: 'EXPENSE_SAVING',
+          payload: { executionClaim: { claimId: 'claim-1' } },
+          expiresAt: null,
+          claimId: 'claim-1',
+        }),
+      ).rejects.toThrow('execution claim payload is invalid');
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an outgoing execution claim without the matching claimId', async () => {
+      const update = vi.fn();
+      const db = { update } as unknown as PostgresJsDatabase<typeof schema>;
+      const repo = new DrizzleConversationStateRepository(db);
+      const executionClaim = {
+        claimId: 'claim-payload',
+        kind: 'save' as const,
+        operationId: 'operation-1',
+        sourceMessageId: null,
+        status: 'in_flight' as const,
+        target: { expenseId: 'expense-1' },
+      };
+
+      await expect(
+        repo.transition({
+          userId: 'user-123',
+          expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'any' },
+          nextState: 'EXPENSE_SAVING',
+          payload: { executionClaim },
+          expiresAt: null,
+          claimId: 'claim-input',
+        }),
+      ).rejects.toThrow('claimId must match');
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an outgoing execution claim when claimId is omitted', async () => {
+      const update = vi.fn();
+      const db = { update } as unknown as PostgresJsDatabase<typeof schema>;
+      const repo = new DrizzleConversationStateRepository(db);
+
+      await expect(
+        repo.transition({
+          userId: 'user-123',
+          expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'any' },
+          nextState: 'EXPENSE_SAVING',
+          payload: {
+            executionClaim: {
+              claimId: 'claim-1',
+              kind: 'save',
+              operationId: 'operation-1',
+              sourceMessageId: null,
+              status: 'in_flight',
+              target: { expenseId: 'expense-1' },
+            },
+          },
+          expiresAt: null,
+        }),
+      ).rejects.toThrow('execution claims require a claimId');
+      expect(update).not.toHaveBeenCalled();
+    });
+
     it('updates state atomically and returns mapped entity', async () => {
       const row = buildStateRow({
         currentState: 'EXPENSE_REVIEW',
@@ -106,47 +187,58 @@ describe('DrizzleConversationStateRepository', () => {
         expiresAt: new Date('2026-12-31T23:59:59Z'),
       });
       const db = {
-        transaction: vi.fn((cb: (tx: unknown) => Promise<unknown>) => {
-          const tx = {
-            update: vi.fn().mockReturnThis(),
-            set: vi.fn().mockReturnThis(),
-            where: vi.fn().mockReturnThis(),
-            returning: vi.fn().mockResolvedValue([row]),
-          };
-          return cb(tx);
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([buildStateRow()]) }),
+          }),
+        }),
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([row]) }),
+          }),
         }),
       } as unknown as PostgresJsDatabase<typeof schema>;
 
       const repo = new DrizzleConversationStateRepository(db);
-      const result = await repo.transition(
-        'user-123',
-        'EXPENSE_REVIEW',
-        { amount: 100 },
-        new Date('2026-12-31T23:59:59Z'),
-      );
+      const result = await repo.transition({
+        userId: 'user-123',
+        expected: { revision: '0', currentState: 'IDLE', expiry: 'any' },
+        nextState: 'EXPENSE_REVIEW',
+        payload: { amount: 100 },
+        expiresAt: new Date('2026-12-31T23:59:59Z'),
+      });
 
-      expect(result.currentState).toBe('EXPENSE_REVIEW');
-      expect(result.statePayload).toEqual({ amount: 100 });
-      expect(result.expiresAt).toEqual(new Date('2026-12-31T23:59:59Z'));
+      expect(result.status).toBe('updated');
+      if (result.status !== 'updated') throw new Error('Expected update');
+      expect(result.state.currentState).toBe('EXPENSE_REVIEW');
+      expect(result.state.statePayload).toEqual({ amount: 100 });
+      expect(result.state.expiresAt).toEqual(new Date('2026-12-31T23:59:59Z'));
     });
 
-    it('throws when update returns no row', async () => {
+    it('returns missing when update finds no row and the state is absent', async () => {
       const db = {
-        transaction: vi.fn((cb: (tx: unknown) => Promise<unknown>) => {
-          const tx = {
-            update: vi.fn().mockReturnThis(),
-            set: vi.fn().mockReturnThis(),
-            where: vi.fn().mockReturnThis(),
-            returning: vi.fn().mockResolvedValue([]),
-          };
-          return cb(tx);
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
+          }),
+        }),
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([]) }),
+          }),
         }),
       } as unknown as PostgresJsDatabase<typeof schema>;
 
       const repo = new DrizzleConversationStateRepository(db);
-      await expect(repo.transition('user-123', 'IDLE', null, null)).rejects.toThrow(
-        'Failed to transition conversation state',
-      );
+      await expect(
+        repo.transition({
+          userId: 'user-123',
+          expected: { revision: '0', currentState: 'IDLE', expiry: 'any' },
+          nextState: 'IDLE',
+          payload: null,
+          expiresAt: null,
+        }),
+      ).resolves.toEqual({ status: 'missing' });
     });
   });
 

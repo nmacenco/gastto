@@ -39,6 +39,7 @@ describe('expense save failure recovery', () => {
     vi.clearAllMocks();
     state = {
       userId: 'user-123',
+      revision: '0',
       currentState: 'EXPENSE_REVIEW',
       statePayload: { ...payload },
       enteredAt: new Date('2026-08-04T12:00:00.000Z'),
@@ -60,20 +61,20 @@ describe('expense save failure recovery', () => {
     const conversationRepository = {
       findByUserId: vi.fn(() => Promise.resolve(state)),
       transition: vi.fn(
-        (
-          _userId: string,
-          currentState: FsmState,
-          statePayload: Record<string, unknown> | null,
-          expiresAt: Date | null,
-        ) => {
+        (input: {
+          nextState: FsmState;
+          payload: Record<string, unknown> | null;
+          expiresAt: Date | null;
+        }) => {
           state = {
             ...state,
-            currentState,
-            statePayload,
-            expiresAt,
+            revision: (BigInt(state.revision) + 1n).toString(),
+            currentState: input.nextState,
+            statePayload: input.payload,
+            expiresAt: input.expiresAt,
             updatedAt: new Date(),
           };
-          return Promise.resolve(state);
+          return Promise.resolve({ status: 'updated' as const, state });
         },
       ),
     };
@@ -97,7 +98,7 @@ describe('expense save failure recovery', () => {
       } as never,
       {} as never,
       {} as never,
-      conversationRepository as never,
+      transitionState,
       { create: createOperationLog },
       {} as never,
       {} as never,
@@ -118,12 +119,14 @@ describe('expense save failure recovery', () => {
       operationLogRepo: { create: createOperationLog },
     });
 
-    await useCase.execute({
-      userId: 'user-123',
-      chatId: 'chat-123',
-      action: 'confirm',
-      payload,
-    });
+    await transitionState.runWithState(state, () =>
+      useCase.execute({
+        userId: 'user-123',
+        chatId: 'chat-123',
+        action: 'confirm',
+        payload,
+      }),
+    );
 
     expect(appendRow).toHaveBeenCalledOnce();
     expect(createExpenseRecord).not.toHaveBeenCalled();

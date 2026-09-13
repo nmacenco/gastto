@@ -14,6 +14,7 @@ import type { ExpenseSummaryPresenter } from '../../ports/output/expense-summary
 import type { Logger } from 'pino';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
 import type { MessagingIdentity } from '../../../domain/entities/User';
+import type { IUserProcessingLock } from '../../ports/UserProcessingLock';
 
 const mockFindExpired = vi.fn();
 const mockTransitionExecute = vi.fn();
@@ -49,7 +50,15 @@ function buildMockUserRepo(overrides: Partial<IUserRepository> = {}): IUserRepos
 }
 
 function buildMockTransitionState(): TransitionConversationState {
-  return { execute: mockTransitionExecute } as unknown as TransitionConversationState;
+  return {
+    execute: mockTransitionExecute,
+    runWithState: <T>(_state: ConversationState, operation: () => Promise<T>) => operation(),
+    precondition: (state: ConversationState, expiry = 'any') => ({
+      revision: state.revision,
+      currentState: state.currentState,
+      expiry,
+    }),
+  } as unknown as TransitionConversationState;
 }
 
 function buildMockMessagingPort(): MessagingOutputPort {
@@ -71,6 +80,7 @@ function buildMockPresenterFactory(): (
 function buildConversationState(overrides: Partial<ConversationState> = {}): ConversationState {
   return {
     userId: 'user-123',
+    revision: '0',
     currentState: 'EXPENSE_REVIEW',
     statePayload: null,
     enteredAt: new Date('2026-01-01T00:00:00Z'),
@@ -96,6 +106,7 @@ function buildUseCase(
   userRepo: IUserRepository,
   transitionState: TransitionConversationState,
   messagingPort: MessagingOutputPort,
+  userProcessingLock?: IUserProcessingLock,
 ) {
   return new HandleExpiredSessions(
     conversationRepo,
@@ -105,6 +116,9 @@ function buildUseCase(
     buildMockPresenterFactory(),
     10,
     mockLogger,
+    undefined,
+    undefined,
+    userProcessingLock,
   );
 }
 
@@ -179,6 +193,7 @@ describe('HandleExpiredSessions', () => {
       targetState: 'IDLE',
       payload: null,
       expiresAt: null,
+      expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'expired' },
     });
 
     expect(mockNotifyCancellation).toHaveBeenCalledTimes(1);
@@ -205,6 +220,7 @@ describe('HandleExpiredSessions', () => {
       targetState: 'IDLE',
       payload: null,
       expiresAt: null,
+      expected: { revision: '0', currentState: 'EXPENSE_UNDO_CONFIRMING', expiry: 'expired' },
     });
 
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
@@ -223,21 +239,17 @@ describe('HandleExpiredSessions', () => {
       statePayload: { mapping: { amount: 'B' } },
       expiresAt: new Date('2026-01-01T00:00:00Z'),
     });
-    const repositoryTransition = vi.fn(
-      (
-        userId: string,
-        targetState: ConversationState['currentState'],
-        statePayload: Record<string, unknown> | null,
-        expiresAt: Date | null,
-      ) => {
+    const repositoryTransition: IConversationStateRepository['transition'] = vi.fn(
+      (input: Parameters<IConversationStateRepository['transition']>[0]) => {
         persistedState = {
           ...persistedState,
-          userId,
-          currentState: targetState,
-          statePayload,
-          expiresAt,
+          revision: (BigInt(persistedState.revision) + 1n).toString(),
+          userId: input.userId,
+          currentState: input.nextState,
+          statePayload: input.payload,
+          expiresAt: input.expiresAt,
         };
-        return Promise.resolve(persistedState);
+        return Promise.resolve({ status: 'updated' as const, state: persistedState });
       },
     );
     const conversationRepo = buildMockConversationRepo({
@@ -254,7 +266,13 @@ describe('HandleExpiredSessions', () => {
     const useCase = buildUseCase(conversationRepo, userRepo, transitionState, messagingPort);
     await useCase.execute();
 
-    expect(repositoryTransition).toHaveBeenCalledWith('user-1', 'IDLE', null, null);
+    expect(repositoryTransition).toHaveBeenCalledWith({
+      userId: 'user-1',
+      expected: { revision: '0', currentState: 'ONBOARDING_MAPPING', expiry: 'expired' },
+      nextState: 'IDLE',
+      payload: null,
+      expiresAt: null,
+    });
     expect(persistedState).toEqual(
       expect.objectContaining({
         currentState: 'IDLE',
@@ -315,6 +333,65 @@ describe('HandleExpiredSessions', () => {
         msg: 'Failed to process expired session',
         userId: 'user-1',
         error: 'Transition failed',
+      }),
+    );
+  });
+
+  it('does not send stale timeout reminder or cancellation copy when the CAS loses', async () => {
+    const conversationRepo = buildMockConversationRepo();
+    const userRepo = buildMockUserRepo();
+    const transitionState = buildMockTransitionState();
+    const messagingPort = buildMockMessagingPort();
+    mockFindExpired.mockResolvedValue([
+      buildConversationState({
+        userId: 'user-1',
+        statePayload: { reminderSent: false },
+      }),
+    ]);
+    mockTransitionExecute.mockRejectedValueOnce(new Error('stale state'));
+
+    await buildUseCase(conversationRepo, userRepo, transitionState, messagingPort).execute();
+
+    expect(mockShowTimeoutWarning).not.toHaveBeenCalled();
+    expect(mockNotifyCancellation).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('logs release failure and continues processing the remaining expired users', async () => {
+    const conversationRepo = buildMockConversationRepo();
+    const userRepo = buildMockUserRepo();
+    const transitionState = buildMockTransitionState();
+    const messagingPort = buildMockMessagingPort();
+    const release = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Redis unavailable'))
+      .mockResolvedValueOnce(undefined);
+    const lock = {
+      acquire: vi.fn().mockResolvedValueOnce('token-1').mockResolvedValueOnce('token-2'),
+      renew: vi.fn().mockResolvedValue(true),
+      release,
+    } as IUserProcessingLock;
+    mockFindExpired.mockResolvedValue([
+      buildConversationState({ userId: 'user-1', currentState: 'ONBOARDING_MAPPING' }),
+      buildConversationState({ userId: 'user-2', currentState: 'ONBOARDING_MAPPING' }),
+    ]);
+    mockFindMessagingIdentities.mockResolvedValue([]);
+
+    await buildUseCase(
+      conversationRepo,
+      userRepo,
+      transitionState,
+      messagingPort,
+      lock,
+    ).execute();
+
+    expect(mockTransitionExecute).toHaveBeenCalledTimes(2);
+    expect(release).toHaveBeenCalledTimes(2);
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: 'HandleExpiredSessions',
+        code: 'LOCK_RELEASE_FAILED',
+        userId: 'user-1',
       }),
     );
   });

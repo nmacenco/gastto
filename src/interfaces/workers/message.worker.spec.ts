@@ -96,6 +96,7 @@ function buildMockDeps(): MessageWorkerDeps {
     logger: { error: mockLoggerError } as unknown as MessageWorkerDeps['logger'],
     userProcessingLock: {
       acquire: mockAcquireLock,
+      renew: vi.fn().mockResolvedValue(true),
       release: mockReleaseLock,
     },
     registerExpense: {
@@ -141,6 +142,9 @@ function buildMockDeps(): MessageWorkerDeps {
     } as unknown as MessageWorkerDeps['getConversationState'],
     transitionState: {
       execute: mockTransitionStateExecute,
+      runWithState: <T>(_state: ConversationState, operation: () => Promise<T>) => operation(),
+      runForUser: <T>(_userId: string, operation: () => Promise<T>) => operation(),
+      currentState: vi.fn().mockReturnValue({ revision: '0' }),
     } as unknown as MessageWorkerDeps['transitionState'],
     recoverCorruptedState: {
       execute: mockRecoverCorruptedStateExecute,
@@ -259,6 +263,7 @@ function buildJob(data: ProcessMessageJobData): Job<ProcessMessageJobData> {
 function buildConversationState(overrides: Partial<ConversationState> = {}): ConversationState {
   return {
     userId: 'user-123',
+    revision: '0',
     currentState: 'IDLE',
     statePayload: null,
     enteredAt: new Date('2026-01-01T00:00:00Z'),
@@ -3365,6 +3370,7 @@ describe('processMessageJob', () => {
       expect(mockRecoverCorruptedStateExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         observedState: 'UNKNOWN_STATE',
+        observedRevision: '0',
       });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recovered from bad state.');
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
@@ -3382,6 +3388,7 @@ describe('processMessageJob', () => {
       expect(mockRecoverCorruptedStateExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         observedState: 'EXPENSE_SAVING',
+        observedRevision: '0',
       });
       expect(mockTransitionStateExecute).toHaveBeenCalledWith({
         userId: 'user-123',

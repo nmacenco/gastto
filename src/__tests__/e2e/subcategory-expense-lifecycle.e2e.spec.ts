@@ -64,22 +64,24 @@ class MemoryConversationRepository implements IConversationStateRepository {
     return Promise.resolve(this.state);
   }
 
-  transition(
-    _userId: string,
-    nextState: ConversationState['currentState'],
-    payload: Record<string, unknown> | null,
-    expiresAt: Date | null,
-  ): Promise<ConversationState> {
+  transition(input: Parameters<IConversationStateRepository['transition']>[0]) {
+    if (
+      input.expected.revision !== this.state.revision ||
+      input.expected.currentState !== this.state.currentState
+    ) {
+      return Promise.resolve({ status: 'stale' as const });
+    }
     const now = new Date();
     this.state = {
       ...this.state,
-      currentState: nextState,
-      statePayload: payload,
-      expiresAt,
+      revision: (BigInt(this.state.revision) + 1n).toString(),
+      currentState: input.nextState,
+      statePayload: input.payload,
+      expiresAt: input.expiresAt,
       enteredAt: now,
       updatedAt: now,
     };
-    return Promise.resolve(this.state);
+    return Promise.resolve({ status: 'updated' as const, state: this.state });
   }
 
   findExpired(): Promise<ConversationState[]> {
@@ -155,6 +157,7 @@ function createHarness(options: HarnessOptions) {
   const now = new Date();
   const conversationRepo = new MemoryConversationRepository({
     userId,
+    revision: '0',
     currentState: 'EXPENSE_REVIEW',
     statePayload: { ...options.payload },
     enteredAt: now,
@@ -215,6 +218,7 @@ function createHarness(options: HarnessOptions) {
     }),
     forceRefreshAccessToken: vi.fn(),
   };
+  const transitionState = new TransitionConversationState(conversationRepo);
   const registerExpense = new RegisterExpenseUseCase(
     {} as never,
     { create: vi.fn(() => spreadsheet) } as never,
@@ -223,13 +227,12 @@ function createHarness(options: HarnessOptions) {
     { findBySpreadsheetId: vi.fn().mockResolvedValue(options.mappings) } as never,
     {} as never,
     {} as never,
-    conversationRepo,
+    transitionState,
     logRepo,
     {} as never,
     {} as never,
     oauthAccessTokenService,
   );
-  const transitionState = new TransitionConversationState(conversationRepo);
   const resolveExpenseSummaryAction = new ResolveExpenseSummaryActionUseCase({
     registerExpense,
     transitionState,
@@ -249,12 +252,14 @@ function createHarness(options: HarnessOptions) {
     spreadsheetConfigRepo as never,
     logRepo,
     oauthAccessTokenService,
+    transitionState,
   );
   const deps: MessageWorkerDeps = {
     redis: {} as never,
     logger: { error: vi.fn() } as never,
     userProcessingLock: {
       acquire: vi.fn().mockResolvedValue('lock-token'),
+      renew: vi.fn().mockResolvedValue(true),
       release: vi.fn().mockResolvedValue(undefined),
     },
     registerExpense,

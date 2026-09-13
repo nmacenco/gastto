@@ -68,7 +68,11 @@ const validNoChildRetryPayload = {
 function buildUseCase() {
   return new RetryExpenseSaveUseCase({
     registerExpense: { save } as unknown as RegisterExpenseUseCase,
-    transitionState: { execute: transition } as unknown as TransitionConversationState,
+    transitionState: {
+      execute: transition,
+      currentState: vi.fn().mockReturnValue({ revision: '0' }),
+      finalizeClaim: transition,
+    } as unknown as TransitionConversationState,
     messagingPort: { sendMessage },
     operationLogRepo: { create: createLog },
   });
@@ -92,7 +96,7 @@ describe('RetryExpenseSaveUseCase', () => {
     });
 
     expect(save).toHaveBeenCalledOnce();
-    expect(save).toHaveBeenCalledWith('user-123', normalizedRetryExpense(), '');
+    expect(save).toHaveBeenCalledWith('user-123', normalizedRetryExpense(), '', expect.any(String));
     expect(sendMessage).toHaveBeenNthCalledWith(1, 'chat-123', expenseCopies.saving());
     expect(sendMessage).toHaveBeenNthCalledWith(
       2,
@@ -105,7 +109,7 @@ describe('RetryExpenseSaveUseCase', () => {
         rowIndex: 9,
       }),
     );
-    expect(transition).not.toHaveBeenCalled();
+    expect(transition).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
@@ -121,7 +125,7 @@ describe('RetryExpenseSaveUseCase', () => {
     });
 
     expect(save).toHaveBeenCalledOnce();
-    expect(save).toHaveBeenCalledWith('user-123', statePayload.expense, '');
+    expect(save).toHaveBeenCalledWith('user-123', statePayload.expense, '', expect.any(String));
     expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
@@ -141,7 +145,20 @@ describe('RetryExpenseSaveUseCase', () => {
       { failureCode: 'NETWORK_ERROR', attemptCount: 2 },
       'NETWORK_ERROR',
     );
-    expect(transition).toHaveBeenCalledWith({ userId: 'user-123', targetState: 'IDLE' });
+    const firstTransitionInput: unknown = transition.mock.calls[0]?.[0];
+    const claimIdValue =
+      typeof firstTransitionInput === 'object' &&
+      firstTransitionInput !== null &&
+      'claimId' in firstTransitionInput
+        ? firstTransitionInput.claimId
+        : undefined;
+    expect(typeof claimIdValue).toBe('string');
+    const claimId = typeof claimIdValue === 'string' ? claimIdValue : '';
+    expect(transition).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'IDLE',
+      claimId,
+    });
     expect(sendMessage).toHaveBeenLastCalledWith(
       'chat-123',
       expenseCopies.saveManualCopyFallback({
@@ -155,8 +172,38 @@ describe('RetryExpenseSaveUseCase', () => {
       expect.stringContaining('Gasto guardado'),
     );
     expect(save).toHaveBeenCalledOnce();
-    expect(transition).toHaveBeenCalledTimes(1);
+    expect(transition).toHaveBeenCalledTimes(2);
     expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps an unresolved retry claim when the second append outcome is unknown', async () => {
+    save.mockRejectedValue(
+      new SpreadsheetError('Connection closed after append request', {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+        outcomeUnknown: true,
+      }),
+    );
+    const expiresAt = new Date(Date.now() + 60_000);
+
+    await buildUseCase().execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      statePayload: retryPayload,
+      expiresAt,
+    });
+
+    expect(transition).toHaveBeenCalledTimes(2);
+    expect(transition.mock.calls[1]?.[0]).toMatchObject({
+      userId: 'user-123',
+      targetState: 'EXPENSE_SAVING_RETRY',
+      expiresAt,
+      payload: { executionClaim: { status: 'outcome_unknown' } },
+    });
+    expect(sendMessage).toHaveBeenLastCalledWith(
+      'chat-123',
+      expenseCopies.financialOutcomeUnknown(),
+    );
   });
 
   it('does not append malformed or expired retry state', async () => {
@@ -184,7 +231,7 @@ describe('RetryExpenseSaveUseCase', () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
 
-    expect(save).toHaveBeenCalledWith('user-123', normalizedRetryExpense(), '');
+    expect(save).toHaveBeenCalledWith('user-123', normalizedRetryExpense(), '', expect.any(String));
   });
 });
 

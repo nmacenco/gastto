@@ -55,19 +55,27 @@ function buildUseCase(
   const transitionMock: ReturnType<typeof vi.fn<TransitionConversationState['execute']>> =
     overrides.transition ??
     vi.fn<TransitionConversationState['execute']>().mockResolvedValue({
-      userId: 'user-123',
-      currentState: 'EXPENSE_CORRECTING',
-      statePayload: null,
-      expiresAt: null,
-      enteredAt: new Date(),
-      updatedAt: new Date(),
+      status: 'updated',
+      state: {
+        userId: 'user-123',
+        revision: '1',
+        currentState: 'EXPENSE_CORRECTING',
+        statePayload: null,
+        expiresAt: null,
+        enteredAt: new Date(),
+        updatedAt: new Date(),
+      },
     });
   const sendMessageMock: ReturnType<typeof vi.fn<MessagingOutputPort['sendMessage']>> =
     overrides.sendMessage ??
     vi.fn<MessagingOutputPort['sendMessage']>().mockResolvedValue({ status: 'success' });
 
   const registerExpense = { save: saveMock } as unknown as RegisterExpenseUseCase;
-  const transitionState = { execute: transitionMock } as unknown as TransitionConversationState;
+  const transitionState = {
+    execute: transitionMock,
+    currentState: vi.fn().mockReturnValue({ revision: '0' }),
+    finalizeClaim: transitionMock,
+  } as unknown as TransitionConversationState;
   const messagingPort = { sendMessage: sendMessageMock };
   const cancelExpenseRegistration = {
     execute:
@@ -120,7 +128,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     });
 
     expect(sendMessageMock).toHaveBeenNthCalledWith(1, '123456789', expenseCopies.saving());
-    expect(saveMock).toHaveBeenCalledWith('user-123', payload, '');
+    expect(saveMock).toHaveBeenCalledWith('user-123', payload, '', expect.any(String));
     expect(sendMessageMock).toHaveBeenNthCalledWith(
       2,
       '123456789',
@@ -174,7 +182,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     });
 
     expect(save).toHaveBeenCalledOnce();
-    expect(save).toHaveBeenCalledWith('user-123', correctedPayload, '');
+    expect(save).toHaveBeenCalledWith('user-123', correctedPayload, '', expect.any(String));
     expect(sendMessageMock).toHaveBeenLastCalledWith(
       '123456789',
       expect.stringContaining('Monto: 35 EUR'),
@@ -256,7 +264,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     });
     expect(retryTransition.payload?.expense).toEqual(payload);
     expect(save).toHaveBeenCalledOnce();
-    expect(save).toHaveBeenCalledWith('user-123', payload, '');
+    expect(save).toHaveBeenCalledWith('user-123', payload, '', expect.any(String));
     expect(operationLogCreate).toHaveBeenCalledWith(
       'user-123',
       'EXPENSE_SAVE_FAILED',
@@ -275,6 +283,36 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     expect(advancePendingExpense).not.toHaveBeenCalled();
   });
 
+  it('persists an unresolved claim and does not offer retry when append outcome is unknown', async () => {
+    const save = vi.fn<RegisterExpenseUseCase['save']>().mockRejectedValue(
+      new SpreadsheetError('Connection closed after append request', {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+        outcomeUnknown: true,
+      }),
+    );
+    const { useCase, transitionMock, sendMessageMock, advancePendingExpense } = buildUseCase({ save });
+
+    await useCase.execute({
+      userId: 'user-123',
+      action: 'confirm',
+      payload: buildPayload(),
+      chatId: '123456789',
+    });
+
+    expect(transitionMock).toHaveBeenCalledTimes(2);
+    expect(transitionMock.mock.calls[1]?.[0]).toMatchObject({
+      userId: 'user-123',
+      targetState: 'EXPENSE_SAVING',
+      payload: { executionClaim: { status: 'outcome_unknown' } },
+    });
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      '123456789',
+      expenseCopies.financialOutcomeUnknown(),
+    );
+    expect(advancePendingExpense).not.toHaveBeenCalled();
+  });
+
   it('starts contextual onboarding and sends authorization recovery copy for an auth failure', async () => {
     const save = vi
       .fn<RegisterExpenseUseCase['save']>()
@@ -290,10 +328,13 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       chatId: '123456789',
     });
 
+    const claimId = transitionMock.mock.calls[0]?.[0].claimId;
+    expect(typeof claimId).toBe('string');
     expect(transitionMock).toHaveBeenLastCalledWith({
       userId: 'user-123',
       targetState: 'ONBOARDING_START',
       payload: { promptShown: true },
+      claimId,
     });
     const recoveryTransition = transitionMock.mock.calls[transitionMock.mock.calls.length - 1]?.[0];
     expect(recoveryTransition?.payload).not.toHaveProperty('expense');
@@ -321,7 +362,13 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       chatId: '123456789',
     });
 
-    expect(transitionMock).toHaveBeenLastCalledWith({ userId: 'user-123', targetState: 'IDLE' });
+    const claimId = transitionMock.mock.calls[0]?.[0].claimId;
+    expect(typeof claimId).toBe('string');
+    expect(transitionMock).toHaveBeenLastCalledWith({
+      userId: 'user-123',
+      targetState: 'IDLE',
+      claimId,
+    });
     expect(sendMessageMock).toHaveBeenLastCalledWith(
       '123456789',
       expenseCopies.saveStructureFailure(),

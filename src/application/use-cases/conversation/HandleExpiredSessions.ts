@@ -15,6 +15,9 @@ import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { ExpenseSummaryPresenter } from '../../ports/output/expense-summary.presenter';
 import { type TransitionConversationState } from './TransitionConversationState';
 import type { AdvancePendingExpense } from '../expense/AdvancePendingExpense';
+import type { IUserProcessingLock } from '../../ports/UserProcessingLock';
+import type { ConversationState } from '../../../domain/entities/ConversationState';
+import { startUserProcessingLeaseRenewal } from '../../services/UserProcessingLease';
 
 export class HandleExpiredSessions {
   constructor(
@@ -30,44 +33,76 @@ export class HandleExpiredSessions {
     private readonly logger: Logger,
     private readonly expenseQueueRepository?: IExpenseQueueRepository,
     private readonly advancePendingExpense?: AdvancePendingExpense,
+    private readonly userProcessingLock?: IUserProcessingLock,
   ) {}
 
   async execute(): Promise<void> {
     const expiredStates = await this.conversationRepo.findExpired();
 
     for (const state of expiredStates) {
+      const lockToken = this.userProcessingLock
+        ? await this.userProcessingLock.acquire(state.userId, 180_000)
+        : 'unlocked';
+      if (!lockToken) continue;
+      const stopRenewal =
+        this.userProcessingLock && lockToken !== 'unlocked'
+          ? startUserProcessingLeaseRenewal({
+              userId: state.userId,
+              token: lockToken,
+              lock: this.userProcessingLock,
+              transitionState: this.transitionState,
+              logger: this.logger,
+              endpoint: 'HandleExpiredSessions',
+            })
+          : () => undefined;
       try {
-        if (state.currentState === 'EXPENSE_REVIEW') {
-          await this.handleExpiredReview(state.userId, state.statePayload);
-          continue;
-        }
-
-        await this.handleGenericExpiredSession(state.userId);
+        await this.transitionState.runWithState(state, async () => {
+          if (state.currentState === 'EXPENSE_REVIEW') {
+            await this.handleExpiredReview(state);
+            return;
+          }
+          await this.handleGenericExpiredSession(state);
+        });
       } catch (err) {
         this.logger.error({
           msg: 'Failed to process expired session',
           userId: state.userId,
           error: err instanceof Error ? err.message : String(err),
         });
+      } finally {
+        stopRenewal();
+        if (this.userProcessingLock && lockToken !== 'unlocked') {
+          try {
+            await this.userProcessingLock.release(state.userId, lockToken);
+          } catch (releaseError) {
+            this.logger.error({
+              msg: 'Failed to release per-user processing lock',
+              endpoint: 'HandleExpiredSessions',
+              code: 'LOCK_RELEASE_FAILED',
+              userId: state.userId,
+              error:
+                releaseError instanceof Error ? releaseError.message : String(releaseError),
+            });
+          }
+        }
       }
     }
   }
 
-  private async handleExpiredReview(
-    userId: string,
-    payload: Record<string, unknown> | null,
-  ): Promise<void> {
+  private async handleExpiredReview(state: ConversationState): Promise<void> {
+    const { userId, statePayload: payload } = state;
     const reminderSent = payload?.reminderSent === true;
 
     const pendingCount = await this.expenseQueueRepository?.countByUserId(userId);
     if (!reminderSent) {
-      await this.sendReminder(userId, pendingCount);
       await this.transitionState.execute({
         userId,
         targetState: 'EXPENSE_REVIEW',
         payload: { ...payload, reminderSent: true },
         expiresAt: new Date(Date.now() + this.reminderTimeoutMinutes * 60 * 1000),
+        expected: this.transitionState.precondition(state, 'expired'),
       });
+      await this.sendReminder(userId, pendingCount);
       return;
     }
 
@@ -76,6 +111,7 @@ export class HandleExpiredSessions {
       targetState: 'IDLE',
       payload: null,
       expiresAt: null,
+      expected: this.transitionState.precondition(state, 'expired'),
     });
     await this.notifyCancellation(userId);
     if ((pendingCount ?? 0) > 0 && this.advancePendingExpense) {
@@ -104,12 +140,14 @@ export class HandleExpiredSessions {
     }
   }
 
-  private async handleGenericExpiredSession(userId: string): Promise<void> {
+  private async handleGenericExpiredSession(state: ConversationState): Promise<void> {
+    const { userId } = state;
     await this.transitionState.execute({
       userId,
       targetState: 'IDLE',
       payload: null,
       expiresAt: null,
+      expected: this.transitionState.precondition(state, 'expired'),
     });
 
     const identities = await this.userRepo.findMessagingIdentitiesByUserId(userId);

@@ -84,7 +84,11 @@ export class AdvancePendingExpense {
 
     // Remove only after the next active flow has been persisted and presented.
     // If interpretation or presentation fails, the FIFO item remains durable for retry.
-    await this.deps.expenseQueueRepository.dequeueFirst(input.userId);
+    const dequeued = await this.deps.expenseQueueRepository.dequeueFirst(
+      input.userId,
+      queuedExpense.id,
+    );
+    if (!dequeued) return { status: 'empty' };
 
     return { status: 'advanced', pendingCount };
   }

@@ -46,7 +46,7 @@ Master checkboxes track planning requirements: checking one means the child plan
 | Phase | Stable child-plan slug | Implementation prerequisites | Plan created | Implementation verified |
 | --- | --- | --- | --- | --- |
 | 1 | `semantic_router_evaluation` | None | [Created](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md) | [Deliveries 1–3 verified](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md); live evidence and activation pending |
-| 2 | `semantic_router_confirmation_safety` | Phase 1 contracts | Pending | Pending |
+| 2 | `semantic_router_confirmation_safety` | Phase 1 contracts | [Created](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md) | [Delivery 1 verified](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md); Deliveries 2–3 pending |
 | 3 | `semantic_router_shadow_pipeline` | Phases 1 and 2 | Pending | Pending |
 | 4 | `semantic_router_expense_flows` | Phases 1 through 3 | Pending | Pending |
 | 5 | `semantic_router_option_selection` | Phases 1 through 4 | Pending | Pending |
@@ -105,18 +105,20 @@ Plan an independently testable improvement to deterministic confirmations and st
 
 **Closure evidence:** Old buttons cannot confirm a corrected or replacement expense, expiry invalidates pending actions, and overlapping state writers cannot commit a decision against superseded context.
 
+Child plan: [Confirmation safety](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md). Created on 2026-09-12. Delivery 1 was implemented and verified on 2026-09-13 with 8 real PostgreSQL/Redis concurrency tests, 1,867 passing tests in the complete suite, and passing lint/typecheck; Deliveries 2 and 3 remain pending. These checkboxes track plan contents only, while the implementation table above tracks delivery evidence.
+
 #### To-do actions
 
-- [ ] Create and link the normal plan after tracing review creation, correction, save, timeout, OAuth, callback, and recovery state writers.
-- [ ] Define operation/revision binding for newly presented summaries, invalidation after corrections, and the exact whole-message command policy.
-- [ ] Specify backward-compatible handling of existing JSONB and queued callbacks; reject unbound legacy confirmation safely when its target cannot be established and provide a current review.
-- [ ] Define stale callback rejection across parser, queue DTO, presenter, and application action resolver as one complete vertical change.
-- [ ] Choose and justify locking or conditional-update behavior for all competing writers, including timeout and OAuth paths, and specify lock-expiry behavior during a slow model request.
-- [ ] If needed, plan an additive schema-first migration and repository precondition contract, including local migration verification and data-model documentation. Do not invent a migration solely to reserve future fields.
-- [ ] Specify tests for corrected summaries, same-state replacement operations, duplicate callbacks, expiration, lock contention/expiry, racing writers, legacy payloads, and mixed affirmative/correction messages with zero accidental saves or deletions.
-- [ ] Preserve delayed-undo target checks and explicit retry limits; no semantic confirmation action is introduced.
-- [ ] Require updates to affected confirmation and conversation-state documentation and indexes.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Create and link the normal plan after tracing review creation, correction, save, timeout, OAuth, callback, and recovery state writers.
+- [x] Define operation/revision binding for newly presented summaries, invalidation after corrections, and the exact whole-message command policy.
+- [x] Specify backward-compatible handling of existing JSONB and queued callbacks; reject unbound legacy confirmation safely when its target cannot be established and provide a current review.
+- [x] Define stale callback rejection across parser, queue DTO, presenter, and application action resolver as one complete vertical change.
+- [x] Choose and justify locking or conditional-update behavior for all competing writers, including timeout and OAuth paths, and specify lock-expiry behavior during a slow model request.
+- [x] If needed, plan an additive schema-first migration and repository precondition contract, including local migration verification and data-model documentation. Do not invent a migration solely to reserve future fields.
+- [x] Specify tests for corrected summaries, same-state replacement operations, duplicate callbacks, expiration, lock contention/expiry, racing writers, legacy payloads, and mixed affirmative/correction messages with zero accidental saves or deletions.
+- [x] Preserve delayed-undo target checks and explicit retry limits; no semantic confirmation action is introduced.
+- [x] Require updates to affected confirmation and conversation-state documentation and indexes.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
 - [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Create the shadow-pipeline integration subplan
@@ -254,4 +256,4 @@ Plan integrated acceptance evidence and staged activation across delivered capab
 
 ## Next step
 
-When separately requested, revalidate the delivered evaluator contracts and create the Phase 2 confirmation-safety subplan; retain pending live evaluation evidence and activation gates.
+Review the Phase 2 confirmation-safety child plan and implement it when explicitly requested before creating the Phase 3 shadow-pipeline subplan; retain pending live evaluation evidence and activation gates.
