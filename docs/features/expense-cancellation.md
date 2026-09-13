@@ -11,7 +11,7 @@ Let users safely abandon an in-progress expense registration from any active exp
 - A recognized cancellation moves the FSM to `IDLE`, clears `statePayload`, removes its expiration, and only then sends `Registro cancelado. No se guardó nada.`
 - When no expense flow is active, the system leaves the state unchanged and sends `No hay ningún registro pendiente para cancelar.`
 - Text commands are queued even from `IDLE`, bypassing generic non-financial guidance only for recognized cancellation commands.
-- Telegram's **Cancelar** callback and review text replies use the same application cancellation use case; the use case communicates through `MessagingOutputPort`, with no Telegram-specific business logic.
+- Telegram's **Cancelar** callback and review text replies reach the cancellation use case only after the application validates the current successfully presented review binding. An old, forged, malformed, unbound, or expired button cannot cancel a replacement draft, refresh its TTL, or cancel another FSM flow.
 - A later expense starts with fresh state and cannot reuse the canceled payload.
 - If pending expenses exist, cancellation clears only the active draft, delivers the cancellation copy, and then advances the oldest queued expense for review.
 

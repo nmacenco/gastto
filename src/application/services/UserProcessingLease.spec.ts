@@ -13,7 +13,11 @@ describe('startUserProcessingLeaseRenewal', () => {
 
   it.each([
     ['lost token', vi.fn().mockResolvedValue(false), 'LOCK_RENEW_LOST'],
-    ['Redis failure', vi.fn().mockRejectedValue(new Error('Redis unavailable')), 'LOCK_RENEW_FAILED'],
+    [
+      'Redis failure',
+      vi.fn().mockRejectedValue(new Error('Redis unavailable')),
+      'LOCK_RENEW_FAILED',
+    ],
   ])('invalidates and logs a structured error after %s', async (_name, renew, code) => {
     const invalidateExecution = vi.fn();
     const error = vi.fn();

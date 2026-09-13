@@ -530,6 +530,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
 
   const generateExpenseSummary = new GenerateExpenseSummaryUseCase(
     expenseRecordRepo,
+    transitionState,
     env.HIGH_AMOUNT_THRESHOLD_MULTIPLIER,
   );
   const undoLastExpense = new UndoLastExpenseUseCase(

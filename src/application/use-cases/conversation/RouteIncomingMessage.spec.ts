@@ -333,7 +333,7 @@ describe('RouteIncomingMessage', () => {
       const payload: NormalizedPayload = {
         messageType: 'UNSUPPORTED',
         chatId: '123456789',
-        userId: '999',
+        userId: '123456789',
         timestamp: new Date('2026-05-20T12:00:00Z'),
         channel: 'telegram',
       };
@@ -355,7 +355,7 @@ describe('RouteIncomingMessage', () => {
       const payload: NormalizedPayload = {
         messageType: 'CALLBACK',
         chatId: '123456789',
-        userId: '999',
+        userId: '123456789',
         callbackData: { action: 'confirm' },
         timestamp: new Date('2026-05-20T12:00:00Z'),
         channel: 'telegram',
@@ -408,7 +408,7 @@ describe('RouteIncomingMessage', () => {
       const payload: NormalizedPayload = {
         messageType: 'CALLBACK',
         chatId: '123456789',
-        userId: '999',
+        userId: '123456789',
         callbackData: { action: 'cancel' },
         timestamp: new Date('2026-05-20T12:00:00Z'),
         channel: 'telegram',
@@ -421,6 +421,25 @@ describe('RouteIncomingMessage', () => {
       expect(mockResolveExecute).not.toHaveBeenCalled();
       expect(mockAdd).not.toHaveBeenCalled();
       expect(mockProcessedMarkAsProcessed).not.toHaveBeenCalled();
+    });
+
+    it('rejects a callback forged by a different Telegram identity', async () => {
+      const deps = buildMockDeps();
+      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
+
+      await router.execute({
+        messageType: 'CALLBACK',
+        chatId: '123456789',
+        userId: 'attacker-id',
+        callbackData: { action: 'confirm' },
+        timestamp: new Date('2026-05-20T12:00:00Z'),
+        channel: 'telegram',
+        externalMessageId: 'query-forged',
+      });
+
+      expect(mockProcessedExists).not.toHaveBeenCalled();
+      expect(mockResolveExecute).not.toHaveBeenCalled();
+      expect(mockAdd).not.toHaveBeenCalled();
     });
   });
 });

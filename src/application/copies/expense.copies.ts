@@ -21,6 +21,10 @@ export const expenseCopies = {
     'No pude confirmar el guardado por un problema de conexión. Respondé *reintentar* dentro de los próximos 10 minutos.',
   financialOutcomeUnknown: () =>
     'El resultado de esa operación todavía no está confirmado. Revisá la planilla antes de volver a intentarlo.',
+  staleReview: () =>
+    'Ese botón o respuesta corresponde a otro resumen. Revisá el resumen actual y confirmalo de nuevo.',
+  expiredReview: () => 'Ese resumen expiró. Revisá el nuevo resumen antes de confirmar.',
+  noActiveReview: () => 'No hay un gasto pendiente de confirmación.',
   saveAuthorizationFailure: () =>
     'No pude acceder a tu planilla. Respondé *empezar* para volver a conectar tu cuenta.',
   saveStructureFailure: () =>

@@ -37,6 +37,7 @@ import {
   type OAuthAccessTokenProvider,
 } from '../../services/OAuthAccessTokenService';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import { createExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
 
 export interface RegisterExpenseInput {
   userId: string;
@@ -198,6 +199,7 @@ export class RegisterExpenseUseCase {
     if (finalExtracted.monto === 0) {
       const payload: ExpenseReviewPayload = {
         ...basePayload,
+        awaitingZeroConfirmation: true,
         ...(input.queueRegisteredCount === undefined
           ? {}
           : { queueRegisteredCount: input.queueRegisteredCount }),
@@ -210,7 +212,6 @@ export class RegisterExpenseUseCase {
         targetState: 'EXPENSE_REVIEW',
         payload: {
           ...payload,
-          awaitingZeroConfirmation: true,
           reminderSent: false,
           ...(input.queueRegisteredCount === undefined
             ? {}
@@ -350,6 +351,7 @@ export class RegisterExpenseUseCase {
       subcategoryStatus: classification.subcategory.status,
       subcategoryEnabled,
       reminderSent: false,
+      reviewBinding: createExpenseReviewBinding(),
     };
   }
 

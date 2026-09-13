@@ -377,13 +377,7 @@ describe('HandleExpiredSessions', () => {
     ]);
     mockFindMessagingIdentities.mockResolvedValue([]);
 
-    await buildUseCase(
-      conversationRepo,
-      userRepo,
-      transitionState,
-      messagingPort,
-      lock,
-    ).execute();
+    await buildUseCase(conversationRepo, userRepo, transitionState, messagingPort, lock).execute();
 
     expect(mockTransitionExecute).toHaveBeenCalledTimes(2);
     expect(release).toHaveBeenCalledTimes(2);

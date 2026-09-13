@@ -5,6 +5,7 @@
 // respond 200 to Telegram without propagating exceptions.
 
 import type { NormalizedPayload } from '../../../domain/ports/messaging';
+import { parseExpenseReviewCallback } from '../../../domain/value-objects/expense-review-callback';
 
 export type TelegramChatScope = 'private' | 'non-private' | 'unknown' | 'not-applicable';
 
@@ -189,30 +190,6 @@ function looksLikeTelegramMessage(message: unknown): message is TelegramMessageL
   return true;
 }
 
-function parseCallbackData(
-  data: string,
-): { action: 'confirm' | 'correct' | 'cancel'; field?: string } | null {
-  try {
-    const parsed = JSON.parse(data) as unknown;
-    if (!isObject(parsed) || typeof parsed.action !== 'string') {
-      return null;
-    }
-
-    const action = parsed.action;
-    if (action !== 'confirm' && action !== 'correct' && action !== 'cancel') {
-      return null;
-    }
-
-    const result: { action: 'confirm' | 'correct' | 'cancel'; field?: string } = { action };
-    if (typeof parsed.field === 'string') {
-      result.field = parsed.field;
-    }
-    return result;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Parses a raw Telegram webhook payload into a domain NormalizedPayload.
  *
@@ -229,8 +206,10 @@ export function parseTelegramPayload(payload: unknown): NormalizedPayload {
     const chatId = message !== undefined ? String(message.chat.id) : 'unknown';
     const externalMessageId = callbackQuery.id;
     const userId = extractUserId(callbackQuery.from);
-    const timestamp = message !== undefined ? new Date(message.date * 1000) : new Date();
-    const callbackData = parseCallbackData(callbackQuery.data as string);
+    // Telegram callbacks do not carry their occurrence time. Use receipt time,
+    // never the timestamp of the older message that owns the keyboard.
+    const timestamp = new Date();
+    const callbackData = parseExpenseReviewCallback(callbackQuery.data as string);
 
     if (callbackData === null) {
       return {

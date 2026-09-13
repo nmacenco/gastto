@@ -25,6 +25,11 @@ const categoryId = '22222222-2222-4222-8222-222222222222';
 const subcategoryId = '33333333-3333-4333-8333-333333333333';
 const spreadsheetId = '44444444-4444-4444-8444-444444444444';
 const externalId = 'chat-123';
+const reviewBinding = {
+  operationId: 'abcdefghijklmnopqrstuv',
+  revision: 1,
+  presentedAt: '2026-09-05T10:00:00.000Z',
+} as const;
 
 const basePayload: ExpenseReviewPayload = {
   rawMessage: 'Dinner 24.50 EUR',
@@ -46,6 +51,7 @@ const basePayload: ExpenseReviewPayload = {
   resolvedSubcategoryId: subcategoryId,
   subcategoryStatus: 'confirmed',
   subcategoryEnabled: true,
+  reviewBinding,
 };
 
 type Mapping = {
@@ -148,7 +154,16 @@ function buildJob(input: { rawMessage: string; callbackData?: { action: 'confirm
     externalId,
     externalMessageId: `message-${Math.random()}`,
     receivedAt: new Date().toISOString(),
-    ...(input.callbackData === undefined ? {} : { callbackData: input.callbackData }),
+    ...(input.callbackData === undefined
+      ? {}
+      : {
+          callbackData: {
+            version: 1 as const,
+            action: input.callbackData.action,
+            operationId: reviewBinding.operationId,
+            reviewRevision: reviewBinding.revision,
+          },
+        }),
   };
   return { data } as Job<ProcessMessageJobData>;
 }
@@ -159,7 +174,7 @@ function createHarness(options: HarnessOptions) {
     userId,
     revision: '0',
     currentState: 'EXPENSE_REVIEW',
-    statePayload: { ...options.payload },
+    statePayload: { ...options.payload, reviewBinding },
     enteredAt: now,
     expiresAt: new Date(now.getTime() + 10 * 60 * 1000),
     updatedAt: now,

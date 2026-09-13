@@ -10,22 +10,22 @@
 
 ## State table
 
-| State                          | Description                                               | Valid outgoing transitions                                                                    | Timeout |
-| ------------------------------ | --------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------- |
-| `IDLE`                         | No active flow                                            | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`                                                   | —       |
-| `ONBOARDING_START`             | First contact, no spreadsheet linked                      | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` \| `IDLE`                      | 30 min  |
-| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                              | → `ONBOARDING_DRIVE` \| `ONBOARDING_FILE` \| `IDLE`                                           | 30 min  |
-| `ONBOARDING_FILE`              | Waiting for file selection                                | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` \| `IDLE`               | 30 min  |
-| `ONBOARDING_SHEET`             | Waiting for sheet selection                               | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` \| `IDLE` | 30 min  |
-| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet            | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` \| `IDLE`                  | 30 min  |
-| `ONBOARDING_MAPPING`           | Waiting for column-mapping confirmation                   | → `ONBOARDING_MAPPING` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START` \| `IDLE`             | 30 min  |
-| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation                         | → `IDLE` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START`                                     | 30 min  |
-| `EXPENSE_RECEIVING`            | Message received, processing NLP                          | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW` \| `IDLE`                                          | —       |
-| `EXPENSE_CLARIFYING`           | Waiting for user clarification                            | → `EXPENSE_REVIEW` \| `IDLE`                                                                  | 10 min  |
-| `EXPENSE_REVIEW`               | Summary sent, waiting for confirmation                    | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`                                          | 10 min  |
-| `EXPENSE_CORRECTING`           | Applying user correction                                  | → `EXPENSE_REVIEW` \| `IDLE`                                                                  | —       |
-| `EXPENSE_SAVING`               | Writing to the spreadsheet or retaining an unresolved claim | → `EXPENSE_SAVING` \| `IDLE` \| `EXPENSE_SAVING_RETRY` \| `ONBOARDING_START`                 | —       |
-| `EXPENSE_SAVING_RETRY`         | Waiting for a user decision after a retryable failed save | → `EXPENSE_SAVING_RETRY` \| `IDLE` \| `ONBOARDING_VALIDATING_ACCESS`                          | 10 min  |
+| State                          | Description                                                 | Valid outgoing transitions                                                                    | Timeout |
+| ------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------- |
+| `IDLE`                         | No active flow                                              | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`                                                   | —       |
+| `ONBOARDING_START`             | First contact, no spreadsheet linked                        | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` \| `IDLE`                      | 30 min  |
+| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                                | → `ONBOARDING_DRIVE` \| `ONBOARDING_FILE` \| `IDLE`                                           | 30 min  |
+| `ONBOARDING_FILE`              | Waiting for file selection                                  | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` \| `IDLE`               | 30 min  |
+| `ONBOARDING_SHEET`             | Waiting for sheet selection                                 | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` \| `IDLE` | 30 min  |
+| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet              | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` \| `IDLE`                  | 30 min  |
+| `ONBOARDING_MAPPING`           | Waiting for column-mapping confirmation                     | → `ONBOARDING_MAPPING` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START` \| `IDLE`             | 30 min  |
+| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation                           | → `IDLE` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START`                                     | 30 min  |
+| `EXPENSE_RECEIVING`            | Message received, processing NLP                            | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW` \| `IDLE`                                          | —       |
+| `EXPENSE_CLARIFYING`           | Waiting for user clarification                              | → `EXPENSE_REVIEW` \| `IDLE`                                                                  | 10 min  |
+| `EXPENSE_REVIEW`               | Summary sent, waiting for confirmation                      | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`                                          | 10 min  |
+| `EXPENSE_CORRECTING`           | Applying user correction                                    | → `EXPENSE_REVIEW` \| `IDLE`                                                                  | —       |
+| `EXPENSE_SAVING`               | Writing to the spreadsheet or retaining an unresolved claim | → `EXPENSE_SAVING` \| `IDLE` \| `EXPENSE_SAVING_RETRY` \| `ONBOARDING_START`                  | —       |
+| `EXPENSE_SAVING_RETRY`         | Waiting for a user decision after a retryable failed save   | → `EXPENSE_SAVING_RETRY` \| `IDLE` \| `ONBOARDING_VALIDATING_ACCESS`                          | 10 min  |
 
 ---
 
@@ -120,7 +120,7 @@ The `state_payload` column in the `conversation_states` table is a `JSONB` blob 
 | `ONBOARDING_CATEGORIES`        | `file_id`, `sheet_id`, `mapping`, `categories: string[]`                                                                                                                      | Detected category list waiting for confirmation                                                                                                                                                                      |
 | `EXPENSE_RECEIVING`            | `raw_message: string`, `extracted?: ExtractedExpense`                                                                                                                         | The incoming message and any partial NLP result                                                                                                                                                                      |
 | `EXPENSE_CLARIFYING`           | `raw_message`, `missing_fields: string[]`, `partial: ExtractedExpense`                                                                                                        | Which fields the user still needs to provide                                                                                                                                                                         |
-| `EXPENSE_REVIEW`               | `expense: ExpenseEntity`, `summary_text: string`                                                                                                                              | The fully formed expense and the summary shown to the user                                                                                                                                                           |
+| `EXPENSE_REVIEW`               | normalized review fields; `reviewBinding: { operationId: string, revision: number, presentedAt: string \| null }`; `reminderSent`; stage flags                                | The persisted reviewed expense and exact presented version. Missing legacy binding is unbound until persisted and re-presented.                                                                                      |
 | `EXPENSE_CORRECTING`           | `expense: ExpenseEntity`, `correction_field: string`                                                                                                                          | Which field the user wants to correct                                                                                                                                                                                |
 | `EXPENSE_SAVING`               | `expense: ExpenseEntity`, `attempt: number`                                                                                                                                   | Current save attempt count                                                                                                                                                                                           |
 | `EXPENSE_SAVING_RETRY`         | `expense: ExpenseReviewPayload`, `failureCode: 'NETWORK_ERROR' \| 'AUTH_ERROR' \| 'STRUCTURE_ERROR' \| 'UNKNOWN'`, `firstAttemptAt: ISOString`, `attemptCount: 1`             | Confirmed expense retained for the sole permitted user-initiated retry; only retryable network failures enter this state                                                                                             |
@@ -145,12 +145,12 @@ Every `ONBOARDING_*` state has an explicit transition to `IDLE`. Generic onboard
 
 ### Timeout values
 
-| State group                        | Timeout    | Job type                                   |
-| ---------------------------------- | ---------- | ------------------------------------------ |
-| Onboarding states (`ONBOARDING_*`) | 30 minutes | `fsm-timeout` with `delay: 30 * 60 * 1000` |
-| `EXPENSE_CLARIFYING`               | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000` |
-| `EXPENSE_REVIEW`                   | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000` |
-| `EXPENSE_SAVING_RETRY`             | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000` |
+| State group                        | Timeout    | Job type                                                                                                                                                            |
+| ---------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Onboarding states (`ONBOARDING_*`) | 30 minutes | `fsm-timeout` with `delay: 30 * 60 * 1000`                                                                                                                          |
+| `EXPENSE_CLARIFYING`               | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000`                                                                                                                          |
+| `EXPENSE_REVIEW`                   | 10 minutes | First expiry advances the review binding and grants one presentation grace period; second expiry cancels the active draft and advances the exact oldest queue item. |
+| `EXPENSE_SAVING_RETRY`             | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000`                                                                                                                          |
 
 ---
 

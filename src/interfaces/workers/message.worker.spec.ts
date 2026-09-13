@@ -1046,6 +1046,8 @@ describe('processMessageJob', () => {
         payload: hierarchyPayload,
         chatId: '123456789',
         channel: 'telegram',
+        receivedAt: baseJobData.receivedAt,
+        sourceMessageId: baseJobData.externalMessageId,
       });
       expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
@@ -1076,6 +1078,8 @@ describe('processMessageJob', () => {
         payload: buildReviewStatePayload(),
         chatId: '123456789',
         channel: 'telegram',
+        receivedAt: baseJobData.receivedAt,
+        sourceMessageId: baseJobData.externalMessageId,
       });
     });
 
@@ -1439,9 +1443,14 @@ describe('processMessageJob', () => {
       expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'confirm',
-        payload: hierarchyPayload,
         chatId: '123456789',
         channel: 'telegram',
+        authorization: {
+          kind: 'callback',
+          callbackData: { action: 'confirm' },
+          receivedAt: baseJobData.receivedAt,
+          sourceMessageId: baseJobData.externalMessageId,
+        },
       });
     });
 
@@ -1462,10 +1471,15 @@ describe('processMessageJob', () => {
       expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'cancel',
-        payload: buildReviewStatePayload(),
         chatId: '123456789',
         cancellationSource: 'callback',
         channel: 'telegram',
+        authorization: {
+          kind: 'callback',
+          callbackData: { action: 'cancel' },
+          receivedAt: baseJobData.receivedAt,
+          sourceMessageId: baseJobData.externalMessageId,
+        },
       });
     });
 
@@ -1486,9 +1500,14 @@ describe('processMessageJob', () => {
       expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'correct',
-        payload: buildReviewStatePayload(),
         chatId: '123456789',
         channel: 'telegram',
+        authorization: {
+          kind: 'callback',
+          callbackData: { action: 'correct' },
+          receivedAt: baseJobData.receivedAt,
+          sourceMessageId: baseJobData.externalMessageId,
+        },
       });
     });
   });

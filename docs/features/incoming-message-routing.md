@@ -121,3 +121,11 @@ No database schema changes yet. The feature operates on transient domain value o
 - Clean Architecture boundary is enforced: the router use case depends on `MessagingOutputPort` (application layer) and `Queue` abstractions, never on concrete Telegram adapters. The `MessagingOutputPort` returns a discriminated `SendResult` union (`{ status: 'success' } | { status: 'failure'; errorCode: string }`) so use cases can observe delivery outcomes without leaking provider-specific errors.
 - FIFO guarantee is provided by `concurrency: 1` on the `incoming-message` worker (ADR-011). When volume grows, this can be replaced with BullMQ Pro Groups or a partition strategy by `chat_id` hash.
 - **Per-user serialization in the thick worker:** the `process-message` worker (`concurrency: 2`) serializes processing per user via a Redis mutex (`IUserProcessingLock`). If a second job for the same user arrives while the first is executing, it throws `UserAlreadyProcessingError`, which triggers a custom BullMQ backoff strategy that retries only lock contention with exponential backoff (500ms → 1s → 2s → 4s, capped at 5s). All other errors return `-1` (no retry), preserving side-effect safety. Different users' jobs proceed in parallel.
+
+## Review callback safety
+
+- The Telegram parser accepts compact `er1` expense-review callbacks and preserves old JSON action callbacks only as unbound compatibility data. Malformed versioned callbacks remain explicitly invalid.
+- The incoming and processing queue schemas preserve the complete normalized callback without dropping operation identity or review revision.
+- Telegram callback sender identity must match the authenticated private chat identity before queueing. Duplicate external callback IDs remain protected by the processed-message guard.
+- `receivedAt` for text comes from the validated channel timestamp. Telegram callback occurrence time uses authenticated webhook receipt time because callback queries do not expose a tap timestamp.
+- Review callbacks are not global cancellation commands. Outside `EXPENSE_REVIEW` they produce no state mutation or financial effect.

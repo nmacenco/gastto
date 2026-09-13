@@ -4,13 +4,14 @@
 // unified shape so that the Application layer remains channel-agnostic.
 
 import type { MessageType } from '../value-objects/MessageType';
+import type { ExpenseReviewCallbackData } from '../value-objects/expense-review-callback';
 
 export interface NormalizedPayload {
   readonly messageType: MessageType;
   readonly chatId: string;
   readonly userId?: string | undefined;
   readonly text?: string | undefined;
-  readonly callbackData?: { action: 'confirm' | 'correct' | 'cancel'; field?: string } | undefined;
+  readonly callbackData?: ExpenseReviewCallbackData | undefined;
   readonly timestamp: Date;
   readonly channel: 'telegram' | 'whatsapp';
   readonly externalMessageId?: string | undefined;

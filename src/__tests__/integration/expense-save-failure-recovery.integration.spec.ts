@@ -26,6 +26,11 @@ const payload: ExpenseReviewPayload = {
   resolvedCategory: 'Comida',
   resolvedCategoryId: null,
   categoryStatus: 'confirmed',
+  reviewBinding: {
+    operationId: 'abcdefghijklmnopqrstuv',
+    revision: 1,
+    presentedAt: '2026-08-04T12:00:00.000Z',
+  },
 };
 
 describe('expense save failure recovery', () => {
@@ -43,7 +48,7 @@ describe('expense save failure recovery', () => {
       currentState: 'EXPENSE_REVIEW',
       statePayload: { ...payload },
       enteredAt: new Date('2026-08-04T12:00:00.000Z'),
-      expiresAt: new Date('2026-08-04T12:10:00.000Z'),
+      expiresAt: new Date('2099-08-04T12:10:00.000Z'),
       updatedAt: new Date('2026-08-04T12:00:00.000Z'),
     };
     appendRow.mockRejectedValue(
@@ -125,6 +130,17 @@ describe('expense save failure recovery', () => {
         chatId: 'chat-123',
         action: 'confirm',
         payload,
+        authorization: {
+          kind: 'callback',
+          callbackData: {
+            version: 1,
+            action: 'confirm',
+            operationId: payload.reviewBinding!.operationId,
+            reviewRevision: payload.reviewBinding!.revision,
+          },
+          receivedAt: '2026-08-04T12:01:00.000Z',
+          sourceMessageId: 'callback-1',
+        },
       }),
     );
 

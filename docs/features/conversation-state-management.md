@@ -35,13 +35,13 @@ This feature is not exposed via public HTTP endpoints. It is driven internally b
 
 ### Use Cases (Application Layer)
 
-| Use Case                      | Input                                           | Output                      | Responsibility                                           |
-| ----------------------------- | ----------------------------------------------- | --------------------------- | -------------------------------------------------------- |
-| `HandleStartCommand`          | `{ userId, chatId, username? }`                 | `{ replyText }`             | Send welcome message and ensure an `IDLE` state exists.  |
-| `GetConversationState`        | `{ userId }`                                    | `ConversationState \| null` | Read current state from the repository.                  |
+| Use Case                      | Input                                                      | Output                         | Responsibility                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `HandleStartCommand`          | `{ userId, chatId, username? }`                            | `{ replyText }`                | Send welcome message and ensure an `IDLE` state exists.                                                        |
+| `GetConversationState`        | `{ userId }`                                               | `ConversationState \| null`    | Read current state from the repository.                                                                        |
 | `TransitionConversationState` | `{ userId, targetState, payload?, expiresAt?, expected? }` | `{ status: 'updated', state }` | Validate and execute a CAS transition. `expected` may be omitted only inside an owned async execution context. |
-| `RecoverCorruptedState`       | `{ userId, observedState, observedRevision }`             | `{ message, recovered }`      | Reset only the exact corrupted snapshot to `IDLE`.                                              |
-| `HandleExpiredSessions`       | —                                               | `void`                      | Find expired states, transition to `IDLE`, notify users. |
+| `RecoverCorruptedState`       | `{ userId, observedState, observedRevision }`              | `{ message, recovered }`       | Reset only the exact corrupted snapshot to `IDLE`.                                                             |
+| `HandleExpiredSessions`       | —                                                          | `void`                         | Find expired states, transition to `IDLE`, notify users.                                                       |
 
 ### Ports (Domain / Application)
 
@@ -74,23 +74,23 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 
 ## FSM Reference
 
-| State                          | Description                                                | Valid Transitions                                                              |
-| ------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `IDLE`                         | No active flow                                             | `ONBOARDING_START`, `EXPENSE_RECEIVING`                                        |
-| `ONBOARDING_START`             | First contact, no spreadsheet linked                       | `ONBOARDING_START`, `ONBOARDING_DRIVE`, `IDLE`                                 |
-| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                               | `ONBOARDING_DRIVE`, `ONBOARDING_FILE`, `IDLE`                                  |
-| `ONBOARDING_FILE`              | Waiting for file selection                                 | `ONBOARDING_FILE`, `ONBOARDING_SHEET`, `ONBOARDING_START`, `IDLE`              |
-| `ONBOARDING_SHEET`             | Waiting for sheet selection                                | `ONBOARDING_SHEET`, `ONBOARDING_VALIDATING_ACCESS`, `ONBOARDING_START`, `IDLE` |
-| `ONBOARDING_VALIDATING_ACCESS` | Validating spreadsheet access                              | `ONBOARDING_MAPPING`, `ONBOARDING_SHEET`, `ONBOARDING_START`, `IDLE`           |
-| `ONBOARDING_MAPPING`           | Waiting for column mapping confirmation                    | `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `ONBOARDING_START`, `IDLE`      |
-| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation                          | `IDLE`, `ONBOARDING_CATEGORIES`, `ONBOARDING_START`                            |
-| `EXPENSE_RECEIVING`            | Message received, NLP processing                           | `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `IDLE`                                 |
-| `EXPENSE_CLARIFYING`           | Waiting for user clarification                             | `EXPENSE_REVIEW`, `IDLE`                                                       |
-| `EXPENSE_REVIEW`               | Summary sent, awaiting confirmation                        | `EXPENSE_SAVING`, `EXPENSE_CORRECTING`, `IDLE`                                 |
-| `EXPENSE_CORRECTING`           | Applying user correction                                   | `EXPENSE_REVIEW`, `IDLE`                                                       |
-| `EXPENSE_SAVING`               | Writing to spreadsheet or retaining an unresolved save claim | `EXPENSE_SAVING`, `IDLE`, `EXPENSE_SAVING_RETRY`, `ONBOARDING_START`         |
-| `EXPENSE_SAVING_RETRY`         | Retry failed save (TTL: 10 min)                            | `EXPENSE_SAVING_RETRY`, `IDLE`, `ONBOARDING_VALIDATING_ACCESS`                 |
-| `EXPENSE_UNDO_CONFIRMING`      | Waiting for explicit delayed-undo confirmation (short TTL) | `IDLE`                                                                         |
+| State                          | Description                                                  | Valid Transitions                                                              |
+| ------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `IDLE`                         | No active flow                                               | `ONBOARDING_START`, `EXPENSE_RECEIVING`                                        |
+| `ONBOARDING_START`             | First contact, no spreadsheet linked                         | `ONBOARDING_START`, `ONBOARDING_DRIVE`, `IDLE`                                 |
+| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                                 | `ONBOARDING_DRIVE`, `ONBOARDING_FILE`, `IDLE`                                  |
+| `ONBOARDING_FILE`              | Waiting for file selection                                   | `ONBOARDING_FILE`, `ONBOARDING_SHEET`, `ONBOARDING_START`, `IDLE`              |
+| `ONBOARDING_SHEET`             | Waiting for sheet selection                                  | `ONBOARDING_SHEET`, `ONBOARDING_VALIDATING_ACCESS`, `ONBOARDING_START`, `IDLE` |
+| `ONBOARDING_VALIDATING_ACCESS` | Validating spreadsheet access                                | `ONBOARDING_MAPPING`, `ONBOARDING_SHEET`, `ONBOARDING_START`, `IDLE`           |
+| `ONBOARDING_MAPPING`           | Waiting for column mapping confirmation                      | `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `ONBOARDING_START`, `IDLE`      |
+| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation                            | `IDLE`, `ONBOARDING_CATEGORIES`, `ONBOARDING_START`                            |
+| `EXPENSE_RECEIVING`            | Message received, NLP processing                             | `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `IDLE`                                 |
+| `EXPENSE_CLARIFYING`           | Waiting for user clarification                               | `EXPENSE_REVIEW`, `IDLE`                                                       |
+| `EXPENSE_REVIEW`               | Summary sent, awaiting confirmation                          | `EXPENSE_SAVING`, `EXPENSE_CORRECTING`, `IDLE`                                 |
+| `EXPENSE_CORRECTING`           | Applying user correction                                     | `EXPENSE_REVIEW`, `IDLE`                                                       |
+| `EXPENSE_SAVING`               | Writing to spreadsheet or retaining an unresolved save claim | `EXPENSE_SAVING`, `IDLE`, `EXPENSE_SAVING_RETRY`, `ONBOARDING_START`           |
+| `EXPENSE_SAVING_RETRY`         | Retry failed save (TTL: 10 min)                              | `EXPENSE_SAVING_RETRY`, `IDLE`, `ONBOARDING_VALIDATING_ACCESS`                 |
+| `EXPENSE_UNDO_CONFIRMING`      | Waiting for explicit delayed-undo confirmation (short TTL)   | `IDLE`                                                                         |
 
 ## Tests
 
@@ -113,5 +113,7 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 - [`undo-last-expense.md`](./undo-last-expense.md) defines one-message immediate undo eligibility and the confirmation-safe `EXPENSE_UNDO_CONFIRMING` state.
 - Redis is used only for identity caching (ADR-008) and BullMQ broker (ADR-005). The conversation state itself is never stored in Redis.
 - When an `EXPENSE_REVIEW` has pending rows in `expense_queue`, the first expiry keeps the review active for one further timeout and includes the pending count in its reminder. The second expiry removes only the active draft, then advances the oldest queued expense through the normal interpretation and review flow.
+- `EXPENSE_REVIEW` payloads bind authorization to an opaque operation ID, a review revision, and a nullable successful-presentation timestamp. Corrections, zero/high-amount stage changes, grace reminders, replacements, and safe re-presentations invalidate older evidence by advancing the binding.
+- Expiry is checked during action resolution, not only by the periodic sweep. An expired action cannot revive the review; the first-expiry path creates a new binding and the second expiry clears only the matching active draft.
 - All queue-aware user feedback is emitted in Spanish, including capacity rejection, pending-count notices, unrelated-reply reminders, expiration advances, and final batch summaries. Count-aware copies use singular and plural forms as appropriate.
 - The timeout prompt copy (`"Tu sesion expiro. Queres continuar o empezar de nuevo?"`) is owned by the Application layer (`HandleExpiredSessions`), not by the Telegram adapter.

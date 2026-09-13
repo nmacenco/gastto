@@ -8,6 +8,8 @@ import type { ExpenseSummary } from '../../../application/dtos/expense-summary.d
 import type { MessagingOutputPort } from '../../../application/ports/output/messaging.port';
 import type { InlineKeyboardOutputPort } from '../../../application/ports/output/inline-keyboard.port';
 import { expenseCopies } from '../../../application/copies/expense.copies';
+import type { ExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
+import { encodeExpenseReviewCallback } from '../../../domain/value-objects/expense-review-callback';
 
 export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter {
   constructor(
@@ -16,11 +18,11 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
     private readonly chatId: string,
   ) {}
 
-  async presentSummary(summary: ExpenseSummary): Promise<void> {
+  async presentSummary(summary: ExpenseSummary, binding: ExpenseReviewBinding): Promise<void> {
     const text = summary.isHighAmount
       ? this.formatHighAmountSummary(summary)
       : this.formatSummary(summary);
-    const buttons = this.buildActionButtons();
+    const buttons = this.buildActionButtons(binding);
     await this.inlineKeyboard.sendMessageWithInlineKeyboard(this.chatId, text, buttons);
   }
 
@@ -32,7 +34,10 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
     await this.messaging.sendMessage(this.chatId, expenseCopies.reviewCancellation());
   }
 
-  async requestHighAmountConfirmation(summary: ExpenseSummary): Promise<void> {
+  async requestHighAmountConfirmation(
+    summary: ExpenseSummary,
+    binding: ExpenseReviewBinding,
+  ): Promise<void> {
     const text = [
       expenseCopies.highAmountWarning(),
       '',
@@ -40,7 +45,11 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
       '',
       expenseCopies.highAmountConfirmationPrompt(),
     ].join('\n');
-    await this.messaging.sendMessage(this.chatId, text);
+    await this.inlineKeyboard.sendMessageWithInlineKeyboard(
+      this.chatId,
+      text,
+      this.buildActionButtons(binding),
+    );
   }
 
   private formatSummary(summary: ExpenseSummary): string {
@@ -99,11 +108,38 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
     return '';
   }
 
-  private buildActionButtons() {
+  private buildActionButtons(binding: ExpenseReviewBinding) {
     return [
-      [{ text: 'Confirmar', callbackData: JSON.stringify({ action: 'confirm' }) }],
-      [{ text: 'Corregir', callbackData: JSON.stringify({ action: 'correct' }) }],
-      [{ text: 'Cancelar', callbackData: JSON.stringify({ action: 'cancel' }) }],
+      [
+        {
+          text: 'Confirmar',
+          callbackData: encodeExpenseReviewCallback(
+            'confirm',
+            binding.operationId,
+            binding.revision,
+          ),
+        },
+      ],
+      [
+        {
+          text: 'Corregir',
+          callbackData: encodeExpenseReviewCallback(
+            'correct',
+            binding.operationId,
+            binding.revision,
+          ),
+        },
+      ],
+      [
+        {
+          text: 'Cancelar',
+          callbackData: encodeExpenseReviewCallback(
+            'cancel',
+            binding.operationId,
+            binding.revision,
+          ),
+        },
+      ],
     ];
   }
 }

@@ -54,11 +54,13 @@ describe('ResolveExpenseReviewReplyUseCase', () => {
     payload: buildPayload(),
     chatId: 'chat-123',
     channel: 'telegram' as const,
+    receivedAt: '2026-08-01T10:01:00.000Z',
+    sourceMessageId: 'message-1',
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
-    resolveActionExecute.mockResolvedValue(undefined);
+    resolveActionExecute.mockResolvedValue({ status: 'handled', action: 'confirm' });
     correctExpenseExecute.mockResolvedValue({ status: 'not_interpretable' });
     queuePendingExpenseExecute.mockResolvedValue({ status: 'queued', pendingCount: 1 });
     countPendingExpenses.mockResolvedValue(0);
@@ -76,9 +78,13 @@ describe('ResolveExpenseReviewReplyUseCase', () => {
     expect(resolveActionExecute).toHaveBeenCalledWith({
       userId: request.userId,
       action: 'confirm',
-      payload: request.payload,
       chatId: request.chatId,
       channel: request.channel,
+      authorization: {
+        kind: 'text',
+        receivedAt: request.receivedAt,
+        sourceMessageId: request.sourceMessageId,
+      },
     });
     expect(correctExpenseExecute).not.toHaveBeenCalled();
   });
@@ -95,7 +101,7 @@ describe('ResolveExpenseReviewReplyUseCase', () => {
 
       expect(resolveActionExecute).toHaveBeenCalledOnce();
       expect(resolveActionExecute).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'confirm', payload: request.payload }),
+        expect.objectContaining({ action: 'confirm' }),
       );
       expect(correctExpenseExecute).not.toHaveBeenCalled();
     },

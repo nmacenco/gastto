@@ -11,23 +11,23 @@ After the user describes an expense in natural language, the system interprets t
 - Hierarchy support is enabled when registration found a confirmed `subcategoria` mapping or at least one active configured child. Category-only users do not receive the extra row.
 - Category and subcategory confidence/status values remain independent. Ambiguous or low-confidence child selections show `(¿correcto?)`, fallback children show `(sugerida)`, and confirmed high-confidence children have no suffix.
 - Review payloads created after hierarchy classification explicitly include nullable child name/ID, child status, and `subcategoryEnabled`. At the persisted TypeScript boundary these fields remain optional for compatibility.
-- A legacy `EXPENSE_REVIEW` payload with missing hierarchy fields is normalized locally by `GenerateExpenseSummaryUseCase` to an empty child, `none`/`nula`, and `subcategoryEnabled: false`. Its Telegram output remains byte-for-byte category-only.
+- A legacy `EXPENSE_REVIEW` payload with missing hierarchy fields is normalized locally. A missing review binding is never treated as presentation proof: the payload is upgraded, persisted, and re-presented before a new user action can authorize anything.
 - When the original message did not mention a date, the summary shows `"today"` as the default value.
 - Categories with low confidence (`categoryStatus` other than `confirmed` or `categoryConfidence` other than `alta`) are visually marked with `(¿correcto?)` in the Telegram message.
 - The summary includes instructions to confirm, correct, or cancel the entry.
 - The presentation is channel-agnostic: `GenerateExpenseSummaryUseCase` builds a plain `ExpenseSummary` DTO and delegates rendering to an `ExpenseSummaryPresenter` implementation.
 - The Telegram presenter formats the summary as a markdown message and sends it through the existing messaging port.
 - Unusually high amounts (above `HIGH_AMOUNT_THRESHOLD_MULTIPLIER` times the user's historical average) are flagged with `isHighAmount` and `requiresExplicitConfirmation`. The Telegram message prepends a warning and asks for explicit confirmation.
-- The `EXPENSE_REVIEW` state tracks `reminderSent` in its payload.
+- The `EXPENSE_REVIEW` state tracks `reminderSent` and a validated `reviewBinding` in its payload. Presentation persists the binding first and conditionally records `presentedAt` only after successful delivery.
 - `HandleExpiredSessions` implements the two-stage timeout:
-  - First expiry: sends a one-time reminder via `showTimeoutWarning()` and extends the state TTL by `EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES`.
+  - First expiry: invalidates the previous binding, commits the one-time grace TTL, sends the queue-aware reminder, and presents a newly bound summary.
   - Second expiry: transitions to `IDLE` and sends the cancellation notice via `notifyCancellation()`.
 - All other expired states keep the existing generic timeout message.
 
 ## Behavior (Implemented)
 
 - The summary is presented as a Telegram message with inline buttons: **Confirmar**, **Corregir**, and **Cancelar**.
-- Telegram `callback_query` updates are parsed into `CALLBACK` message payloads with `{ action: 'confirm' | 'correct' | 'cancel'; field?: string }`.
+- Telegram `callback_query` updates are parsed into a strict bound callback, an unbound legacy action, or an explicit invalid-version marker. Malformed versioned data is never downgraded to legacy.
 - `RouteIncomingMessage` routes `CALLBACK` payloads to the `process-message` queue so the thick worker can resolve them in FSM context.
 - `ResolveExpenseSummaryActionUseCase` handles the three actions:
   - **Confirm**: invokes `RegisterExpenseUseCase.save()` and sends a saving/confirmation message.

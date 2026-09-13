@@ -8,6 +8,7 @@ import type { CorrectExpenseOutcome, CorrectExpenseUseCase } from './CorrectExpe
 import type { QueuePendingExpense } from './QueuePendingExpense';
 import type { ResolveExpenseSummaryActionUseCase } from './ResolveExpenseSummaryActionUseCase';
 import type { IExpenseQueueRepository } from '../../../domain/ports/repositories';
+import type { ResolveExpenseSummaryActionOutcome } from './ResolveExpenseSummaryActionUseCase';
 
 export interface ResolveExpenseReviewReplyInput {
   userId: string;
@@ -15,6 +16,8 @@ export interface ResolveExpenseReviewReplyInput {
   payload: ExpenseReviewPayload;
   chatId: string;
   channel: 'telegram' | 'whatsapp';
+  receivedAt?: string;
+  sourceMessageId?: string;
 }
 
 export type ResolveExpenseReviewReplyOutcome =
@@ -22,6 +25,7 @@ export type ResolveExpenseReviewReplyOutcome =
   | { status: 'not_interpretable'; pendingCount: number }
   | { status: 'expense_queued'; pendingCount: 1 | 2 }
   | { status: 'queue_full'; pendingCount: 2 }
+  | Exclude<ResolveExpenseSummaryActionOutcome, { status: 'handled' }>
   | Exclude<CorrectExpenseOutcome, { status: 'new_expense' } | { status: 'not_interpretable' }>;
 
 export interface ResolveExpenseReviewReplyUseCaseDeps {
@@ -36,26 +40,38 @@ export class ResolveExpenseReviewReplyUseCase {
 
   async execute(input: ResolveExpenseReviewReplyInput): Promise<ResolveExpenseReviewReplyOutcome> {
     if (isConfirmIntent(input.rawMessage)) {
-      await this.deps.resolveExpenseSummaryAction.execute({
+      const outcome = await this.deps.resolveExpenseSummaryAction.execute({
         userId: input.userId,
         action: 'confirm',
-        payload: input.payload,
         chatId: input.chatId,
         channel: input.channel,
+        authorization: {
+          kind: 'text',
+          receivedAt: input.receivedAt ?? new Date(0).toISOString(),
+          sourceMessageId: input.sourceMessageId ?? 'unbound-text',
+        },
       });
-      return { status: 'action_handled', action: 'confirm' };
+      return outcome.status === 'handled'
+        ? { status: 'action_handled', action: 'confirm' }
+        : outcome;
     }
 
     if (isCancelIntent(input.rawMessage)) {
-      await this.deps.resolveExpenseSummaryAction.execute({
+      const outcome = await this.deps.resolveExpenseSummaryAction.execute({
         userId: input.userId,
         action: 'cancel',
-        payload: input.payload,
         chatId: input.chatId,
         channel: input.channel,
         cancellationSource: 'text',
+        authorization: {
+          kind: 'text',
+          receivedAt: input.receivedAt ?? new Date(0).toISOString(),
+          sourceMessageId: input.sourceMessageId ?? 'unbound-text',
+        },
       });
-      return { status: 'action_handled', action: 'cancel' };
+      return outcome.status === 'handled'
+        ? { status: 'action_handled', action: 'cancel' }
+        : outcome;
     }
 
     const state = ExpenseCorrectionState.create(

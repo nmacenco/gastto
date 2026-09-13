@@ -9,7 +9,10 @@ import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
 import type { CorrectExpenseUseCase } from '../../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
-import type { ResolveExpenseSummaryActionUseCase } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
+import type {
+  ResolveExpenseSummaryActionOutcome,
+  ResolveExpenseSummaryActionUseCase,
+} from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { CancelExpenseRegistrationUseCase } from '../../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import type { UndoLastExpenseUseCase } from '../../application/use-cases/expense/UndoLastExpense';
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
@@ -78,6 +81,7 @@ import { ExpenseClarificationState } from '../../domain/value-objects/expense-cl
 import { ExpenseCorrectionState } from '../../domain/value-objects/expense-correction-state';
 import { parseExpenseSaveRetryPayload } from '../../domain/value-objects/expense-save-retry-payload';
 import { isExpenseLikeIntent } from '../../domain/value-objects/FreeTextIntent';
+import { advanceExpenseReviewBinding } from '../../domain/value-objects/expense-review-binding';
 
 // Lock TTL must exceed the longest possible job duration (LLM + side effects).
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
@@ -251,6 +255,13 @@ async function routeByState(
 ): Promise<void> {
   const { userId, rawMessage, channel, externalId } = jobData;
 
+  // Typed review callbacks are never global commands. Outside the exact
+  // review state they must not cancel, reset, or otherwise mutate a flow.
+  if (jobData.callbackData !== undefined && currentState !== 'EXPENSE_REVIEW') {
+    await messaging.sendMessage(externalId, expenseCopies.noActiveReview());
+    return;
+  }
+
   // The immediate-undo token is valid for precisely the next inbound message.
   // Clear it before any other routing path, including global cancellation.
   const isImmediateUndoCommand = currentState === 'IDLE' && isUndoIntent(rawMessage);
@@ -262,12 +273,7 @@ async function routeByState(
     await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
   }
 
-  const cancellationSource =
-    jobData.callbackData?.action === 'cancel'
-      ? 'callback'
-      : isCancelIntent(rawMessage)
-        ? 'text'
-        : null;
+  const cancellationSource = isCancelIntent(rawMessage) ? 'text' : null;
   const normalizedReviewPayload = tryNormalizeExpenseReviewPayload(conversationState?.statePayload);
   if (
     currentState === 'EXPENSE_REVIEW' &&
@@ -394,7 +400,7 @@ async function routeByState(
         await messaging.sendMessage(externalId, question);
       } else if (result.status === 'needs_zero_confirmation') {
         // Zero-amount confirmation path: state already transitioned by use case
-        await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
+        await presentZeroAmountConfirmation(userId, result.payload, messaging, externalId, opts);
       } else {
         // Format and send summary for review (E1-US-06)
         await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
@@ -780,6 +786,7 @@ async function presentExpenseSummary(
   messaging: MessagingOutputPort,
   externalId: string,
   opts: MessageWorkerDeps,
+  forceNewBinding: boolean = false,
 ): Promise<void> {
   if (!opts.generateExpenseSummary || !opts.expenseSummaryPresenterFactory) {
     await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
@@ -787,7 +794,40 @@ async function presentExpenseSummary(
   }
 
   const presenter = opts.expenseSummaryPresenterFactory(messaging, externalId);
-  await opts.generateExpenseSummary.execute({ userId, payload, presenter });
+  await opts.generateExpenseSummary.execute({
+    userId,
+    payload,
+    presenter,
+    ...(forceNewBinding ? { forceNewBinding: true } : {}),
+  });
+}
+
+async function presentZeroAmountConfirmation(
+  userId: string,
+  payload: ExpenseReviewPayload,
+  messaging: MessagingOutputPort,
+  externalId: string,
+  opts: MessageWorkerDeps,
+): Promise<void> {
+  await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
+  const state = opts.transitionState.currentState(userId);
+  const normalized = tryNormalizeExpenseReviewPayload(state?.statePayload ?? payload);
+  if (
+    state?.currentState !== 'EXPENSE_REVIEW' ||
+    normalized?.reviewBinding === null ||
+    normalized?.reviewBinding === undefined
+  ) {
+    return;
+  }
+  await opts.transitionState.execute({
+    userId,
+    targetState: 'EXPENSE_REVIEW',
+    payload: {
+      ...normalized,
+      reviewBinding: { ...normalized.reviewBinding, presentedAt: new Date().toISOString() },
+    },
+    expiresAt: state.expiresAt,
+  });
 }
 
 async function handleOnboardingMapping(
@@ -1112,21 +1152,29 @@ async function handleExpenseReview(
         endpoint: 'handleExpenseReview',
         code: 'INVALID_REVIEW_PAYLOAD',
         userId,
-        action: callbackData.action,
+        action: 'action' in callbackData ? callbackData.action : 'invalid',
       });
       await opts.transitionState.execute({ userId, targetState: 'IDLE' });
       await messaging.sendMessage(externalId, expenseCopies.fallbackError());
       return;
     }
 
-    await opts.resolveExpenseSummaryAction.execute({
+    const outcome = await opts.resolveExpenseSummaryAction.execute({
       userId,
-      action: callbackData.action,
-      payload: reviewPayload,
+      ...('action' in callbackData ? { action: callbackData.action } : {}),
       chatId: externalId,
       channel: jobData.channel,
-      ...(callbackData.action === 'cancel' ? { cancellationSource: 'callback' as const } : {}),
+      ...('action' in callbackData && callbackData.action === 'cancel'
+        ? { cancellationSource: 'callback' as const }
+        : {}),
+      authorization: {
+        kind: 'callback',
+        callbackData,
+        receivedAt: jobData.receivedAt,
+        sourceMessageId: jobData.externalMessageId,
+      },
     });
+    await renderExpenseReviewReplyOutcome(outcome, userId, messaging, externalId, opts);
     return;
   }
 
@@ -1162,6 +1210,8 @@ async function handleExpenseReview(
     payload: reviewPayload,
     chatId: externalId,
     channel: jobData.channel,
+    receivedAt: jobData.receivedAt,
+    sourceMessageId: jobData.externalMessageId,
   });
   await renderExpenseReviewReplyOutcome(outcome, userId, messaging, externalId, opts);
 }
@@ -1214,7 +1264,10 @@ async function handleExpenseCorrection(
 }
 
 async function renderExpenseReviewReplyOutcome(
-  outcome: ResolveExpenseReviewReplyOutcome | Awaited<ReturnType<CorrectExpenseUseCase['execute']>>,
+  outcome:
+    | ResolveExpenseReviewReplyOutcome
+    | ResolveExpenseSummaryActionOutcome
+    | Awaited<ReturnType<CorrectExpenseUseCase['execute']>>,
   userId: string,
   messaging: MessagingOutputPort,
   externalId: string,
@@ -1222,8 +1275,49 @@ async function renderExpenseReviewReplyOutcome(
 ): Promise<void> {
   switch (outcome.status) {
     case 'action_handled':
+    case 'handled':
     case 'expense_queued':
       return;
+    case 'review_required':
+      await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
+      return;
+    case 'operation_in_progress':
+      await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+      return;
+    case 'expired': {
+      const state = opts.transitionState.currentState(userId);
+      const payload = tryNormalizeExpenseReviewPayload(state?.statePayload);
+      if (state?.currentState !== 'EXPENSE_REVIEW' || payload === null) {
+        await messaging.sendMessage(externalId, expenseCopies.noActiveReview());
+        return;
+      }
+      const rebound = {
+        ...payload,
+        reminderSent: true,
+        reviewBinding: advanceExpenseReviewBinding(payload.reviewBinding),
+      };
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'EXPENSE_REVIEW',
+        payload: rebound,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        expected: opts.transitionState.precondition(state, 'expired'),
+      });
+      await messaging.sendMessage(externalId, expenseCopies.expiredReview());
+      await presentExpenseSummary(userId, rebound, messaging, externalId, opts);
+      return;
+    }
+    case 'stale':
+    case 'unbound':
+    case 'invalid': {
+      await messaging.sendMessage(externalId, expenseCopies.staleReview());
+      const state = opts.transitionState.currentState(userId);
+      const payload = tryNormalizeExpenseReviewPayload(state?.statePayload);
+      if (state?.currentState === 'EXPENSE_REVIEW' && payload !== null) {
+        await presentExpenseSummary(userId, payload, messaging, externalId, opts, true);
+      }
+      return;
+    }
     case 'queue_full':
       await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
       return;
@@ -1309,7 +1403,7 @@ async function handleClarification(
           : expenseCopies.clarificationCurrency();
       await messaging.sendMessage(externalId, question);
     } else if (result.status === 'needs_zero_confirmation') {
-      await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
+      await presentZeroAmountConfirmation(userId, result.payload, messaging, externalId, opts);
     } else {
       await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
     }
@@ -1355,7 +1449,7 @@ async function handleClarification(
         : expenseCopies.clarificationCurrency();
     await messaging.sendMessage(externalId, question);
   } else if (result.status === 'needs_zero_confirmation') {
-    await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
+    await presentZeroAmountConfirmation(userId, result.payload, messaging, externalId, opts);
   } else {
     await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
   }

@@ -18,6 +18,9 @@ import type { AdvancePendingExpense } from '../expense/AdvancePendingExpense';
 import type { IUserProcessingLock } from '../../ports/UserProcessingLock';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
 import { startUserProcessingLeaseRenewal } from '../../services/UserProcessingLease';
+import type { GenerateExpenseSummaryUseCase } from '../expense/GenerateExpenseSummaryUseCase';
+import { tryNormalizeExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
+import { advanceExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
 
 export class HandleExpiredSessions {
   constructor(
@@ -34,6 +37,7 @@ export class HandleExpiredSessions {
     private readonly expenseQueueRepository?: IExpenseQueueRepository,
     private readonly advancePendingExpense?: AdvancePendingExpense,
     private readonly userProcessingLock?: IUserProcessingLock,
+    private readonly generateExpenseSummary?: GenerateExpenseSummaryUseCase,
   ) {}
 
   async execute(): Promise<void> {
@@ -80,8 +84,7 @@ export class HandleExpiredSessions {
               endpoint: 'HandleExpiredSessions',
               code: 'LOCK_RELEASE_FAILED',
               userId: state.userId,
-              error:
-                releaseError instanceof Error ? releaseError.message : String(releaseError),
+              error: releaseError instanceof Error ? releaseError.message : String(releaseError),
             });
           }
         }
@@ -95,14 +98,45 @@ export class HandleExpiredSessions {
 
     const pendingCount = await this.expenseQueueRepository?.countByUserId(userId);
     if (!reminderSent) {
+      const reviewPayload = tryNormalizeExpenseReviewPayload(payload);
+      if (reviewPayload === null) {
+        await this.transitionState.execute({
+          userId,
+          targetState: 'EXPENSE_REVIEW',
+          payload: { ...payload, reminderSent: true },
+          expiresAt: new Date(Date.now() + this.reminderTimeoutMinutes * 60 * 1000),
+          expected: this.transitionState.precondition(state, 'expired'),
+        });
+        await this.sendReminder(userId, pendingCount);
+        return;
+      }
+      const reboundPayload = {
+        ...reviewPayload,
+        reminderSent: true,
+        reviewBinding: advanceExpenseReviewBinding(reviewPayload.reviewBinding),
+      };
       await this.transitionState.execute({
         userId,
         targetState: 'EXPENSE_REVIEW',
-        payload: { ...payload, reminderSent: true },
+        payload: reboundPayload,
         expiresAt: new Date(Date.now() + this.reminderTimeoutMinutes * 60 * 1000),
         expected: this.transitionState.precondition(state, 'expired'),
       });
       await this.sendReminder(userId, pendingCount);
+      if (this.generateExpenseSummary) {
+        const identities = await this.userRepo.findMessagingIdentitiesByUserId(userId);
+        for (const identity of identities) {
+          const presenter = this.expenseSummaryPresenterFactory(
+            this.messagingPort,
+            identity.externalId,
+          );
+          await this.generateExpenseSummary.execute({
+            userId,
+            payload: reboundPayload,
+            presenter,
+          });
+        }
+      }
       return;
     }
 

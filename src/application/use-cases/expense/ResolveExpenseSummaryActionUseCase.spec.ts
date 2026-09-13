@@ -49,6 +49,11 @@ function buildUseCase(
     advancePendingExpense?: ReturnType<typeof vi.fn>;
   } = {},
 ) {
+  const reviewBinding = {
+    operationId: 'abcdefghijklmnopqrstuv',
+    revision: 1,
+    presentedAt: '2026-07-25T10:00:00.000Z',
+  } as const;
   const saveMock: ReturnType<typeof vi.fn<RegisterExpenseUseCase['save']>> =
     overrides.save ??
     vi.fn<RegisterExpenseUseCase['save']>().mockResolvedValue({ sheetName: 'Hoja 1', rowIndex: 2 });
@@ -71,9 +76,10 @@ function buildUseCase(
     vi.fn<MessagingOutputPort['sendMessage']>().mockResolvedValue({ status: 'success' });
 
   const registerExpense = { save: saveMock } as unknown as RegisterExpenseUseCase;
+  const currentState = vi.fn();
   const transitionState = {
     execute: transitionMock,
-    currentState: vi.fn().mockReturnValue({ revision: '0' }),
+    currentState,
     finalizeClaim: transitionMock,
   } as unknown as TransitionConversationState;
   const messagingPort = { sendMessage: sendMessageMock };
@@ -87,7 +93,7 @@ function buildUseCase(
   const advancePendingExpense =
     overrides.advancePendingExpense ?? vi.fn().mockResolvedValue({ status: 'empty' });
 
-  const useCase = new ResolveExpenseSummaryActionUseCase({
+  const subject = new ResolveExpenseSummaryActionUseCase({
     registerExpense,
     transitionState,
     messagingPort,
@@ -96,6 +102,35 @@ function buildUseCase(
     operationLogRepo: { create: operationLogCreate },
     advancePendingExpense: { execute: advancePendingExpense } as never,
   });
+  const useCase = {
+    execute: (input: Parameters<ResolveExpenseSummaryActionUseCase['execute']>[0]) => {
+      const payload = input.payload ?? buildPayload();
+      payload.reviewBinding = reviewBinding;
+      currentState.mockReturnValue({
+        userId: input.userId,
+        revision: '0',
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: payload,
+        expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+        enteredAt: new Date(),
+        updatedAt: new Date(),
+      });
+      return subject.execute({
+        ...input,
+        authorization: {
+          kind: 'callback',
+          callbackData: {
+            version: 1,
+            action: input.action ?? 'confirm',
+            operationId: reviewBinding.operationId,
+            reviewRevision: reviewBinding.revision,
+          },
+          receivedAt: '2026-07-25T10:01:00.000Z',
+          sourceMessageId: 'callback-1',
+        },
+      });
+    },
+  } as ResolveExpenseSummaryActionUseCase;
 
   return {
     useCase,
@@ -291,7 +326,9 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
         outcomeUnknown: true,
       }),
     );
-    const { useCase, transitionMock, sendMessageMock, advancePendingExpense } = buildUseCase({ save });
+    const { useCase, transitionMock, sendMessageMock, advancePendingExpense } = buildUseCase({
+      save,
+    });
 
     await useCase.execute({
       userId: 'user-123',

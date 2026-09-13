@@ -5,7 +5,10 @@
 
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { RegisterExpenseUseCase } from './RegisterExpense';
-import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
+import {
+  normalizeExpenseReviewPayload,
+  type ExpenseReviewPayload,
+} from '../../../domain/value-objects/expense-review-payload';
 import { ExpenseCorrectionState } from '../../../domain/value-objects/expense-correction-state';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { expenseCopies } from '../../copies/expense.copies';
@@ -16,12 +19,34 @@ import type { ExpenseSaveRetryPayload } from '../../../domain/value-objects/expe
 import type { AdvancePendingExpense } from './AdvancePendingExpense';
 import { randomUUID } from 'node:crypto';
 import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import type {
+  ExpenseReviewAction,
+  ExpenseReviewCallbackData,
+} from '../../../domain/value-objects/expense-review-callback';
+import { advanceExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
+import { getFinancialExecutionClaim } from '../../../domain/entities/ConversationState';
+
+export type ExpenseReviewAuthorizationEvidence =
+  | {
+      kind: 'callback';
+      callbackData: ExpenseReviewCallbackData;
+      receivedAt: string;
+      sourceMessageId: string;
+    }
+  | { kind: 'text'; receivedAt: string; sourceMessageId: string };
+
+export type ResolveExpenseSummaryActionOutcome =
+  | { status: 'handled'; action: ExpenseReviewAction }
+  | { status: 'review_required'; payload: ExpenseReviewPayload }
+  | { status: 'stale' | 'expired' | 'unbound' | 'invalid' | 'operation_in_progress' };
 
 export interface ResolveExpenseSummaryActionInput {
   userId: string;
-  action: 'confirm' | 'correct' | 'cancel';
-  payload: ExpenseReviewPayload;
+  action?: ExpenseReviewAction;
+  /** @deprecated Authorization always reloads the persisted review payload. */
+  payload?: ExpenseReviewPayload;
   chatId: string;
+  authorization?: ExpenseReviewAuthorizationEvidence;
   cancellationSource?: 'text' | 'callback';
   channel?: 'telegram' | 'whatsapp';
 }
@@ -38,31 +63,108 @@ export interface ResolveExpenseSummaryActionDeps {
 export class ResolveExpenseSummaryActionUseCase {
   constructor(private readonly deps: ResolveExpenseSummaryActionDeps) {}
 
-  async execute(input: ResolveExpenseSummaryActionInput): Promise<void> {
-    switch (input.action) {
+  async execute(
+    input: ResolveExpenseSummaryActionInput,
+  ): Promise<ResolveExpenseSummaryActionOutcome> {
+    const authorization = this.authorize(input);
+    if (authorization.status !== 'authorized') return authorization;
+    const { action, payload } = authorization;
+
+    if (action === 'confirm' && payload.awaitingZeroConfirmation === true) {
+      const nextPayload: ExpenseReviewPayload = {
+        ...payload,
+        awaitingZeroConfirmation: false,
+        reviewBinding: advanceExpenseReviewBinding(payload.reviewBinding),
+      };
+      const state = this.deps.transitionState.currentState(input.userId)!;
+      await this.deps.transitionState.execute({
+        userId: input.userId,
+        targetState: 'EXPENSE_REVIEW',
+        payload: nextPayload as unknown as Record<string, unknown>,
+        expiresAt: state.expiresAt,
+      });
+      return { status: 'review_required', payload: nextPayload };
+    }
+
+    const authorizedInput = { ...input, action, payload, authorization: input.authorization! };
+    switch (action) {
       case 'confirm':
-        await this.handleConfirm(input);
+        await this.handleConfirm(authorizedInput);
         break;
       case 'correct':
-        await this.handleCorrect(input);
+        await this.handleCorrect(authorizedInput);
         break;
       case 'cancel':
-        await this.handleCancel(input);
+        await this.handleCancel(authorizedInput);
         break;
       /* istanbul ignore next */
       default:
         // Exhaustiveness guard — should never happen at runtime.
-        throw new Error(`Unsupported summary action: ${input.action as string}`);
+        throw new Error(`Unsupported summary action: ${action as string}`);
     }
+    return { status: 'handled', action };
   }
 
-  private async handleConfirm(input: ResolveExpenseSummaryActionInput): Promise<void> {
+  private authorize(
+    input: ResolveExpenseSummaryActionInput,
+  ):
+    | { status: 'authorized'; action: ExpenseReviewAction; payload: ExpenseReviewPayload }
+    | Exclude<ResolveExpenseSummaryActionOutcome, { status: 'handled' | 'review_required' }> {
+    if (input.authorization === undefined) return { status: 'invalid' };
+    const state = this.deps.transitionState.currentState(input.userId);
+    if (!state || state.currentState !== 'EXPENSE_REVIEW') return { status: 'stale' };
+    if (getFinancialExecutionClaim(state.statePayload) !== null) {
+      return { status: 'operation_in_progress' };
+    }
+    if (state.expiresAt !== null && state.expiresAt.getTime() <= Date.now()) {
+      return { status: 'expired' };
+    }
+
+    let payload: ExpenseReviewPayload;
+    try {
+      payload = normalizeExpenseReviewPayload(state.statePayload);
+    } catch {
+      return { status: 'invalid' };
+    }
+    const binding = payload.reviewBinding;
+    if (binding === null || binding === undefined || binding.presentedAt === null) {
+      return { status: 'unbound' };
+    }
+    const receivedAt = Date.parse(input.authorization.receivedAt);
+    if (!Number.isFinite(receivedAt)) return { status: 'invalid' };
+
+    let action = input.action;
+    if (input.authorization.kind === 'callback') {
+      const callback = input.authorization.callbackData;
+      if ('invalid' in callback) return { status: 'invalid' };
+      if (!('version' in callback)) return { status: 'unbound' };
+      action = callback.action;
+      if (
+        callback.operationId !== binding.operationId ||
+        callback.reviewRevision !== binding.revision
+      ) {
+        return { status: 'stale' };
+      }
+    } else if (receivedAt <= Date.parse(binding.presentedAt)) {
+      return { status: 'unbound' };
+    }
+    if (action === undefined) return { status: 'invalid' };
+    return { status: 'authorized', action, payload };
+  }
+
+  private async handleConfirm(
+    input: ResolveExpenseSummaryActionInput & {
+      action: ExpenseReviewAction;
+      payload: ExpenseReviewPayload;
+      authorization: ExpenseReviewAuthorizationEvidence;
+    },
+  ): Promise<void> {
     const claimId = randomUUID();
     const executionClaim = {
       claimId,
       kind: 'save' as const,
-      operationId: `${input.userId}:${this.deps.transitionState.currentState(input.userId)?.revision ?? 'unknown'}:save`,
-      sourceMessageId: null,
+      operationId: input.payload.reviewBinding!.operationId,
+      sourceMessageId: input.authorization.sourceMessageId,
       status: 'in_flight' as const,
       target: { expense: input.payload },
     };
@@ -119,13 +221,13 @@ export class ResolveExpenseSummaryActionUseCase {
   }
 
   private async handleSaveFailure(
-    input: ResolveExpenseSummaryActionInput,
+    input: ResolveExpenseSummaryActionInput & { payload: ExpenseReviewPayload },
     error: unknown,
     executionClaim: {
       claimId: string;
       kind: 'save';
       operationId: string;
-      sourceMessageId: null;
+      sourceMessageId: string;
       status: 'in_flight';
       target: { expense: ExpenseReviewPayload };
     },
@@ -206,7 +308,9 @@ export class ResolveExpenseSummaryActionUseCase {
     await this.deps.messagingPort.sendMessage(input.chatId, copy);
   }
 
-  private async handleCorrect(input: ResolveExpenseSummaryActionInput): Promise<void> {
+  private async handleCorrect(
+    input: ResolveExpenseSummaryActionInput & { payload: ExpenseReviewPayload },
+  ): Promise<void> {
     const correctionState = ExpenseCorrectionState.create(input.payload, 0, false);
 
     await this.deps.transitionState.execute({
@@ -221,7 +325,9 @@ export class ResolveExpenseSummaryActionUseCase {
     );
   }
 
-  private async handleCancel(input: ResolveExpenseSummaryActionInput): Promise<void> {
+  private async handleCancel(
+    input: ResolveExpenseSummaryActionInput & { payload: ExpenseReviewPayload },
+  ): Promise<void> {
     await this.deps.cancelExpenseRegistration.execute({
       userId: input.userId,
       chatId: input.chatId,

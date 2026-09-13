@@ -245,9 +245,15 @@ describe('HandleOAuthCallback', () => {
         findByUserId: vi
           .fn()
           .mockResolvedValueOnce(matching)
-          .mockResolvedValueOnce({ ...matching, revision: '8', statePayload: { state: 'new-state' } }),
+          .mockResolvedValueOnce({
+            ...matching,
+            revision: '8',
+            statePayload: { state: 'new-state' },
+          }),
       } as unknown as IConversationStateRepository;
-      const execution = new HandleOAuthCallback(buildMockDeps({ conversationRepo })).execute(baseInput);
+      const execution = new HandleOAuthCallback(buildMockDeps({ conversationRepo })).execute(
+        baseInput,
+      );
       await vi.waitFor(() => expect(mockExchangeCode).toHaveBeenCalledOnce());
       completeExchange({
         accessToken: 'access-123',
@@ -291,9 +297,7 @@ describe('HandleOAuthCallback', () => {
         scope: ['drive.file'],
       });
       mockTokenUpsert.mockResolvedValue({ id: 'token-789' });
-      mockTransitionExecute.mockRejectedValue(
-        new StaleConversationStateError({ status: 'stale' }),
-      );
+      mockTransitionExecute.mockRejectedValue(new StaleConversationStateError({ status: 'stale' }));
 
       const result = await new HandleOAuthCallback(buildMockDeps()).execute(baseInput);
 

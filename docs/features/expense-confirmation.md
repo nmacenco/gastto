@@ -6,7 +6,7 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 
 ## Behavior (Implemented)
 
-- A reply is a confirmation only when it consists solely of one or more allowed affirmative tokens. Matching is case-insensitive and normalizes whitespace, punctuation, and accents.
+- A reply is a confirmation only when the entire message, after case/accent normalization, whitespace collapse, and removal of the allowed surrounding punctuation `¿?¡!.,`, equals one allowlisted phrase. Concatenated affirmatives, internal punctuation, quotes, emoji, negation, conditions, correction text, and prompt injection are never authorization.
 - The standard vocabulary is: `sí`, `si`, `ok`, `dale`, `confirmo`, `correcto`, `listo`, and `va`.
 - Compatible colloquial variants are: `bárbaro`, `okey`, `perfecto`, `yep`, and `sip`.
 - Regional coverage includes Spain: `vale`; Argentina: `dale`, `bárbaro`; Mexico: `va`, `órale` and `orale`; Chile: `ya`.
@@ -16,7 +16,11 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - A mixed reply, such as `comida sí, pero el monto no`, is not a confirmation. It is delegated to `CorrectExpenseUseCase` through the E1-US-07 correction flow before any save occurs.
 - Non-confirm and non-cancel replies are interpreted contextually as `correction`, `new_expense`, or `unrelated`. Only `new_expense` is admitted to the FIFO queue; amount-bearing corrections such as `eran 35 EUR y la categoria es transporte` remain attached to the active review.
 - An uninterpretable reply keeps the `EXPENSE_REVIEW` payload and FSM state unchanged and sends exactly: `¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?`.
-- Callback **Confirmar**, **Corregir**, and **Cancelar** actions remain on their existing action-resolver path.
+- Callback **Confirmar**, **Corregir**, and **Cancelar** actions use `er1:<c|e|x>:<operationId>:<revision-base36>`. The resolver compares the callback with the persisted, successfully presented review binding before any cancellation, correction, or save.
+- Text authorization is accepted only for the current binding and only when its channel timestamp is later than `presentedAt`. A queued affirmative captured before presentation cannot bind to a later review.
+- The action resolver reloads the reviewed expense from the current FSM payload; caller-supplied expense data is not authority. It returns `handled`, `stale`, `expired`, `unbound`, `invalid`, `operation_in_progress`, or `review_required`.
+- Legacy callbacks and legacy review JSONB are unbound. They cause a newly bound safe presentation and require a new user action; the triggering action never saves or cancels.
+- Accepting a zero-amount stage advances the review binding and presents the full summary; a second explicit confirmation is required to save.
 - A Google Sheets append is successful only after the provider confirms it. Only then does the system persist the expense record and send the E1-US-10 save confirmation.
 - When a confirmed `subcategoria` mapping exists, the append writes the reviewed child snapshot at that exact column index, or `null` for a valid no-child selection. Without the mapping, the row length and every existing mapped position remain unchanged.
 - The local record written after provider confirmation stores nullable category/subcategory stable IDs and immutable display snapshots. A configured hierarchy may therefore be retained locally even when the spreadsheet has no mapped child column.
@@ -35,11 +39,11 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 
 ## API / Interface
 
-No HTTP route or external messaging contract is added. `ResolveExpenseReviewReplyUseCase.execute(input)` is the Application-layer contract for text replies in `EXPENSE_REVIEW`; its queue-related outcomes are `expense_queued` and `queue_full`, and it delegates queue persistence only after a typed `new_expense` interpretation. `expenseCopies.expenseSavedConfirmation(input)` is the public Application copy contract for successful saves; it receives the concept, amount, currency, sheet name, and optional row index.
+No HTTP route is added. `ResolveExpenseReviewReplyUseCase.execute(input)` receives the captured channel timestamp and source message ID. `ResolveExpenseSummaryActionUseCase.execute(input)` receives deterministic authorization evidence and reloads the current persisted review. `expenseCopies.expenseSavedConfirmation(input)` remains the successful-save copy contract.
 
 ## Data Model
 
-The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conversation FSM state. Retryable failures persist an `ExpenseSaveRetryPayload` only in `EXPENSE_SAVING_RETRY`: the complete normalized confirmed review payload, typed failure code, first-attempt timestamp, and an attempt count of one. Successful saves persist the confirmed destination sheet, optional spreadsheet row index, nullable category/subcategory references, and immutable category/subcategory snapshots in `expense_records`; the row index is NULL only when the provider confirms the write without exposing it. Pre-hierarchy rows remain valid with null hierarchy columns and are never backfilled from display text.
+The `EXPENSE_REVIEW` JSONB payload includes `reviewBinding: { operationId, revision, presentedAt }`. `operationId` is a random 128-bit value encoded as 22 base64url characters; review revision is a positive safe integer independent from the conversation row CAS revision. `presentedAt` remains null until delivery succeeds. Retryable failures persist an `ExpenseSaveRetryPayload` only in `EXPENSE_SAVING_RETRY`.
 
 ## Tests
 
@@ -52,6 +56,8 @@ The feature reuses the persisted `EXPENSE_REVIEW` payload and its existing conve
 - `expense.copies.spec.ts` covers the location-aware successful-save copy.
 - `expense.copies.spec.ts` covers Spanish queue copies, singular and plural grammar, and rejects the former English wording. `message.worker.spec.ts` reproduces the reported correction and `y?` sequence without queue admission, hanging, or language switching.
 - `ResolveExpenseSummaryActionUseCase.spec.ts` proves explicit confirmation saves the corrected `35 EUR` payload exactly once and never emits the original `30 EUR` amount as saved.
+- `expense-confirmation-context.e2e.spec.ts` rejects old confirm/correct/cancel callbacks after replacement, saves the persisted corrected amount once, rejects duplicate/legacy/malformed/pre-presentation/expired evidence, and covers unresolved claims and zero-stage rebinding.
+- `expense-review-binding.spec.ts`, `expense-review-callback.spec.ts`, and `intents.spec.ts` cover persisted validation, codec strictness and the complete whole-message authorization policy.
 - `expense-save-failure-recovery.integration.spec.ts` wires the real save orchestration with boundary mocks and proves an unconfirmed append emits recovery copy without persisting an expense or emitting E1-US-10 confirmation.
 - `GoogleSheetsAdapter.spec.ts` verifies formula-prefix escaping and the final serialized append request body.
 - `OAuthAccessTokenService.spec.ts` covers fresh-token reuse, proactive and forced refresh, encrypted persistence with a new IV, terminal revocation, transient refresh failures, and a single replay after provider authorization failure.

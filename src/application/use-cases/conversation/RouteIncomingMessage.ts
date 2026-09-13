@@ -95,7 +95,7 @@ export class RouteIncomingMessage {
       channel: payload.channel,
       externalId: payload.chatId,
       externalMessageId: payload.externalMessageId!,
-      receivedAt: new Date().toISOString(),
+      receivedAt: payload.timestamp.toISOString(),
     });
 
     await this.deps.processedMessageRepository.markAsProcessed(processedKey);
@@ -107,6 +107,12 @@ export class RouteIncomingMessage {
       // Defensive: CALLBACK payloads should always have data, but if not,
       // treat as unsupported rather than throwing.
       await this.deps.handleUnsupportedMessage.execute(payload.chatId);
+      return;
+    }
+    if (
+      payload.channel === 'telegram' &&
+      (payload.userId === undefined || payload.userId !== payload.chatId)
+    ) {
       return;
     }
 
@@ -129,7 +135,7 @@ export class RouteIncomingMessage {
       channel: payload.channel,
       externalId: payload.chatId,
       externalMessageId: payload.externalMessageId!,
-      receivedAt: new Date().toISOString(),
+      receivedAt: payload.timestamp.toISOString(),
       callbackData,
     });
 

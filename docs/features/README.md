@@ -16,14 +16,14 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message correction for legacy and optional subcategory mappings, preserving the detected header row for category detection.
 - [`category-confirmation.md`](./category-confirmation.md) — Confirms flat or linked category vocabulary only after transactional aggregate persistence, preserving legacy payloads and category-only row layouts.
 - [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, manages, classifies, reviews, saves, retries, and undoes parent-scoped subcategories with stable references, immutable snapshots, and legacy compatibility.
-- [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation, accent-insensitive expense routing, and command-aware bypass of non-financial guidance.
+- [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation, sender-bound compact callbacks, channel timestamps, and command-aware routing.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow for missing or ambiguous expense amount/currency data.
-- [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with optional hierarchy-aware subcategory display and confirm / correct / cancel options before saving.
-- [`expense-cancellation.md`](./expense-cancellation.md) — Global safe cancellation of in-progress expense registrations.
-- [`expense-correction.md`](./expense-correction.md) — Contextual natural-language correction of amount, currency, category, linked subcategory, or date with atomic hierarchy validation and legacy state normalization.
-- [`expense-confirmation.md`](./expense-confirmation.md) — Confirmation with guarded persistent save/retry claims, hierarchy-aware writes, transparent OAuth refresh, and terminal recovery.
+- [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with persisted presentation identity and version-bound confirm / correct / cancel actions.
+- [`expense-cancellation.md`](./expense-cancellation.md) — Text cancellation plus review-bound callbacks that cannot cancel a replacement draft.
+- [`expense-correction.md`](./expense-correction.md) — Contextual correction with atomic hierarchy validation and review-revision invalidation of old buttons.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Exact whole-message and version-bound confirmation with guarded persistent save claims and stale/expired rejection.
 - [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo with exact-target execution claims, immediate eligibility, and delayed explicit confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
-- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM, renewable per-user ownership, guarded timeout/queue effects, and persistent financial claims.
+- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with renewable ownership, review presentation bindings, guarded timeout/queue effects, and financial claims.
 - [`deployment.md`](./deployment.md) — Merge-protected multi-environment Fly.io deployment with provider-independent Redis-compatible brokers, persistent BullMQ worker Machines, secure cutover and rollback, graceful shutdown, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).

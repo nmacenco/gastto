@@ -18,6 +18,7 @@ import type { ExpenseCorrectionState } from '../../../domain/value-objects/expen
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { Currency } from '../../../domain/entities/User';
 import type { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
+import { advanceExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
 
 export interface CorrectExpenseInput {
   userId: string;
@@ -119,6 +120,7 @@ export class CorrectExpenseUseCase {
     const payloadForReview: ExpenseReviewPayload = {
       ...updatedPayload,
       pendingHighAmountConfirmation: isHighAmount,
+      reviewBinding: advanceExpenseReviewBinding(updatedPayload.reviewBinding),
     };
 
     await this.deps.transitionState.execute({

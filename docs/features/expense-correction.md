@@ -26,6 +26,7 @@ Allow a user reviewing an expense summary to correct the amount, currency, categ
 - Correction cycles are counted in `ExpenseCorrectionState`. After five completed cycles, the sixth correction returns the cycle-limit copy and keeps the current correction state instead of presenting another summary.
 - Invalid or corrupted correction state is logged with structured context, reset to `IDLE`, and answered with the generic fallback copy.
 - Successful corrections reset the review TTL and transition back to `EXPENSE_REVIEW` with the updated payload.
+- A successful correction keeps the operation identity, increments the review revision, clears `presentedAt`, persists the corrected payload, and requires successful presentation before new confirmation authority exists. All buttons from the prior summary become stale.
 - Persisted legacy extraction, clarification, review, correction, and retry payloads are normalized at the domain boundary. Missing hierarchy fields become explicit `null`, `nula`, `none`, and `false` values; malformed or contradictory canonical payloads are rejected and safely reset by the worker.
 - Save retries consume the normalized reviewed expense and never invoke natural-language interpretation. Pending queue rows remain raw messages and enter canonical clarification/review state only after normal FIFO dequeue processing.
 

@@ -151,9 +151,7 @@ describe('UndoLastExpenseUseCase', () => {
       { phase: 'undo' },
       'AUTH_ERROR',
     );
-    expect(finalizeClaim).toHaveBeenLastCalledWith(
-      expect.objectContaining({ payload: null }),
-    );
+    expect(finalizeClaim).toHaveBeenLastCalledWith(expect.objectContaining({ payload: null }));
   });
 
   it('retains an unresolved claim when row deletion may have reached Sheets', async () => {
