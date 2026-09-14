@@ -31,6 +31,8 @@ export const expenseCopies = {
     'No pude guardar el gasto porque la hoja o sus columnas cambiaron. Respondé *reconfigurar* para revisar la configuración.',
   saveRetryExpired: () =>
     'El tiempo para reintentar este guardado venció. Verificá tu planilla y registrá el gasto nuevamente.',
+  staleFinancialAction: () =>
+    'Esa respuesta corresponde a otra operación. Revisá la solicitud actual y confirmala de nuevo.',
   saveManualCopyFallback: (input: { concept: string; amount: number; currency: string }): string =>
     [
       'No pude confirmar que el gasto se haya guardado. Copiá estos datos manualmente en tu planilla:',
@@ -59,6 +61,7 @@ export const expenseCopies = {
   undoConfirmationRequired: (concept: string, amount: number, currency: string, savedAt: Date) =>
     `¿Querés eliminar '${concept.slice(0, 80)}, ${amount} ${currency}' registrado a las ${savedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}? Respondé sí o cancelar.`,
   undoCancelled: () => 'No se eliminó ningún registro.',
+  undoExpired: () => 'La confirmación para eliminar ese registro venció. No se eliminó nada.',
   undoDeletionFailed: () =>
     'No pude eliminar el último registro en este momento. Verificá tu planilla e intentá de nuevo más tarde.',
   clarificationInterrupted: () => 'El registro anterior fue cancelado. Procesando el nuevo gasto…',

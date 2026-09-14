@@ -30,6 +30,7 @@ const legacyPayload = {
 describe('parseExpenseSaveRetryPayload()', () => {
   it('normalizes the nested legacy review', () => {
     expect(parseExpenseSaveRetryPayload(legacyPayload)).toMatchObject({
+      actionBinding: null,
       expense: {
         resolvedSubcategory: null,
         resolvedSubcategoryId: null,
@@ -39,6 +40,23 @@ describe('parseExpenseSaveRetryPayload()', () => {
       },
     });
     expect(isExpenseSaveRetryPayload(legacyPayload)).toBe(true);
+  });
+
+  it('accepts a strict presented action binding and rejects malformed binding fields', () => {
+    const actionBinding = {
+      operationId: 'abcdefghijklmnopqrstuv',
+      revision: 1,
+      presentedAt: '2026-09-12T10:00:00.000Z',
+    };
+    expect(parseExpenseSaveRetryPayload({ ...legacyPayload, actionBinding })).toMatchObject({
+      actionBinding,
+    });
+    expect(
+      parseExpenseSaveRetryPayload({
+        ...legacyPayload,
+        actionBinding: { ...actionBinding, extra: true },
+      }),
+    ).toBeNull();
   });
 
   it.each([

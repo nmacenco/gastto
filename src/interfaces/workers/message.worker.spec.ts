@@ -145,6 +145,11 @@ function buildMockDeps(): MessageWorkerDeps {
       runWithState: <T>(_state: ConversationState, operation: () => Promise<T>) => operation(),
       runForUser: <T>(_userId: string, operation: () => Promise<T>) => operation(),
       currentState: vi.fn().mockReturnValue({ revision: '0' }),
+      precondition: (state: ConversationState, expiry: 'unexpired' | 'expired' | 'any') => ({
+        revision: state.revision,
+        currentState: state.currentState,
+        expiry,
+      }),
     } as unknown as MessageWorkerDeps['transitionState'],
     recoverCorruptedState: {
       execute: mockRecoverCorruptedStateExecute,
@@ -338,6 +343,7 @@ describe('processMessageJob', () => {
         savedAt: new Date(),
       },
     });
+    mockRetryExpenseSaveExecute.mockResolvedValue({ status: 'handled' });
   });
 
   it('rejects malformed payloads before identity lookup or lock acquisition', async () => {
@@ -360,6 +366,40 @@ describe('processMessageJob', () => {
     expect(mockGetConversationStateExecute).not.toHaveBeenCalled();
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
+
+  it.each(['reintentar', 'reconfigurar', 'cancelar'])(
+    'blocks %s while a financial outcome remains unresolved',
+    async (rawMessage) => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: {
+            executionClaim: {
+              claimId: 'claim-1',
+              kind: 'retry',
+              operationId: 'abcdefghijklmnopqrstuv',
+              sourceMessageId: 'message-1',
+              status: 'outcome_unknown',
+              target: { attemptCount: 2 },
+            },
+          },
+          expiresAt: new Date(Date.now() - 1),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+      expect(mockStartSpreadsheetReconfigurationExecute).not.toHaveBeenCalled();
+      expect(mockCancelExpenseRegistrationExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.financialOutcomeUnknown(),
+      );
+    },
+  );
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
     it.each(['deshacer', 'UNDO', 'borrar el último'])(
@@ -478,8 +518,10 @@ describe('processMessageJob', () => {
         expect.objectContaining({
           userId: 'user-123',
           targetState: 'EXPENSE_UNDO_CONFIRMING',
-          payload: { pendingExpenseId: 'expense-older' },
         }),
+      );
+      expect(JSON.stringify(mockTransitionStateExecute.mock.calls[1]?.[0])).toContain(
+        '"pendingExpenseId":"expense-older"',
       );
       expect(mockSendMessage).toHaveBeenCalledTimes(2);
       expect(mockSendMessage).toHaveBeenNthCalledWith(
@@ -523,8 +565,10 @@ describe('processMessageJob', () => {
         expect.objectContaining({
           userId: 'user-123',
           targetState: 'EXPENSE_UNDO_CONFIRMING',
-          payload: { pendingExpenseId: 'expense-1' },
         }),
+      );
+      expect(JSON.stringify(mockTransitionStateExecute.mock.calls[0]?.[0])).toContain(
+        '"pendingExpenseId":"expense-1"',
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
@@ -878,7 +922,15 @@ describe('processMessageJob', () => {
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_UNDO_CONFIRMING',
-          statePayload: { pendingExpenseId: 'expense-1' },
+          statePayload: {
+            pendingExpenseId: 'expense-1',
+            actionBinding: {
+              operationId: 'abcdefghijklmnopqrstuv',
+              revision: 1,
+              presentedAt: '2026-09-12T10:00:00.000Z',
+            },
+          },
+          expiresAt: new Date(Date.now() + 60_000),
         }),
       );
 
@@ -888,12 +940,55 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         action: 'confirm',
         pendingExpenseId: 'expense-1',
-      });
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'IDLE',
+        authorization: {
+          receivedAt: baseJobData.receivedAt,
+          sourceMessageId: baseJobData.externalMessageId,
+        },
       });
       expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.undoDeleted('Café', 4.5, 'EUR'),
+      );
+    });
+
+    it('re-presents a legacy undo offer and does not consume the triggering confirmation', async () => {
+      const deps = buildMockDeps();
+      const expiresAt = new Date(Date.now() + 60_000);
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_UNDO_CONFIRMING',
+          statePayload: { pendingExpenseId: 'expense-1' },
+          expiresAt,
+        }),
+      );
+      mockUndoLastExpenseExecute.mockResolvedValue({
+        status: 'confirmation_required',
+        expense: {
+          id: 'expense-1',
+          concepto: 'Café',
+          monto: 4.5,
+          moneda: 'EUR',
+          savedAt: new Date('2026-09-12T10:00:00.000Z'),
+        },
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+      expect(mockUndoLastExpenseExecute).toHaveBeenCalledOnce();
+      expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        action: 'request',
+      });
+      expect(mockTransitionStateExecute).toHaveBeenCalledTimes(2);
+      expect(mockTransitionStateExecute).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          userId: 'user-123',
+          targetState: 'EXPENSE_UNDO_CONFIRMING',
+          expiresAt,
+        }),
+      );
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
         '123456789',
         expenseCopies.undoDeleted('Café', 4.5, 'EUR'),
       );
@@ -914,6 +1009,7 @@ describe('processMessageJob', () => {
       expect(mockTransitionStateExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'IDLE',
+        payload: null,
       });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.undoCancelled());
     });
@@ -3797,6 +3893,11 @@ describe('processMessageJob', () => {
       failureCode: 'NETWORK_ERROR',
       firstAttemptAt: '2026-08-05T10:00:00.000Z',
       attemptCount: 1,
+      actionBinding: {
+        operationId: 'abcdefghijklmnopqrstuv',
+        revision: 1,
+        presentedAt: '2026-09-12T10:00:00.000Z',
+      },
     };
 
     it('delegates reintentar without re-running NLP', async () => {
@@ -3812,10 +3913,44 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'reintentar' }), deps);
 
       expect(mockRetryExpenseSaveExecute).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'user-123', chatId: '123456789', statePayload: payload }),
+        expect.objectContaining({
+          userId: 'user-123',
+          chatId: '123456789',
+          authorization: {
+            receivedAt: baseJobData.receivedAt,
+            sourceMessageId: baseJobData.externalMessageId,
+          },
+        }),
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
       expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+    });
+
+    it('re-presents a legacy retry offer without consuming the triggering command', async () => {
+      const deps = buildMockDeps();
+      const expiresAt = new Date(Date.now() + 60_000);
+      const { actionBinding: _actionBinding, ...legacyPayload } = payload;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: legacyPayload,
+          expiresAt,
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'reintentar' }), deps);
+
+      expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).toHaveBeenCalledTimes(2);
+      expect(mockTransitionStateExecute).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          userId: 'user-123',
+          targetState: 'EXPENSE_SAVING_RETRY',
+          expiresAt,
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saveNetworkFailure());
     });
 
     it('delegates reconfigurar to the reconfiguration use case', async () => {
@@ -3837,6 +3972,25 @@ describe('processMessageJob', () => {
       });
     });
 
+    it.each(['reintentar!', 'por favor reintentar', '"reintentar"', 'reintentar ahora'])(
+      'does not authorize a retry from non-exact command %s',
+      async (rawMessage) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'EXPENSE_SAVING_RETRY',
+            statePayload: payload,
+            expiresAt: new Date(Date.now() + 60_000),
+          }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+
+        expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      },
+    );
+
     it('clears expired retry state without invoking a resolution use case', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
@@ -3853,6 +4007,11 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         targetState: 'IDLE',
         payload: null,
+        expected: {
+          revision: '0',
+          currentState: 'EXPENSE_SAVING_RETRY',
+          expiry: 'expired',
+        },
       });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saveRetryExpired());
       expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();

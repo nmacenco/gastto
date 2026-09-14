@@ -29,6 +29,11 @@ const retryPayload = {
   failureCode: 'NETWORK_ERROR' as const,
   firstAttemptAt: '2026-08-05T10:00:00.000Z',
   attemptCount: 1 as const,
+  actionBinding: {
+    operationId: 'abcdefghijklmnopqrstuv',
+    revision: 1,
+    presentedAt: '2026-09-12T10:00:00.000Z',
+  },
 };
 
 const selectedChildRetryPayload = {
@@ -65,18 +70,31 @@ const validNoChildRetryPayload = {
   },
 };
 
-function buildUseCase() {
+function buildUseCase(
+  statePayload: Record<string, unknown> = retryPayload,
+  expiresAt = new Date(Date.now() + 60_000),
+) {
   return new RetryExpenseSaveUseCase({
     registerExpense: { save } as unknown as RegisterExpenseUseCase,
     transitionState: {
       execute: transition,
-      currentState: vi.fn().mockReturnValue({ revision: '0' }),
+      currentState: vi.fn().mockReturnValue({
+        revision: '0',
+        currentState: 'EXPENSE_SAVING_RETRY',
+        statePayload,
+        expiresAt,
+      }),
       finalizeClaim: transition,
     } as unknown as TransitionConversationState,
     messagingPort: { sendMessage },
     operationLogRepo: { create: createLog },
   });
 }
+
+const authorization = {
+  receivedAt: '2026-09-13T10:00:00.000Z',
+  sourceMessageId: 'message-1',
+};
 
 describe('RetryExpenseSaveUseCase', () => {
   beforeEach(() => {
@@ -91,8 +109,7 @@ describe('RetryExpenseSaveUseCase', () => {
     await buildUseCase().execute({
       userId: 'user-123',
       chatId: 'chat-123',
-      statePayload: retryPayload,
-      expiresAt: new Date(Date.now() + 60_000),
+      authorization,
     });
 
     expect(save).toHaveBeenCalledOnce();
@@ -117,11 +134,10 @@ describe('RetryExpenseSaveUseCase', () => {
     ['selected child', selectedChildRetryPayload],
     ['valid no-child selection', validNoChildRetryPayload],
   ])('replays the complete %s review exactly once', async (_name, statePayload) => {
-    await buildUseCase().execute({
+    await buildUseCase(statePayload).execute({
       userId: 'user-123',
       chatId: 'chat-123',
-      statePayload,
-      expiresAt: new Date(Date.now() + 60_000),
+      authorization,
     });
 
     expect(save).toHaveBeenCalledOnce();
@@ -135,8 +151,7 @@ describe('RetryExpenseSaveUseCase', () => {
     await buildUseCase().execute({
       userId: 'user-123',
       chatId: 'chat-123',
-      statePayload: retryPayload,
-      expiresAt: new Date(Date.now() + 60_000),
+      authorization,
     });
 
     expect(createLog).toHaveBeenCalledWith(
@@ -186,11 +201,10 @@ describe('RetryExpenseSaveUseCase', () => {
     );
     const expiresAt = new Date(Date.now() + 60_000);
 
-    await buildUseCase().execute({
+    await buildUseCase(retryPayload, expiresAt).execute({
       userId: 'user-123',
       chatId: 'chat-123',
-      statePayload: retryPayload,
-      expiresAt,
+      authorization,
     });
 
     expect(transition).toHaveBeenCalledTimes(2);
@@ -206,29 +220,60 @@ describe('RetryExpenseSaveUseCase', () => {
     );
   });
 
-  it('does not append malformed or expired retry state', async () => {
-    await buildUseCase().execute({
-      userId: 'user-123',
-      chatId: 'chat-123',
-      statePayload: { attemptCount: 1 },
-      expiresAt: new Date(Date.now() - 1),
-    });
+  it('does not append malformed retry state', async () => {
+    await expect(
+      buildUseCase({ attemptCount: 1 }).execute({
+        userId: 'user-123',
+        chatId: 'chat-123',
+        authorization,
+      }),
+    ).resolves.toEqual({ status: 'invalid' });
 
     expect(save).not.toHaveBeenCalled();
-    expect(transition).toHaveBeenCalledWith({
-      userId: 'user-123',
-      targetState: 'IDLE',
-      payload: null,
-    });
-    expect(sendMessage).toHaveBeenCalledWith('chat-123', expenseCopies.saveRetryExpired());
+    expect(transition).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects retry at expiry without consuming or appending', async () => {
+    await expect(
+      buildUseCase(retryPayload, new Date(Date.now() - 1)).execute({
+        userId: 'user-123',
+        chatId: 'chat-123',
+        authorization,
+      }),
+    ).resolves.toEqual({ status: 'expired' });
+    expect(save).not.toHaveBeenCalled();
+    expect(transition).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unresolved or already-consumed retry claim', async () => {
+    const claimed = {
+      ...retryPayload,
+      executionClaim: {
+        claimId: 'claim-1',
+        kind: 'retry',
+        operationId: retryPayload.actionBinding.operationId,
+        sourceMessageId: 'message-1',
+        status: 'in_flight',
+        target: { expense: retryPayload.expense, attemptCount: 2 },
+      },
+    };
+    await expect(
+      buildUseCase(claimed).execute({
+        userId: 'user-123',
+        chatId: 'chat-123',
+        authorization,
+      }),
+    ).resolves.toEqual({ status: 'operation_in_progress' });
+    expect(save).not.toHaveBeenCalled();
+    expect(transition).not.toHaveBeenCalled();
   });
 
   it('normalizes a valid legacy review before replaying it without NLP', async () => {
     await buildUseCase().execute({
       userId: 'user-123',
       chatId: 'chat-123',
-      statePayload: retryPayload,
-      expiresAt: new Date(Date.now() + 60_000),
+      authorization,
     });
 
     expect(save).toHaveBeenCalledWith('user-123', normalizedRetryExpense(), '', expect.any(String));

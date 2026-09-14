@@ -16,9 +16,20 @@ import {
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { randomUUID } from 'node:crypto';
 import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import { getFinancialExecutionClaim } from '../../../domain/entities/ConversationState';
+import { parseExpenseUndoPayload } from '../../../domain/value-objects/expense-undo-payload';
 
 export interface UndoLastExpenseOutput {
-  status: 'deleted' | 'confirmation_required' | 'not_found' | 'deletion_failed';
+  status:
+    | 'deleted'
+    | 'confirmation_required'
+    | 'not_found'
+    | 'deletion_failed'
+    | 'stale'
+    | 'expired'
+    | 'unbound'
+    | 'invalid'
+    | 'operation_in_progress';
   expense?: { id: string; concepto: string; monto: number; moneda: string; savedAt: Date };
   errorType?: 'NETWORK_ERROR' | 'AUTH_ERROR' | 'STRUCTURE_ERROR';
 }
@@ -28,6 +39,7 @@ export interface UndoLastExpenseInput {
   action: 'request' | 'confirm';
   immediateExpenseId?: string | undefined;
   pendingExpenseId?: string | undefined;
+  authorization?: { receivedAt: string; sourceMessageId: string } | undefined;
 }
 
 export class UndoLastExpenseUseCase {
@@ -41,6 +53,9 @@ export class UndoLastExpenseUseCase {
   ) {}
 
   async execute(input: UndoLastExpenseInput): Promise<UndoLastExpenseOutput> {
+    const authorization = input.action === 'confirm' ? this.authorizeConfirmation(input) : null;
+    if (authorization && authorization.status !== 'authorized') return authorization;
+
     // 1. Retrieves the last non-deleted record
     const last = await this.expenseRepo.findLatestByUserId(input.userId);
     if (!last) return { status: 'not_found' };
@@ -56,7 +71,10 @@ export class UndoLastExpenseUseCase {
     if (input.action === 'request' && input.immediateExpenseId !== last.id) {
       return { status: 'confirmation_required', expense };
     }
-    if (input.action === 'confirm' && input.pendingExpenseId !== last.id) {
+    if (
+      input.action === 'confirm' &&
+      (authorization?.status !== 'authorized' || authorization.pendingExpenseId !== last.id)
+    ) {
       return { status: 'not_found' };
     }
 
@@ -64,8 +82,9 @@ export class UndoLastExpenseUseCase {
     const executionClaim = {
       claimId,
       kind: 'undo' as const,
-      operationId: `${input.userId}:${last.id}:undo`,
-      sourceMessageId: null,
+      operationId:
+        authorization?.status === 'authorized' ? authorization.operationId : randomUUID(),
+      sourceMessageId: input.authorization?.sourceMessageId ?? null,
       status: 'in_flight' as const,
       target: { expenseId: last.id, sheetName: last.sheetName, rowIndex: last.rowIndex },
     };
@@ -75,6 +94,24 @@ export class UndoLastExpenseUseCase {
       payload: { executionClaim },
       claimId,
     });
+
+    // The offer is only valid while this remains the latest active record. Re-read
+    // after atomically consuming authorization and before starting the remote effect.
+    const claimedLatest = await this.expenseRepo.findLatestByUserId(input.userId);
+    if (
+      !claimedLatest ||
+      claimedLatest.id !== last.id ||
+      claimedLatest.sheetName !== last.sheetName ||
+      claimedLatest.rowIndex !== last.rowIndex
+    ) {
+      await this.transitionState.finalizeClaim({
+        userId: input.userId,
+        targetState: 'IDLE',
+        payload: null,
+        claimId,
+      });
+      return { status: 'not_found' };
+    }
 
     const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
     if (!config || last.rowIndex === null || config.provider !== 'google') {
@@ -147,6 +184,35 @@ export class UndoLastExpenseUseCase {
 
       return { status: 'deletion_failed', errorType };
     }
+  }
+
+  private authorizeConfirmation(
+    input: UndoLastExpenseInput,
+  ):
+    | { status: 'authorized'; pendingExpenseId: string; operationId: string }
+    | { status: 'stale' | 'expired' | 'unbound' | 'invalid' | 'operation_in_progress' } {
+    const state = this.transitionState.currentState(input.userId);
+    if (!state || state.currentState !== 'EXPENSE_UNDO_CONFIRMING') return { status: 'stale' };
+    if (getFinancialExecutionClaim(state.statePayload) !== null) {
+      return { status: 'operation_in_progress' };
+    }
+    if (state.expiresAt === null) return { status: 'invalid' };
+    if (state.expiresAt.getTime() <= Date.now()) return { status: 'expired' };
+    const payload = parseExpenseUndoPayload(state.statePayload);
+    if (!payload) return { status: 'invalid' };
+    if (!payload.actionBinding || payload.actionBinding.presentedAt === null) {
+      return { status: 'unbound' };
+    }
+    if (!input.authorization) return { status: 'invalid' };
+    const receivedAt = Date.parse(input.authorization.receivedAt);
+    if (!Number.isFinite(receivedAt)) return { status: 'invalid' };
+    if (receivedAt <= Date.parse(payload.actionBinding.presentedAt)) return { status: 'unbound' };
+    if (input.pendingExpenseId !== payload.pendingExpenseId) return { status: 'stale' };
+    return {
+      status: 'authorized',
+      pendingExpenseId: payload.pendingExpenseId,
+      operationId: payload.actionBinding.operationId,
+    };
   }
 
   private classifyError(error: unknown): 'NETWORK_ERROR' | 'AUTH_ERROR' | 'STRUCTURE_ERROR' {

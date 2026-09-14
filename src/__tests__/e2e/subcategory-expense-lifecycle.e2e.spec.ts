@@ -146,14 +146,18 @@ type HarnessOptions = {
   appendFailures?: number;
 };
 
-function buildJob(input: { rawMessage: string; callbackData?: { action: 'confirm' } }) {
+function buildJob(input: {
+  rawMessage: string;
+  callbackData?: { action: 'confirm' };
+  receivedAt?: string;
+}) {
   const data: ProcessMessageJobData = {
     userId,
     rawMessage: input.rawMessage,
     channel: 'telegram',
     externalId,
     externalMessageId: `message-${Math.random()}`,
-    receivedAt: new Date().toISOString(),
+    receivedAt: input.receivedAt ?? new Date().toISOString(),
     ...(input.callbackData === undefined
       ? {}
       : {
@@ -474,7 +478,16 @@ describe('linked-subcategory expense lifecycle through the message worker', () =
     });
     expect(successMessages(harness.messages)).toHaveLength(0);
 
-    await processMessageJob(buildJob({ rawMessage: 'reintentar' }), harness.deps);
+    const retryPresentedAt = (
+      harness.conversationRepo.state.statePayload?.actionBinding as { presentedAt: string }
+    ).presentedAt;
+    await processMessageJob(
+      buildJob({
+        rawMessage: 'reintentar',
+        receivedAt: new Date(Date.parse(retryPresentedAt) + 1).toISOString(),
+      }),
+      harness.deps,
+    );
 
     expect(harness.appendedRows).toEqual([
       [24.5, 'Food', 'Restaurant'],
@@ -507,7 +520,16 @@ describe('linked-subcategory expense lifecycle through the message worker', () =
     );
     expect(successMessages(harness.messages)).toHaveLength(0);
 
-    await processMessageJob(buildJob({ rawMessage: 'reintentar' }), harness.deps);
+    const retryPresentedAt = (
+      harness.conversationRepo.state.statePayload?.actionBinding as { presentedAt: string }
+    ).presentedAt;
+    await processMessageJob(
+      buildJob({
+        rawMessage: 'reintentar',
+        receivedAt: new Date(Date.parse(retryPresentedAt) + 1).toISOString(),
+      }),
+      harness.deps,
+    );
 
     expect(harness.appendedRows).toHaveLength(2);
     expect(harness.expenseRepo.records).toHaveLength(0);

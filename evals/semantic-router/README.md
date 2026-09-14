@@ -8,10 +8,10 @@ required. This smoke set and its separate `offline-responses.json` stay intact.
 
 `corpus.json` contains 200 cases under `semantic-corpus-v2`:
 
-| Split | Language | Protocol | Deterministic only | Total |
-| --- | ---: | ---: | ---: | ---: |
-| development | 60 | 111 | 4 | 175 |
-| held_out | 25 | 0 | 0 | 25 |
+| Split       | Language | Protocol | Deterministic only | Total |
+| ----------- | -------: | -------: | -----------------: | ----: |
+| development |       60 |      111 |                  4 |   175 |
+| held_out    |       25 |        0 |                  0 |    25 |
 
 Every eligible scope has language examples in each split. The ten scopes are
 IDLE, EXPENSE_RECEIVING, EXPENSE_CLARIFYING, EXPENSE_REVIEW,
@@ -92,11 +92,14 @@ With restricted local socket access, `node --import tsx
 src/interfaces/cli/evaluateSemanticRouter.ts` runs the same CLI without the tsx
 launcher's IPC socket. Add the same arguments on that command line.
 
-The 2026-09-12 offline reproduction completed 175/175 and 25/25 checks, with
-zero fixture mismatches. Actual lexical ingress agreement on the comparable
+The Phase 3 rerun on 2026-09-14 completed 175/175 and 25/25 checks, with
+zero fixture mismatches and zero critical-case failures. Actual lexical ingress agreement on the comparable
 language subset was 14/19 development and 5/8 held-out. Corresponding fixture
 projection agreement was 19/19 and 8/8. **This is not evidence of model accuracy or
 improvement.** The exact Mercadona input already produces lexical `enqueued`.
+The current deterministic-source digest is
+`418018387cebf748b8a33c88da94142133535c4451ba3895c76e4b827acf7d95`;
+the corpus, frozen labels, contract, policy version, and comparison counts did not change.
 See the [feature document](../../docs/features/semantic-router-evaluation.md)
 for source digest, baseline scope omissions and metric definitions.
 

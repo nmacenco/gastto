@@ -30,6 +30,8 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 
 No real-provider evidence has been collected. Offline model accuracy, latency, usage and cost remain null. Live runs can measure decision agreement, router-call latency and usage, while acknowledgment latency, actual false authorization and task completion remain unmeasured. Fixture timings and expected-output replay are not production evidence. Per-scope agreement includes declared protocol checks; language and protocol totals are reported separately.
 
+The Phase 3 prerequisite rerun on 2026-09-14 preserved frozen labels and comparison metrics: development completed 175/175 checks and held-out completed 25/25, both with zero fixture mismatches and zero critical-case failures. The source digest changed because the deterministic financial-action paths changed; the report records the new digest while the corpus, labels, contract, policy version, and measured lexical projections remain unchanged. These safety changes are covered by application/integration tests and are not presented as an improvement in model accuracy.
+
 The input ceiling is 8,000 message characters, 20,000 serialized input characters, 20 options and 200 characters per option label. Dataset/response files are bounded at 2 MB and datasets at 1,000 cases. These limits reject input rather than silently rewriting it.
 
 ## Tests
@@ -109,7 +111,6 @@ This budget permits at most one call and 256 generated tokens; input and prompt
 also incur usage. The output path must be new. Automated adapter and CLI tests use
 fake SDK/HTTP boundaries, including deadline, refusal, truncation and retry checks.
 
-
 ## Versioned corpus and comparative reporting
 
 The default remains the original 12-case smoke regression. `corpus.json` adds a
@@ -156,23 +157,23 @@ baseline scopes remain `not_evaluated`, with `model_dependent` or
 observations; current observations are executed from local code and identified by
 the source digest. Do not substitute an imported/mock result under that provenance.
 
-### Reproduced offline observations (2026-09-12)
+### Reproduced offline observations (Phase 3 rerun, 2026-09-14)
 
-| Evidence | Development | Held-out |
-| --- | ---: | ---: |
-| Completed offline case checks | 175/175 | 25/25 |
-| Language fixture agreement (not model accuracy) | 60/60 | 25/25 |
-| Protocol checks | 111/111 | 0/0 (unmeasured) |
-| Current lexical observations, all case kinds | 58 | 10 |
-| Baseline not evaluated, all case kinds | 117 | 15 |
-| Lexical ingress agreement on comparable language cases | 14/19 | 5/8 |
-| Fixture ingress projection agreement on that cohort | 19/19 | 8/8 |
+| Evidence                                               | Development |         Held-out |
+| ------------------------------------------------------ | ----------: | ---------------: |
+| Completed offline case checks                          |     175/175 |            25/25 |
+| Language fixture agreement (not model accuracy)        |       60/60 |            25/25 |
+| Protocol checks                                        |     111/111 | 0/0 (unmeasured) |
+| Current lexical observations, all case kinds           |          58 |               10 |
+| Baseline not evaluated, all case kinds                 |         117 |               15 |
+| Lexical ingress agreement on comparable language cases |       14/19 |              5/8 |
+| Fixture ingress projection agreement on that cohort    |       19/19 |              8/8 |
 
 These paired counts compare fixture projections with actual lexical execution.
 They do not demonstrate model improvement. The exact bank notification already
 produces lexical `enqueued`; no claim of fixing its existing admission is made.
 Baseline source digest:
-`7caa47009451724d5a1f22aa7e24f1dd533aa0e1481747a3feca42b040fc3d35`.
+`418018387cebf748b8a33c88da94142133535c4451ba3895c76e4b827acf7d95`.
 Reproduce the observations with the commands in the
 [dataset instructions](../../evals/semantic-router/README.md). Runtime reports are
 written only to an explicitly selected new path, never automatically committed.

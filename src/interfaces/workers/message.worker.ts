@@ -27,7 +27,10 @@ import type { IUserProfilePort } from '../../domain/ports/IUserProfilePort';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
 import type { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
 import type { IUserProcessingLock } from '../../application/ports/UserProcessingLock';
-import type { ConversationState } from '../../domain/entities/ConversationState';
+import {
+  getFinancialExecutionClaim,
+  type ConversationState,
+} from '../../domain/entities/ConversationState';
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ExpenseSummaryPresenter } from '../../application/ports/output/expense-summary.presenter';
 import {
@@ -80,8 +83,12 @@ import {
 import { ExpenseClarificationState } from '../../domain/value-objects/expense-clarification-state';
 import { ExpenseCorrectionState } from '../../domain/value-objects/expense-correction-state';
 import { parseExpenseSaveRetryPayload } from '../../domain/value-objects/expense-save-retry-payload';
+import { parseExpenseUndoPayload } from '../../domain/value-objects/expense-undo-payload';
 import { isExpenseLikeIntent } from '../../domain/value-objects/FreeTextIntent';
-import { advanceExpenseReviewBinding } from '../../domain/value-objects/expense-review-binding';
+import {
+  advanceExpenseReviewBinding,
+  createExpenseReviewBinding,
+} from '../../domain/value-objects/expense-review-binding';
 
 // Lock TTL must exceed the longest possible job duration (LLM + side effects).
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
@@ -255,6 +262,14 @@ async function routeByState(
 ): Promise<void> {
   const { userId, rawMessage, channel, externalId } = jobData;
 
+  // A persisted financial claim is the durable authority after an append/delete
+  // starts. No later message, callback, timeout-like command, or reconfiguration
+  // may replace it while its outcome is unresolved.
+  if (getFinancialExecutionClaim(conversationState?.statePayload ?? null) !== null) {
+    await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+    return;
+  }
+
   // Typed review callbacks are never global commands. Outside the exact
   // review state they must not cancel, reset, or otherwise mutate a flow.
   if (jobData.callbackData !== undefined && currentState !== 'EXPENSE_REVIEW') {
@@ -360,13 +375,16 @@ async function routeByState(
             : {}),
         });
         if (result.status === 'confirmation_required' && result.expense) {
+          const actionBinding = createExpenseReviewBinding();
+          const expiresAt = new Date(Date.now() + UNDO_CONFIRMATION_TIMEOUT_MS);
+          const payload = { pendingExpenseId: result.expense.id, actionBinding };
           await opts.transitionState.execute({
             userId,
             targetState: 'EXPENSE_UNDO_CONFIRMING',
-            payload: { pendingExpenseId: result.expense.id },
-            expiresAt: new Date(Date.now() + UNDO_CONFIRMATION_TIMEOUT_MS),
+            payload,
+            expiresAt,
           });
-          await messaging.sendMessage(
+          const delivery = await messaging.sendMessage(
             externalId,
             expenseCopies.undoConfirmationRequired(
               result.expense.concepto,
@@ -375,6 +393,17 @@ async function routeByState(
               result.expense.savedAt,
             ),
           );
+          if (delivery.status === 'success') {
+            await opts.transitionState.execute({
+              userId,
+              targetState: 'EXPENSE_UNDO_CONFIRMING',
+              payload: {
+                ...payload,
+                actionBinding: { ...actionBinding, presentedAt: new Date().toISOString() },
+              },
+              expiresAt,
+            });
+          }
         } else {
           await sendUndoOutcome(result, messaging, externalId);
         }
@@ -415,13 +444,7 @@ async function routeByState(
     }
 
     case 'EXPENSE_SAVING_RETRY': {
-      await handleExpenseSavingRetry(
-        jobData,
-        conversationState?.statePayload ?? null,
-        conversationState?.expiresAt ?? null,
-        opts,
-        messaging,
-      );
+      await handleExpenseSavingRetry(jobData, conversationState, opts, messaging);
       break;
     }
 
@@ -442,16 +465,37 @@ async function routeByState(
     }
 
     case 'EXPENSE_UNDO_CONFIRMING': {
-      const pendingExpenseId = conversationState?.statePayload?.pendingExpenseId;
-      if (typeof pendingExpenseId !== 'string' || !opts.undoLastExpense) {
+      const undoPayload = parseExpenseUndoPayload(conversationState?.statePayload);
+      if (!undoPayload || !opts.undoLastExpense || conversationState === null) {
         await opts.transitionState.execute({ userId, targetState: 'IDLE' });
         await messaging.sendMessage(externalId, expenseCopies.undoNotFound());
         break;
       }
 
       if (isCancelIntent(rawMessage)) {
-        await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+        await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
         await messaging.sendMessage(externalId, expenseCopies.undoCancelled());
+        break;
+      }
+
+      if (conversationState.expiresAt === null) {
+        await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+        await messaging.sendMessage(externalId, expenseCopies.undoNotFound());
+        break;
+      }
+      if (conversationState.expiresAt.getTime() <= Date.now()) {
+        await opts.transitionState.execute({
+          userId,
+          targetState: 'IDLE',
+          payload: null,
+          expected: opts.transitionState.precondition(conversationState, 'expired'),
+        });
+        await messaging.sendMessage(externalId, expenseCopies.undoExpired());
+        break;
+      }
+
+      if (!undoPayload.actionBinding || undoPayload.actionBinding.presentedAt === null) {
+        await representUndoConfirmation(userId, externalId, conversationState, opts, messaging);
         break;
       }
 
@@ -463,9 +507,12 @@ async function routeByState(
       const result = await opts.undoLastExpense.execute({
         userId,
         action: 'confirm',
-        pendingExpenseId,
+        pendingExpenseId: undoPayload.pendingExpenseId,
+        authorization: {
+          receivedAt: jobData.receivedAt,
+          sourceMessageId: jobData.externalMessageId,
+        },
       });
-      await opts.transitionState.execute({ userId, targetState: 'IDLE' });
       await sendUndoOutcome(result, messaging, externalId);
       break;
     }
@@ -660,18 +707,24 @@ function shouldQueueAdditionalExpense(
 
 async function handleExpenseSavingRetry(
   jobData: ProcessMessageJobData,
-  statePayload: Record<string, unknown> | null,
-  expiresAt: Date | null,
+  conversationState: ConversationState | null,
   opts: MessageWorkerDeps,
   messaging: MessagingOutputPort,
 ): Promise<void> {
   const { userId, rawMessage, externalId, channel } = jobData;
-  if (
-    parseExpenseSaveRetryPayload(statePayload) === null ||
-    expiresAt === null ||
-    expiresAt.getTime() <= Date.now()
-  ) {
+  const retryPayload = parseExpenseSaveRetryPayload(conversationState?.statePayload);
+  if (retryPayload === null || conversationState === null || conversationState.expiresAt === null) {
     await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+    await messaging.sendMessage(externalId, expenseCopies.saveRetryExpired());
+    return;
+  }
+  if (conversationState.expiresAt.getTime() <= Date.now()) {
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'IDLE',
+      payload: null,
+      expected: opts.transitionState.precondition(conversationState, 'expired'),
+    });
     await messaging.sendMessage(externalId, expenseCopies.saveRetryExpired());
     return;
   }
@@ -682,12 +735,30 @@ async function handleExpenseSavingRetry(
       await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
       return;
     }
-    await opts.retryExpenseSave.execute({
+    if (!retryPayload.actionBinding || retryPayload.actionBinding.presentedAt === null) {
+      await representRetryAuthorization(
+        userId,
+        externalId,
+        conversationState,
+        retryPayload,
+        opts,
+        messaging,
+      );
+      return;
+    }
+    const outcome = await opts.retryExpenseSave.execute({
       userId,
       chatId: externalId,
-      statePayload,
-      expiresAt,
+      authorization: {
+        receivedAt: jobData.receivedAt,
+        sourceMessageId: jobData.externalMessageId,
+      },
     });
+    if (outcome.status === 'operation_in_progress') {
+      await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+    } else if (outcome.status !== 'handled') {
+      await messaging.sendMessage(externalId, expenseCopies.staleFinancialAction());
+    }
     return;
   }
 
@@ -701,6 +772,80 @@ async function handleExpenseSavingRetry(
   }
 
   await messaging.sendMessage(externalId, expenseCopies.saveNetworkFailure());
+}
+
+async function representRetryAuthorization(
+  userId: string,
+  chatId: string,
+  state: ConversationState,
+  retryPayload: NonNullable<ReturnType<typeof parseExpenseSaveRetryPayload>>,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  const actionBinding = advanceExpenseReviewBinding(retryPayload.actionBinding);
+  const payload = { ...retryPayload, actionBinding };
+  await opts.transitionState.execute({
+    userId,
+    targetState: 'EXPENSE_SAVING_RETRY',
+    payload,
+    expiresAt: state.expiresAt,
+  });
+  const delivery = await messaging.sendMessage(chatId, expenseCopies.saveNetworkFailure());
+  if (delivery.status === 'success') {
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'EXPENSE_SAVING_RETRY',
+      payload: {
+        ...payload,
+        actionBinding: { ...actionBinding, presentedAt: new Date().toISOString() },
+      },
+      expiresAt: state.expiresAt,
+    });
+  }
+}
+
+async function representUndoConfirmation(
+  userId: string,
+  chatId: string,
+  state: ConversationState,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  const result = await opts.undoLastExpense!.execute({ userId, action: 'request' });
+  if (result.status !== 'confirmation_required' || !result.expense) {
+    await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+    await sendUndoOutcome(result, messaging, chatId);
+    return;
+  }
+  const previous = parseExpenseUndoPayload(state.statePayload)?.actionBinding;
+  const actionBinding = advanceExpenseReviewBinding(previous);
+  const payload = { pendingExpenseId: result.expense.id, actionBinding };
+  await opts.transitionState.execute({
+    userId,
+    targetState: 'EXPENSE_UNDO_CONFIRMING',
+    payload,
+    expiresAt: state.expiresAt,
+  });
+  const delivery = await messaging.sendMessage(
+    chatId,
+    expenseCopies.undoConfirmationRequired(
+      result.expense.concepto,
+      result.expense.monto,
+      result.expense.moneda,
+      result.expense.savedAt,
+    ),
+  );
+  if (delivery.status === 'success') {
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'EXPENSE_UNDO_CONFIRMING',
+      payload: {
+        ...payload,
+        actionBinding: { ...actionBinding, presentedAt: new Date().toISOString() },
+      },
+      expiresAt: state.expiresAt,
+    });
+  }
 }
 
 async function sendUndoOutcome(
@@ -726,6 +871,17 @@ async function sendUndoOutcome(
       return;
     case 'deletion_failed':
       await messaging.sendMessage(chatId, expenseCopies.undoDeletionFailed());
+      return;
+    case 'operation_in_progress':
+      await messaging.sendMessage(chatId, expenseCopies.financialOutcomeUnknown());
+      return;
+    case 'expired':
+      await messaging.sendMessage(chatId, expenseCopies.undoExpired());
+      return;
+    case 'stale':
+    case 'unbound':
+    case 'invalid':
+      await messaging.sendMessage(chatId, expenseCopies.staleFinancialAction());
       return;
     case 'confirmation_required':
       await messaging.sendMessage(chatId, expenseCopies.undoNotFound());

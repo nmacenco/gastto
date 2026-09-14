@@ -13,13 +13,17 @@ import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { expenseCopies } from '../../copies/expense.copies';
 import { randomUUID } from 'node:crypto';
 import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import { getFinancialExecutionClaim } from '../../../domain/entities/ConversationState';
 
 export interface RetryExpenseSaveInput {
   userId: string;
   chatId: string;
-  statePayload: Record<string, unknown> | null;
-  expiresAt: Date | null;
+  authorization: { receivedAt: string; sourceMessageId: string };
 }
+
+export type RetryExpenseSaveOutcome =
+  | { status: 'handled' }
+  | { status: 'stale' | 'expired' | 'unbound' | 'invalid' | 'operation_in_progress' };
 
 export interface RetryExpenseSaveDeps {
   registerExpense: RegisterExpenseUseCase;
@@ -31,30 +35,25 @@ export interface RetryExpenseSaveDeps {
 export class RetryExpenseSaveUseCase {
   constructor(private readonly deps: RetryExpenseSaveDeps) {}
 
-  async execute(input: RetryExpenseSaveInput): Promise<void> {
-    const retryPayload = this.validateRetryPayload(input);
-    if (!retryPayload) {
-      await this.clearExpiredState(input.userId, input.chatId);
-      return;
-    }
+  async execute(input: RetryExpenseSaveInput): Promise<RetryExpenseSaveOutcome> {
+    const authorization = this.authorize(input);
+    if (authorization.status !== 'authorized') return authorization;
+    const { retryPayload, expiresAt } = authorization;
 
     const claimId = randomUUID();
     const executionClaim = {
       claimId,
       kind: 'retry' as const,
-      operationId: `${input.userId}:${this.deps.transitionState.currentState(input.userId)?.revision ?? 'unknown'}:retry`,
-      sourceMessageId: null,
+      operationId: retryPayload.actionBinding!.operationId,
+      sourceMessageId: input.authorization.sourceMessageId,
       status: 'in_flight' as const,
       target: { expense: retryPayload.expense, attemptCount: 2 },
     };
     await this.deps.transitionState.execute({
       userId: input.userId,
       targetState: 'EXPENSE_SAVING_RETRY',
-      payload: {
-        ...retryPayload,
-        executionClaim,
-      },
-      expiresAt: input.expiresAt,
+      payload: { ...retryPayload, executionClaim },
+      expiresAt,
       claimId,
     });
     await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.saving());
@@ -75,6 +74,7 @@ export class RetryExpenseSaveUseCase {
           ...(saveResult.rowIndex === undefined ? {} : { rowIndex: saveResult.rowIndex }),
         }),
       );
+      return { status: 'handled' };
     } catch (error) {
       if (error instanceof StaleConversationStateError) throw error;
       const spreadsheetError =
@@ -95,14 +95,14 @@ export class RetryExpenseSaveUseCase {
             ...retryPayload,
             executionClaim: { ...executionClaim, status: 'outcome_unknown' },
           },
-          expiresAt: input.expiresAt,
+          expiresAt,
           claimId,
         });
         await this.deps.messagingPort.sendMessage(
           input.chatId,
           expenseCopies.financialOutcomeUnknown(),
         );
-        return;
+        return { status: 'handled' };
       }
       await this.deps.transitionState.finalizeClaim({
         userId: input.userId,
@@ -117,24 +117,32 @@ export class RetryExpenseSaveUseCase {
           currency: retryPayload.expense.extracted.moneda!,
         }),
       );
+      return { status: 'handled' };
     }
   }
 
-  private validateRetryPayload(input: RetryExpenseSaveInput): ExpenseSaveRetryPayload | null {
-    const retryPayload = parseExpenseSaveRetryPayload(input.statePayload);
-    if (retryPayload === null || input.expiresAt === null) {
-      return null;
+  private authorize(
+    input: RetryExpenseSaveInput,
+  ):
+    | { status: 'authorized'; retryPayload: ExpenseSaveRetryPayload; expiresAt: Date }
+    | Exclude<RetryExpenseSaveOutcome, { status: 'handled' }> {
+    const state = this.deps.transitionState.currentState(input.userId);
+    if (!state || state.currentState !== 'EXPENSE_SAVING_RETRY') return { status: 'stale' };
+    if (getFinancialExecutionClaim(state.statePayload) !== null) {
+      return { status: 'operation_in_progress' };
     }
-
-    if (input.expiresAt.getTime() <= Date.now()) {
-      return null;
+    if (state.expiresAt === null) return { status: 'invalid' };
+    if (state.expiresAt.getTime() <= Date.now()) return { status: 'expired' };
+    const retryPayload = parseExpenseSaveRetryPayload(state.statePayload);
+    if (!retryPayload) return { status: 'invalid' };
+    if (!retryPayload.actionBinding || retryPayload.actionBinding.presentedAt === null) {
+      return { status: 'unbound' };
     }
-
-    return retryPayload;
-  }
-
-  private async clearExpiredState(userId: string, chatId: string): Promise<void> {
-    await this.deps.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
-    await this.deps.messagingPort.sendMessage(chatId, expenseCopies.saveRetryExpired());
+    const receivedAt = Date.parse(input.authorization.receivedAt);
+    if (!Number.isFinite(receivedAt)) return { status: 'invalid' };
+    if (receivedAt <= Date.parse(retryPayload.actionBinding.presentedAt)) {
+      return { status: 'unbound' };
+    }
+    return { status: 'authorized', retryPayload, expiresAt: state.expiresAt };
   }
 }

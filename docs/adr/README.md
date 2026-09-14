@@ -29,7 +29,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-021](./ADR-021-use-aiven-valkey-for-development-bullmq.md)         | Use Aiven Valkey for Development BullMQ                                  | Accepted |
 | [ADR-022](./ADR-022-linked-subcategory-hierarchy.md)                    | Store Linked Subcategories with Stable References and Snapshots          | Accepted |
 | [ADR-023](./ADR-023-constrained-llm-semantic-router.md)                 | Introduce a Constrained LLM Semantic Router for Conversational Decisions | Accepted |
-| [ADR-024](./ADR-024-guard-conversation-writes-and-financial-effects.md) | Guard Conversation Writes and Financial Effects                          | Accepted |
+| [ADR-024](./ADR-024-guard-conversation-writes-and-financial-effects.md) | Guard Conversation Writes, Presented Actions, and Financial Effects      | Accepted |
 
 ## Template
 

@@ -21,9 +21,9 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with persisted presentation identity and version-bound confirm / correct / cancel actions.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Text cancellation plus review-bound callbacks that cannot cancel a replacement draft.
 - [`expense-correction.md`](./expense-correction.md) — Contextual correction with atomic hierarchy validation and review-revision invalidation of old buttons.
-- [`expense-confirmation.md`](./expense-confirmation.md) — Exact whole-message and version-bound confirmation with guarded persistent save claims and stale/expired rejection.
-- [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo with exact-target execution claims, immediate eligibility, and delayed explicit confirmation.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Exact whole-message, successfully presented save/retry authorization with guarded persistent claims and stale/expired rejection.
+- [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo with exact-target claims, one-message immediate eligibility, and version-bound delayed confirmation.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
-- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with renewable ownership, review presentation bindings, guarded timeout/queue effects, and financial claims.
+- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with renewable ownership, review/undo/retry presentation bindings, guarded timeout/queue effects, and financial claims.
 - [`deployment.md`](./deployment.md) — Merge-protected multi-environment Fly.io deployment with provider-independent Redis-compatible brokers, persistent BullMQ worker Machines, secure cutover and rollback, graceful shutdown, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).

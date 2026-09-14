@@ -17,6 +17,7 @@ const deleteRow = vi.fn();
 const createPort = vi.fn();
 const transition = vi.fn();
 const finalizeClaim = vi.fn();
+const currentState = vi.fn();
 
 function buildUseCase() {
   return new UndoLastExpenseUseCase(
@@ -27,6 +28,7 @@ function buildUseCase() {
     { getValidAccessToken, forceRefreshAccessToken },
     {
       execute: transition,
+      currentState,
       assertCanStartFinancialEffect: vi.fn(),
       finalizeClaim,
     } as unknown as TransitionConversationState,
@@ -64,9 +66,88 @@ beforeEach(() => {
   softDeleteWithAudit.mockResolvedValue(undefined);
   transition.mockResolvedValue({ status: 'updated' });
   finalizeClaim.mockResolvedValue({ status: 'updated' });
+  currentState.mockReturnValue({ currentState: 'IDLE', statePayload: null, expiresAt: null });
 });
 
 describe('UndoLastExpenseUseCase', () => {
+  it('rejects an expired delayed confirmation before claiming or deleting', async () => {
+    currentState.mockReturnValue({
+      currentState: 'EXPENSE_UNDO_CONFIRMING',
+      statePayload: {
+        pendingExpenseId: 'expense-1',
+        actionBinding: {
+          operationId: 'abcdefghijklmnopqrstuv',
+          revision: 1,
+          presentedAt: '2026-09-12T10:00:00.000Z',
+        },
+      },
+      expiresAt: new Date(Date.now() - 1),
+    });
+
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'confirm',
+        pendingExpenseId: 'expense-1',
+        authorization: {
+          receivedAt: '2026-09-13T10:00:00.000Z',
+          sourceMessageId: 'message-1',
+        },
+      }),
+    ).resolves.toEqual({ status: 'expired' });
+    expect(transition).not.toHaveBeenCalled();
+    expect(deleteRow).not.toHaveBeenCalled();
+  });
+
+  it('rejects a replaced latest record after consuming delayed authorization', async () => {
+    currentState.mockReturnValue({
+      currentState: 'EXPENSE_UNDO_CONFIRMING',
+      statePayload: {
+        pendingExpenseId: 'expense-1',
+        actionBinding: {
+          operationId: 'abcdefghijklmnopqrstuv',
+          revision: 1,
+          presentedAt: '2026-09-12T10:00:00.000Z',
+        },
+      },
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    findLatest
+      .mockResolvedValueOnce({
+        id: 'expense-1',
+        concepto: 'Café',
+        monto: 4.5,
+        moneda: 'EUR',
+        sheetName: 'Gastos',
+        rowIndex: 8,
+        savedAt: new Date('2026-08-02T10:00:00Z'),
+      })
+      .mockResolvedValueOnce({
+        id: 'expense-2',
+        concepto: 'Taxi',
+        monto: 12,
+        moneda: 'EUR',
+        sheetName: 'Gastos',
+        rowIndex: 9,
+        savedAt: new Date('2026-09-13T10:00:00Z'),
+      });
+
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'confirm',
+        pendingExpenseId: 'expense-1',
+        authorization: {
+          receivedAt: '2026-09-13T10:00:00.000Z',
+          sourceMessageId: 'message-1',
+        },
+      }),
+    ).resolves.toEqual({ status: 'not_found' });
+    expect(deleteRow).not.toHaveBeenCalled();
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
+    expect(finalizeClaim).toHaveBeenCalledWith(expect.objectContaining({ payload: null }));
+  });
+
   it.each([
     ['renamed vocabulary', 'category-food', 'subcategory-cafe'],
     ['moved subcategory', 'category-food', 'subcategory-cafe'],

@@ -43,15 +43,15 @@ Prefer just-in-time planning after predecessors are implemented and verified. A 
 
 Master checkboxes track planning requirements: checking one means the child plan contains that requirement, not that application behavior exists. Track implementation separately below, with links to validation evidence. Never mark the overall feature delivered merely because all child plans exist.
 
-| Phase | Stable child-plan slug | Implementation prerequisites | Plan created | Implementation verified |
-| --- | --- | --- | --- | --- |
-| 1 | `semantic_router_evaluation` | None | [Created](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md) | [Deliveries 1–3 verified](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md); live evidence and activation pending |
-| 2 | `semantic_router_confirmation_safety` | Phase 1 contracts | [Created](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md) | [Delivery 1 verified](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md); Deliveries 2–3 pending |
-| 3 | `semantic_router_shadow_pipeline` | Phases 1 and 2 | Pending | Pending |
-| 4 | `semantic_router_expense_flows` | Phases 1 through 3 | Pending | Pending |
-| 5 | `semantic_router_option_selection` | Phases 1 through 4 | Pending | Pending |
-| 6 | `semantic_router_control_flows` | Phases 1 through 5 | Pending | Pending |
-| 7 | `semantic_router_rollout` | Phases 1 through 6 | Pending | Pending |
+| Phase | Stable child-plan slug                | Implementation prerequisites | Plan created                                                                                                        | Implementation verified                                                                                                                                 |
+| ----- | ------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | `semantic_router_evaluation`          | None                         | [Created](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md)                   | [Deliveries 1–3 verified](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md); live evidence and activation pending |
+| 2     | `semantic_router_confirmation_safety` | Phase 1 contracts            | [Created](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md) | [Deliveries 1–3 verified](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md)                     |
+| 3     | `semantic_router_shadow_pipeline`     | Phases 1 and 2               | Pending                                                                                                             | Pending                                                                                                                                                 |
+| 4     | `semantic_router_expense_flows`       | Phases 1 through 3           | Pending                                                                                                             | Pending                                                                                                                                                 |
+| 5     | `semantic_router_option_selection`    | Phases 1 through 4           | Pending                                                                                                             | Pending                                                                                                                                                 |
+| 6     | `semantic_router_control_flows`       | Phases 1 through 5           | Pending                                                                                                             | Pending                                                                                                                                                 |
+| 7     | `semantic_router_rollout`             | Phases 1 through 6           | Pending                                                                                                             | Pending                                                                                                                                                 |
 
 ### Shared implementation gates
 
@@ -105,7 +105,7 @@ Plan an independently testable improvement to deterministic confirmations and st
 
 **Closure evidence:** Old buttons cannot confirm a corrected or replacement expense, expiry invalidates pending actions, and overlapping state writers cannot commit a decision against superseded context.
 
-Child plan: [Confirmation safety](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md). Created on 2026-09-12. Delivery 1 was implemented and verified on 2026-09-13 with 8 real PostgreSQL/Redis concurrency tests, 1,867 passing tests in the complete suite, and passing lint/typecheck; Deliveries 2 and 3 remain pending. These checkboxes track plan contents only, while the implementation table above tracks delivery evidence.
+Child plan: [Confirmation safety](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md). Created on 2026-09-12. All three deliveries were implemented and verified by 2026-09-14. The final run included 6 financial-context and 8 conversation-concurrency PostgreSQL/Redis scenarios, 1,924 passing tests in 144 files, passing lint/typecheck, and offline evaluator checks of 175/175 development plus 25/25 held-out cases with zero critical failures. No live semantic routing, production migration, or deployment was performed. These checkboxes track plan contents only, while the implementation table above tracks delivery evidence.
 
 #### To-do actions
 
@@ -256,4 +256,4 @@ Plan integrated acceptance evidence and staged activation across delivered capab
 
 ## Next step
 
-Review the Phase 2 confirmation-safety child plan and implement it when explicitly requested before creating the Phase 3 shadow-pipeline subplan; retain pending live evaluation evidence and activation gates.
+Create the Phase 3 semantic-router shadow-pipeline subplan when explicitly requested; retain pending live evaluation evidence and activation gates.

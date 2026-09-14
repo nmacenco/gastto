@@ -23,7 +23,10 @@ import type {
   ExpenseReviewAction,
   ExpenseReviewCallbackData,
 } from '../../../domain/value-objects/expense-review-callback';
-import { advanceExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
+import {
+  advanceExpenseReviewBinding,
+  createExpenseReviewBinding,
+} from '../../../domain/value-objects/expense-review-binding';
 import { getFinancialExecutionClaim } from '../../../domain/entities/ConversationState';
 
 export type ExpenseReviewAuthorizationEvidence =
@@ -269,15 +272,34 @@ export class ResolveExpenseSummaryActionUseCase {
         failureCode: spreadsheetError.code,
         firstAttemptAt: new Date().toISOString(),
         attemptCount: 1,
+        actionBinding: createExpenseReviewBinding(),
       };
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
       await this.deps.transitionState.finalizeClaim({
         userId: input.userId,
         targetState: 'EXPENSE_SAVING_RETRY',
         payload: { ...retryPayload },
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        expiresAt,
         claimId,
       });
-      await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.saveNetworkFailure());
+      const delivery = await this.deps.messagingPort.sendMessage(
+        input.chatId,
+        expenseCopies.saveNetworkFailure(),
+      );
+      if (delivery.status === 'success') {
+        await this.deps.transitionState.execute({
+          userId: input.userId,
+          targetState: 'EXPENSE_SAVING_RETRY',
+          payload: {
+            ...retryPayload,
+            actionBinding: {
+              ...retryPayload.actionBinding!,
+              presentedAt: new Date().toISOString(),
+            },
+          },
+          expiresAt,
+        });
+      }
       return;
     }
 
