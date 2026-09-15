@@ -29,7 +29,7 @@ function buildMockDeps() {
     },
     deterministicRoutingPolicy: new CurrentDeterministicRoutingPolicy({
       execute: mockClassifyExecute,
-    } as never),
+    }),
     sendGuidance: {
       execute: mockSendGuidanceExecute,
     },

@@ -4,11 +4,13 @@ import type {
   SemanticRoutingObservation,
   SemanticRoutingTelemetryPort,
 } from '../../application/services/semantic-router/ObserveSemanticRouting';
+import { SemanticRoutingObservationSchema } from '../../application/services/semantic-router/ObserveSemanticRouting';
 
 export class PinoSemanticRoutingTelemetry implements SemanticRoutingTelemetryPort {
   constructor(private readonly logger: Logger) {}
 
   record(observation: SemanticRoutingObservation): void {
-    this.logger.info(observation);
+    const parsed = SemanticRoutingObservationSchema.safeParse(observation);
+    if (parsed.success) this.logger.info(parsed.data);
   }
 }

@@ -1,11 +1,17 @@
 // LAYER: Application. Shadow-only semantic orchestration with no business-effect ports.
-import type { ConversationState } from '../../../domain/entities/ConversationState';
+import { z } from 'zod';
+import { FSM_STATES, type ConversationState } from '../../../domain/entities/ConversationState';
 import type {
   SemanticRouterErrorCode,
   SemanticRouterPort,
 } from '../../../domain/ports/SemanticRouterPort';
 import type { ConversationDecision } from '../../../domain/value-objects/conversation-decision';
-import { assessSemanticProposal, CONTRACT_VERSION } from './contracts';
+import {
+  actionSchema,
+  assessSemanticProposal,
+  CONTRACT_VERSION,
+  errorCodeSchema,
+} from './contracts';
 import type { DeterministicRoutingDecision } from './deterministic-routing';
 import { POLICY_VERSION } from './policy';
 import type { ProjectSemanticRouterInput } from './ProjectSemanticRouterInput';
@@ -45,13 +51,59 @@ export interface SemanticRoutingObservation {
     | null;
 }
 
+export const SemanticRoutingObservationSchema = z
+  .object({
+    event: z.literal('semantic_router_observation'),
+    mode: z.enum(['off', 'shadow', 'enabled']),
+    state: z.enum(FSM_STATES),
+    substep: z.string().min(1).max(80).nullable(),
+    deterministicDecision: z.enum([
+      'fsm_handler',
+      'expense_guidance',
+      'typed_callback',
+      'sensitive_command',
+      'unsupported',
+    ]),
+    proposedAction: actionSchema.nullable(),
+    policyOutcome: z.enum([
+      'allowed_shadow',
+      'forbidden_action',
+      'router_failure',
+      'invalid_context',
+      'stale_context',
+      'deterministic_bypass',
+      'not_sampled',
+      'disabled',
+      'enabled_capability_unavailable',
+    ]),
+    provider: z
+      .string()
+      .regex(/^[a-zA-Z0-9._/-]{1,120}$/)
+      .nullable(),
+    model: z
+      .string()
+      .regex(/^[a-zA-Z0-9._/-]{1,120}$/)
+      .nullable(),
+    promptVersion: z
+      .string()
+      .regex(/^[a-zA-Z0-9._-]{1,80}$/)
+      .nullable(),
+    contractVersion: z.literal(CONTRACT_VERSION),
+    policyVersion: z.literal(POLICY_VERSION),
+    latencyMs: z.number().finite().nonnegative().nullable(),
+    errorCode: errorCodeSchema
+      .or(z.enum(['STALE_CONTEXT', 'INVALID_STATE_CONTEXT', 'ENABLED_CAPABILITY_UNAVAILABLE']))
+      .nullable(),
+  })
+  .strict() satisfies z.ZodType<SemanticRoutingObservation>;
+
 export interface SemanticRoutingTelemetryPort {
   record(observation: SemanticRoutingObservation): void;
 }
 
 interface ObserveSemanticRoutingDeps {
   readonly policy: SemanticRoutingPolicy;
-  readonly projector: Pick<ProjectSemanticRouterInput, 'execute'>;
+  readonly projector: Pick<ProjectSemanticRouterInput, 'execute' | 'substepFor'>;
   readonly router: SemanticRouterPort | null;
   readonly snapshotValidator: Pick<ValidateConversationSnapshot, 'execute'>;
   readonly telemetry: SemanticRoutingTelemetryPort;
@@ -73,18 +125,19 @@ export class ObserveSemanticRouting {
         : input.deterministicDecision.kind === 'sensitive_command'
           ? 'sensitive_command'
           : 'free_text';
+    const substep = this.deps.projector.substepFor(input.conversationState);
     const resolution = this.deps.policy.resolve({
       userId: input.userId,
       externalMessageId: input.externalMessageId,
       state: input.conversationState.currentState,
-      substep: null,
+      substep,
       messageKind,
       providerAvailable: this.deps.router !== null,
     });
     const base = {
       event: 'semantic_router_observation' as const,
       state: input.conversationState.currentState,
-      substep: null,
+      substep,
       deterministicDecision: input.deterministicDecision.kind,
       proposedAction: null,
       provider: null,
@@ -109,6 +162,20 @@ export class ObserveSemanticRouting {
       });
     }
     if (resolution.mode === 'unavailable') {
+      if (resolution.code === 'UNSUPPORTED_CONFIGURATION') {
+        const projection = this.deps.projector.execute({
+          rawMessage: input.rawMessage,
+          conversationState: input.conversationState,
+        });
+        if (projection.status === 'unsupported') {
+          return this.record({
+            ...base,
+            mode: 'shadow',
+            policyOutcome: 'invalid_context',
+            errorCode: 'INVALID_STATE_CONTEXT',
+          });
+        }
+      }
       return this.record({
         ...base,
         mode: resolution.code === 'ENABLED_CAPABILITY_UNAVAILABLE' ? 'enabled' : 'shadow',
@@ -138,6 +205,15 @@ export class ObserveSemanticRouting {
     try {
       result = await this.deps.router!.decide(projection.input);
     } catch {
+      if (!(await this.snapshotIsCurrent(input))) {
+        return this.record({
+          ...base,
+          mode: resolution.mode,
+          policyOutcome: 'stale_context',
+          latencyMs: performance.now() - startedAt,
+          errorCode: 'STALE_CONTEXT',
+        });
+      }
       return this.record({
         ...base,
         mode: resolution.mode,
@@ -152,6 +228,16 @@ export class ObserveSemanticRouting {
       promptVersion: result.metadata.promptVersion,
       latencyMs: result.metadata.latencyMs,
     };
+    if (!(await this.snapshotIsCurrent(input))) {
+      return this.record({
+        ...base,
+        ...metadata,
+        mode: resolution.mode,
+        proposedAction: result.status === 'proposed' ? result.decision.action : null,
+        policyOutcome: 'stale_context',
+        errorCode: 'STALE_CONTEXT',
+      });
+    }
     const assessment = assessSemanticProposal(projection.input, result);
     if (assessment.status === 'router_failure') {
       return this.record({
@@ -163,24 +249,6 @@ export class ObserveSemanticRouting {
       });
     }
 
-    const snapshot = await this.deps.snapshotValidator.execute({
-      userId: input.userId,
-      expected: {
-        revision: input.conversationState.revision,
-        currentState: input.conversationState.currentState,
-        expiry: 'unexpired',
-      },
-    });
-    if (snapshot.status !== 'current') {
-      return this.record({
-        ...base,
-        ...metadata,
-        mode: resolution.mode,
-        proposedAction: assessment.decision.action,
-        policyOutcome: 'stale_context',
-        errorCode: 'STALE_CONTEXT',
-      });
-    }
     return this.record({
       ...base,
       ...metadata,
@@ -190,12 +258,33 @@ export class ObserveSemanticRouting {
     });
   }
 
-  private record(observation: SemanticRoutingObservation): SemanticRoutingObservation {
+  private async snapshotIsCurrent(input: {
+    readonly userId: string;
+    readonly conversationState: ConversationState;
+  }): Promise<boolean> {
     try {
-      this.deps.telemetry.record(observation);
+      const snapshot = await this.deps.snapshotValidator.execute({
+        userId: input.userId,
+        expected: {
+          revision: input.conversationState.revision,
+          currentState: input.conversationState.currentState,
+          expiry: 'unexpired',
+        },
+      });
+      return snapshot.status === 'current';
+    } catch {
+      return false;
+    }
+  }
+
+  private record(observation: SemanticRoutingObservation): SemanticRoutingObservation {
+    const parsed = SemanticRoutingObservationSchema.safeParse(observation);
+    if (!parsed.success) return observation;
+    try {
+      this.deps.telemetry.record(parsed.data);
     } catch {
       // Shadow telemetry must never prevent the deterministic route.
     }
-    return observation;
+    return parsed.data;
   }
 }

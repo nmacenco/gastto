@@ -157,6 +157,7 @@ function buildMockDeps(): MessageWorkerDeps {
       runWithState: <T>(_state: ConversationState, operation: () => Promise<T>) => operation(),
       runForUser: <T>(_userId: string, operation: () => Promise<T>) => operation(),
       currentState: vi.fn().mockReturnValue({ revision: '0' }),
+      assertExecutionIsValid: vi.fn(),
       precondition: (state: ConversationState, expiry: 'unexpired' | 'expired' | 'any') => ({
         revision: state.revision,
         currentState: state.currentState,
@@ -988,6 +989,131 @@ describe('processMessageJob', () => {
       ...overrides,
     };
   }
+
+  describe('semantic shadow non-interference across deterministic handlers', () => {
+    it.each([
+      {
+        name: 'clarification',
+        rawMessage: '850',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_CLARIFYING',
+              statePayload: buildClarificationStatePayload('monto', 'Cafe'),
+            }),
+          );
+          mockRegisterExpenseInterpret.mockResolvedValue({
+            status: 'needs_clarification',
+            missingField: 'moneda',
+          });
+        },
+        assertDeterministic: () => expect(mockRegisterExpenseInterpret).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'review',
+        rawMessage: 'corregir el monto',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_REVIEW',
+              statePayload: buildReviewStatePayload(),
+            }),
+          );
+        },
+        assertDeterministic: () =>
+          expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'selection',
+        rawMessage: '1',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'ONBOARDING_FILE',
+              statePayload: { fileList: [{ id: 'file-1', name: 'Casa' }] },
+            }),
+          );
+          mockHandleSpreadsheetFileSelectionExecute.mockResolvedValue({
+            nextState: 'ONBOARDING_SHEET',
+            message: 'selected',
+          });
+        },
+        assertDeterministic: () =>
+          expect(mockHandleSpreadsheetFileSelectionExecute).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'cancellation',
+        rawMessage: 'para',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_CLARIFYING',
+              statePayload: buildClarificationStatePayload('monto', 'Cafe'),
+            }),
+          );
+        },
+        assertDeterministic: () =>
+          expect(mockCancelExpenseRegistrationExecute).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'retry',
+        rawMessage: 'reintentar',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_SAVING_RETRY',
+              statePayload: {
+                expense: buildReviewStatePayload(),
+                failureCode: 'NETWORK_ERROR',
+                firstAttemptAt: '2026-09-14T10:00:00.000Z',
+                attemptCount: 1,
+                actionBinding: {
+                  operationId: 'abcdefghijklmnopqrstuv',
+                  revision: 1,
+                  presentedAt: '2026-09-14T10:00:00.000Z',
+                },
+              },
+              expiresAt: new Date(Date.now() + 60_000),
+            }),
+          );
+        },
+        assertDeterministic: () => expect(mockRetryExpenseSaveExecute).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'undo',
+        rawMessage: 'sí',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_UNDO_CONFIRMING',
+              statePayload: {
+                pendingExpenseId: 'expense-1',
+                actionBinding: {
+                  operationId: 'abcdefghijklmnopqrstuv',
+                  revision: 1,
+                  presentedAt: '2026-09-14T10:00:00.000Z',
+                },
+              },
+              expiresAt: new Date(Date.now() + 60_000),
+            }),
+          );
+        },
+        assertDeterministic: () => expect(mockUndoLastExpenseExecute).toHaveBeenCalledOnce(),
+      },
+    ])('runs $name exactly once regardless of the shadow proposal', async (scenario) => {
+      const deps = buildMockDeps();
+      scenario.arrange();
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        policyOutcome: 'allowed_shadow',
+        proposedAction: 'out_of_scope',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: scenario.rawMessage }), deps);
+
+      expect(mockObserveSemanticRoutingExecute).toHaveBeenCalledOnce();
+      scenario.assertDeterministic();
+    });
+  });
 
   describe('EXPENSE_UNDO_CONFIRMING state', () => {
     it('deletes only after affirmative confirmation and returns to IDLE', async () => {

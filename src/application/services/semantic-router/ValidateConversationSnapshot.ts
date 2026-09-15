@@ -11,13 +11,18 @@ export type ConversationSnapshotCheck =
   | { readonly status: 'stale' | 'expired' | 'missing' | 'operation_in_progress' };
 
 export class ValidateConversationSnapshot {
-  constructor(private readonly repository: IConversationStateRepository) {}
+  constructor(
+    private readonly repository: IConversationStateRepository,
+    private readonly isExecutionCurrent: (userId: string) => boolean = () => true,
+  ) {}
 
   async execute(input: {
     readonly userId: string;
     readonly expected: ConversationStatePrecondition;
   }): Promise<ConversationSnapshotCheck> {
+    if (!this.isExecutionCurrent(input.userId)) return { status: 'stale' };
     const state = await this.repository.findByUserId(input.userId);
+    if (!this.isExecutionCurrent(input.userId)) return { status: 'stale' };
     if (!state) return { status: 'missing' };
     if (getFinancialExecutionClaim(state.statePayload) !== null) {
       return { status: 'operation_in_progress' };

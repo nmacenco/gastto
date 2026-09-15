@@ -215,33 +215,34 @@ export async function processMessageJob(
       hasCallback: data.callbackData !== undefined,
     });
 
-    if (conversationState) {
-      try {
-        await opts.observeSemanticRouting.execute({
-          userId,
-          externalMessageId: data.externalMessageId,
-          rawMessage: data.rawMessage,
-          conversationState,
-          deterministicDecision,
-        });
-      } catch {
-        opts.logger.error({
-          msg: 'Semantic shadow observation failed unexpectedly',
-          endpoint: 'processMessageJob',
-          code: 'SEMANTIC_OBSERVATION_FAILED',
-        });
-      }
-    }
-
     // Route according to FSM state. Known business errors are already turned
     // into user-facing messages by each use case; this try/catch only catches
     // unexpected throws so BullMQ does not retry side-effectful handlers and
     // re-send the same messages on every attempt (ADR-005).
     try {
-      const route = () =>
-        deterministicDecision.kind === 'expense_guidance'
+      const route = async () => {
+        if (conversationState) {
+          try {
+            await opts.observeSemanticRouting.execute({
+              userId,
+              externalMessageId: data.externalMessageId,
+              rawMessage: data.rawMessage,
+              conversationState,
+              deterministicDecision,
+            });
+          } catch {
+            opts.logger.error({
+              msg: 'Semantic shadow observation failed unexpectedly',
+              endpoint: 'processMessageJob',
+              code: 'SEMANTIC_OBSERVATION_FAILED',
+            });
+          }
+        }
+        opts.transitionState.assertExecutionIsValid(userId);
+        return deterministicDecision.kind === 'expense_guidance'
           ? opts.sendGuidance.execute(externalId)
           : routeByState(currentState, data, conversationState, opts, messaging);
+      };
       if (conversationState) {
         await opts.transitionState.runWithState(conversationState, route);
       } else {

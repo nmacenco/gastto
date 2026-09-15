@@ -57,4 +57,18 @@ describe('ValidateConversationSnapshot', () => {
       status: 'operation_in_progress',
     });
   });
+
+  it('checks execution ownership before and after the repository read', async () => {
+    const repository = { findByUserId: vi.fn().mockResolvedValue(state) };
+    const isExecutionCurrent = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const validator = new ValidateConversationSnapshot(repository as never, isExecutionCurrent);
+
+    await expect(
+      validator.execute({
+        userId: 'user-1',
+        expected: { revision: '2', currentState: 'IDLE', expiry: 'unexpired' },
+      }),
+    ).resolves.toEqual({ status: 'stale' });
+    expect(isExecutionCurrent).toHaveBeenCalledTimes(2);
+  });
 });

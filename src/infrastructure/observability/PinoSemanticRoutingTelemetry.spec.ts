@@ -28,4 +28,29 @@ describe('PinoSemanticRoutingTelemetry', () => {
     expect(JSON.stringify(info.mock.calls)).not.toContain('rawMessage');
     expect(JSON.stringify(info.mock.calls)).not.toContain('user-');
   });
+
+  it('rejects observations carrying fields outside the metadata schema', () => {
+    const info = vi.fn();
+    const adapter = new PinoSemanticRoutingTelemetry({ info } as never);
+
+    adapter.record({
+      event: 'semantic_router_observation',
+      mode: 'shadow',
+      state: 'IDLE',
+      substep: null,
+      deterministicDecision: 'fsm_handler',
+      proposedAction: null,
+      policyOutcome: 'router_failure',
+      provider: null,
+      model: null,
+      promptVersion: null,
+      contractVersion: 'semantic-contract-v1',
+      policyVersion: 'semantic-policy-v1',
+      latencyMs: null,
+      errorCode: 'PROVIDER_ERROR',
+      rawMessage: 'private text',
+    } as never);
+
+    expect(info).not.toHaveBeenCalled();
+  });
 });

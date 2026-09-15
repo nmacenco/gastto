@@ -474,7 +474,10 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     policy: semanticRoutingPolicy,
     projector: new ProjectSemanticRouterInput(),
     router: semanticRouter,
-    snapshotValidator: new ValidateConversationSnapshot(conversationRepo),
+    snapshotValidator: new ValidateConversationSnapshot(
+      conversationRepo,
+      (userId) => transitionState.currentState(userId) !== null,
+    ),
     telemetry: new PinoSemanticRoutingTelemetry(infra.rootLogger),
   });
 

@@ -203,17 +203,17 @@ Extend shadow observation across the existing `semantic-policy-v1` state/substep
 
 #### To-do actions
 
-- [ ] Implement state-specific projectors for `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `EXPENSE_SAVING_RETRY`, `EXPENSE_UNDO_CONFIRMING`, `ONBOARDING_FILE`, and `ONBOARDING_SHEET`, including `idk` and `empty-sheet-confirm`. Unsupported processing/onboarding states and unknown substeps return a typed projection failure.
-- [ ] Parse each state payload through its canonical value object or strict local schema. Invalid or legacy-unbound context produces `INVALID_STATE_CONTEXT` and deterministic handling; never pass the raw payload or silently widen the action matrix.
-- [ ] Derive `allowedActions` only through `allowedActionsFor(state, substep)`. Preserve the original current-turn message and expose option labels/positions without provider identifiers or application-owned operation bindings.
-- [ ] Revalidate revision, current state, expiry, and financial-claim status after each model call. Record `stale_context` and discard the proposal if a timeout/OAuth/recovery writer, lease loss, or replacement state invalidates the captured snapshot.
-- [ ] Record one schema-validated telemetry event for proposed, forbidden, invalid, refused, timed-out, failed, unsupported, stale, disabled, and unsampled outcomes. Enforce metadata-only error logging and shared sensitive-field redaction.
-- [ ] Add projector contract tests for every allowed and unsupported state/substep, including malformed JSONB, oversized labels, duplicate option positions, prompt injection in labels, legacy review payloads, expired bindings, and unresolved financial claims.
-- [ ] Extend worker tests so deterministic clarification, review, selection, cancellation, retry, and undo behavior runs exactly once regardless of the shadow proposal. Assert zero semantic confirmation, append, retry, delete, state mutation, queue removal, or success copy.
-- [ ] Extend offline evaluator regressions with the runtime projector fixtures without changing frozen expected labels to accommodate implementation output. Record any intentionally unsupported context separately from model accuracy.
-- [ ] Run focused tests, both offline semantic corpus splits, and `pnpm test`; no live provider call is part of the suite.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Implement state-specific projectors for `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `EXPENSE_SAVING_RETRY`, `EXPENSE_UNDO_CONFIRMING`, `ONBOARDING_FILE`, and `ONBOARDING_SHEET`, including `idk` and `empty-sheet-confirm`. Unsupported processing/onboarding states and unknown substeps return a typed projection failure.
+- [x] Parse each state payload through its canonical value object or strict local schema. Invalid or legacy-unbound context produces `INVALID_STATE_CONTEXT` and deterministic handling; never pass the raw payload or silently widen the action matrix.
+- [x] Derive `allowedActions` only through `allowedActionsFor(state, substep)`. Preserve the original current-turn message and expose option labels/positions without provider identifiers or application-owned operation bindings.
+- [x] Revalidate revision, current state, expiry, and financial-claim status after each model call. Record `stale_context` and discard the proposal if a timeout/OAuth/recovery writer, lease loss, or replacement state invalidates the captured snapshot.
+- [x] Record one schema-validated telemetry event for proposed, forbidden, invalid, refused, timed-out, failed, unsupported, stale, disabled, and unsampled outcomes. Enforce metadata-only error logging and shared sensitive-field redaction.
+- [x] Add projector contract tests for every allowed and unsupported state/substep, including malformed JSONB, oversized labels, duplicate option positions, prompt injection in labels, legacy review payloads, expired bindings, and unresolved financial claims.
+- [x] Extend worker tests so deterministic clarification, review, selection, cancellation, retry, and undo behavior runs exactly once regardless of the shadow proposal. Assert zero semantic confirmation, append, retry, delete, state mutation, queue removal, or success copy.
+- [x] Extend offline evaluator regressions with the runtime projector fixtures without changing frozen expected labels to accommodate implementation output. Record any intentionally unsupported context separately from model accuracy.
+- [x] Run focused tests, both offline semantic corpus splits, and `pnpm test`; no live provider call is part of the suite.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Prove non-interference, compatibility, and rollback
 
@@ -238,4 +238,4 @@ Close the pipeline with integration evidence that shadow traffic survives duplic
 
 ## Next step
 
-Implement Phase 2 to project and observe every state/substep supported by `semantic-policy-v1` while preserving deterministic execution.
+Implement Phase 3 to prove non-interference, queue compatibility, privacy, and flag-only rollback with integration evidence.

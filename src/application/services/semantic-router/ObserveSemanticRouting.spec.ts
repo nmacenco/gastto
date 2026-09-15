@@ -128,4 +128,140 @@ describe('ObserveSemanticRouting', () => {
     });
     expect(result).toMatchObject({ policyOutcome: 'router_failure', errorCode: 'PROVIDER_ERROR' });
   });
+
+  it.each([
+    ['MODEL_REFUSAL', 'MODEL_REFUSAL'],
+    ['TIMEOUT', 'TIMEOUT'],
+    ['INVALID_OUTPUT', 'INVALID_OUTPUT'],
+    ['PROVIDER_ERROR', 'PROVIDER_ERROR'],
+  ] as const)('records one sanitized failed outcome for %s', async (_name, code) => {
+    const deps = buildDeps();
+    deps.router.decide.mockResolvedValue({
+      status: 'failed',
+      code,
+      metadata: {
+        provider: 'openai',
+        model: 'gpt-4o-mini-2024-07-18',
+        promptVersion: 'semantic-openai-v1',
+        contractVersion: 'semantic-contract-v1',
+        latencyMs: 12,
+        inputTokens: 10,
+        outputTokens: 3,
+      },
+    });
+
+    const result = await new ObserveSemanticRouting(deps).execute({
+      userId: 'user-1',
+      externalMessageId: 'message-1',
+      rawMessage: 'Compra confirmada',
+      conversationState: state,
+      deterministicDecision: { kind: 'expense_guidance' },
+    });
+
+    expect(result).toMatchObject({ policyOutcome: 'router_failure', errorCode: code });
+    expect(deps.snapshotValidator.execute).toHaveBeenCalledTimes(1);
+    expect(deps.telemetry.record).toHaveBeenCalledOnce();
+  });
+
+  it('records forbidden proposals without exposing authorization evidence', async () => {
+    const deps = buildDeps();
+    deps.router.decide.mockResolvedValue({
+      status: 'proposed',
+      decision: { action: 'request_save_retry' },
+      metadata: {
+        provider: 'openai',
+        model: 'gpt-4o-mini-2024-07-18',
+        promptVersion: 'semantic-openai-v1',
+        contractVersion: 'semantic-contract-v1',
+        latencyMs: 12,
+        inputTokens: 10,
+        outputTokens: 3,
+      },
+    });
+
+    const result = await new ObserveSemanticRouting(deps).execute({
+      userId: 'user-private',
+      externalMessageId: 'message-private',
+      rawMessage: 'guardalo',
+      conversationState: state,
+      deterministicDecision: { kind: 'fsm_handler' },
+    });
+
+    expect(result.policyOutcome).toBe('forbidden_action');
+    expect(JSON.stringify(result)).not.toContain('user-private');
+    expect(JSON.stringify(result)).not.toContain('message-private');
+  });
+
+  it.each([
+    [{ mode: 'off' as const, reason: 'state_off' as const }, 'disabled'],
+    [{ mode: 'off' as const, reason: 'not_sampled' as const }, 'not_sampled'],
+  ])(
+    'records skipped outcomes without projecting or calling the router',
+    async (resolution, outcome) => {
+      const deps = buildDeps();
+      deps.policy.resolve.mockReturnValue(resolution);
+      const execute = vi.spyOn(deps.projector, 'execute');
+
+      const result = await new ObserveSemanticRouting(deps).execute({
+        userId: 'user-1',
+        externalMessageId: 'message-1',
+        rawMessage: 'hola',
+        conversationState: state,
+        deterministicDecision: { kind: 'fsm_handler' },
+      });
+
+      expect(result.policyOutcome).toBe(outcome);
+      expect(execute).not.toHaveBeenCalled();
+      expect(deps.router.decide).not.toHaveBeenCalled();
+      expect(deps.telemetry.record).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('records invalid state context once and never calls the router', async () => {
+    const deps = buildDeps();
+    const invalidReview: ConversationState = {
+      ...state,
+      currentState: 'EXPENSE_REVIEW',
+      statePayload: { legacy: true },
+      expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    };
+    const result = await new ObserveSemanticRouting(deps).execute({
+      userId: 'user-1',
+      externalMessageId: 'message-1',
+      rawMessage: 'corregir',
+      conversationState: invalidReview,
+      deterministicDecision: { kind: 'fsm_handler' },
+    });
+
+    expect(result).toMatchObject({
+      policyOutcome: 'invalid_context',
+      errorCode: 'INVALID_STATE_CONTEXT',
+    });
+    expect(deps.router.decide).not.toHaveBeenCalled();
+    expect(deps.telemetry.record).toHaveBeenCalledOnce();
+  });
+
+  it('uses the validated runtime substep for policy resolution and telemetry', async () => {
+    const deps = buildDeps();
+    const idkState: ConversationState = {
+      ...state,
+      currentState: 'ONBOARDING_SHEET',
+      statePayload: {
+        selectedFileId: 'file-1',
+        sheetList: [{ name: 'Gastos', index: 0 }],
+        step: 'idk',
+      },
+      expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    };
+    const result = await new ObserveSemanticRouting(deps).execute({
+      userId: 'user-1',
+      externalMessageId: 'message-1',
+      rawMessage: 'la primera',
+      conversationState: idkState,
+      deterministicDecision: { kind: 'fsm_handler' },
+    });
+
+    expect(deps.policy.resolve).toHaveBeenCalledWith(expect.objectContaining({ substep: 'idk' }));
+    expect(result.substep).toBe('idk');
+  });
 });
