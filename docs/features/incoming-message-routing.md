@@ -23,13 +23,15 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
 - BullMQ job payloads are runtime trust boundaries: the incoming-message and process-message workers parse strict Zod schemas before any side effect. Unknown fields, invalid values, and invalid timestamps fail the job with metadata-only logging.
 - Before processing a `process-message` job, the worker verifies that its `(channel, externalId)` resolves to its declared `userId`. A mismatch is rejected before the per-user lock, state lookup, messaging, or FSM handling.
 - `RouteIncomingMessage` routes `TEXT` and `UNSUPPORTED`:
-  - `TEXT` → resolves user identity, loads the current conversation state, and decides based on the FSM state:
-    - `IDLE` / `EXPENSE_RECEIVING` → classifies the text with `ClassifyFreeTextExpenseIntent`. Expense-like or very-long messages are enqueued to `process-message` and acknowledged; ordinary non-financial messages receive guidance and are not enqueued.
+  - `TEXT` → resolves user identity and applies deterministic admission unless the user belongs to the configured semantic observation cohort:
+    - Outside the cohort, `IDLE` / `EXPENSE_RECEIVING` loads state and applies `ClassifyFreeTextExpenseIntent`. Expense-like or very-long messages are enqueued to `process-message`; ordinary non-financial messages receive guidance and are not enqueued.
+    - Inside any non-off semantic cohort, all valid free text is enqueued without treating an ingress state read as authoritative. The thick worker reloads state under the per-user lock, computes the same deterministic decision, optionally records a shadow proposal, and executes only the deterministic route.
     - Global cancellation and normalized undo commands (`deshacer`, `undo`, and `borrar el último`) bypass non-financial guidance and are enqueued to `process-message` so the FSM worker can handle them in context.
     - Spanish expense verbs are matched without requiring diacritics, so partial inputs such as `Compre cafe` reach expense interpretation and its missing-data clarification flow.
     - Any other active state (e.g. `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `EXPENSE_REVIEW`, `EXPENSE_CLARIFYING`) → the message is enqueued to `process-message` and acknowledged, bypassing the intent classifier. This ensures onboarding replies and expense corrections are handled by the FSM in context.
   - `UNSUPPORTED` → delegates to `HandleUnsupportedMessage` which replies with a friendly message.
 - A thick worker (`message.worker.ts`, `concurrency: 2`) consumes `process-message` jobs and performs FSM/LLM/expense processing (ADR-005).
+- Semantic observation occurs only in the thick worker, after queue validation, messaging-identity verification, per-user lock acquisition, and current-state loading. Callback and exact sensitive-command paths bypass the semantic provider.
 - The immediate acknowledgment is sent by the dedicated `SendImmediateAcknowledgement` application use case, which depends only on `MessagingOutputPort` and returns a typed `SendResult`.
 - Duplicate message protection is modeled by the `ProcessedMessageKey` value object (`channel` + `externalMessageId`) and the `IProcessedMessageRepository` driven port. Downstream consumers will use `exists()` / `markAsProcessed()` to skip or record already-handled messages.
 - The system always responds HTTP 200 to Telegram to prevent infinite retry loops.
@@ -59,9 +61,10 @@ incoming-message Queue (BullMQ) ──► Thin Worker (concurrency: 1, FIFO)
       ▼
 RouteIncomingMessage.execute()
       │
-      ├── TEXT ──► resolve identity ──► load FSM state
+      ├── TEXT ──► resolve identity ──► semantic cohort?
       │                        │
-      │    IDLE/EXPENSE_RECEIVING? ──► classify intent
+      │    yes ──► process-message Queue ──► locked state + shadow observation
+      │    no ──► load FSM state ──► IDLE/EXPENSE_RECEIVING? ──► classify intent
       │                        │
       │        ordinary non-financial ──► guidance
       │        cancel/undo command ──► process-message Queue ──► Thick Worker
@@ -109,6 +112,7 @@ No database schema changes yet. The feature operates on transient domain value o
 - [x] `telegram.webhook.spec.ts` — origin authentication before body validation, private-chat routing, metadata-only malformed logging, non-private zero-side-effect acknowledgment, unsupported messages, `/start` short-circuit, and FIFO enqueue.
 - [x] `telegram.webhook.integration.spec.ts` — end-to-end scenarios including accent-insensitive partial expenses, undo-command routing, and non-financial replies during active onboarding states that must be enqueued to `process-message` instead of receiving guidance.
 - [x] `incomingMessage.worker.spec.ts` — strict payload validation, job deserialization, FIFO processing, worker construction (`concurrency: 1`), and metadata-only failed-event logging.
+- [x] `semantic-router-shadow-pipeline.integration.spec.ts` - real PostgreSQL/Redis coverage for cohort admission, deduplication, identity mismatch, contention, stale context, provider failures, flag rollback, privacy, and webhook-to-worker output equivalence.
 
 ## Related User Stories
 
@@ -121,6 +125,7 @@ No database schema changes yet. The feature operates on transient domain value o
 - Clean Architecture boundary is enforced: the router use case depends on `MessagingOutputPort` (application layer) and `Queue` abstractions, never on concrete Telegram adapters. The `MessagingOutputPort` returns a discriminated `SendResult` union (`{ status: 'success' } | { status: 'failure'; errorCode: string }`) so use cases can observe delivery outcomes without leaking provider-specific errors.
 - FIFO guarantee is provided by `concurrency: 1` on the `incoming-message` worker (ADR-011). When volume grows, this can be replaced with BullMQ Pro Groups or a partition strategy by `chat_id` hash.
 - **Per-user serialization in the thick worker:** the `process-message` worker (`concurrency: 2`) serializes processing per user via a Redis mutex (`IUserProcessingLock`). If a second job for the same user arrives while the first is executing, it throws `UserAlreadyProcessingError`, which triggers a custom BullMQ backoff strategy that retries only lock contention with exponential backoff (500ms → 1s → 2s → 4s, capped at 5s). All other errors return `-1` (no retry), preserving side-effect safety. Different users' jobs proceed in parallel.
+- **Flag-only rollback:** both queue schemas are unchanged. A job admitted while a state was in `shadow` resolves the current mode only after acquiring the lock; changing that state to `off` therefore prevents a model call and executes the deterministic path without a migration or dead-letter handoff.
 
 ## Review callback safety
 

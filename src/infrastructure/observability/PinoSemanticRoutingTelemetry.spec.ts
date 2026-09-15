@@ -53,4 +53,37 @@ describe('PinoSemanticRoutingTelemetry', () => {
 
     expect(info).not.toHaveBeenCalled();
   });
+
+  it('logs a metadata-only error and remains non-fatal when the telemetry sink throws', () => {
+    const info = vi.fn(() => {
+      throw new Error('sink body with private data');
+    });
+    const error = vi.fn();
+    const adapter = new PinoSemanticRoutingTelemetry({ info, error } as never);
+
+    expect(() =>
+      adapter.record({
+        event: 'semantic_router_observation',
+        mode: 'shadow',
+        state: 'IDLE',
+        substep: null,
+        deterministicDecision: 'expense_guidance',
+        proposedAction: null,
+        policyOutcome: 'router_failure',
+        provider: null,
+        model: null,
+        promptVersion: null,
+        contractVersion: 'semantic-contract-v1',
+        policyVersion: 'semantic-policy-v1',
+        latencyMs: null,
+        errorCode: 'PROVIDER_ERROR',
+      }),
+    ).not.toThrow();
+    expect(error).toHaveBeenCalledWith({
+      msg: 'Failed to record semantic routing telemetry',
+      endpoint: 'PinoSemanticRoutingTelemetry.record',
+      code: 'SEMANTIC_TELEMETRY_FAILED',
+    });
+    expect(JSON.stringify(error.mock.calls)).not.toContain('private data');
+  });
 });

@@ -129,6 +129,27 @@ describe('ObserveSemanticRouting', () => {
     expect(result).toMatchObject({ policyOutcome: 'router_failure', errorCode: 'PROVIDER_ERROR' });
   });
 
+  it('records malformed provider output as INVALID_OUTPUT without exposing its body', async () => {
+    const deps = buildDeps();
+    deps.router.decide.mockResolvedValue({
+      status: 'proposed',
+      decision: { action: 'register_expense' },
+      providerBody: 'raw private response',
+    });
+
+    const result = await new ObserveSemanticRouting(deps).execute({
+      userId: 'user-1',
+      externalMessageId: 'message-1',
+      rawMessage: 'Compra confirmada',
+      conversationState: state,
+      deterministicDecision: { kind: 'expense_guidance' },
+    });
+
+    expect(result).toMatchObject({ policyOutcome: 'router_failure', errorCode: 'INVALID_OUTPUT' });
+    expect(deps.telemetry.record).toHaveBeenCalledOnce();
+    expect(JSON.stringify(deps.telemetry.record.mock.calls)).not.toContain('providerBody');
+  });
+
   it.each([
     ['MODEL_REFUSAL', 'MODEL_REFUSAL'],
     ['TIMEOUT', 'TIMEOUT'],

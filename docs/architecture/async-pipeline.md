@@ -72,6 +72,26 @@ Every worker validates `job.data` with an exported strict Zod schema before acqu
 
 `process-message` and `oauth-reminder` jobs also resolve `(channel, externalId)` and require it to match the supplied `userId` before performing side effects. This prevents a validly-shaped queue payload from acting on another user's messaging identity.
 
+### Semantic shadow placement
+
+The optional semantic router runs only in `process-message`, after identity
+verification, renewable per-user lock acquisition, and the authoritative state
+read. The worker first computes the deterministic routing decision. Eligible
+sampled free text is projected from validated state, sent through at most one
+bounded router call, and checked against the current revision/state/expiry and
+financial-claim status when the call returns. The proposal is telemetry only;
+the precomputed deterministic path executes exactly once.
+
+Callbacks and exact save/retry/undo commands bypass semantic interpretation.
+Failures, refusals, invalid output, forbidden actions, stale context, and telemetry
+failure do not redirect or duplicate deterministic processing. Loss of processing
+ownership invalidates the captured semantic context. `enabled` is intentionally
+fail-closed until a later action dispatcher is implemented and evaluated.
+
+Both queue contracts remain unchanged. Mode is resolved under the lock, so a
+`shadow` to `off` configuration rollback also applies to already queued jobs and
+requires neither migration nor dead-letter transfer.
+
 1. Receives the `process-message` job payload.
 2. Loads the user's current FSM state from PostgreSQL (`conversation_states`).
 3. Runs the FSM transition logic to determine the next state and action.

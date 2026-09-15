@@ -63,10 +63,19 @@ interface SemanticRoutingResolutionInput {
 }
 
 type SemanticRoutingResolution =
-  | { readonly mode: 'off'; readonly reason: 'state_off' | 'outside_cohort' | 'not_sampled' | 'deterministic_bypass' }
+  | {
+      readonly mode: 'off';
+      readonly reason: 'state_off' | 'outside_cohort' | 'not_sampled' | 'deterministic_bypass';
+    }
   | { readonly mode: 'shadow'; readonly cohortBucket: number; readonly sampleBucket: number }
   | { readonly mode: 'enabled'; readonly cohortBucket: number; readonly sampleBucket: number }
-  | { readonly mode: 'unavailable'; readonly code: 'UNSUPPORTED_CONFIGURATION' | 'PROVIDER_UNAVAILABLE' | 'ENABLED_CAPABILITY_UNAVAILABLE' };
+  | {
+      readonly mode: 'unavailable';
+      readonly code:
+        | 'UNSUPPORTED_CONFIGURATION'
+        | 'PROVIDER_UNAVAILABLE'
+        | 'ENABLED_CAPABILITY_UNAVAILABLE';
+    };
 
 interface SemanticRoutingPolicy {
   admitsForObservation(userId: string): boolean;
@@ -116,7 +125,10 @@ interface ValidateConversationSnapshot {
 ```typescript
 type SemanticInputProjection =
   | { readonly status: 'supported'; readonly input: SemanticRouterInput }
-  | { readonly status: 'unsupported'; readonly code: 'UNSUPPORTED_STATE' | 'UNSUPPORTED_SUBSTEP' | 'INVALID_STATE_CONTEXT' };
+  | {
+      readonly status: 'unsupported';
+      readonly code: 'UNSUPPORTED_STATE' | 'UNSUPPORTED_SUBSTEP' | 'INVALID_STATE_CONTEXT';
+    };
 
 interface ProjectSemanticRouterInput {
   execute(input: {
@@ -150,7 +162,12 @@ interface SemanticRoutingObservation {
   readonly contractVersion: string;
   readonly policyVersion: string;
   readonly latencyMs: number | null;
-  readonly errorCode: SemanticRouterErrorCode | 'STALE_CONTEXT' | 'INVALID_STATE_CONTEXT' | 'ENABLED_CAPABILITY_UNAVAILABLE' | null;
+  readonly errorCode:
+    | SemanticRouterErrorCode
+    | 'STALE_CONTEXT'
+    | 'INVALID_STATE_CONTEXT'
+    | 'ENABLED_CAPABILITY_UNAVAILABLE'
+    | null;
 }
 
 interface SemanticRoutingTelemetryPort {
@@ -223,19 +240,28 @@ Close the pipeline with integration evidence that shadow traffic survives duplic
 
 #### To-do actions
 
-- [ ] Add `semantic-router-shadow-pipeline.integration.spec.ts` with real PostgreSQL and Redis plus mocked messaging/model/spreadsheet boundaries. Cover a previously filtered notification, a deterministic expense, duplicate delivery, two messages for one user, identity mismatch, lock contention, lease loss, and a state revision changed while the model is pending.
-- [ ] Prove provider timeout, refusal, invalid schema, forbidden action, unavailable credentials, unsupported configuration, and telemetry failure never suppress, duplicate, or redirect deterministic processing. Telemetry failure is logged safely and is non-fatal.
-- [ ] Add an end-to-end webhook-to-worker regression that preserves HTTP acknowledgment and FIFO admission, emits one sanitized shadow observation, and produces the same user-visible result and state as off mode.
-- [ ] Test rolling configuration from `shadow` to `off` with already queued messages. Because the job schemas remain unchanged and mode is resolved under the lock, old jobs must execute deterministically with no model call, no dead letter, and no migration.
-- [ ] Test an `enabled` state entry before a dispatcher exists: emit `ENABLED_CAPABILITY_UNAVAILABLE`, execute the deterministic route once, and perform zero semantic effects. Document that later phases must explicitly replace this guard per action/state.
-- [ ] Add log-capture assertions that semantic events contain provider/model and prompt/contract/policy versions, state/substep, deterministic/proposed outcomes, latency, and stable error code while excluding raw text, full payloads, option identifiers, operation IDs, revisions, credentials, provider bodies, hidden reasoning, and raw user/external IDs.
-- [ ] Measure test-observed acknowledgment timing separately from bounded shadow latency and document that shadow agreement is not action accuracy or task-completion evidence. Keep production activation, real-provider sampling, numeric release gates, and controlled rollout pending Phase 7.
-- [ ] Update `docs/features/incoming-message-routing.md`, `docs/features/semantic-router-evaluation.md`, `docs/features/README.md`, `docs/architecture/config-env.md`, `docs/architecture/async-pipeline.md`, `docs/architecture/observability.md`, and `docs/architecture/fsm-states.md` with implemented behavior, privacy limits, mode semantics, and rollback. Document only delivered behavior.
-- [ ] Attach scenario counts, offline corpus results, zero unauthorized-effect observations, and any skipped external evidence to this plan and the master implementation table. Do not mark semantic actions or production activation delivered.
-- [ ] Run the complete PostgreSQL/Redis integration suites and `pnpm test`; a skipped shadow-pipeline integration suite is pending evidence, not a passed gate.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add `semantic-router-shadow-pipeline.integration.spec.ts` with real PostgreSQL and Redis plus mocked messaging/model/spreadsheet boundaries. Cover a previously filtered notification, a deterministic expense, duplicate delivery, two messages for one user, identity mismatch, lock contention, lease loss, and a state revision changed while the model is pending.
+- [x] Prove provider timeout, refusal, invalid schema, forbidden action, unavailable credentials, unsupported configuration, and telemetry failure never suppress, duplicate, or redirect deterministic processing. Telemetry failure is logged safely and is non-fatal.
+- [x] Add an end-to-end webhook-to-worker regression that preserves HTTP acknowledgment and FIFO admission, emits one sanitized shadow observation, and produces the same user-visible result and state as off mode.
+- [x] Test rolling configuration from `shadow` to `off` with already queued messages. Because the job schemas remain unchanged and mode is resolved under the lock, old jobs must execute deterministically with no model call, no dead letter, and no migration.
+- [x] Test an `enabled` state entry before a dispatcher exists: emit `ENABLED_CAPABILITY_UNAVAILABLE`, execute the deterministic route once, and perform zero semantic effects. Document that later phases must explicitly replace this guard per action/state.
+- [x] Add log-capture assertions that semantic events contain provider/model and prompt/contract/policy versions, state/substep, deterministic/proposed outcomes, latency, and stable error code while excluding raw text, full payloads, option identifiers, operation IDs, revisions, credentials, provider bodies, hidden reasoning, and raw user/external IDs.
+- [x] Measure test-observed acknowledgment timing separately from bounded shadow latency and document that shadow agreement is not action accuracy or task-completion evidence. Keep production activation, real-provider sampling, numeric release gates, and controlled rollout pending Phase 7.
+- [x] Update `docs/features/incoming-message-routing.md`, `docs/features/semantic-router-evaluation.md`, `docs/features/README.md`, `docs/architecture/config-env.md`, `docs/architecture/async-pipeline.md`, `docs/architecture/observability.md`, and `docs/architecture/fsm-states.md` with implemented behavior, privacy limits, mode semantics, and rollback. Document only delivered behavior.
+- [x] Attach scenario counts, offline corpus results, zero unauthorized-effect observations, and any skipped external evidence to this plan and the master implementation table. Do not mark semantic actions or production activation delivered.
+- [x] Run the complete PostgreSQL/Redis integration suites and `pnpm test`; a skipped shadow-pipeline integration suite is pending evidence, not a passed gate.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+
+#### Completion evidence (2026-09-15)
+
+- The new PostgreSQL/Redis shadow-pipeline suite passed 17/17 scenarios without skips. It covered real persistence, Redis deduplication and ownership, identity mismatch, contention/retry, stale revision and lease validation, provider timeout/refusal/invalid output/forbidden action/unavailability, unsupported configured context, telemetry failure, queued-job rollback, fail-closed enabled mode, and webhook-to-worker equivalence.
+- The complete suite passed 2,031 tests in 152 files; 29 tests in 4 unrelated optional integration files remained skipped. The shadow-pipeline suite itself was not skipped. `pnpm lint` and `pnpm typecheck` passed.
+- Offline corpus replay passed 175/175 development checks and 25/25 held-out checks, with zero critical-case failures. These are fixture/protocol results, not live provider accuracy, task completion, or production latency evidence.
+- Shadow observations produced zero semantic state/message/queue/spreadsheet/retry/delete authority: only the precomputed deterministic route executed. Malformed provider results were reduced to `INVALID_OUTPUT`, telemetry sink failure was metadata-only and non-fatal, and privacy assertions excluded raw messages, payloads, identifiers, bindings, credentials, provider bodies, and reasoning.
+- Webhook acknowledgment completed below the one-second test acceptance bound independently of shadow execution. This is test-observed timing, not a production p95 measurement.
+- No live provider call, production flag activation, deployment, schema migration, queue migration, numeric release gate, controlled rollout, or model-driven semantic action was performed. Those external/release claims remain pending Phase 7, while action dispatch begins only in later capability phases.
 
 ## Next step
 
-Implement Phase 3 to prove non-interference, queue compatibility, privacy, and flag-only rollback with integration evidence.
+Review and optionally commit the completed shadow-pipeline work, then create or execute the master plan's Phase 4 expense-flow subplan when requested.

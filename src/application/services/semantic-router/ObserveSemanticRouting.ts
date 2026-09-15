@@ -11,6 +11,7 @@ import {
   assessSemanticProposal,
   CONTRACT_VERSION,
   errorCodeSchema,
+  SemanticRouterResultSchema,
 } from './contracts';
 import type { DeterministicRoutingDecision } from './deterministic-routing';
 import { POLICY_VERSION } from './policy';
@@ -222,6 +223,17 @@ export class ObserveSemanticRouting {
         errorCode: 'PROVIDER_ERROR',
       });
     }
+    const parsedResult = SemanticRouterResultSchema.safeParse(result);
+    if (!parsedResult.success) {
+      return this.record({
+        ...base,
+        mode: resolution.mode,
+        policyOutcome: 'router_failure',
+        latencyMs: performance.now() - startedAt,
+        errorCode: 'INVALID_OUTPUT',
+      });
+    }
+    result = parsedResult.data;
     const metadata = {
       provider: result.metadata.provider,
       model: result.metadata.model,

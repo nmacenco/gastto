@@ -12,7 +12,7 @@ This document describes the configuration and environment setup for this project
 ## Environment variables
 
 | Variable                                       | Scope  | Required | Description                                                                                                               |
-| ---------------------------------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| ---------------------------------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------- | ------ | --------------------------------------------- |
 | `NODE_ENV`                                     | Server | No       | Runtime environment: `development`, `production`, or `test`. Defaults to `development`.                                   |
 | `PORT`                                         | Server | No       | HTTP server port. Defaults to `3000`.                                                                                     |
 | `LOG_LEVEL`                                    | Server | No       | Pino log level. Defaults to `info`.                                                                                       |
@@ -26,6 +26,14 @@ This document describes the configuration and environment setup for this project
 | `SENTRY_DSN`                                   | Server | No       | Sentry error tracking DSN. Optional.                                                                                      |
 | `CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD` | Server | No       | Minimum confidence for keyword-based category classification (E1-US-04). Range: [0, 1]. Default: `0.6`.                   |
 | `ENCRYPTION_KEY`                               | Server | No       | AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars). Currently commented out in schema. |
+| `SEMANTIC_ROUTER_STATE_MODES`                  | Server | No       | Strict comma-separated `FSM_STATE=off                                                                                     | shadow | enabled` map. Empty means every state is off. |
+| `SEMANTIC_ROUTER_COHORT_PERCENT`               | Server | No       | Stable user-cohort percentage from 0 through 100. Defaults to `0`.                                                        |
+| `SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT`        | Server | No       | Stable per-message sampling percentage from 0 through 100. Defaults to `0`.                                               |
+| `SEMANTIC_ROUTER_COHORT_SEED`                  | Server | No       | Bounded non-secret identifier used for stable hashing. Never use a credential.                                            |
+| `SEMANTIC_ROUTER_PROVIDER`                     | Server | No       | Runtime router provider. Only the validated `openai` snapshot is currently supported.                                     |
+| `SEMANTIC_ROUTER_MODEL`                        | Server | No       | Explicit supported runtime model snapshot; aliases are rejected.                                                          |
+| `SEMANTIC_ROUTER_TIMEOUT_MS`                   | Server | No       | Router deadline from 1 through 29,000 ms, below the 30-second lock-renewal interval. Defaults to `10000`.                 |
+| `SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS`            | Server | No       | Structured router output cap from 64 through 4,096. Defaults to `256`.                                                    |
 
 **Security note**: All secrets are server-side only. No env var is exposed to the client.
 
@@ -125,7 +133,6 @@ previous provider URI in an approved password manager for rollback.
 | `pnpm db:migrate`    | Run pending migrations                               |
 | `pnpm db:studio`     | Open Drizzle Studio                                  |
 
-
 ## Standalone semantic evaluator
 
 `pnpm eval:semantic-router` defaults to offline fixtures and never loads dotenv or
@@ -135,3 +142,18 @@ on the command line. It does not use the application's provider preference or
 initialize DB/Redis clients. See [Semantic Router Evaluation](../features/semantic-router-evaluation.md)
 for supported snapshots, bounds and optional live commands. Do not read environment
 files or print key values to run evaluations.
+
+## Runtime semantic routing modes
+
+Runtime routing is independent from the extraction-provider preference and the
+standalone evaluator. All states, cohorting, and sampling default off. `shadow`
+may spend provider capacity but cannot change the deterministic route. `enabled`
+currently fails closed with `ENABLED_CAPABILITY_UNAVAILABLE`; a later phase must
+replace that guard explicitly for each evaluated state/action before semantic
+dispatch exists. Missing credentials or invalid/unsupported runtime settings make
+the provider unavailable without preventing deterministic processing.
+
+Rollback requires changing the affected state modes to `off`. Queue payloads do
+not carry a captured mode, so already queued jobs resolve the new setting after
+lock acquisition and make no semantic call. No queue or database migration is
+required.

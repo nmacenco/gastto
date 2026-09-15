@@ -11,6 +11,19 @@ export class PinoSemanticRoutingTelemetry implements SemanticRoutingTelemetryPor
 
   record(observation: SemanticRoutingObservation): void {
     const parsed = SemanticRoutingObservationSchema.safeParse(observation);
-    if (parsed.success) this.logger.info(parsed.data);
+    if (!parsed.success) return;
+    try {
+      this.logger.info(parsed.data);
+    } catch {
+      try {
+        this.logger.error({
+          msg: 'Failed to record semantic routing telemetry',
+          endpoint: 'PinoSemanticRoutingTelemetry.record',
+          code: 'SEMANTIC_TELEMETRY_FAILED',
+        });
+      } catch {
+        // Observability failure must remain non-fatal to deterministic processing.
+      }
+    }
   }
 }

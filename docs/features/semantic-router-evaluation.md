@@ -17,6 +17,7 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 - A source hash identifies the current lexical helper/dispatch files used for baseline interpretation. Reports include dataset, contract, policy and fixture-router versions, per-scope checks, baseline coverage and mismatch IDs.
 - Raw messages, selectors, model reasoning and provider response bodies are excluded from reports. The CLI uses the injected Pino logger for bounded operational errors.
 - The Mercadona case expects a registration proposal and observes that the current lexical filter already admits the message. Actual extraction of amount/date/merchant and user review remain a later integration requirement.
+- Runtime shadow observation is implemented separately from the evaluator. It projects validated current state under the processing lock, calls the router at most once, revalidates the snapshot, records a schema-bounded metadata event, and always leaves routing and business effects to the precomputed deterministic decision.
 
 ## API / Interface
 
@@ -28,9 +29,9 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 
 ## Measurement limits
 
-No real-provider evidence has been collected. Offline model accuracy, latency, usage and cost remain null. Live runs can measure decision agreement, router-call latency and usage, while acknowledgment latency, actual false authorization and task completion remain unmeasured. Fixture timings and expected-output replay are not production evidence. Per-scope agreement includes declared protocol checks; language and protocol totals are reported separately.
+No real-provider evidence has been collected. Offline model accuracy, provider latency, usage and cost remain null. Live runs can measure decision agreement, router-call latency and usage. The Phase 3 integration suite separately verifies that webhook acknowledgment completes before shadow processing and remains below the existing one-second acceptance bound in the test environment; this is test-observed timing, not a production latency percentile. Shadow agreement is not action accuracy or task-completion evidence. Fixture timings and expected-output replay are not production evidence. Per-scope agreement includes declared protocol checks; language and protocol totals are reported separately.
 
-The Phase 3 prerequisite rerun on 2026-09-14 preserved frozen labels and comparison metrics: development completed 175/175 checks and held-out completed 25/25, both with zero fixture mismatches and zero critical-case failures. The source digest changed because the deterministic financial-action paths changed; the report records the new digest while the corpus, labels, contract, policy version, and measured lexical projections remain unchanged. These safety changes are covered by application/integration tests and are not presented as an improvement in model accuracy.
+The Phase 3 completion rerun on 2026-09-15 preserved frozen labels and comparison metrics: development completed 175/175 checks and held-out completed 25/25, both with zero fixture mismatches and zero critical-case failures. The source digest records the deterministic financial-action paths while the corpus, labels, contract, policy version, and measured lexical projections remain unchanged. These safety checks are covered by application/integration tests and are not presented as an improvement in model accuracy.
 
 The input ceiling is 8,000 message characters, 20,000 serialized input characters, 20 options and 200 characters per option label. Dataset/response files are bounded at 2 MB and datasets at 1,000 cases. These limits reject input rather than silently rewriting it.
 
@@ -44,7 +45,7 @@ The input ceiling is 8,000 message characters, 20,000 serialized input character
 
 - Live quality evidence remains pending explicit execution; Phase 2 implementation is available below.
 - Independent human label adjudication and explicitly initiated live held-out comparisons remain pending; the expanded corpus is implemented below.
-- Confirmation revision safety, live shadow integration, actual bank-message extraction/review, and rollout: [master Phases 2 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md).
+- Actual bank-message extraction/review, semantic action dispatch, real-provider sampling, and controlled rollout remain in [master Phases 4 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). Confirmation revision safety and the non-authoritative shadow pipeline are implemented.
 
 ## Related Decisions
 
@@ -157,7 +158,7 @@ baseline scopes remain `not_evaluated`, with `model_dependent` or
 observations; current observations are executed from local code and identified by
 the source digest. Do not substitute an imported/mock result under that provenance.
 
-### Reproduced offline observations (Phase 3 rerun, 2026-09-14)
+### Reproduced offline observations (Phase 3 completion rerun, 2026-09-15)
 
 | Evidence                                               | Development |         Held-out |
 | ------------------------------------------------------ | ----------: | ---------------: |
@@ -196,11 +197,13 @@ Downstream extraction of **one** Mercadona expense (`16.55 EUR`, `2026-09-11`),
 explicit review, queue handling and no inferred timezone/card fields belong to
 [master Phase 4](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md#phase-4-create-the-expense-flow-integration-subplan).
 
-Actual unauthorized effects require master Phases 2 and 7; acknowledgment latency
-requires Phases 3 and 7; task completion and full expense cost require Phases 4
-and 7. Numeric activation thresholds, real held-out comparisons, shadow/rollout
-results and human label review remain pending. Offline green checks authorize none
-of these integrations or product activation.
+Phase 3 integration tests now exercise zero model-driven messaging, state, queue,
+append, retry, or delete authority across allowed, forbidden, failed, stale, off,
+and fail-closed enabled outcomes. Test-observed acknowledgment timing is recorded
+separately from bounded router metadata. Production percentiles, task completion,
+full expense cost, numeric activation thresholds, real held-out comparisons,
+controlled rollout, and human label review remain pending Phase 7. Offline and
+shadow green checks authorize no product activation.
 
 Additional tests: `comparison.spec.ts` verifies hand-computable confusion and
 paired denominators, partial provider failures, missing usage and uncertainty;

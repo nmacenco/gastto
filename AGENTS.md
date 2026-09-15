@@ -27,24 +27,32 @@ pnpm db:studio        # Open Drizzle Studio
 # Codebase Knowledge Graph (codebase-memory-mcp)
 
 This project uses codebase-memory-mcp to maintain a knowledge graph of the codebase.
-ALWAYS prefer MCP graph tools over grep/glob/file-search for code discovery.
+Use it for structural discovery and relationships. If the exact path is already known,
+read the source directly.
 
-## Priority Order
-1. `search_graph` — find functions, classes, routes, variables by pattern
-2. `trace_path` — trace who calls a function or what it calls
-3. `get_code_snippet` — read specific function/class source code
-4. `query_graph` — run Cypher queries for complex patterns
-5. `get_architecture` — high-level project summary
+## Token-efficient decision order
 
-## When to fall back to grep/glob
-- Searching for string literals, error messages, config values
-- Searching non-code files (Dockerfiles, shell scripts, configs)
-- When MCP tools return insufficient results
+1. Known path → direct read of the relevant range.
+2. Unknown symbol → narrow `search_graph` (`limit: 5-10`; add path/label filters).
+3. Callers, callees, or impact → `trace_path` after resolving the exact symbol; start
+   with one direction and `depth: 1-2`.
+4. Exact implementation → `get_code_snippet`; omit neighbors unless needed.
+5. Complex relationships → bounded `query_graph`.
+6. Broad architecture request → scoped `get_architecture`.
 
-## Examples
-- Find a handler: `search_graph(name_pattern=".*OrderHandler.*")`
-- Who calls it: `trace_path(function_name="OrderHandler", direction="inbound")`
-- Read source: `get_code_snippet(qualified_name="pkg/orders.OrderHandler")`
+Use `rg`/direct reads for literals, errors, config, non-code files, docs, known tests,
+insufficient graph results, and reported coverage gaps.
+
+## Default evidence level
+
+- Default to **Scout**: small positive lookup, no full pagination.
+- Use **Verify** for material cross-file claims; **Auditor** only when exhaustive analysis
+  is requested.
+- Run `list_projects`/`index_status` only before the session's first graph query, after
+  compaction, or when freshness matters.
+- Run `check_index_coverage` once for graph-discovered material code paths. Add scopes
+  only for negative/exhaustive claims; inspect any reported gaps directly.
+- Source is authoritative. Do not fetch the same code through both graph and direct reads.
 
 # Architecture
 

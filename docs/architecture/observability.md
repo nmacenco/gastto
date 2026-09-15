@@ -77,3 +77,20 @@ const mockLogger = {} as unknown as Logger;
 ```
 
 Verify logger calls in worker/use case tests by asserting on the mock's method calls.
+
+## Semantic routing observations
+
+Runtime shadow processing emits one schema-validated
+`semantic_router_observation` for each state-bearing processing attempt. The event
+contains only mode, state/substep, deterministic decision kind, proposed action,
+policy outcome, provider/model, prompt/contract/policy versions, bounded latency,
+and a stable error code. It excludes raw text, full state payloads, option and
+operation identifiers, revisions, credentials, provider bodies, hidden reasoning,
+and raw user or external-message identifiers.
+
+The allowed outcomes distinguish shadow agreement, forbidden actions, router
+failure, invalid/stale context, deterministic bypass, sampling/disabled state, and
+the fail-closed `enabled_capability_unavailable` guard. A malformed provider result
+is reduced to `INVALID_OUTPUT` before metadata access. If the telemetry sink throws,
+the adapter attempts a metadata-only `SEMANTIC_TELEMETRY_FAILED` error record and
+never propagates the failure into deterministic message processing.

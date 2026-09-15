@@ -128,6 +128,21 @@ The `state_payload` column in the `conversation_states` table is a `JSONB` blob 
 
 Save, retry, and undo execution may additionally carry `executionClaim: { claimId, kind, operationId, sourceMessageId, status, target }`. The immutable target binds the external effect. `in_flight` and `outcome_unknown` claims block unrelated transitions and are never released or replayed automatically after lease expiry or restart. Append/delete transport failures after the mutation request is sent, provider 5xx responses, and local finalization failures after remote success retain `outcome_unknown`; failures proven to occur before the mutation may clear or enter the existing explicit retry flow.
 
+## Semantic observation by state
+
+Semantic routing does not add a state or transition. Runtime projection supports
+only the state/substep pairs enumerated by `semantic-policy-v1`; unsupported states,
+unknown substeps, malformed payloads, expired snapshots, and unresolved financial
+claims produce metadata-only failure/stale observations. Projection allowlists the
+current question, missing amount/currency fields, bounded expense summary, and
+displayed option positions/labels. It never exposes the full `state_payload`,
+operation bindings, claims, revisions, or provider identifiers.
+
+The FSM remains authoritative in every mode delivered by this phase. `shadow`
+records a proposal and executes the deterministic handler. `off` skips the model.
+`enabled` records `ENABLED_CAPABILITY_UNAVAILABLE` and also executes the
+deterministic handler until later phases add a separately evaluated dispatcher.
+
 ---
 
 ## Timeouts
