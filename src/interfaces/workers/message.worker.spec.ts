@@ -74,6 +74,7 @@ const mockUndoLastExpenseExecute = vi.fn();
 const mockRetryExpenseSaveExecute = vi.fn();
 const mockStartSpreadsheetReconfigurationExecute = vi.fn();
 const mockObserveSemanticRoutingExecute = vi.fn();
+const mockDispatchExpenseSemanticActionExecute = vi.fn();
 const mockSendGuidanceExecute = vi.fn();
 const mockDeterministicRoutingDecide = vi.fn();
 
@@ -117,6 +118,9 @@ function buildMockDeps(): MessageWorkerDeps {
     observeSemanticRouting: {
       execute: mockObserveSemanticRoutingExecute,
     } as unknown as MessageWorkerDeps['observeSemanticRouting'],
+    dispatchExpenseSemanticAction: {
+      execute: mockDispatchExpenseSemanticActionExecute,
+    } as unknown as MessageWorkerDeps['dispatchExpenseSemanticAction'],
     sendGuidance: {
       execute: mockSendGuidanceExecute,
     } as unknown as MessageWorkerDeps['sendGuidance'],
@@ -357,7 +361,14 @@ describe('processMessageJob', () => {
       },
     });
     mockRetryExpenseSaveExecute.mockResolvedValue({ status: 'handled' });
-    mockObserveSemanticRoutingExecute.mockResolvedValue(undefined);
+    mockObserveSemanticRoutingExecute.mockResolvedValue({
+      status: 'deterministic',
+      reason: 'state_off',
+    });
+    mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+      status: 'clarification_required',
+      reason: 'unsupported_action',
+    });
     mockSendGuidanceExecute.mockResolvedValue(undefined);
     mockDeterministicRoutingDecide.mockReturnValue({ kind: 'fsm_handler' });
   });
@@ -418,6 +429,73 @@ describe('processMessageJob', () => {
   );
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
+    it('dispatches one enabled registration with the original message and presents review only', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState();
+      const rawMessage =
+        'Fecha: 11 sept 2026, 21:09\nComercio: Mercadona\nImporte: 16,55\u00a0€\nTarjeta: CREDITO SANTANDER\nNombre: Mercadona\nTransacción: Mercadona';
+      const reviewPayload = buildReviewStatePayload({
+        rawMessage,
+        extracted: {
+          monto: 16.55,
+          moneda: 'EUR',
+          categoriaRaw: 'Mercadona',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-09-11',
+          medioPago: 'CREDITO SANTANDER',
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+        resolvedDate: '2026-09-11',
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'register_expense' },
+        expected: { revision: '0', currentState: 'IDLE', expiry: 'unexpired' },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: reviewPayload,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+
+      expect(mockObserveSemanticRoutingExecute).toHaveBeenCalledOnce();
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawMessage,
+          conversationState,
+          decision: { action: 'register_expense' },
+        }),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(String(mockSendMessage.mock.calls[0]?.[1])).toContain('16.55 EUR');
+      expect(String(mockSendMessage.mock.calls[0]?.[1])).not.toContain('Gasto guardado');
+    });
+
+    it('returns controlled guidance for an enabled router failure without extraction or state effects', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'clarification',
+        reason: 'unsupported_action',
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockDispatchExpenseSemanticActionExecute).not.toHaveBeenCalled();
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.semanticExpenseGuidance('unsupported_action'),
+      );
+    });
+
     it('observes a lexically rejected bank notification and preserves deterministic guidance', async () => {
       const deps = buildMockDeps();
       const conversationState = buildConversationState();

@@ -64,6 +64,7 @@ function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
     deterministicRoutingPolicy: {} as Dependencies['deterministicRoutingPolicy'],
     semanticRouter: null,
     observeSemanticRouting: {} as Dependencies['observeSemanticRouting'],
+    dispatchExpenseSemanticAction: {} as Dependencies['dispatchExpenseSemanticAction'],
     messageQueue: {} as Dependencies['messageQueue'],
     incomingMessageQueue: {} as Dependencies['incomingMessageQueue'],
     reminderQueue: {} as Dependencies['reminderQueue'],

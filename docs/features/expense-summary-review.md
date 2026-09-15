@@ -23,6 +23,7 @@ After the user describes an expense in natural language, the system interprets t
   - First expiry: invalidates the previous binding, commits the one-time grace TTL, sends the queue-aware reminder, and presents a newly bound summary.
   - Second expiry: transitions to `IDLE` and sends the cancellation notice via `notifyCancellation()`.
 - All other expired states keep the existing generic timeout message.
+- Enabled semantic registration from `IDLE` or `EXPENSE_RECEIVING` reuses the same `RegisterExpenseUseCase.interpret` and summary presenter path. It can reach `EXPENSE_REVIEW`, including zero/high-amount presentation guards, but cannot invoke save or send a saved confirmation.
 
 ## Behavior (Implemented)
 

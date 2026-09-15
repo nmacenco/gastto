@@ -138,10 +138,14 @@ current question, missing amount/currency fields, bounded expense summary, and
 displayed option positions/labels. It never exposes the full `state_payload`,
 operation bindings, claims, revisions, or provider identifiers.
 
-The FSM remains authoritative in every mode delivered by this phase. `shadow`
-records a proposal and executes the deterministic handler. `off` skips the model.
-`enabled` records `ENABLED_CAPABILITY_UNAVAILABLE` and also executes the
-deterministic handler until later phases add a separately evaluated dispatcher.
+The FSM remains authoritative in every mode. `shadow` records a proposal and
+executes the deterministic handler. `off` skips the model. `enabled` may execute
+only a validated `register_expense` proposal in `IDLE` or `EXPENSE_RECEIVING`.
+The typed dispatcher revalidates revision, state, expiry, execution ownership, and
+the absence of unresolved financial claims before invoking interpretation. Its only
+possible state destinations are the existing `EXPENSE_REVIEW` and
+`EXPENSE_CLARIFYING` transitions; it has no save, retry, delete, queue, or arbitrary
+transition authority. Other enabled states/actions fail closed.
 
 ---
 

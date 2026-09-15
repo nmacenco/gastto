@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone offline/live proposal evaluator plus the non-authoritative runtime shadow observation contract, frozen corpus evidence, privacy limits, and activation boundaries.
+- [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone offline/live proposal evaluator plus runtime off/shadow resolution and enabled idle/receiving expense recognition, frozen corpus evidence, privacy limits, and activation boundaries.
 
 - [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, encrypted token lifecycle, and transparent Google access-token refresh (MVP), with OneDrive planned for the future.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, search, and selection for spreadsheet records.
@@ -16,7 +16,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message correction for legacy and optional subcategory mappings, preserving the detected header row for category detection.
 - [`category-confirmation.md`](./category-confirmation.md) — Confirms flat or linked category vocabulary only after transactional aggregate persistence, preserving legacy payloads and category-only row layouts.
 - [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, manages, classifies, reviews, saves, retries, and undoes parent-scoped subcategories with stable references, immutable snapshots, and legacy compatibility.
-- [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation, sender-bound compact callbacks, channel timestamps, and command-aware routing.
+- [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation, sender-bound compact callbacks, command-aware routing, and snapshot-bound enabled expense recognition.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow for missing or ambiguous expense amount/currency data.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with persisted presentation identity and version-bound confirm / correct / cancel actions.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Text cancellation plus review-bound callbacks that cannot cancel a replacement draft.

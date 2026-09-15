@@ -55,6 +55,18 @@ export const expenseCopies = {
   fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
   expenseRegistrationUnavailable: () =>
     'El registro de gastos no está disponible en este momento. Volvé a intentarlo más tarde.',
+  semanticExpenseGuidance: (
+    reason:
+      | 'ambiguous_intent'
+      | 'mixed_intents'
+      | 'unsupported_action'
+      | 'stale_context'
+      | 'registration_unavailable'
+      | 'dispatch_failed',
+  ) =>
+    reason === 'ambiguous_intent' || reason === 'mixed_intents'
+      ? 'No me quedó claro qué gasto querés registrar. Indicá un solo gasto con monto y moneda.'
+      : 'No pude procesar ese gasto de forma segura. Indicá el gasto con monto y moneda para intentarlo de nuevo.',
   undoDeleted: (concept: string, amount: number, currency: string) =>
     `Listo, se eliminó el último registro (${concept.slice(0, 80)}, ${amount} ${currency}).`,
   undoNotFound: () => 'No encontré un registro reciente para deshacer.',

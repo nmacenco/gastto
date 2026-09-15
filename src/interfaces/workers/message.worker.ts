@@ -7,6 +7,7 @@ import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
+import type { DispatchExpenseSemanticAction } from '../../application/use-cases/expense/DispatchExpenseSemanticAction';
 import type { CorrectExpenseUseCase } from '../../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type {
@@ -109,6 +110,7 @@ export interface MessageWorkerDeps {
   classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent;
   deterministicRoutingPolicy: DeterministicRoutingPolicy;
   observeSemanticRouting: ObserveSemanticRouting;
+  dispatchExpenseSemanticAction: DispatchExpenseSemanticAction;
   sendGuidance: SendExpenseGuidance;
   correctExpense: CorrectExpenseUseCase | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
@@ -221,9 +223,10 @@ export async function processMessageJob(
     // re-send the same messages on every attempt (ADR-005).
     try {
       const route = async () => {
+        let semanticTurn: Awaited<ReturnType<ObserveSemanticRouting['execute']>> | undefined;
         if (conversationState) {
           try {
-            await opts.observeSemanticRouting.execute({
+            semanticTurn = await opts.observeSemanticRouting.execute({
               userId,
               externalMessageId: data.externalMessageId,
               rawMessage: data.rawMessage,
@@ -239,6 +242,55 @@ export async function processMessageJob(
           }
         }
         opts.transitionState.assertExecutionIsValid(userId);
+        if (semanticTurn?.status === 'clarification') {
+          await messaging.sendMessage(
+            externalId,
+            expenseCopies.semanticExpenseGuidance(semanticTurn.reason),
+          );
+          return;
+        }
+        if (semanticTurn?.status === 'expense_action' && conversationState !== null) {
+          const outcome = await opts.dispatchExpenseSemanticAction.execute({
+            userId,
+            externalId,
+            externalMessageId: data.externalMessageId,
+            receivedAt: data.receivedAt,
+            channel,
+            rawMessage: data.rawMessage,
+            conversationState,
+            expected: semanticTurn.expected,
+            decision: semanticTurn.decision,
+          });
+          opts.transitionState.assertExecutionIsValid(userId);
+          if (outcome.status === 'missing_data') {
+            await messaging.sendMessage(
+              externalId,
+              outcome.field === 'monto'
+                ? expenseCopies.clarificationAmount()
+                : expenseCopies.clarificationCurrency(),
+            );
+          } else if (outcome.status === 'review_required') {
+            if (outcome.payload.awaitingZeroConfirmation === true) {
+              await presentZeroAmountConfirmation(
+                userId,
+                outcome.payload,
+                messaging,
+                externalId,
+                opts,
+              );
+            } else {
+              await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
+            }
+          } else if (outcome.status === 'queue_full') {
+            await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
+          } else if (outcome.status === 'clarification_required') {
+            await messaging.sendMessage(
+              externalId,
+              expenseCopies.semanticExpenseGuidance(outcome.reason),
+            );
+          }
+          return;
+        }
         return deterministicDecision.kind === 'expense_guidance'
           ? opts.sendGuidance.execute(externalId)
           : routeByState(currentState, data, conversationState, opts, messaging);

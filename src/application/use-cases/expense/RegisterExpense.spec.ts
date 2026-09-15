@@ -928,6 +928,43 @@ describe('RegisterExpenseUseCase', () => {
       });
     });
 
+    it.each([
+      'Fecha: 11 sept 2026, 21:09\nComercio: Mercadona\nImporte: 16,55\u00a0€\nTarjeta: CREDITO SANTANDER\nNombre: Mercadona\nTransacción: Mercadona',
+      'Fecha: 11 sept 2026, 21:09\r\nComercio: Mercadona\r\nImporte: 16,55 €\r\nTarjeta: CREDITO SANTANDER\r\nNombre: Mercadona\r\nTransacción: Mercadona',
+      'importe: 16,55 €\ncomercio: mercadona\nfecha: 11 sept 2026, 21:09\ntarjeta: credito santander',
+    ])('preserves and reviews a canonical Mercadona notification variant', async (rawMessage) => {
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({
+          monto: 16.55,
+          moneda: 'EUR',
+          categoriaRaw: 'Mercadona',
+          fechaRaw: '2026-09-11',
+          medioPago: 'CREDITO SANTANDER',
+        }),
+      );
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage }));
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
+      expect(mockLLMExtractExpense).toHaveBeenCalledWith(rawMessage, expect.any(Object));
+      expect(result.payload).toMatchObject({
+        rawMessage,
+        resolvedDate: '2026-09-11',
+        extracted: {
+          monto: 16.55,
+          moneda: 'EUR',
+          categoriaRaw: 'Mercadona',
+          fechaRaw: '2026-09-11',
+          medioPago: 'CREDITO SANTANDER',
+        },
+      });
+      expect(result.payload.resolvedDate).not.toContain('T');
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+    });
+
     it('propagates a confirmed classification as categoryStatus confirmed', async () => {
       mockClassifierExecute.mockResolvedValue(
         HierarchicalClassificationResult.create(

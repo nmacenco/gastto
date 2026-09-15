@@ -58,6 +58,7 @@ import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProces
 
 // Application
 import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
 import { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
@@ -470,14 +471,15 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     new ClassifyFreeTextExpenseIntent(),
   );
   const semanticRouter = createRuntimeSemanticRouter(env);
+  const semanticSnapshotValidator = new ValidateConversationSnapshot(
+    conversationRepo,
+    (userId) => transitionState.currentState(userId) !== null,
+  );
   const observeSemanticRouting = new ObserveSemanticRouting({
     policy: semanticRoutingPolicy,
     projector: new ProjectSemanticRouterInput(),
     router: semanticRouter,
-    snapshotValidator: new ValidateConversationSnapshot(
-      conversationRepo,
-      (userId) => transitionState.currentState(userId) !== null,
-    ),
+    snapshotValidator: semanticSnapshotValidator,
     telemetry: new PinoSemanticRoutingTelemetry(infra.rootLogger),
   });
 
@@ -577,6 +579,10 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
   );
   const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
+  const dispatchExpenseSemanticAction = new DispatchExpenseSemanticAction({
+    snapshotValidator: semanticSnapshotValidator,
+    registerExpense,
+  });
 
   const generateExpenseSummary = new GenerateExpenseSummaryUseCase(
     expenseRecordRepo,
@@ -696,6 +702,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     deterministicRoutingPolicy,
     semanticRouter,
     observeSemanticRouting,
+    dispatchExpenseSemanticAction,
     messageQueue,
     incomingMessageQueue,
     reminderQueue,

@@ -51,7 +51,7 @@ describe('Sha256SemanticRoutingPolicy', () => {
     }
   });
 
-  it('fails closed for unavailable providers, enabled mode, and unsupported substeps', () => {
+  it('fails closed for unavailable providers and unsupported substeps, and enables recognition', () => {
     const policy = new Sha256SemanticRoutingPolicy(config);
     const base = {
       userId: 'user-1',
@@ -62,14 +62,17 @@ describe('Sha256SemanticRoutingPolicy', () => {
     };
     expect(policy.resolve({ ...base, state: 'IDLE', providerAvailable: false })).toEqual({
       mode: 'unavailable',
+      requestedMode: 'shadow',
       code: 'PROVIDER_UNAVAILABLE',
     });
-    expect(policy.resolve({ ...base, state: 'EXPENSE_RECEIVING' })).toEqual({
-      mode: 'unavailable',
-      code: 'ENABLED_CAPABILITY_UNAVAILABLE',
-    });
+    const enabled = policy.resolve({ ...base, state: 'EXPENSE_RECEIVING' });
+    expect(enabled.mode).toBe('enabled');
+    if (enabled.mode !== 'enabled') throw new Error('Expected enabled semantic routing');
+    expect(enabled.cohortBucket).toBeTypeOf('number');
+    expect(enabled.sampleBucket).toBeTypeOf('number');
     expect(policy.resolve({ ...base, state: 'IDLE', substep: 'unknown' })).toEqual({
       mode: 'unavailable',
+      requestedMode: 'shadow',
       code: 'UNSUPPORTED_CONFIGURATION',
     });
   });

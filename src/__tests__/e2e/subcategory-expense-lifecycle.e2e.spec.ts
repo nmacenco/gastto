@@ -288,6 +288,7 @@ function createHarness(options: HarnessOptions) {
       decide: () => ({ kind: 'fsm_handler' }),
     },
     observeSemanticRouting: { execute: vi.fn().mockResolvedValue(undefined) } as never,
+    dispatchExpenseSemanticAction: { execute: vi.fn() } as never,
     sendGuidance: { execute: vi.fn().mockResolvedValue(undefined) } as never,
     correctExpense: null,
     generateExpenseSummary: null,

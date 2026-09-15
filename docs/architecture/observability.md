@@ -88,9 +88,12 @@ and a stable error code. It excludes raw text, full state payloads, option and
 operation identifiers, revisions, credentials, provider bodies, hidden reasoning,
 and raw user or external-message identifiers.
 
-The allowed outcomes distinguish shadow agreement, forbidden actions, router
-failure, invalid/stale context, deterministic bypass, sampling/disabled state, and
-the fail-closed `enabled_capability_unavailable` guard. A malformed provider result
-is reduced to `INVALID_OUTPUT` before metadata access. If the telemetry sink throws,
-the adapter attempts a metadata-only `SEMANTIC_TELEMETRY_FAILED` error record and
-never propagates the failure into deterministic message processing.
+The allowed outcomes distinguish shadow agreement, `allowed_enabled`, forbidden
+actions, router failure, invalid/stale context, deterministic bypass,
+sampling/disabled state, and the fail-closed `enabled_capability_unavailable`
+guard. `dispatch_rejected` and `dispatch_failed` are reserved schema values for
+the integrated dispatch instrumentation completed in the expense-flow hardening
+phase; current dispatcher outcomes remain typed and bounded. A malformed provider
+result is reduced to `INVALID_OUTPUT` before metadata access. If the telemetry sink
+throws, the adapter attempts a metadata-only `SEMANTIC_TELEMETRY_FAILED` error
+record and never propagates the failure into deterministic or enabled processing.

@@ -88,6 +88,7 @@ export async function registerWorkers(
     classifyFreeTextExpenseIntent: new ClassifyFreeTextExpenseIntent(),
     deterministicRoutingPolicy: deps.deterministicRoutingPolicy,
     observeSemanticRouting: deps.observeSemanticRouting,
+    dispatchExpenseSemanticAction: deps.dispatchExpenseSemanticAction,
     sendGuidance: deps.telegram.sendExpenseGuidance,
     correctExpense: deps.correctExpense,
     generateExpenseSummary: deps.generateExpenseSummary,

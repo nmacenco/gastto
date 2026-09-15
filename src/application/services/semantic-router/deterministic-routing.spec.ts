@@ -9,7 +9,7 @@ describe('CurrentDeterministicRoutingPolicy', () => {
     ['Almuerzo 12 euros', 'fsm_handler'],
     ['hola, cómo estás', 'expense_guidance'],
     ['a'.repeat(501), 'fsm_handler'],
-    ['cancelar', 'fsm_handler'],
+    ['cancelar', 'sensitive_command'],
   ])('preserves IDLE lexical routing for %s', (rawMessage, kind) => {
     expect(policy.decide({ state: 'IDLE', rawMessage, hasCallback: false }).kind).toBe(kind);
   });
@@ -21,6 +21,10 @@ describe('CurrentDeterministicRoutingPolicy', () => {
     expect(policy.decide({ state: 'IDLE', rawMessage: 'deshacer', hasCallback: false })).toEqual({
       kind: 'sensitive_command',
       command: 'undo',
+    });
+    expect(policy.decide({ state: 'IDLE', rawMessage: 'cancelar', hasCallback: false })).toEqual({
+      kind: 'sensitive_command',
+      command: 'cancel',
     });
     expect(
       policy.decide({ state: 'EXPENSE_REVIEW', rawMessage: 'sí', hasCallback: false }),

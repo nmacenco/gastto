@@ -1,6 +1,10 @@
-// LAYER: Application. Shadow-only semantic orchestration with no business-effect ports.
+// LAYER: Application. Resolves one constrained semantic turn without business-effect ports.
 import { z } from 'zod';
-import { FSM_STATES, type ConversationState } from '../../../domain/entities/ConversationState';
+import {
+  FSM_STATES,
+  type ConversationState,
+  type ConversationStatePrecondition,
+} from '../../../domain/entities/ConversationState';
 import type {
   SemanticRouterErrorCode,
   SemanticRouterPort,
@@ -14,6 +18,11 @@ import {
   SemanticRouterResultSchema,
 } from './contracts';
 import type { DeterministicRoutingDecision } from './deterministic-routing';
+import {
+  isExpenseCapabilityAllowed,
+  isExpenseSemanticDecision,
+  type ExpenseSemanticDecision,
+} from './expense-capabilities';
 import { POLICY_VERSION } from './policy';
 import type { ProjectSemanticRouterInput } from './ProjectSemanticRouterInput';
 import type { SemanticRoutingMode, SemanticRoutingPolicy } from './runtime-policy';
@@ -28,7 +37,39 @@ export type SemanticPolicyOutcome =
   | 'deterministic_bypass'
   | 'not_sampled'
   | 'disabled'
-  | 'enabled_capability_unavailable';
+  | 'enabled_capability_unavailable'
+  | 'allowed_enabled'
+  | 'dispatch_rejected'
+  | 'dispatch_failed';
+
+export type SemanticFallbackReason =
+  | 'state_off'
+  | 'outside_cohort'
+  | 'not_sampled'
+  | 'deterministic_bypass'
+  | 'shadow_only';
+
+export type SemanticRoutingTurnOutcome =
+  | { readonly status: 'deterministic'; readonly reason: SemanticFallbackReason }
+  | {
+      readonly status: 'expense_action';
+      readonly decision: ExpenseSemanticDecision;
+      readonly expected: ConversationStatePrecondition;
+    }
+  | {
+      readonly status: 'clarification';
+      readonly reason: 'ambiguous_intent' | 'mixed_intents' | 'unsupported_action';
+    };
+
+export interface ResolveSemanticRoutingTurn {
+  execute(input: {
+    readonly userId: string;
+    readonly externalMessageId: string;
+    readonly rawMessage: string;
+    readonly conversationState: ConversationState;
+    readonly deterministicDecision: DeterministicRoutingDecision;
+  }): Promise<SemanticRoutingTurnOutcome>;
+}
 
 export interface SemanticRoutingObservation {
   readonly event: 'semantic_router_observation';
@@ -76,6 +117,9 @@ export const SemanticRoutingObservationSchema = z
       'not_sampled',
       'disabled',
       'enabled_capability_unavailable',
+      'allowed_enabled',
+      'dispatch_rejected',
+      'dispatch_failed',
     ]),
     provider: z
       .string()
@@ -110,7 +154,7 @@ interface ObserveSemanticRoutingDeps {
   readonly telemetry: SemanticRoutingTelemetryPort;
 }
 
-export class ObserveSemanticRouting {
+export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
   constructor(private readonly deps: ObserveSemanticRoutingDeps) {}
 
   async execute(input: {
@@ -119,7 +163,7 @@ export class ObserveSemanticRouting {
     readonly rawMessage: string;
     readonly conversationState: ConversationState;
     readonly deterministicDecision: DeterministicRoutingDecision;
-  }): Promise<SemanticRoutingObservation> {
+  }): Promise<SemanticRoutingTurnOutcome> {
     const messageKind =
       input.deterministicDecision.kind === 'typed_callback'
         ? 'typed_callback'
@@ -151,7 +195,7 @@ export class ObserveSemanticRouting {
     };
 
     if (resolution.mode === 'off') {
-      return this.record({
+      this.record({
         ...base,
         mode: 'off',
         policyOutcome:
@@ -161,6 +205,7 @@ export class ObserveSemanticRouting {
               ? 'not_sampled'
               : 'disabled',
       });
+      return { status: 'deterministic', reason: resolution.reason };
     }
     if (resolution.mode === 'unavailable') {
       if (resolution.code === 'UNSUPPORTED_CONFIGURATION') {
@@ -169,23 +214,29 @@ export class ObserveSemanticRouting {
           conversationState: input.conversationState,
         });
         if (projection.status === 'unsupported') {
-          return this.record({
+          this.record({
             ...base,
-            mode: 'shadow',
+            mode: resolution.requestedMode,
             policyOutcome: 'invalid_context',
             errorCode: 'INVALID_STATE_CONTEXT',
           });
+          return resolution.requestedMode === 'enabled'
+            ? { status: 'clarification', reason: 'unsupported_action' }
+            : { status: 'deterministic', reason: 'shadow_only' };
         }
       }
-      return this.record({
+      this.record({
         ...base,
-        mode: resolution.code === 'ENABLED_CAPABILITY_UNAVAILABLE' ? 'enabled' : 'shadow',
+        mode: resolution.requestedMode,
         policyOutcome:
           resolution.code === 'ENABLED_CAPABILITY_UNAVAILABLE'
             ? 'enabled_capability_unavailable'
             : 'router_failure',
         errorCode: resolution.code === 'PROVIDER_UNAVAILABLE' ? 'PROVIDER_ERROR' : resolution.code,
       });
+      return resolution.requestedMode === 'enabled'
+        ? { status: 'clarification', reason: 'unsupported_action' }
+        : { status: 'deterministic', reason: 'shadow_only' };
     }
 
     const projection = this.deps.projector.execute({
@@ -193,12 +244,15 @@ export class ObserveSemanticRouting {
       conversationState: input.conversationState,
     });
     if (projection.status === 'unsupported') {
-      return this.record({
+      this.record({
         ...base,
         mode: resolution.mode,
         policyOutcome: 'invalid_context',
         errorCode: 'INVALID_STATE_CONTEXT',
       });
+      return resolution.mode === 'enabled'
+        ? { status: 'clarification', reason: 'unsupported_action' }
+        : { status: 'deterministic', reason: 'shadow_only' };
     }
 
     const startedAt = performance.now();
@@ -207,31 +261,40 @@ export class ObserveSemanticRouting {
       result = await this.deps.router!.decide(projection.input);
     } catch {
       if (!(await this.snapshotIsCurrent(input))) {
-        return this.record({
+        this.record({
           ...base,
           mode: resolution.mode,
           policyOutcome: 'stale_context',
           latencyMs: performance.now() - startedAt,
           errorCode: 'STALE_CONTEXT',
         });
+        return resolution.mode === 'enabled'
+          ? { status: 'clarification', reason: 'unsupported_action' }
+          : { status: 'deterministic', reason: 'shadow_only' };
       }
-      return this.record({
+      this.record({
         ...base,
         mode: resolution.mode,
         policyOutcome: 'router_failure',
         latencyMs: performance.now() - startedAt,
         errorCode: 'PROVIDER_ERROR',
       });
+      return resolution.mode === 'enabled'
+        ? { status: 'clarification', reason: 'unsupported_action' }
+        : { status: 'deterministic', reason: 'shadow_only' };
     }
     const parsedResult = SemanticRouterResultSchema.safeParse(result);
     if (!parsedResult.success) {
-      return this.record({
+      this.record({
         ...base,
         mode: resolution.mode,
         policyOutcome: 'router_failure',
         latencyMs: performance.now() - startedAt,
         errorCode: 'INVALID_OUTPUT',
       });
+      return resolution.mode === 'enabled'
+        ? { status: 'clarification', reason: 'unsupported_action' }
+        : { status: 'deterministic', reason: 'shadow_only' };
     }
     result = parsedResult.data;
     const metadata = {
@@ -241,7 +304,7 @@ export class ObserveSemanticRouting {
       latencyMs: result.metadata.latencyMs,
     };
     if (!(await this.snapshotIsCurrent(input))) {
-      return this.record({
+      this.record({
         ...base,
         ...metadata,
         mode: resolution.mode,
@@ -249,25 +312,101 @@ export class ObserveSemanticRouting {
         policyOutcome: 'stale_context',
         errorCode: 'STALE_CONTEXT',
       });
+      return resolution.mode === 'enabled'
+        ? { status: 'clarification', reason: 'unsupported_action' }
+        : { status: 'deterministic', reason: 'shadow_only' };
     }
     const assessment = assessSemanticProposal(projection.input, result);
     if (assessment.status === 'router_failure') {
-      return this.record({
+      this.record({
         ...base,
         ...metadata,
         mode: resolution.mode,
         policyOutcome: 'router_failure',
         errorCode: assessment.code,
       });
+      return resolution.mode === 'enabled'
+        ? { status: 'clarification', reason: 'unsupported_action' }
+        : { status: 'deterministic', reason: 'shadow_only' };
     }
 
-    return this.record({
+    if (resolution.mode === 'shadow') {
+      this.record({
+        ...base,
+        ...metadata,
+        mode: 'shadow',
+        proposedAction: assessment.decision.action,
+        policyOutcome: assessment.status === 'allowed' ? 'allowed_shadow' : 'forbidden_action',
+      });
+      return { status: 'deterministic', reason: 'shadow_only' };
+    }
+
+    if (
+      assessment.status !== 'allowed' ||
+      !isExpenseSemanticDecision(assessment.decision) ||
+      !isExpenseCapabilityAllowed(input.conversationState.currentState, assessment.decision)
+    ) {
+      this.record({
+        ...base,
+        ...metadata,
+        mode: 'enabled',
+        proposedAction: assessment.decision.action,
+        policyOutcome:
+          assessment.status === 'forbidden_action'
+            ? 'forbidden_action'
+            : 'enabled_capability_unavailable',
+        errorCode:
+          assessment.status === 'forbidden_action' ? null : 'ENABLED_CAPABILITY_UNAVAILABLE',
+      });
+      return { status: 'clarification', reason: 'unsupported_action' };
+    }
+
+    if (assessment.decision.action === 'request_clarification') {
+      this.record({
+        ...base,
+        ...metadata,
+        mode: 'enabled',
+        proposedAction: assessment.decision.action,
+        policyOutcome: 'allowed_enabled',
+      });
+      return {
+        status: 'clarification',
+        reason:
+          assessment.decision.reason === 'ambiguous_intent' ||
+          assessment.decision.reason === 'mixed_intents'
+            ? assessment.decision.reason
+            : 'unsupported_action',
+      };
+    }
+
+    if (assessment.decision.action !== 'register_expense') {
+      this.record({
+        ...base,
+        ...metadata,
+        mode: 'enabled',
+        proposedAction: assessment.decision.action,
+        policyOutcome: 'enabled_capability_unavailable',
+        errorCode: 'ENABLED_CAPABILITY_UNAVAILABLE',
+      });
+      return { status: 'clarification', reason: 'unsupported_action' };
+    }
+
+    this.record({
       ...base,
       ...metadata,
-      mode: resolution.mode,
+      mode: 'enabled',
       proposedAction: assessment.decision.action,
-      policyOutcome: assessment.status === 'allowed' ? 'allowed_shadow' : 'forbidden_action',
+      policyOutcome: 'allowed_enabled',
     });
+    return {
+      status: 'expense_action',
+      decision: assessment.decision,
+      expected: {
+        revision: input.conversationState.revision,
+        currentState: input.conversationState.currentState,
+        expiry: 'unexpired',
+      },
+    };
   }
 
   private async snapshotIsCurrent(input: {

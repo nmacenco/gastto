@@ -40,6 +40,7 @@ import { SendImmediateAcknowledgement } from '../../src/application/use-cases/co
 import { RouteIncomingMessage } from '../../src/application/use-cases/conversation/RouteIncomingMessage';
 import { HandleUnsupportedMessage } from '../../src/application/use-cases/conversation/HandleUnsupportedMessage';
 import { ResolveUserIdentityUseCase } from '../../src/application/use-cases/user/ResolveUserIdentity';
+import { DispatchExpenseSemanticAction } from '../../src/application/use-cases/expense/DispatchExpenseSemanticAction';
 import { processIncomingMessageJob } from '../../src/interfaces/workers/incomingMessage.worker';
 import {
   processMessageJob,
@@ -178,20 +179,26 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router shadow pip
       snapshotValidator,
       telemetry,
     });
+    const registerExpenseInterpret = vi
+      .fn()
+      .mockResolvedValue({ status: 'needs_clarification', missingField: 'monto' });
+    const dispatchExpenseSemanticAction = new DispatchExpenseSemanticAction({
+      snapshotValidator,
+      registerExpense: { interpret: registerExpenseInterpret },
+    });
     const errors = vi.fn();
     const deps = {
       redis,
       logger: { error: errors },
       userProcessingLock: new RedisUserProcessingLock(redis),
       registerExpense: {
-        interpret: vi
-          .fn()
-          .mockResolvedValue({ status: 'needs_clarification', missingField: 'monto' }),
+        interpret: registerExpenseInterpret,
       },
       queuePendingExpense: { execute: vi.fn() },
       classifyFreeTextExpenseIntent: classifier,
       deterministicRoutingPolicy,
       observeSemanticRouting,
+      dispatchExpenseSemanticAction,
       sendGuidance: new SendExpenseGuidance(messaging),
       getConversationState,
       transitionState,
@@ -206,6 +213,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router shadow pip
       externalId,
       sendMessage,
       routerDecide,
+      registerExpenseInterpret,
       observations,
       errors,
       stateRepo,
@@ -489,18 +497,20 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router shadow pip
     ]);
   });
 
-  it('fails closed for enabled mode until a dispatcher exists', async () => {
+  it('dispatches enabled idle recognition through one router and one extraction boundary', async () => {
     const harness = await buildHarness({ mode: 'enabled' });
 
     await processMessageJob(job(harness), harness.deps);
 
-    expect(harness.routerDecide).not.toHaveBeenCalled();
+    expect(harness.routerDecide).toHaveBeenCalledOnce();
+    expect(harness.registerExpenseInterpret).toHaveBeenCalledOnce();
     expect(harness.sendMessage).toHaveBeenCalledOnce();
     expect(harness.observations).toEqual([
       expect.objectContaining({
         mode: 'enabled',
-        policyOutcome: 'enabled_capability_unavailable',
-        errorCode: 'ENABLED_CAPABILITY_UNAVAILABLE',
+        policyOutcome: 'allowed_enabled',
+        proposedAction: 'register_expense',
+        errorCode: null,
       }),
     ]);
   });

@@ -148,10 +148,11 @@ files or print key values to run evaluations.
 Runtime routing is independent from the extraction-provider preference and the
 standalone evaluator. All states, cohorting, and sampling default off. `shadow`
 may spend provider capacity but cannot change the deterministic route. `enabled`
-currently fails closed with `ENABLED_CAPABILITY_UNAVAILABLE`; a later phase must
-replace that guard explicitly for each evaluated state/action before semantic
-dispatch exists. Missing credentials or invalid/unsupported runtime settings make
-the provider unavailable without preventing deterministic processing.
+can execute only `register_expense` in `IDLE` and `EXPENSE_RECEIVING`; all other
+configured states/actions fail closed until their action-specific dispatchers are
+implemented. Missing credentials or invalid/unsupported enabled settings produce
+bounded guidance without extraction or mutation. Shadow provider failures retain
+the deterministic path.
 
 Rollback requires changing the affected state modes to `off`. Queue payloads do
 not carry a captured mode, so already queued jobs resolve the new setting after

@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import { allowedActionsFor } from './policy';
+import { isEnabledExpenseRecognitionState } from './expense-capabilities';
 
 export type SemanticRoutingMode = 'off' | 'shadow' | 'enabled';
 
@@ -30,6 +31,7 @@ export type SemanticRoutingResolution =
   | { readonly mode: 'enabled'; readonly cohortBucket: number; readonly sampleBucket: number }
   | {
       readonly mode: 'unavailable';
+      readonly requestedMode: 'shadow' | 'enabled';
       readonly code:
         | 'UNSUPPORTED_CONFIGURATION'
         | 'PROVIDER_UNAVAILABLE'
@@ -66,7 +68,11 @@ export class Sha256SemanticRoutingPolicy implements SemanticRoutingPolicy {
       return { mode: 'off', reason: 'deterministic_bypass' };
     }
     if (!allowedActionsFor(input.state, input.substep)) {
-      return { mode: 'unavailable', code: 'UNSUPPORTED_CONFIGURATION' };
+      return {
+        mode: 'unavailable',
+        requestedMode: configuredMode,
+        code: 'UNSUPPORTED_CONFIGURATION',
+      };
     }
 
     const cohortBucket = stableBucket(this.config.cohortSeed, input.userId);
@@ -77,9 +83,17 @@ export class Sha256SemanticRoutingPolicy implements SemanticRoutingPolicy {
     if (sampleBucket >= this.config.shadowSamplePercent) {
       return { mode: 'off', reason: 'not_sampled' };
     }
-    if (!input.providerAvailable) return { mode: 'unavailable', code: 'PROVIDER_UNAVAILABLE' };
+    if (!input.providerAvailable)
+      return { mode: 'unavailable', requestedMode: configuredMode, code: 'PROVIDER_UNAVAILABLE' };
     if (configuredMode === 'enabled') {
-      return { mode: 'unavailable', code: 'ENABLED_CAPABILITY_UNAVAILABLE' };
+      if (!isEnabledExpenseRecognitionState(input.state)) {
+        return {
+          mode: 'unavailable',
+          requestedMode: configuredMode,
+          code: 'ENABLED_CAPABILITY_UNAVAILABLE',
+        };
+      }
+      return { mode: 'enabled', cohortBucket, sampleBucket };
     }
     return { mode: 'shadow', cohortBucket, sampleBucket };
   }

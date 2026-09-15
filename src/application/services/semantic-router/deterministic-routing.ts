@@ -7,7 +7,10 @@ export type DeterministicRoutingDecision =
   | { readonly kind: 'fsm_handler' }
   | { readonly kind: 'expense_guidance' }
   | { readonly kind: 'typed_callback' }
-  | { readonly kind: 'sensitive_command'; readonly command: 'save' | 'retry' | 'undo' }
+  | {
+      readonly kind: 'sensitive_command';
+      readonly command: 'save' | 'retry' | 'undo' | 'cancel';
+    }
   | { readonly kind: 'unsupported' };
 
 export interface DeterministicRoutingPolicy {
@@ -29,6 +32,9 @@ export class CurrentDeterministicRoutingPolicy implements DeterministicRoutingPo
     if (input.hasCallback) return { kind: 'typed_callback' };
     if (input.state === 'IDLE' && isUndoIntent(input.rawMessage)) {
       return { kind: 'sensitive_command', command: 'undo' };
+    }
+    if (isCancelIntent(input.rawMessage)) {
+      return { kind: 'sensitive_command', command: 'cancel' };
     }
     if (input.state === 'EXPENSE_REVIEW' && isConfirmIntent(input.rawMessage)) {
       return { kind: 'sensitive_command', command: 'save' };

@@ -71,13 +71,58 @@ describe('ObserveSemanticRouting', () => {
       deterministicDecision: { kind: 'expense_guidance' },
     });
 
-    expect(result).toMatchObject({
-      policyOutcome: 'allowed_shadow',
-      deterministicDecision: 'expense_guidance',
-      proposedAction: 'register_expense',
-    });
+    expect(result).toEqual({ status: 'deterministic', reason: 'shadow_only' });
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policyOutcome: 'allowed_shadow',
+        deterministicDecision: 'expense_guidance',
+        proposedAction: 'register_expense',
+      }),
+    );
     expect(deps.router.decide).toHaveBeenCalledTimes(1);
-    expect(deps.telemetry.record).toHaveBeenCalledWith(result);
+  });
+
+  it('returns one validated enabled expense action bound to the captured snapshot', async () => {
+    const deps = buildDeps();
+    deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+
+    const result = await new ObserveSemanticRouting(deps).execute({
+      userId: 'user-1',
+      externalMessageId: 'message-1',
+      rawMessage: 'Mercadona 16,55 EUR',
+      conversationState: state,
+      deterministicDecision: { kind: 'expense_guidance' },
+    });
+
+    expect(result).toEqual({
+      status: 'expense_action',
+      decision: { action: 'register_expense' },
+      expected: { revision: '4', currentState: 'IDLE', expiry: 'unexpired' },
+    });
+    expect(deps.router.decide).toHaveBeenCalledOnce();
+    expect(deps.snapshotValidator.execute).toHaveBeenCalledOnce();
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'enabled', policyOutcome: 'allowed_enabled' }),
+    );
+  });
+
+  it('fails closed with controlled clarification when enabled output is stale', async () => {
+    const deps = buildDeps();
+    deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+    deps.snapshotValidator.execute.mockResolvedValue({ status: 'stale' });
+
+    const result = await new ObserveSemanticRouting(deps).execute({
+      userId: 'user-1',
+      externalMessageId: 'message-1',
+      rawMessage: 'Mercadona 16,55 EUR',
+      conversationState: state,
+      deterministicDecision: { kind: 'expense_guidance' },
+    });
+
+    expect(result).toEqual({ status: 'clarification', reason: 'unsupported_action' });
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({ policyOutcome: 'stale_context', errorCode: 'STALE_CONTEXT' }),
+    );
   });
 
   it.each([
@@ -98,7 +143,7 @@ describe('ObserveSemanticRouting', () => {
         conversationState: state,
         deterministicDecision: decision,
       });
-      expect(result.policyOutcome).toBe('deterministic_bypass');
+      expect(result).toEqual({ status: 'deterministic', reason: 'deterministic_bypass' });
       expect(deps.router.decide).not.toHaveBeenCalled();
     },
   );
@@ -113,7 +158,10 @@ describe('ObserveSemanticRouting', () => {
       conversationState: state,
       deterministicDecision: { kind: 'expense_guidance' },
     });
-    expect(result).toMatchObject({ policyOutcome: 'stale_context', errorCode: 'STALE_CONTEXT' });
+    expect(result).toEqual({ status: 'deterministic', reason: 'shadow_only' });
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({ policyOutcome: 'stale_context', errorCode: 'STALE_CONTEXT' }),
+    );
   });
 
   it('maps router failure without suppressing the caller', async () => {
@@ -126,7 +174,10 @@ describe('ObserveSemanticRouting', () => {
       conversationState: state,
       deterministicDecision: { kind: 'expense_guidance' },
     });
-    expect(result).toMatchObject({ policyOutcome: 'router_failure', errorCode: 'PROVIDER_ERROR' });
+    expect(result).toEqual({ status: 'deterministic', reason: 'shadow_only' });
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({ policyOutcome: 'router_failure', errorCode: 'PROVIDER_ERROR' }),
+    );
   });
 
   it('records malformed provider output as INVALID_OUTPUT without exposing its body', async () => {
@@ -145,7 +196,10 @@ describe('ObserveSemanticRouting', () => {
       deterministicDecision: { kind: 'expense_guidance' },
     });
 
-    expect(result).toMatchObject({ policyOutcome: 'router_failure', errorCode: 'INVALID_OUTPUT' });
+    expect(result).toEqual({ status: 'deterministic', reason: 'shadow_only' });
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({ policyOutcome: 'router_failure', errorCode: 'INVALID_OUTPUT' }),
+    );
     expect(deps.telemetry.record).toHaveBeenCalledOnce();
     expect(JSON.stringify(deps.telemetry.record.mock.calls)).not.toContain('providerBody');
   });
@@ -179,7 +233,10 @@ describe('ObserveSemanticRouting', () => {
       deterministicDecision: { kind: 'expense_guidance' },
     });
 
-    expect(result).toMatchObject({ policyOutcome: 'router_failure', errorCode: code });
+    expect(result).toEqual({ status: 'deterministic', reason: 'shadow_only' });
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({ policyOutcome: 'router_failure', errorCode: code }),
+    );
     expect(deps.snapshotValidator.execute).toHaveBeenCalledTimes(1);
     expect(deps.telemetry.record).toHaveBeenCalledOnce();
   });
@@ -208,7 +265,10 @@ describe('ObserveSemanticRouting', () => {
       deterministicDecision: { kind: 'fsm_handler' },
     });
 
-    expect(result.policyOutcome).toBe('forbidden_action');
+    expect(result).toEqual({ status: 'deterministic', reason: 'shadow_only' });
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({ policyOutcome: 'forbidden_action' }),
+    );
     expect(JSON.stringify(result)).not.toContain('user-private');
     expect(JSON.stringify(result)).not.toContain('message-private');
   });
@@ -231,7 +291,10 @@ describe('ObserveSemanticRouting', () => {
         deterministicDecision: { kind: 'fsm_handler' },
       });
 
-      expect(result.policyOutcome).toBe(outcome);
+      expect(result).toEqual({ status: 'deterministic', reason: resolution.reason });
+      expect(deps.telemetry.record).toHaveBeenCalledWith(
+        expect.objectContaining({ policyOutcome: outcome }),
+      );
       expect(execute).not.toHaveBeenCalled();
       expect(deps.router.decide).not.toHaveBeenCalled();
       expect(deps.telemetry.record).toHaveBeenCalledOnce();
@@ -254,10 +317,13 @@ describe('ObserveSemanticRouting', () => {
       deterministicDecision: { kind: 'fsm_handler' },
     });
 
-    expect(result).toMatchObject({
-      policyOutcome: 'invalid_context',
-      errorCode: 'INVALID_STATE_CONTEXT',
-    });
+    expect(result).toEqual({ status: 'deterministic', reason: 'shadow_only' });
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policyOutcome: 'invalid_context',
+        errorCode: 'INVALID_STATE_CONTEXT',
+      }),
+    );
     expect(deps.router.decide).not.toHaveBeenCalled();
     expect(deps.telemetry.record).toHaveBeenCalledOnce();
   });
@@ -274,7 +340,7 @@ describe('ObserveSemanticRouting', () => {
       },
       expiresAt: new Date('2099-01-01T00:00:00.000Z'),
     };
-    const result = await new ObserveSemanticRouting(deps).execute({
+    await new ObserveSemanticRouting(deps).execute({
       userId: 'user-1',
       externalMessageId: 'message-1',
       rawMessage: 'la primera',
@@ -283,6 +349,6 @@ describe('ObserveSemanticRouting', () => {
     });
 
     expect(deps.policy.resolve).toHaveBeenCalledWith(expect.objectContaining({ substep: 'idk' }));
-    expect(result.substep).toBe('idk');
+    expect(deps.telemetry.record).toHaveBeenCalledWith(expect.objectContaining({ substep: 'idk' }));
   });
 });

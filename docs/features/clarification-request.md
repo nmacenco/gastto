@@ -23,15 +23,18 @@ When a user sends an expense message that is incomplete or ambiguous, the system
   - For currency, it gathers the user's default currency and up to two recently used currencies, then presents concrete options.
   - For amount, it repeats the amount question.
   - The flow remains in `EXPENSE_CLARIFYING`; the partial context is preserved.
+- Enabled semantic registration from `IDLE` or `EXPENSE_RECEIVING` uses the existing interpretation boundary. Missing amount/currency therefore enters this same `EXPENSE_CLARIFYING` flow while preserving the original message exactly. Semantic completion of an already active clarification remains pending the next delivery.
 
 ## User-Facing Copies
 
-| Situation                            | Copy                                                               |
-| ------------------------------------ | ------------------------------------------------------------------ |
-| Missing amount                       | `"¿Cuánto gastaste?"`                                              |
-| Missing currency                     | `"¿En qué moneda fue ese gasto?"`                                  |
-| Invalid currency answer with options | `"¿El gasto fue en <options>?"`                                    |
-| Interruption by new expense          | `"El registro anterior fue cancelado. Procesando el nuevo gasto…"` |
+| Situation                            | Copy                                                                                                         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Missing amount                       | `"¿Cuánto gastaste?"`                                                                                        |
+| Missing currency                     | `"¿En qué moneda fue ese gasto?"`                                                                            |
+| Invalid currency answer with options | `"¿El gasto fue en <options>?"`                                                                              |
+| Interruption by new expense          | `"El registro anterior fue cancelado. Procesando el nuevo gasto…"`                                           |
+| Ambiguous/mixed enabled turn         | `"No me quedó claro qué gasto querés registrar. Indicá un solo gasto con monto y moneda."`                   |
+| Rejected/failed enabled turn         | `"No pude procesar ese gasto de forma segura. Indicá el gasto con monto y moneda para intentarlo de nuevo."` |
 
 ## API / Interface
 
