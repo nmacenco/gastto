@@ -73,6 +73,9 @@ const mockCancelExpenseRegistrationExecute = vi.fn();
 const mockUndoLastExpenseExecute = vi.fn();
 const mockRetryExpenseSaveExecute = vi.fn();
 const mockStartSpreadsheetReconfigurationExecute = vi.fn();
+const mockObserveSemanticRoutingExecute = vi.fn();
+const mockSendGuidanceExecute = vi.fn();
+const mockDeterministicRoutingDecide = vi.fn();
 
 vi.mock('bullmq', () => ({
   Worker: vi.fn().mockImplementation(() => {
@@ -108,6 +111,15 @@ function buildMockDeps(): MessageWorkerDeps {
     classifyFreeTextExpenseIntent: {
       execute: mockClassifyFreeTextExpenseIntentExecute,
     },
+    deterministicRoutingPolicy: {
+      decide: mockDeterministicRoutingDecide,
+    },
+    observeSemanticRouting: {
+      execute: mockObserveSemanticRoutingExecute,
+    } as unknown as MessageWorkerDeps['observeSemanticRouting'],
+    sendGuidance: {
+      execute: mockSendGuidanceExecute,
+    } as unknown as MessageWorkerDeps['sendGuidance'],
     correctExpense: {
       execute: mockCorrectExpenseExecute,
     } as unknown as MessageWorkerDeps['correctExpense'],
@@ -344,6 +356,9 @@ describe('processMessageJob', () => {
       },
     });
     mockRetryExpenseSaveExecute.mockResolvedValue({ status: 'handled' });
+    mockObserveSemanticRoutingExecute.mockResolvedValue(undefined);
+    mockSendGuidanceExecute.mockResolvedValue(undefined);
+    mockDeterministicRoutingDecide.mockReturnValue({ kind: 'fsm_handler' });
   });
 
   it('rejects malformed payloads before identity lookup or lock acquisition', async () => {
@@ -402,6 +417,64 @@ describe('processMessageJob', () => {
   );
 
   describe('IDLE / EXPENSE_RECEIVING state', () => {
+    it('observes a lexically rejected bank notification and preserves deterministic guidance', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState();
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockDeterministicRoutingDecide.mockReturnValue({ kind: 'expense_guidance' });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'El banco informa que tu saldo cambió' }),
+        deps,
+      );
+
+      expect(mockObserveSemanticRoutingExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawMessage: 'El banco informa que tu saldo cambió',
+          conversationState,
+          deterministicDecision: { kind: 'expense_guidance' },
+        }),
+      );
+      expect(mockSendGuidanceExecute).toHaveBeenCalledTimes(1);
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('runs deterministic guidance once when shadow observation fails unexpectedly', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      mockObserveSemanticRoutingExecute.mockRejectedValue(new Error('router failure'));
+      mockDeterministicRoutingDecide.mockReturnValue({ kind: 'expense_guidance' });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'El banco informa que tu saldo cambió' }),
+        deps,
+      );
+
+      expect(mockSendGuidanceExecute).toHaveBeenCalledTimes(1);
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { rawMessage: '', callbackData: { action: 'confirm' as const } },
+      { rawMessage: 'deshacer' },
+    ])('passes deterministic callback/command bypass to observation', async (jobOverride) => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      mockDeterministicRoutingDecide.mockReturnValue(
+        jobOverride.callbackData
+          ? { kind: 'typed_callback' }
+          : { kind: 'sensitive_command', command: 'undo' },
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, ...jobOverride }), deps);
+
+      const [observed] = mockObserveSemanticRoutingExecute.mock.calls[0] as [
+        { deterministicDecision: { kind: string } },
+      ];
+      expect(observed.deterministicDecision.kind).toBe(
+        jobOverride.callbackData ? 'typed_callback' : 'sensitive_command',
+      );
+    });
     it.each(['deshacer', 'UNDO', 'borrar el último'])(
       'routes normalized undo command %s without interpreting a new expense',
       async (rawMessage) => {

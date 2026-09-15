@@ -73,6 +73,10 @@ import type { ProcessMessageJobData } from '../application/ports/ProcessMessageJ
 import type { IncomingMessageJobData } from '../application/ports/IncomingMessageJob';
 import type { MessagingOutputPort } from '../application/ports/output/messaging.port';
 import type { OAuthAccessTokenProvider } from '../application/services/OAuthAccessTokenService';
+import type { SemanticRouterPort } from '../domain/ports/SemanticRouterPort';
+import type { Sha256SemanticRoutingPolicy } from '../application/services/semantic-router/runtime-policy';
+import type { CurrentDeterministicRoutingPolicy } from '../application/services/semantic-router/deterministic-routing';
+import type { ObserveSemanticRouting } from '../application/services/semantic-router/ObserveSemanticRouting';
 
 /** Drizzle database handle produced by `drizzle(sql)`. */
 export type DrizzleDatabase = ReturnType<typeof drizzle>;
@@ -169,6 +173,10 @@ export interface Dependencies {
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
   recoverCorruptedState: RecoverCorruptedState;
+  semanticRoutingPolicy: Sha256SemanticRoutingPolicy;
+  deterministicRoutingPolicy: CurrentDeterministicRoutingPolicy;
+  semanticRouter: SemanticRouterPort | null;
+  observeSemanticRouting: ObserveSemanticRouting;
 
   // Queues
   messageQueue: Queue<ProcessMessageJobData>;

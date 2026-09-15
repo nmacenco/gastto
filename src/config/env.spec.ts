@@ -28,7 +28,51 @@ describe('envSchema', () => {
       expect(result.data.NODE_ENV).toBe('development');
       expect(result.data.PORT).toBe(3000);
       expect(result.data.LOG_LEVEL).toBe('info');
+      expect(result.data.SEMANTIC_ROUTER_STATE_MODES).toEqual({});
+      expect(result.data.SEMANTIC_ROUTER_COHORT_PERCENT).toBe(0);
+      expect(result.data.SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT).toBe(0);
     }
+  });
+
+  it('parses strict semantic router runtime settings', () => {
+    const result = envSchema.safeParse({
+      ...validEnv,
+      SEMANTIC_ROUTER_STATE_MODES: 'IDLE=shadow,EXPENSE_RECEIVING=off',
+      SEMANTIC_ROUTER_COHORT_PERCENT: '25',
+      SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: '50',
+      SEMANTIC_ROUTER_COHORT_SEED: 'release-2026.09',
+      SEMANTIC_ROUTER_PROVIDER: 'openai',
+      SEMANTIC_ROUTER_MODEL: 'gpt-4o-2024-08-06',
+      SEMANTIC_ROUTER_TIMEOUT_MS: '25000',
+      SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: '512',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.SEMANTIC_ROUTER_STATE_MODES).toEqual({
+        IDLE: 'shadow',
+        EXPENSE_RECEIVING: 'off',
+      });
+      expect(result.data.SEMANTIC_ROUTER_COHORT_PERCENT).toBe(25);
+      expect(result.data.SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT).toBe(50);
+      expect(result.data.SEMANTIC_ROUTER_TIMEOUT_MS).toBe(25000);
+      expect(result.data.SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS).toBe(512);
+    }
+  });
+
+  it.each([
+    { SEMANTIC_ROUTER_STATE_MODES: 'UNKNOWN=shadow' },
+    { SEMANTIC_ROUTER_STATE_MODES: 'IDLE=shadow,IDLE=off' },
+    { SEMANTIC_ROUTER_STATE_MODES: 'IDLE=active' },
+    { SEMANTIC_ROUTER_COHORT_PERCENT: '101' },
+    { SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: '-1' },
+    { SEMANTIC_ROUTER_COHORT_SEED: 'contains spaces' },
+    { SEMANTIC_ROUTER_PROVIDER: 'anthropic' },
+    { SEMANTIC_ROUTER_MODEL: 'gpt-4o-mini' },
+    { SEMANTIC_ROUTER_TIMEOUT_MS: '30000' },
+    { SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: '63' },
+  ])('rejects invalid semantic router setting %#', (override) => {
+    expect(envSchema.safeParse({ ...validEnv, ...override }).success).toBe(false);
   });
 
   it('accepts missing truly optional variables', () => {

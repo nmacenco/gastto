@@ -18,6 +18,9 @@ import type { UndoLastExpenseUseCase } from '../../application/use-cases/expense
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { QueuePendingExpense } from '../../application/use-cases/expense/QueuePendingExpense';
 import type { ClassifyFreeTextExpenseIntent } from '../../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
+import type { SendExpenseGuidance } from '../../application/use-cases/conversation/SendExpenseGuidance';
+import type { ObserveSemanticRouting } from '../../application/services/semantic-router/ObserveSemanticRouting';
+import type { DeterministicRoutingPolicy } from '../../application/services/semantic-router/deterministic-routing';
 import type {
   ResolveExpenseReviewReplyOutcome,
   ResolveExpenseReviewReplyUseCase,
@@ -104,6 +107,9 @@ export interface MessageWorkerDeps {
   registerExpense: RegisterExpenseUseCase | null;
   queuePendingExpense: QueuePendingExpense;
   classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent;
+  deterministicRoutingPolicy: DeterministicRoutingPolicy;
+  observeSemanticRouting: ObserveSemanticRouting;
+  sendGuidance: SendExpenseGuidance;
   correctExpense: CorrectExpenseUseCase | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
@@ -203,13 +209,39 @@ export async function processMessageJob(
 
     const conversationState = await opts.getConversationState.execute({ userId });
     const currentState = conversationState?.currentState ?? 'IDLE';
+    const deterministicDecision = opts.deterministicRoutingPolicy.decide({
+      state: currentState,
+      rawMessage: data.rawMessage,
+      hasCallback: data.callbackData !== undefined,
+    });
+
+    if (conversationState) {
+      try {
+        await opts.observeSemanticRouting.execute({
+          userId,
+          externalMessageId: data.externalMessageId,
+          rawMessage: data.rawMessage,
+          conversationState,
+          deterministicDecision,
+        });
+      } catch {
+        opts.logger.error({
+          msg: 'Semantic shadow observation failed unexpectedly',
+          endpoint: 'processMessageJob',
+          code: 'SEMANTIC_OBSERVATION_FAILED',
+        });
+      }
+    }
 
     // Route according to FSM state. Known business errors are already turned
     // into user-facing messages by each use case; this try/catch only catches
     // unexpected throws so BullMQ does not retry side-effectful handlers and
     // re-send the same messages on every attempt (ADR-005).
     try {
-      const route = () => routeByState(currentState, data, conversationState, opts, messaging);
+      const route = () =>
+        deterministicDecision.kind === 'expense_guidance'
+          ? opts.sendGuidance.execute(externalId)
+          : routeByState(currentState, data, conversationState, opts, messaging);
       if (conversationState) {
         await opts.transitionState.runWithState(conversationState, route);
       } else {

@@ -47,7 +47,7 @@ Master checkboxes track planning requirements: checking one means the child plan
 | ----- | ------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1     | `semantic_router_evaluation`          | None                         | [Created](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md)                   | [Deliveries 1–3 verified](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md); live evidence and activation pending |
 | 2     | `semantic_router_confirmation_safety` | Phase 1 contracts            | [Created](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md) | [Deliveries 1–3 verified](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md)                     |
-| 3     | `semantic_router_shadow_pipeline`     | Phases 1 and 2               | Pending                                                                                                             | Pending                                                                                                                                                 |
+| 3     | `semantic_router_shadow_pipeline`     | Phases 1 and 2               | [Created](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md)         | Pending                                                                                                                                                 |
 | 4     | `semantic_router_expense_flows`       | Phases 1 through 3           | Pending                                                                                                             | Pending                                                                                                                                                 |
 | 5     | `semantic_router_option_selection`    | Phases 1 through 4           | Pending                                                                                                             | Pending                                                                                                                                                 |
 | 6     | `semantic_router_control_flows`       | Phases 1 through 5           | Pending                                                                                                             | Pending                                                                                                                                                 |
@@ -119,7 +119,7 @@ Child plan: [Confirmation safety](../2026_09_12-semantic_router_confirmation_saf
 - [x] Preserve delayed-undo target checks and explicit retry limits; no semantic confirmation action is introduced.
 - [x] Require updates to affected confirmation and conversation-state documentation and indexes.
 - [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Create the shadow-pipeline integration subplan
 
@@ -135,16 +135,18 @@ Plan end-to-end observation of incoming messages under the processing worker's c
 
 #### To-do actions
 
-- [ ] Create and link the normal plan with the exact integration and dependency-composition points.
-- [ ] Define `off / shadow / enabled` configuration per state and cohort, defaulting to `off`, including unsupported-provider behavior and rollback handling for already queued messages.
-- [ ] Adapt ingestion so candidate messages reach processing without lexical pre-rejection or a stale authoritative state decision; specify deduplication and acknowledgment behavior for admitted and sampled messages.
-- [ ] Keep all model calls out of the single-concurrency incoming worker. Load state under the per-user lock and use Phase 2 preconditions before accepting a proposal.
-- [ ] Preserve deterministic processing exactly once in shadow mode; suppress model-driven state changes, messages, writes, and deletes. Bound sampling and provider timeouts so observation cannot indefinitely delay processing.
-- [ ] Define application-owned fallback for unknown, forbidden, invalid, timed-out, and failed proposals. Deterministic sensitive commands are checked independently before semantic interpretation.
-- [ ] Record provider/model, prompt/contract version, state, proposed action, policy outcome, latency, and stable error code; prohibit raw text, full payloads, credentials, and hidden reasoning.
-- [ ] Specify tests for filtered-message sampling, duplicate delivery, identity mismatch, lock contention, changed context, disabled mode, shadow non-interference, rollback with jobs in flight, and privacy-safe error reporting.
-- [ ] Require routing feature, configuration, FSM policy, and index updates for the behavior actually delivered.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+Child plan: [Shadow pipeline](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md). Created on 2026-09-14 after revalidating the implemented Phase 1 semantic contracts and all three verified Phase 2 safety deliveries. The plan uses three vertical deliveries, keeps both queue schemas unchanged for in-flight rollback compatibility, and treats `enabled` as fail-closed until a later phase supplies an evaluated dispatcher.
+
+- [x] Create and link the normal plan with the exact integration and dependency-composition points.
+- [x] Define `off / shadow / enabled` configuration per state and cohort, defaulting to `off`, including unsupported-provider behavior and rollback handling for already queued messages.
+- [x] Adapt ingestion so candidate messages reach processing without lexical pre-rejection or a stale authoritative state decision; specify deduplication and acknowledgment behavior for admitted and sampled messages.
+- [x] Keep all model calls out of the single-concurrency incoming worker. Load state under the per-user lock and use Phase 2 preconditions before accepting a proposal.
+- [x] Preserve deterministic processing exactly once in shadow mode; suppress model-driven state changes, messages, writes, and deletes. Bound sampling and provider timeouts so observation cannot indefinitely delay processing.
+- [x] Define application-owned fallback for unknown, forbidden, invalid, timed-out, and failed proposals. Deterministic sensitive commands are checked independently before semantic interpretation.
+- [x] Record provider/model, prompt/contract version, state, proposed action, policy outcome, latency, and stable error code; prohibit raw text, full payloads, credentials, and hidden reasoning.
+- [x] Specify tests for filtered-message sampling, duplicate delivery, identity mismatch, lock contention, changed context, disabled mode, shadow non-interference, rollback with jobs in flight, and privacy-safe error reporting.
+- [x] Require routing feature, configuration, FSM policy, and index updates for the behavior actually delivered.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
 - [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 4: Create the expense-flow integration subplan
@@ -256,4 +258,4 @@ Plan integrated acceptance evidence and staged activation across delivered capab
 
 ## Next step
 
-Create the Phase 3 semantic-router shadow-pipeline subplan when explicitly requested; retain pending live evaluation evidence and activation gates.
+Review or implement the Phase 3 semantic-router shadow-pipeline subplan; retain pending live evaluation evidence and activation gates.

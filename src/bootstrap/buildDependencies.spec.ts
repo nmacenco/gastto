@@ -16,6 +16,7 @@ import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
 import { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
 import { SubcategoryFallbackMatcher } from '../infrastructure/adapters/category/SubcategoryFallbackMatcher';
+import { OpenAISemanticRouterAdapter } from '../infrastructure/adapters/llm/OpenAISemanticRouterAdapter';
 
 vi.mock('bullmq', () => ({
   Queue: vi.fn(),
@@ -34,6 +35,14 @@ const baseEnv: Env = {
   EXPENSE_REVIEW_TIMEOUT_MINUTES: 10,
   EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: 10,
   OPENAI_API_KEY: 'sk-test-openai',
+  SEMANTIC_ROUTER_STATE_MODES: {},
+  SEMANTIC_ROUTER_COHORT_PERCENT: 0,
+  SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: 0,
+  SEMANTIC_ROUTER_COHORT_SEED: 'test-seed',
+  SEMANTIC_ROUTER_PROVIDER: 'openai',
+  SEMANTIC_ROUTER_MODEL: 'gpt-4o-mini-2024-07-18',
+  SEMANTIC_ROUTER_TIMEOUT_MS: 10000,
+  SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: 256,
   TELEGRAM_WEBHOOK_SECRET: 'test-webhook-secret',
   TELEGRAM_BOT_TOKEN: 'test-bot-token',
   WEBHOOK_BASE_URL: 'https://example.com',
@@ -86,6 +95,8 @@ describe('buildDependencies', () => {
     expect(deps.getConversationState).toBeDefined();
     expect(deps.transitionState).toBeDefined();
     expect(deps.recoverCorruptedState).toBeDefined();
+    expect(deps.semanticRouter).toBeInstanceOf(OpenAISemanticRouterAdapter);
+    expect(deps.observeSemanticRouting).toBeDefined();
     expect(deps.registerExpense).toBeDefined();
     expect(deps.correctExpense).toBeDefined();
     expect(deps.generateExpenseSummary).toBeDefined();
@@ -214,6 +225,17 @@ describe('buildDependencies', () => {
     const deps = buildDependencies(env, buildInfra());
 
     expect(deps.llmPort).toBeInstanceOf(NvidiaAdapter);
+    expect(deps.semanticRouter).toBeNull();
+  });
+
+  it('composes the OpenAI semantic router independently from NVIDIA extraction precedence', () => {
+    const deps = buildDependencies(
+      { ...baseEnv, NVIDIA_API_KEY: 'nvidia-key', OPENAI_API_KEY: 'openai-key' },
+      buildInfra(),
+    );
+
+    expect(deps.llmPort).toBeInstanceOf(NvidiaAdapter);
+    expect(deps.semanticRouter).toBeInstanceOf(OpenAISemanticRouterAdapter);
   });
 
   it('selects Claude when its API key is configured', () => {

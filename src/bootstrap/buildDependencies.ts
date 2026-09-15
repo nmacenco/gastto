@@ -37,6 +37,15 @@ import { LLMColumnInferenceAdapter } from '../infrastructure/adapters/sheets/LLM
 import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
 import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
+import OpenAI from 'openai';
+import { OpenAISemanticRouterAdapter } from '../infrastructure/adapters/llm/OpenAISemanticRouterAdapter';
+import type { SemanticRouterPort } from '../domain/ports/SemanticRouterPort';
+import { Sha256SemanticRoutingPolicy } from '../application/services/semantic-router/runtime-policy';
+import { CurrentDeterministicRoutingPolicy } from '../application/services/semantic-router/deterministic-routing';
+import { ProjectSemanticRouterInput } from '../application/services/semantic-router/ProjectSemanticRouterInput';
+import { ValidateConversationSnapshot } from '../application/services/semantic-router/ValidateConversationSnapshot';
+import { ObserveSemanticRouting } from '../application/services/semantic-router/ObserveSemanticRouting';
+import { PinoSemanticRoutingTelemetry } from '../infrastructure/observability/PinoSemanticRoutingTelemetry';
 import { RuleBasedColumnMappingCorrectionParser } from '../application/services/ColumnMappingCorrectionParser';
 import {
   OAuthAccessTokenService,
@@ -116,6 +125,24 @@ function createLLMPort(env: Env): LLMPort {
   );
 }
 
+function createRuntimeSemanticRouter(env: Env): SemanticRouterPort | null {
+  if (!env.OPENAI_API_KEY?.trim()) return null;
+  const client = new OpenAI({
+    apiKey: env.OPENAI_API_KEY,
+    baseURL: 'https://api.openai.com/v1',
+    maxRetries: 0,
+    timeout: env.SEMANTIC_ROUTER_TIMEOUT_MS,
+  });
+  return new OpenAISemanticRouterAdapter(
+    (body, requestOptions) => client.chat.completions.create(body, requestOptions),
+    {
+      model: env.SEMANTIC_ROUTER_MODEL,
+      timeoutMs: env.SEMANTIC_ROUTER_TIMEOUT_MS,
+      maxOutputTokens: env.SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS,
+    },
+  );
+}
+
 function buildTelegramFeature(
   env: Env,
   infra: BuildDependenciesInfra,
@@ -126,6 +153,8 @@ function buildTelegramFeature(
     conversationRepo: DrizzleConversationStateRepository;
     transitionState: TransitionConversationState;
     userProcessingLock: RedisUserProcessingLock;
+    semanticRoutingPolicy: Sha256SemanticRoutingPolicy;
+    deterministicRoutingPolicy: CurrentDeterministicRoutingPolicy;
   },
 ): TelegramFeature | null {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -150,10 +179,11 @@ function buildTelegramFeature(
     messageQueue: core.messageQueue,
     resolveIdentity: core.resolveIdentity,
     handleUnsupportedMessage,
-    classifyFreeTextExpenseIntent,
+    deterministicRoutingPolicy: core.deterministicRoutingPolicy,
     sendGuidance: sendExpenseGuidance,
     getConversationState: core.getConversationState,
     processedMessageRepository,
+    semanticRoutingPolicy: core.semanticRoutingPolicy,
   });
 
   return {
@@ -430,6 +460,23 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   const getConversationState = new GetConversationState(conversationRepo);
   const transitionState = new TransitionConversationState(conversationRepo);
   const recoverCorruptedState = new RecoverCorruptedState(conversationRepo, operationLogRepo);
+  const semanticRoutingPolicy = new Sha256SemanticRoutingPolicy({
+    stateModes: env.SEMANTIC_ROUTER_STATE_MODES,
+    cohortPercent: env.SEMANTIC_ROUTER_COHORT_PERCENT,
+    shadowSamplePercent: env.SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT,
+    cohortSeed: env.SEMANTIC_ROUTER_COHORT_SEED,
+  });
+  const deterministicRoutingPolicy = new CurrentDeterministicRoutingPolicy(
+    new ClassifyFreeTextExpenseIntent(),
+  );
+  const semanticRouter = createRuntimeSemanticRouter(env);
+  const observeSemanticRouting = new ObserveSemanticRouting({
+    policy: semanticRoutingPolicy,
+    projector: new ProjectSemanticRouterInput(),
+    router: semanticRouter,
+    snapshotValidator: new ValidateConversationSnapshot(conversationRepo),
+    telemetry: new PinoSemanticRoutingTelemetry(infra.rootLogger),
+  });
 
   // process-message jobs run side-effectful FSM handlers that send
   // user-facing messages. Retrying them re-runs those side effects and
@@ -560,6 +607,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     conversationRepo,
     transitionState,
     userProcessingLock,
+    semanticRoutingPolicy,
+    deterministicRoutingPolicy,
   });
 
   const googleOAuth = buildGoogleOAuthFeature(env, infra, {
@@ -640,6 +689,10 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     getConversationState,
     transitionState,
     recoverCorruptedState,
+    semanticRoutingPolicy,
+    deterministicRoutingPolicy,
+    semanticRouter,
+    observeSemanticRouting,
     messageQueue,
     incomingMessageQueue,
     reminderQueue,

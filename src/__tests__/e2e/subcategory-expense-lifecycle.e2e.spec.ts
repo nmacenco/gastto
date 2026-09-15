@@ -284,6 +284,11 @@ function createHarness(options: HarnessOptions) {
     registerExpense,
     queuePendingExpense: {} as never,
     classifyFreeTextExpenseIntent: { execute: vi.fn().mockReturnValue('non_financial') },
+    deterministicRoutingPolicy: {
+      decide: () => ({ kind: 'fsm_handler' }),
+    },
+    observeSemanticRouting: { execute: vi.fn().mockResolvedValue(undefined) } as never,
+    sendGuidance: { execute: vi.fn().mockResolvedValue(undefined) } as never,
     correctExpense: null,
     generateExpenseSummary: null,
     resolveExpenseSummaryAction,
