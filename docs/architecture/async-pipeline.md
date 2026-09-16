@@ -82,11 +82,12 @@ bounded router call, and checked against the current revision/state/expiry and
 financial-claim status when the call returns. The proposal is telemetry only;
 the precomputed deterministic path executes exactly once.
 
-Callbacks and exact save/retry/undo commands bypass semantic interpretation.
-Failures, refusals, invalid output, forbidden actions, stale context, and telemetry
-failure do not redirect or duplicate deterministic processing. Loss of processing
-ownership invalidates the captured semantic context. `enabled` is intentionally
-fail-closed until a later action dispatcher is implemented and evaluated.
+Callbacks and exact save/retry/undo/cancellation commands bypass semantic
+interpretation. Failures, refusals, invalid output, forbidden actions, stale
+context, and telemetry failure do not redirect or duplicate deterministic
+processing. Loss of processing ownership invalidates the captured semantic
+context. `enabled` uses the typed expense dispatcher in idle/receiving,
+clarification, and review states; unsupported states and actions remain fail-closed.
 
 Both queue contracts remain unchanged. Mode is resolved under the lock, so a
 `shadow` to `off` configuration rollback also applies to already queued jobs and

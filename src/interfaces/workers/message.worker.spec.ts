@@ -35,6 +35,7 @@ import type { ResolveExpenseSummaryActionInput } from '../../application/use-cas
 import { SpreadsheetCategoryReader } from '../../infrastructure/adapters/sheets/SpreadsheetCategoryReader';
 import type { SpreadsheetPort } from '../../domain/ports/services';
 import { CategoryVocabulary } from '../../domain/entities/CategoryVocabulary';
+import { CompleteExpenseClarification } from '../../application/use-cases/expense/CompleteExpenseClarification';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
@@ -121,6 +122,9 @@ function buildMockDeps(): MessageWorkerDeps {
     dispatchExpenseSemanticAction: {
       execute: mockDispatchExpenseSemanticActionExecute,
     } as unknown as MessageWorkerDeps['dispatchExpenseSemanticAction'],
+    completeExpenseClarification: new CompleteExpenseClarification({
+      interpret: mockRegisterExpenseInterpret,
+    }),
     sendGuidance: {
       execute: mockSendGuidanceExecute,
     } as unknown as MessageWorkerDeps['sendGuidance'],
@@ -1067,6 +1071,373 @@ describe('processMessageJob', () => {
       ...overrides,
     };
   }
+
+  describe('enabled semantic clarification and review actions', () => {
+    it.each([
+      { missingField: 'monto' as const, rawMessage: '25' },
+      { missingField: 'moneda' as const, rawMessage: 'euros' },
+    ])('completes a short $missingField answer through one semantic dispatch', async (scenario) => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_CLARIFYING',
+        statePayload: buildClarificationStatePayload(
+          scenario.missingField,
+          scenario.missingField === 'monto' ? 'Taxi en euros' : 'Taxi 25',
+        ),
+      });
+      const reviewPayload = buildReviewStatePayload({
+        rawMessage: scenario.missingField === 'monto' ? 'Taxi en euros 25' : 'Taxi 25 euros',
+        extracted: {
+          monto: 25,
+          moneda: 'EUR',
+          categoriaRaw: 'Taxi',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-09-15',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'provide_missing_expense_data' },
+        expected: {
+          revision: '0',
+          currentState: 'EXPENSE_CLARIFYING',
+          expiry: 'unexpired',
+        },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: reviewPayload,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: scenario.rawMessage }), deps);
+
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledOnce();
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawMessage: scenario.rawMessage,
+          decision: { action: 'provide_missing_expense_data' },
+        }),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(String(mockSendMessage.mock.calls[0]?.[1])).toContain('Monto: 25 EUR');
+    });
+
+    it('replaces a clarification with a complete notification and announces the interruption', async () => {
+      const deps = buildMockDeps();
+      const rawMessage =
+        'Fecha: 11 sept 2026, 21:09\nComercio: Mercadona\nImporte: 16,55\u00a0€\nTarjeta: CREDITO SANTANDER';
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_CLARIFYING',
+        statePayload: buildClarificationStatePayload('monto', 'Borrador anterior'),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'register_expense' },
+        expected: {
+          revision: '0',
+          currentState: 'EXPENSE_CLARIFYING',
+          expiry: 'unexpired',
+        },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: buildReviewStatePayload({
+          rawMessage,
+          extracted: {
+            monto: 16.55,
+            moneda: 'EUR',
+            categoriaRaw: 'Mercadona',
+            subcategoriaRaw: null,
+            fechaRaw: '2026-09-11',
+            medioPago: 'CREDITO SANTANDER',
+            confianzaCategoria: 'alta',
+            confianzaSubcategoria: 'nula',
+          },
+          resolvedDate: '2026-09-11',
+        }),
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ rawMessage, decision: { action: 'register_expense' } }),
+      );
+      expect(mockSendMessage).toHaveBeenNthCalledWith(
+        1,
+        '123456789',
+        expenseCopies.clarificationInterrupted(),
+      );
+      expect(String(mockSendMessage.mock.calls[1]?.[1])).toContain('Monto: 16.55 EUR');
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
+    it('keeps an ambiguous clarification interruption unchanged and repeats the pending question', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_CLARIFYING',
+        statePayload: buildClarificationStatePayload('moneda', 'Taxi 25'),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'clarification',
+        reason: 'mixed_intents',
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'euros, y también otro taxi' }),
+        deps,
+      );
+
+      expect(mockDispatchExpenseSemanticActionExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationCurrency(),
+      );
+    });
+
+    it('presents a corrected amount for a mixed affirmative without saving or queueing', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: buildReviewStatePayload(),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'correct_expense' },
+        expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'unexpired' },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: buildReviewStatePayload({
+          extracted: {
+            monto: 25,
+            moneda: 'ARS',
+            categoriaRaw: 'café',
+            subcategoriaRaw: null,
+            fechaRaw: '2026-07-25',
+            medioPago: null,
+            confianzaCategoria: 'alta',
+            confianzaSubcategoria: 'nula',
+          },
+          reviewBinding: {
+            operationId: 'abcdefghijklmnopqrstuv',
+            revision: 2,
+            presentedAt: null,
+          },
+        }),
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'sí, pero cambia el importe a 25' }),
+        deps,
+      );
+
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledOnce();
+      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(String(mockSendMessage.mock.calls[0]?.[1])).toContain('Monto: 25 ARS');
+    });
+
+    it('reports semantic review queue overflow without changing the active review', async () => {
+      const deps = buildMockDeps();
+      const activePayload = buildReviewStatePayload();
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: activePayload,
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'register_expense' },
+        expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'unexpired' },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'queue_full',
+        pendingCount: 2,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 25 EUR' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.expenseQueueFull());
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+      expect(conversationState.statePayload).toBe(activePayload);
+    });
+
+    it.each([
+      {
+        name: 'invalid subcategory',
+        state: 'EXPENSE_REVIEW' as const,
+        statePayload: buildReviewStatePayload(),
+        decision: { action: 'correct_expense' as const },
+        reason: 'invalid_subcategory' as const,
+        expectedCopy: expenseCopies.ambiguousResponse(),
+      },
+      {
+        name: 'correction failure',
+        state: 'EXPENSE_REVIEW' as const,
+        statePayload: buildReviewStatePayload(),
+        decision: { action: 'correct_expense' as const },
+        reason: 'dispatch_failed' as const,
+        expectedCopy: expenseCopies.ambiguousResponse(),
+      },
+      {
+        name: 'replacement extraction failure',
+        state: 'EXPENSE_CLARIFYING' as const,
+        statePayload: buildClarificationStatePayload('monto', 'Taxi en EUR'),
+        decision: { action: 'register_expense' as const },
+        reason: 'dispatch_failed' as const,
+        expectedCopy: expenseCopies.clarificationAmount(),
+      },
+    ])('keeps state unchanged after $name', async (scenario) => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        currentState: scenario.state,
+        statePayload: scenario.statePayload,
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: scenario.decision,
+        expected: { revision: '0', currentState: scenario.state, expiry: 'unexpired' },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'clarification_required',
+        reason: scenario.reason,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'mensaje' }), deps);
+
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', scenario.expectedCopy);
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationInterrupted(),
+      );
+    });
+
+    it('rejects the old review binding and accepts the corrected binding exactly once', async () => {
+      const deps = buildMockDeps();
+      const originalState = buildConversationState({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: buildReviewStatePayload({
+          reviewBinding: {
+            operationId: 'abcdefghijklmnopqrstuv',
+            revision: 1,
+            presentedAt: '2026-09-15T09:00:00.000Z',
+          },
+        }),
+      });
+      const correctedPayload = buildReviewStatePayload({
+        extracted: {
+          monto: 25,
+          moneda: 'ARS',
+          categoriaRaw: 'café',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-07-25',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+        reviewBinding: {
+          operationId: 'abcdefghijklmnopqrstuv',
+          revision: 2,
+          presentedAt: '2026-09-15T10:00:00.000Z',
+        },
+      });
+      const correctedState = buildConversationState({
+        revision: '1',
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: correctedPayload,
+      });
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(originalState)
+        .mockResolvedValue(correctedState);
+      mockObserveSemanticRoutingExecute
+        .mockResolvedValueOnce({
+          status: 'expense_action',
+          decision: { action: 'correct_expense' },
+          expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'unexpired' },
+        })
+        .mockResolvedValue({ status: 'deterministic', reason: 'deterministic_bypass' });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: correctedPayload,
+      });
+      let saveCount = 0;
+      mockResolveExpenseSummaryActionExecute.mockImplementation(
+        (input: ResolveExpenseSummaryActionInput) => {
+          const authorization = input.authorization;
+          if (
+            authorization?.kind !== 'callback' ||
+            !('version' in authorization.callbackData) ||
+            authorization.callbackData.reviewRevision !== 2 ||
+            saveCount > 0
+          ) {
+            return { status: 'stale' };
+          }
+          saveCount += 1;
+          return { status: 'handled' };
+        },
+      );
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'sí, pero cambia el importe a 25' }),
+        deps,
+      );
+      const oldCallback = {
+        version: 1 as const,
+        action: 'confirm' as const,
+        operationId: 'abcdefghijklmnopqrstuv',
+        reviewRevision: 1,
+      };
+      const correctedCallback = { ...oldCallback, reviewRevision: 2 };
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          rawMessage: '',
+          externalMessageId: 'old',
+          callbackData: oldCallback,
+        }),
+        deps,
+      );
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          rawMessage: '',
+          externalMessageId: 'current',
+          callbackData: correctedCallback,
+        }),
+        deps,
+      );
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          rawMessage: '',
+          externalMessageId: 'duplicate',
+          callbackData: correctedCallback,
+        }),
+        deps,
+      );
+
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledOnce();
+      expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledTimes(3);
+      expect(saveCount).toBe(1);
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+    });
+  });
 
   describe('semantic shadow non-interference across deterministic handlers', () => {
     it.each([

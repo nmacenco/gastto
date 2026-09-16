@@ -14,6 +14,7 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - After a confirmed spreadsheet write, the successful confirmation includes the expense concept, amount, currency, destination sheet, and row number when the provider returns one. If the provider confirms the write but omits the row, the message names the destination sheet without a row reference.
 - Cancellation delegates to the same existing action resolver and keeps its established transition to `IDLE`.
 - A mixed reply, such as `comida sí, pero el monto no`, is not a confirmation. It is delegated to `CorrectExpenseUseCase` through the E1-US-07 correction flow before any save occurs.
+- Enabled semantic review routing follows the same authority boundary. `sí, pero cambia el importe a 25` is dispatched as a validated correction, advances the review binding, presents the corrected amount, and requires a new explicit bound confirmation.
 - Non-confirm and non-cancel replies are interpreted contextually as `correction`, `new_expense`, or `unrelated`. Only `new_expense` is admitted to the FIFO queue; amount-bearing corrections such as `eran 35 EUR y la categoria es transporte` remain attached to the active review.
 - An uninterpretable reply keeps the `EXPENSE_REVIEW` payload and FSM state unchanged and sends exactly: `¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?`.
 - Callback **Confirmar**, **Corregir**, and **Cancelar** actions use `er1:<c|e|x>:<operationId>:<revision-base36>`. The resolver compares the callback with the persisted, successfully presented review binding before any cancellation, correction, or save.
@@ -37,6 +38,7 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - Retry state that is expired or malformed is cleared and receives the restart/manual-resolution response. The commands `reintentar` and `reconfigurar` are only active in `EXPENSE_SAVING_RETRY`.
 - When pending expenses exist, a successful save is delivered first, then the queue notice, then the next review. The final queued confirmation sends the batch closing copy only after the save returns the FSM to `IDLE`.
 - Pending-expense queue feedback remains in Spanish throughout the flow. A queue-aware unrelated reply sends `Todavía tenés un gasto pendiente de confirmación y {pendingCount} más en la cola. ¿Querés confirmar, corregir o cancelar el actual?` without changing the review or queue.
+- A semantic `register_expense` proposal during review invokes `QueuePendingExpense` directly and never invokes correction interpretation. Full queues preserve the active review and report the existing overflow copy.
 
 ## API / Interface
 
@@ -52,6 +54,7 @@ The `EXPENSE_REVIEW` JSONB payload includes `reviewBinding: { operationId, revis
 - `ResolveExpenseReviewReplyUseCase.spec.ts` covers confirmation, cancellation, correction routing, and uninterpretable replies.
 - `ResolveExpenseReviewReplyUseCase.spec.ts` and `message.worker.spec.ts` also prove contextual correction precedence, typed additional-expense admission, queue overflow without review mutation, and the reported `eran 35 EUR...` regression.
 - `message.worker.spec.ts` covers delegation, orientation copy, callback regression, zero-amount confirmation, correction cycle limits, and high-amount review behavior.
+- `DispatchExpenseSemanticAction.spec.ts` and `message.worker.spec.ts` cover semantic correction/queue separation, old-binding rejection, and one accepted confirmation for the newly presented corrected binding.
 - `ResolveExpenseSummaryActionUseCase.spec.ts` covers the success confirmation with complete and omitted row metadata.
 - `RouteIncomingMessage.spec.ts` and `message.worker.spec.ts` cover the contextual `AUTH_ERROR → empezar → OAuth` recovery route while retaining ordinary `IDLE` guidance behavior.
 - `expense.copies.spec.ts` covers the location-aware successful-save copy.

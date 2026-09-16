@@ -25,6 +25,7 @@ export interface CorrectExpenseInput {
   rawMessage: string;
   state: ExpenseCorrectionState;
   channel: 'telegram' | 'whatsapp';
+  intentMode: 'infer' | 'validated_correction';
 }
 
 export type CorrectExpenseOutcome =
@@ -87,11 +88,11 @@ export class CorrectExpenseUseCase {
       this.buildUserContext(input, hierarchy.vocabulary),
     );
 
-    if (suggestion.intent === 'new_expense') {
+    if (suggestion.intent === 'new_expense' && input.intentMode !== 'validated_correction') {
       return { status: 'new_expense' };
     }
 
-    if (suggestion.intent === 'unrelated' || suggestion.changedFields.length === 0) {
+    if (suggestion.intent !== 'correction' || suggestion.changedFields.length === 0) {
       return { status: 'not_interpretable' };
     }
 

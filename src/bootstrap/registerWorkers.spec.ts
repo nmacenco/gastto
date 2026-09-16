@@ -84,6 +84,7 @@ function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
     semanticRouter: null,
     observeSemanticRouting: {} as Dependencies['observeSemanticRouting'],
     dispatchExpenseSemanticAction: {} as Dependencies['dispatchExpenseSemanticAction'],
+    completeExpenseClarification: {} as Dependencies['completeExpenseClarification'],
     messageQueue: buildQueueDependency<Dependencies['messageQueue']>(),
     incomingMessageQueue: buildQueueDependency<Dependencies['incomingMessageQueue']>(),
     reminderQueue: buildQueueDependency<Dependencies['reminderQueue']>(),

@@ -59,6 +59,7 @@ import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProces
 // Application
 import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
 import { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
+import { CompleteExpenseClarification } from '../application/use-cases/expense/CompleteExpenseClarification';
 import { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
@@ -579,10 +580,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
   );
   const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
-  const dispatchExpenseSemanticAction = new DispatchExpenseSemanticAction({
-    snapshotValidator: semanticSnapshotValidator,
-    registerExpense,
-  });
+  const completeExpenseClarification = new CompleteExpenseClarification(registerExpense);
 
   const generateExpenseSummary = new GenerateExpenseSummaryUseCase(
     expenseRecordRepo,
@@ -608,6 +606,13 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     },
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
   );
+  const dispatchExpenseSemanticAction = new DispatchExpenseSemanticAction({
+    snapshotValidator: semanticSnapshotValidator,
+    registerExpense,
+    completeClarification: completeExpenseClarification,
+    correctExpense,
+    queuePendingExpense,
+  });
 
   const telegram = buildTelegramFeature(env, infra, {
     messageQueue,
@@ -703,6 +708,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     semanticRouter,
     observeSemanticRouting,
     dispatchExpenseSemanticAction,
+    completeExpenseClarification,
     messageQueue,
     incomingMessageQueue,
     reminderQueue,

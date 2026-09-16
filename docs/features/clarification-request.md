@@ -15,15 +15,17 @@ When a user sends an expense message that is incomplete or ambiguous, the system
 - The partial expense context is persisted as an `EXPENSE_CLARIFYING` FSM state in PostgreSQL (ADR-003) with a typed JSONB payload (`ExpenseClarificationState`).
 - The `EXPENSE_CLARIFYING` state has a 30-minute timeout. If the user does not respond and the session expires, the periodic timeout worker resets the state to `IDLE`.
 - When the user answers the clarification question, the worker re-interprets the original message concatenated with the user's answer (`${rawMessage} ${answer}`) so the LLM and deterministic fallback see the full context.
+- In enabled semantic mode, a validated `provide_missing_expense_data` proposal delegates to `CompleteExpenseClarification`. That use case validates `ExpenseClarificationState`, combines the application-retained original message with only the current raw reply, preserves `queueRegisteredCount`, and invokes expense extraction exactly once.
 - If the user sends a new complete expense message instead of answering the clarification, the system:
   - Discards the previous clarification flow without saving it.
   - Sends a brief cancellation notice: `"El registro anterior fue cancelado. Procesando el nuevo gasto…"`.
-  - Transitions to `IDLE` and re-processes the new message as a new expense.
+  - Re-processes the new original message through the normal interpretation boundary. The replacement transition is committed by that boundary, so extraction failure leaves the existing clarification intact and does not announce a replacement that did not occur.
 - If the user answers the clarification with an invalid value (e.g., `"no sé"` / `"ni idea"`), the system reformulates the question:
   - For currency, it gathers the user's default currency and up to two recently used currencies, then presents concrete options.
   - For amount, it repeats the amount question.
   - The flow remains in `EXPENSE_CLARIFYING`; the partial context is preserved.
-- Enabled semantic registration from `IDLE` or `EXPENSE_RECEIVING` uses the existing interpretation boundary. Missing amount/currency therefore enters this same `EXPENSE_CLARIFYING` flow while preserving the original message exactly. Semantic completion of an already active clarification remains pending the next delivery.
+- Enabled semantic registration from `IDLE` or `EXPENSE_RECEIVING` uses the existing interpretation boundary. Missing amount/currency therefore enters this same `EXPENSE_CLARIFYING` flow while preserving the original message exactly.
+- In `EXPENSE_CLARIFYING`, `register_expense` means explicit draft replacement, while ambiguous or mixed interruptions repeat the active missing-field question without changing state. Exact cancellation remains deterministic.
 
 ## User-Facing Copies
 
@@ -42,14 +44,15 @@ This feature is not exposed via public HTTP endpoints. It is driven internally b
 
 ### Use Cases (Application Layer)
 
-| Use Case                                    | Responsibility                                                                                                                     |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `RegisterExpense.interpret()`               | Detects missing amount/currency, applies the priority order, and transitions to `EXPENSE_CLARIFYING` with the typed state payload. |
-| `message.worker.ts` `handleClarification()` | Routes answers, handles interruptions, reformulates invalid answers, and re-interprets enriched messages.                          |
+| Use Case                                    | Responsibility                                                                                                                          |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `RegisterExpense.interpret()`               | Detects missing amount/currency, applies the priority order, and transitions to `EXPENSE_CLARIFYING` with the typed state payload.      |
+| `CompleteExpenseClarification.execute()`    | Validates the retained clarification, appends one current reply, preserves queued-batch progress, and delegates once to interpretation. |
+| `message.worker.ts` `handleClarification()` | Routes answers, handles interruptions, reformulates invalid answers, and re-interprets enriched messages.                               |
 
 ### Value Object (Domain Layer)
 
-- `ExpenseClarificationState` — immutable state payload with `missingField`, `partialExtracted`, and `rawMessage`. Serializes to/from JSONB with `toPayload()` / `fromPayload()` and a type guard `isExpenseClarificationState()`.
+- `ExpenseClarificationState` — immutable state payload with `missingField`, `partialExtracted`, `rawMessage`, and optional `queueRegisteredCount`. Serializes to/from JSONB with `toPayload()` / `fromPayload()` and a type guard `isExpenseClarificationState()`.
 
 ### Helpers (Application Layer)
 
@@ -88,6 +91,7 @@ See `docs/architecture/data-model.md` for the full schema and `conversation_stat
 - [x] `src/application/utils/intents.spec.ts` — "no sé" / "ni idea" variant detection.
 - [x] `src/application/copies/expense.copies.spec.ts` — interruption notice and reformulation copy.
 - [x] `src/application/use-cases/expense/RegisterExpense.spec.ts` — priority order, sequential amount → currency flow, and 30-minute TTL.
+- [x] `CompleteExpenseClarification.spec.ts`, `DispatchExpenseSemanticAction.spec.ts`, and `message.worker.spec.ts` — short amount/currency answers, one extraction call, queue-count continuity, complete-notification replacement, ambiguity, and failed replacement without partial effects.
 - [x] `src/interfaces/workers/message.worker.spec.ts` — all six Gherkin scenarios from E1-US-05:
   1. Single missing currency.
   2. Single missing amount.

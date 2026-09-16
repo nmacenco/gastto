@@ -84,6 +84,7 @@ export class ResolveExpenseReviewReplyUseCase {
       rawMessage: input.rawMessage,
       state,
       channel: input.channel,
+      intentMode: 'infer',
     });
     if (outcome.status === 'new_expense') {
       const queueOutcome = await this.deps.queuePendingExpense.execute({

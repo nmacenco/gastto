@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import { allowedActionsFor } from './policy';
-import { isEnabledExpenseRecognitionState } from './expense-capabilities';
+import { isEnabledExpenseState } from './expense-capabilities';
 
 export type SemanticRoutingMode = 'off' | 'shadow' | 'enabled';
 
@@ -86,7 +86,7 @@ export class Sha256SemanticRoutingPolicy implements SemanticRoutingPolicy {
     if (!input.providerAvailable)
       return { mode: 'unavailable', requestedMode: configuredMode, code: 'PROVIDER_UNAVAILABLE' };
     if (configuredMode === 'enabled') {
-      if (!isEnabledExpenseRecognitionState(input.state)) {
+      if (!isEnabledExpenseState(input.state)) {
         return {
           mode: 'unavailable',
           requestedMode: configuredMode,

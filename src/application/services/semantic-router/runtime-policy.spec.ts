@@ -85,4 +85,24 @@ describe('Sha256SemanticRoutingPolicy', () => {
       new Sha256SemanticRoutingPolicy({ ...config, cohortPercent: 0 }).admitsForObservation('u'),
     ).toBe(false);
   });
+
+  it.each(['EXPENSE_CLARIFYING', 'EXPENSE_REVIEW'] as const)(
+    'enables the delivered stateful expense capability in %s',
+    (state) => {
+      const policy = new Sha256SemanticRoutingPolicy({
+        ...config,
+        stateModes: { [state]: 'enabled' },
+      });
+      expect(
+        policy.resolve({
+          userId: 'user-1',
+          externalMessageId: 'message-1',
+          state,
+          substep: null,
+          messageKind: 'free_text',
+          providerAvailable: true,
+        }).mode,
+      ).toBe('enabled');
+    },
+  );
 });

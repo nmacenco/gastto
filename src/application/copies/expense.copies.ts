@@ -62,6 +62,10 @@ export const expenseCopies = {
       | 'unsupported_action'
       | 'stale_context'
       | 'registration_unavailable'
+      | 'invalid_state_context'
+      | 'correction_not_interpretable'
+      | 'invalid_subcategory'
+      | 'correction_cycle_limit'
       | 'dispatch_failed',
   ) =>
     reason === 'ambiguous_intent' || reason === 'mixed_intents'

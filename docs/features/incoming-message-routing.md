@@ -26,7 +26,7 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
   - `TEXT` → resolves user identity and applies deterministic admission unless the user belongs to the configured semantic observation cohort:
     - Outside the cohort, `IDLE` / `EXPENSE_RECEIVING` loads state and applies `ClassifyFreeTextExpenseIntent`. Expense-like or very-long messages are enqueued to `process-message`; ordinary non-financial messages receive guidance and are not enqueued.
     - Inside any non-off semantic cohort, all valid free text is enqueued without treating an ingress state read as authoritative. The thick worker reloads state under the per-user lock, computes the same deterministic decision, and resolves semantic routing there.
-    - `shadow` still records a proposal and executes only the deterministic route. `enabled` can dispatch only a validated `register_expense` proposal in `IDLE` or `EXPENSE_RECEIVING`; the dispatcher revalidates the captured revision/state immediately before calling expense interpretation.
+    - `shadow` still records a proposal and executes only the deterministic route. `enabled` can dispatch validated expense recognition in `IDLE`/`EXPENSE_RECEIVING`, missing-data completion or replacement in `EXPENSE_CLARIFYING`, and correction or FIFO admission in `EXPENSE_REVIEW`. The dispatcher revalidates the captured revision/state immediately before one action-specific boundary.
     - Global cancellation and normalized undo commands (`deshacer`, `undo`, and `borrar el último`) bypass non-financial guidance and are enqueued to `process-message` so the FSM worker can handle them in context.
     - Spanish expense verbs are matched without requiring diacritics, so partial inputs such as `Compre cafe` reach expense interpretation and its missing-data clarification flow.
     - Any other active state (e.g. `ONBOARDING_MAPPING`, `ONBOARDING_CATEGORIES`, `EXPENSE_REVIEW`, `EXPENSE_CLARIFYING`) → the message is enqueued to `process-message` and acknowledged, bypassing the intent classifier. This ensures onboarding replies and expense corrections are handled by the FSM in context.
@@ -115,7 +115,7 @@ No database schema changes yet. The feature operates on transient domain value o
 - [x] `telegram.webhook.integration.spec.ts` — end-to-end scenarios including accent-insensitive partial expenses, undo-command routing, and non-financial replies during active onboarding states that must be enqueued to `process-message` instead of receiving guidance.
 - [x] `incomingMessage.worker.spec.ts` — strict payload validation, job deserialization, FIFO processing, worker construction (`concurrency: 1`), and metadata-only failed-event logging.
 - [x] `semantic-router-shadow-pipeline.integration.spec.ts` - real PostgreSQL/Redis coverage for cohort admission, deduplication, identity mismatch, contention, stale context, provider failures, flag rollback, privacy, and webhook-to-worker output equivalence.
-- [x] `message.worker.spec.ts` - enabled idle/receiving registration dispatch, controlled failure guidance, original-message continuity, and no premature save confirmation.
+- [x] `message.worker.spec.ts` - enabled idle/receiving registration plus stateful clarification/review dispatch, controlled failures, original-message continuity, FIFO overflow, stale review binding, and no premature save confirmation.
 
 ## Related User Stories
 
@@ -129,7 +129,7 @@ No database schema changes yet. The feature operates on transient domain value o
 - FIFO guarantee is provided by `concurrency: 1` on the `incoming-message` worker (ADR-011). When volume grows, this can be replaced with BullMQ Pro Groups or a partition strategy by `chat_id` hash.
 - **Per-user serialization in the thick worker:** the `process-message` worker (`concurrency: 2`) serializes processing per user via a Redis mutex (`IUserProcessingLock`). If a second job for the same user arrives while the first is executing, it throws `UserAlreadyProcessingError`, which triggers a custom BullMQ backoff strategy that retries only lock contention with exponential backoff (500ms → 1s → 2s → 4s, capped at 5s). All other errors return `-1` (no retry), preserving side-effect safety. Different users' jobs proceed in parallel.
 - **Flag-only rollback:** both queue schemas are unchanged. A job admitted while a state was in `shadow` resolves the current mode only after acquiring the lock; changing that state to `off` therefore prevents a model call and executes the deterministic path without a migration or dead-letter handoff.
-- **Enabled expense recognition:** only `register_expense` in `IDLE` and `EXPENSE_RECEIVING` is executable in this delivery. Stateful clarification/review actions remain unavailable until the next phase.
+- **Enabled expense actions:** `register_expense` runs interpretation in `IDLE`/`EXPENSE_RECEIVING`, replaces a draft in `EXPENSE_CLARIFYING`, and admits raw input to the pending queue in `EXPENSE_REVIEW`; `provide_missing_expense_data` completes the active clarification; `correct_expense` updates the active review through validated correction mode. Option selection, save, retry, undo, and cancellation authority remain unavailable to semantic dispatch.
 
 ## Review callback safety
 

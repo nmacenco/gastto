@@ -148,11 +148,13 @@ files or print key values to run evaluations.
 Runtime routing is independent from the extraction-provider preference and the
 standalone evaluator. All states, cohorting, and sampling default off. `shadow`
 may spend provider capacity but cannot change the deterministic route. `enabled`
-can execute only `register_expense` in `IDLE` and `EXPENSE_RECEIVING`; all other
-configured states/actions fail closed until their action-specific dispatchers are
+can execute the delivered expense capability matrix in `IDLE`,
+`EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, and `EXPENSE_REVIEW`. Every other
+configured state/action pair fails closed until its action-specific dispatcher is
 implemented. Missing credentials or invalid/unsupported enabled settings produce
 bounded guidance without extraction or mutation. Shadow provider failures retain
-the deterministic path.
+the deterministic path. Configuration alone does not authorize a cohort; the
+evaluation and rollout gates in ADR-023 still apply.
 
 Rollback requires changing the affected state modes to `off`. Queue payloads do
 not carry a captured mode, so already queued jobs resolve the new setting after

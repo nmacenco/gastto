@@ -106,6 +106,158 @@ describe('ObserveSemanticRouting', () => {
     );
   });
 
+  it.each([
+    {
+      currentState: 'EXPENSE_CLARIFYING' as const,
+      statePayload: {
+        _type: 'ExpenseClarificationState',
+        missingField: 'moneda',
+        partialExtracted: {
+          monto: 16.55,
+          moneda: null,
+          categoriaRaw: 'Mercadona',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-09-11',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+        rawMessage: 'Mercadona 16,55',
+      },
+      rawMessage: 'euros',
+      decision: { action: 'provide_missing_expense_data' as const },
+    },
+    {
+      currentState: 'EXPENSE_REVIEW' as const,
+      statePayload: {
+        extracted: {
+          monto: 16.55,
+          moneda: 'EUR',
+          categoriaRaw: 'Mercadona',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-09-11',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+        rawMessage: 'Mercadona 16,55 EUR',
+        resolvedDate: '2026-09-11',
+        resolvedCategory: null,
+        resolvedCategoryId: null,
+        categoryStatus: 'none',
+        reviewBinding: {
+          operationId: 'abcdefghijklmnopqrstuv',
+          revision: 1,
+          presentedAt: '2026-09-14T10:00:00.000Z',
+        },
+      },
+      rawMessage: 'sí, pero cambia el importe a 25',
+      decision: { action: 'correct_expense' as const },
+    },
+    {
+      currentState: 'EXPENSE_REVIEW' as const,
+      statePayload: {
+        extracted: {
+          monto: 16.55,
+          moneda: 'EUR',
+          categoriaRaw: 'Mercadona',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-09-11',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+        rawMessage: 'Mercadona 16,55 EUR',
+        resolvedDate: '2026-09-11',
+        resolvedCategory: null,
+        resolvedCategoryId: null,
+        categoryStatus: 'none',
+        reviewBinding: {
+          operationId: 'abcdefghijklmnopqrstuv',
+          revision: 1,
+          presentedAt: '2026-09-14T10:00:00.000Z',
+        },
+      },
+      rawMessage: 'Taxi 12 EUR',
+      decision: { action: 'register_expense' as const },
+    },
+  ])(
+    'returns enabled $decision.action for $currentState with the state-bound precondition',
+    async ({ currentState, statePayload, rawMessage, decision }) => {
+      const deps = buildDeps();
+      const statefulState: ConversationState = {
+        ...state,
+        currentState,
+        statePayload,
+        expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+      };
+      deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+      deps.router.decide.mockResolvedValue({
+        status: 'proposed',
+        decision,
+        metadata: {
+          provider: 'openai',
+          model: 'gpt-4o-mini-2024-07-18',
+          promptVersion: 'semantic-openai-v1',
+          contractVersion: 'semantic-contract-v1',
+          latencyMs: 12,
+          inputTokens: 10,
+          outputTokens: 3,
+        },
+      });
+      deps.snapshotValidator.execute.mockResolvedValue({ status: 'current', state: statefulState });
+
+      await expect(
+        new ObserveSemanticRouting(deps).execute({
+          userId: 'user-1',
+          externalMessageId: 'message-1',
+          rawMessage,
+          conversationState: statefulState,
+          deterministicDecision: { kind: 'fsm_handler' },
+        }),
+      ).resolves.toEqual({
+        status: 'expense_action',
+        decision,
+        expected: { revision: '4', currentState, expiry: 'unexpired' },
+      });
+      expect(deps.router.decide).toHaveBeenCalledOnce();
+      expect(deps.telemetry.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          policyOutcome: 'allowed_enabled',
+          proposedAction: decision.action,
+        }),
+      );
+    },
+  );
+
+  it('keeps an enabled mixed intent as controlled clarification without an expense action', async () => {
+    const deps = buildDeps();
+    deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+    deps.router.decide.mockResolvedValue({
+      status: 'proposed',
+      decision: { action: 'request_clarification', reason: 'mixed_intents' },
+      metadata: {
+        provider: 'openai',
+        model: 'gpt-4o-mini-2024-07-18',
+        promptVersion: 'semantic-openai-v1',
+        contractVersion: 'semantic-contract-v1',
+        latencyMs: 12,
+        inputTokens: 10,
+        outputTokens: 3,
+      },
+    });
+
+    await expect(
+      new ObserveSemanticRouting(deps).execute({
+        userId: 'user-1',
+        externalMessageId: 'message-1',
+        rawMessage: 'sí, y agrega también otro gasto',
+        conversationState: state,
+        deterministicDecision: { kind: 'fsm_handler' },
+      }),
+    ).resolves.toEqual({ status: 'clarification', reason: 'mixed_intents' });
+  });
+
   it('fails closed with controlled clarification when enabled output is stale', async () => {
     const deps = buildDeps();
     deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });

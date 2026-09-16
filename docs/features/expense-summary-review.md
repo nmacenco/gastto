@@ -24,6 +24,8 @@ After the user describes an expense in natural language, the system interprets t
   - Second expiry: transitions to `IDLE` and sends the cancellation notice via `notifyCancellation()`.
 - All other expired states keep the existing generic timeout message.
 - Enabled semantic registration from `IDLE` or `EXPENSE_RECEIVING` reuses the same `RegisterExpenseUseCase.interpret` and summary presenter path. It can reach `EXPENSE_REVIEW`, including zero/high-amount presentation guards, but cannot invoke save or send a saved confirmation.
+- Enabled semantic routing in `EXPENSE_REVIEW` can propose `correct_expense` or `register_expense`. A correction runs once in validated-correction mode, advances the review binding, and presents a new summary before any confirmation can save. A new expense is admitted directly to the existing two-item FIFO queue without replacing or saving the active review.
+- Queue overflow, invalid review context, invalid subcategory, correction-cycle exhaustion, and extraction/correction failure retain controlled review guidance. They do not mutate the active review, queue, expense records, or spreadsheet.
 
 ## Behavior (Implemented)
 
@@ -66,6 +68,7 @@ After the user describes an expense in natural language, the system interprets t
 - [x] Enabled reviews render selected, absent, ambiguous, fallback, and independently confident subcategories.
 - [x] Disabled and legacy reviews preserve the existing five-field Telegram output.
 - [x] Initial review, zero-amount completion, clarification completion, correction, and re-presentation paths delegate through the same summary use case without adding an FSM state or duplicate presentation.
+- [x] Enabled review correction, direct queue admission, queue overflow, stale binding rejection, and exact-once corrected confirmation are covered at dispatcher and worker boundaries.
 
 ## Related User Stories
 

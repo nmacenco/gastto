@@ -164,18 +164,18 @@ Enable action-specific semantic handling in `EXPENSE_CLARIFYING` and `EXPENSE_RE
 
 #### To-do actions
 
-- [ ] Extract clarification completion into an application use case that validates `ExpenseClarificationState`, retains its original message, combines only the current raw reply, preserves `queueRegisteredCount`, and returns existing interpretation outcomes.
-- [ ] Add `intentMode` to `CorrectExpenseInput` and update deterministic callers to use `infer`; implement `validated_correction` so correction-field extraction can update the active review but cannot reclassify the turn as confirmation, cancellation, or a new expense.
-- [ ] Extend `DispatchExpenseSemanticAction` for `provide_missing_expense_data` and `register_expense` in `EXPENSE_CLARIFYING`, preserving replacement of the incomplete draft, clarification reformulation, zero/high-amount guards, and original-message continuity.
-- [ ] Extend dispatch for `correct_expense` and `register_expense` in `EXPENSE_REVIEW`. Corrections create a new review binding and require presentation plus fresh explicit confirmation; new expenses enter `QueuePendingExpense` without replacing or saving the active review.
-- [ ] Preserve category/subcategory parent-child validation, correction-cycle limits, date/amount/currency contracts, queue capacity of two, FIFO ordering, queue overflow with unchanged review, and `queueRegisteredCount` continuity through clarification, correction, save, cancellation, and advancement.
-- [ ] Keep `sí, pero cambia el importe a 25` on the validated correction path and present a new review for amount `25`; route unresolved mixed intents to controlled clarification with no state, queue, record, or spreadsheet mutation.
-- [ ] Test short amount/currency answers, complete bank notifications during clarification, explicit replacement versus ambiguous interruption, amount-bearing corrections, new expenses during review, unrelated text, invalid subcategories, correction-cycle exhaustion, queue overflow, legacy payload normalization, and extraction/correction failures.
-- [ ] Add negative assertions that only explicit bound confirmation saves the corrected amount exactly once, old review bindings cannot save, failed extraction leaves no partial effects, and a semantic `register_expense` during review never invokes correction interpretation.
-- [ ] Update clarification, review, correction, confirmation, conversation-state, FSM, routing, and semantic-router documentation for the implemented stateful behavior; update `docs/features/README.md`.
-- [ ] Run focused tests and `pnpm test`; keep option selection and control-flow proposals unavailable for their later phases.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Extract clarification completion into an application use case that validates `ExpenseClarificationState`, retains its original message, combines only the current raw reply, preserves `queueRegisteredCount`, and returns existing interpretation outcomes.
+- [x] Add `intentMode` to `CorrectExpenseInput` and update deterministic callers to use `infer`; implement `validated_correction` so correction-field extraction can update the active review but cannot reclassify the turn as confirmation, cancellation, or a new expense.
+- [x] Extend `DispatchExpenseSemanticAction` for `provide_missing_expense_data` and `register_expense` in `EXPENSE_CLARIFYING`, preserving replacement of the incomplete draft, clarification reformulation, zero/high-amount guards, and original-message continuity.
+- [x] Extend dispatch for `correct_expense` and `register_expense` in `EXPENSE_REVIEW`. Corrections create a new review binding and require presentation plus fresh explicit confirmation; new expenses enter `QueuePendingExpense` without replacing or saving the active review.
+- [x] Preserve category/subcategory parent-child validation, correction-cycle limits, date/amount/currency contracts, queue capacity of two, FIFO ordering, queue overflow with unchanged review, and `queueRegisteredCount` continuity through clarification, correction, save, cancellation, and advancement.
+- [x] Keep `sí, pero cambia el importe a 25` on the validated correction path and present a new review for amount `25`; route unresolved mixed intents to controlled clarification with no state, queue, record, or spreadsheet mutation.
+- [x] Test short amount/currency answers, complete bank notifications during clarification, explicit replacement versus ambiguous interruption, amount-bearing corrections, new expenses during review, unrelated text, invalid subcategories, correction-cycle exhaustion, queue overflow, legacy payload normalization, and extraction/correction failures.
+- [x] Add negative assertions that only explicit bound confirmation saves the corrected amount exactly once, old review bindings cannot save, failed extraction leaves no partial effects, and a semantic `register_expense` during review never invokes correction interpretation.
+- [x] Update clarification, review, correction, confirmation, conversation-state, FSM, routing, and semantic-router documentation for the implemented stateful behavior; update `docs/features/README.md`.
+- [x] Run focused tests and `pnpm test`; keep option selection and control-flow proposals unavailable for their later phases.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Prove end-to-end safety, evaluation coverage, and rollback compatibility
 
@@ -199,4 +199,4 @@ Close the expense capability with conversation-level PostgreSQL/Redis evidence, 
 
 ## Next step
 
-Implement Phase 2 to deliver stateful clarification, correction, and additional-expense dispatch.
+Implement Phase 3 to prove end-to-end safety, evaluation coverage, and rollback compatibility.

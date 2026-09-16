@@ -8,6 +8,7 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
 import type { DispatchExpenseSemanticAction } from '../../application/use-cases/expense/DispatchExpenseSemanticAction';
+import type { CompleteExpenseClarification } from '../../application/use-cases/expense/CompleteExpenseClarification';
 import type { CorrectExpenseUseCase } from '../../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type {
@@ -111,6 +112,7 @@ export interface MessageWorkerDeps {
   deterministicRoutingPolicy: DeterministicRoutingPolicy;
   observeSemanticRouting: ObserveSemanticRouting;
   dispatchExpenseSemanticAction: DispatchExpenseSemanticAction;
+  completeExpenseClarification: CompleteExpenseClarification;
   sendGuidance: SendExpenseGuidance;
   correctExpense: CorrectExpenseUseCase | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
@@ -245,7 +247,9 @@ export async function processMessageJob(
         if (semanticTurn?.status === 'clarification') {
           await messaging.sendMessage(
             externalId,
-            expenseCopies.semanticExpenseGuidance(semanticTurn.reason),
+            conversationState
+              ? semanticExpenseGuidance(conversationState, semanticTurn.reason)
+              : expenseCopies.semanticExpenseGuidance(semanticTurn.reason),
           );
           return;
         }
@@ -262,6 +266,13 @@ export async function processMessageJob(
             decision: semanticTurn.decision,
           });
           opts.transitionState.assertExecutionIsValid(userId);
+          if (
+            semanticTurn.decision.action === 'register_expense' &&
+            conversationState.currentState === 'EXPENSE_CLARIFYING' &&
+            outcome.status !== 'clarification_required'
+          ) {
+            await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
+          }
           if (outcome.status === 'missing_data') {
             await messaging.sendMessage(
               externalId,
@@ -286,7 +297,7 @@ export async function processMessageJob(
           } else if (outcome.status === 'clarification_required') {
             await messaging.sendMessage(
               externalId,
-              expenseCopies.semanticExpenseGuidance(outcome.reason),
+              semanticExpenseGuidance(conversationState, outcome.reason),
             );
           }
           return;
@@ -1491,6 +1502,7 @@ async function handleExpenseCorrection(
     rawMessage,
     state: correctionState,
     channel,
+    intentMode: 'infer',
   });
 
   if (outcome.status === 'new_expense') {
@@ -1671,16 +1683,11 @@ async function handleClarification(
     return;
   }
 
-  // Retries interpretation with the user's clarification incorporated into the original message.
-  const enrichedMessage = `${state.rawMessage} ${rawMessage}`.trim();
-
-  const result = await opts.registerExpense.interpret({
+  const result = await opts.completeExpenseClarification.execute({
     userId,
-    rawMessage: enrichedMessage,
+    rawReply: rawMessage,
     channel,
-    ...(state.queueRegisteredCount === undefined
-      ? {}
-      : { queueRegisteredCount: state.queueRegisteredCount }),
+    statePayload,
   });
 
   if (result.status === 'needs_clarification') {
@@ -1694,4 +1701,24 @@ async function handleClarification(
   } else {
     await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
   }
+}
+
+function semanticExpenseGuidance(
+  conversationState: ConversationState,
+  reason: Parameters<typeof expenseCopies.semanticExpenseGuidance>[0],
+): string {
+  if (conversationState.currentState === 'EXPENSE_CLARIFYING') {
+    try {
+      const state = ExpenseClarificationState.fromPayload(conversationState.statePayload);
+      return state.missingField === 'monto'
+        ? expenseCopies.clarificationAmount()
+        : expenseCopies.clarificationCurrency();
+    } catch {
+      return expenseCopies.semanticExpenseGuidance(reason);
+    }
+  }
+  if (conversationState.currentState === 'EXPENSE_REVIEW') {
+    return expenseCopies.ambiguousResponse();
+  }
+  return expenseCopies.semanticExpenseGuidance(reason);
 }

@@ -7,7 +7,9 @@ Allow a user reviewing an expense summary to correct the amount, currency, categ
 ## Behavior (Implemented)
 
 - From `EXPENSE_REVIEW`, a non-confirm and non-cancel text message is interpreted as a correction attempt using the current summary as context.
+- In enabled semantic mode, an allowed `correct_expense` proposal enters the same correction use case with `intentMode: 'validated_correction'`. Deterministic callers pass `intentMode: 'infer'` explicitly.
 - The contextual interpretation returns exactly one typed intent: `correction`, `new_expense`, or `unrelated`. A correction is applied to the active review, a genuine new expense is admitted to the FIFO queue, and an unrelated reply leaves both the active payload and queue unchanged.
+- Validated correction mode cannot redirect an extractor result of `new_expense` or `unrelated`; either result becomes controlled clarification with no queue admission or state mutation. Mixed affirmative corrections such as `sí, pero cambia el importe a 25` therefore produce a new review for amount `25`, never authorization to save the old review.
 - Queue admission no longer depends on a lexical correction regular expression. Natural variants such as `eran 35 EUR y la categoria es transporte` reach the correction flow even though they also contain an amount and currency.
 - From the inline **Corregir** action, `ResolveExpenseSummaryActionUseCase` creates a typed `ExpenseCorrectionState`, transitions to `EXPENSE_CORRECTING`, and sends examples of natural-language corrections.
 - The next message in `EXPENSE_CORRECTING` is interpreted against the stored review payload.
@@ -44,7 +46,7 @@ No HTTP endpoints are added. The feature is driven by the `process-message` Bull
 - `normalizeExtractedExpensePayload(value)` and `normalizeExpenseReviewPayload(value)`: shared domain validation and legacy-upgrade boundaries used by conversational state consumers.
 - `parseExpenseSaveRetryPayload(value)`: validates the retry envelope and normalizes its nested reviewed expense before replay.
 - `LLMPort.interpretCorrection(rawMessage, currentExtracted, userContext)`: provider-neutral follow-up interpretation contract returning `intent: 'correction' | 'new_expense' | 'unrelated'` plus corrected values only for the `correction` branch.
-- `CorrectExpenseUseCase.execute(input)`: interprets and applies corrections, returns a typed `new_expense` outcome without mutating the review, resolves categories and dates, enforces high-amount and cycle rules, and transitions the FSM.
+- `CorrectExpenseUseCase.execute(input)`: requires `intentMode: 'infer' | 'validated_correction'`, interprets and applies corrections, returns a typed `new_expense` only in inference mode, resolves categories and dates, enforces high-amount and cycle rules, preserves queued-batch progress, and transitions the FSM.
 - `ResolveExpenseReviewReplyUseCase.execute(input)`: preserves confirm/cancel precedence and delegates only a typed `new_expense` outcome to `QueuePendingExpense`.
 - `MessageWorkerDeps.correctExpense`: injected use case used by the worker for both correction entry points.
 

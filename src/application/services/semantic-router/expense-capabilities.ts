@@ -54,6 +54,11 @@ export function isExpenseCapabilityAllowed(
   return EXPENSE_SEMANTIC_CAPABILITY_MATRIX[state].includes(decision.action);
 }
 
-export function isEnabledExpenseRecognitionState(state: FsmState): boolean {
-  return state === 'IDLE' || state === 'EXPENSE_RECEIVING';
+export function isEnabledExpenseState(state: FsmState): boolean {
+  return (
+    state === 'IDLE' ||
+    state === 'EXPENSE_RECEIVING' ||
+    state === 'EXPENSE_CLARIFYING' ||
+    state === 'EXPENSE_REVIEW'
+  );
 }

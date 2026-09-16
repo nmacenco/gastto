@@ -41,6 +41,7 @@ import { RouteIncomingMessage } from '../../src/application/use-cases/conversati
 import { HandleUnsupportedMessage } from '../../src/application/use-cases/conversation/HandleUnsupportedMessage';
 import { ResolveUserIdentityUseCase } from '../../src/application/use-cases/user/ResolveUserIdentity';
 import { DispatchExpenseSemanticAction } from '../../src/application/use-cases/expense/DispatchExpenseSemanticAction';
+import { CompleteExpenseClarification } from '../../src/application/use-cases/expense/CompleteExpenseClarification';
 import { processIncomingMessageJob } from '../../src/interfaces/workers/incomingMessage.worker';
 import {
   processMessageJob,
@@ -185,6 +186,11 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router shadow pip
     const dispatchExpenseSemanticAction = new DispatchExpenseSemanticAction({
       snapshotValidator,
       registerExpense: { interpret: registerExpenseInterpret },
+      completeClarification: new CompleteExpenseClarification({
+        interpret: registerExpenseInterpret,
+      }),
+      correctExpense: { execute: vi.fn() },
+      queuePendingExpense: { execute: vi.fn() },
     });
     const errors = vi.fn();
     const deps = {
@@ -199,6 +205,9 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router shadow pip
       deterministicRoutingPolicy,
       observeSemanticRouting,
       dispatchExpenseSemanticAction,
+      completeExpenseClarification: new CompleteExpenseClarification({
+        interpret: registerExpenseInterpret,
+      }),
       sendGuidance: new SendExpenseGuidance(messaging),
       getConversationState,
       transitionState,

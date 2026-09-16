@@ -134,6 +134,7 @@ describe('ResolveExpenseReviewReplyUseCase', () => {
         rawMessage: request.rawMessage,
         channel: request.channel,
         state: ExpenseCorrectionState.create(request.payload),
+        intentMode: 'infer',
       }),
     );
     expect(resolveActionExecute).not.toHaveBeenCalled();

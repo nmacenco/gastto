@@ -140,12 +140,19 @@ operation bindings, claims, revisions, or provider identifiers.
 
 The FSM remains authoritative in every mode. `shadow` records a proposal and
 executes the deterministic handler. `off` skips the model. `enabled` may execute
-only a validated `register_expense` proposal in `IDLE` or `EXPENSE_RECEIVING`.
-The typed dispatcher revalidates revision, state, expiry, execution ownership, and
-the absence of unresolved financial claims before invoking interpretation. Its only
-possible state destinations are the existing `EXPENSE_REVIEW` and
-`EXPENSE_CLARIFYING` transitions; it has no save, retry, delete, queue, or arbitrary
-transition authority. Other enabled states/actions fail closed.
+validated expense proposals only in `IDLE`, `EXPENSE_RECEIVING`,
+`EXPENSE_CLARIFYING`, and `EXPENSE_REVIEW`. The typed dispatcher revalidates
+revision, state, expiry, execution ownership, and the absence of unresolved
+financial claims before invoking exactly one action-specific boundary.
+
+Recognition and clarification completion can reach the existing
+`EXPENSE_CLARIFYING` or `EXPENSE_REVIEW` states. Clarification replacement commits
+only through the new interpretation result, so extractor failure preserves the old
+draft. Review correction advances the review binding and requires a fresh
+presentation and explicit confirmation. Review `register_expense` admits only a raw
+pending-queue item and leaves the active review unchanged. Semantic dispatch has no
+save, retry, delete, confirmation, cancellation, or arbitrary-transition authority;
+all other enabled state/action pairs fail closed.
 
 ---
 

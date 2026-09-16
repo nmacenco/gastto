@@ -89,6 +89,7 @@ export async function registerWorkers(
     deterministicRoutingPolicy: deps.deterministicRoutingPolicy,
     observeSemanticRouting: deps.observeSemanticRouting,
     dispatchExpenseSemanticAction: deps.dispatchExpenseSemanticAction,
+    completeExpenseClarification: deps.completeExpenseClarification,
     sendGuidance: deps.telegram.sendExpenseGuidance,
     correctExpense: deps.correctExpense,
     generateExpenseSummary: deps.generateExpenseSummary,

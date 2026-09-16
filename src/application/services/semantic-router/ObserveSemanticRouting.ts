@@ -361,7 +361,10 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
       return { status: 'clarification', reason: 'unsupported_action' };
     }
 
-    if (assessment.decision.action === 'request_clarification') {
+    if (
+      assessment.decision.action === 'request_clarification' ||
+      assessment.decision.action === 'out_of_scope'
+    ) {
       this.record({
         ...base,
         ...metadata,
@@ -372,23 +375,12 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
       return {
         status: 'clarification',
         reason:
-          assessment.decision.reason === 'ambiguous_intent' ||
-          assessment.decision.reason === 'mixed_intents'
+          assessment.decision.action === 'request_clarification' &&
+          (assessment.decision.reason === 'ambiguous_intent' ||
+            assessment.decision.reason === 'mixed_intents')
             ? assessment.decision.reason
             : 'unsupported_action',
       };
-    }
-
-    if (assessment.decision.action !== 'register_expense') {
-      this.record({
-        ...base,
-        ...metadata,
-        mode: 'enabled',
-        proposedAction: assessment.decision.action,
-        policyOutcome: 'enabled_capability_unavailable',
-        errorCode: 'ENABLED_CAPABILITY_UNAVAILABLE',
-      });
-      return { status: 'clarification', reason: 'unsupported_action' };
     }
 
     this.record({

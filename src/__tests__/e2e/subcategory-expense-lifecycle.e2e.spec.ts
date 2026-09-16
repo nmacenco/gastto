@@ -289,6 +289,7 @@ function createHarness(options: HarnessOptions) {
     },
     observeSemanticRouting: { execute: vi.fn().mockResolvedValue(undefined) } as never,
     dispatchExpenseSemanticAction: { execute: vi.fn() } as never,
+    completeExpenseClarification: { execute: vi.fn() } as never,
     sendGuidance: { execute: vi.fn().mockResolvedValue(undefined) } as never,
     correctExpense: null,
     generateExpenseSummary: null,

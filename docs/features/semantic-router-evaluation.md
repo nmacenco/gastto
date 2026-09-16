@@ -17,7 +17,7 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 - A source hash identifies the current lexical helper/dispatch files used for baseline interpretation. Reports include dataset, contract, policy and fixture-router versions, per-scope checks, baseline coverage and mismatch IDs.
 - Raw messages, selectors, model reasoning and provider response bodies are excluded from reports. The CLI uses the injected Pino logger for bounded operational errors.
 - The Mercadona case expects a registration proposal and observes that the current lexical filter already admits the message. Actual extraction of amount/date/merchant and user review remain a later integration requirement.
-- Runtime semantic turn resolution is implemented separately from the evaluator. It projects validated current state under the processing lock, calls the router at most once, revalidates the snapshot, and records one schema-bounded metadata event. Off/shadow retain deterministic behavior; enabled `register_expense` in `IDLE`/`EXPENSE_RECEIVING` can call the existing extractor once through a typed dispatcher.
+- Runtime semantic turn resolution is implemented separately from the evaluator. It projects validated current state under the processing lock, calls the router at most once, revalidates the snapshot, and records one schema-bounded metadata event. Off/shadow retain deterministic behavior; enabled expense dispatch now covers recognition in `IDLE`/`EXPENSE_RECEIVING`, missing-data completion and replacement in `EXPENSE_CLARIFYING`, and validated correction or FIFO admission in `EXPENSE_REVIEW`.
 
 ## API / Interface
 
@@ -45,7 +45,7 @@ The input ceiling is 8,000 message characters, 20,000 serialized input character
 
 - Live quality evidence remains pending explicit execution; Phase 2 implementation is available below.
 - Independent human label adjudication and explicitly initiated live held-out comparisons remain pending; the expanded corpus is implemented below.
-- Stateful clarification/review semantic dispatch, real-provider sampling, and controlled rollout remain in [master Phases 4 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). Idle/receiving expense recognition, confirmation revision safety, and the non-authoritative shadow pipeline are implemented.
+- Real-provider sampling, controlled rollout, semantic option selection, and conversation-level PostgreSQL/Redis expense evidence remain in [master Phases 4 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). Idle/receiving recognition, stateful clarification/review expense dispatch, confirmation revision safety, and the non-authoritative shadow pipeline are implemented.
 
 ## Related Decisions
 
@@ -196,7 +196,9 @@ receipt/settlement compositions use separate families. Original text remains int
 The enabled dispatcher now preserves the complete Mercadona notification and reaches
 review with `16.55 EUR`, date `2026-09-11`, and merchant concept `Mercadona`; the
 card/bank label remains payment context and the date stays date-only. Stateful
-clarification/review dispatch and queue handling remain in the later deliveries of
+clarification/review dispatch now preserves retained source text, queued-batch progress,
+review bindings, the two-item FIFO limit, and explicit-confirmation authority.
+Conversation-level PostgreSQL/Redis proof and rollback exercises remain in the later delivery of
 [master Phase 4](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md#phase-4-create-the-expense-flow-integration-subplan).
 
 Phase 3 integration tests now exercise zero model-driven messaging, state, queue,
