@@ -6,12 +6,12 @@ required. This smoke set and its separate `offline-responses.json` stay intact.
 
 ## Expanded corpus
 
-`corpus.json` contains 200 cases under `semantic-corpus-v2`:
+`corpus.json` contains 220 cases under `semantic-corpus-v3`:
 
 | Split       | Language | Protocol | Deterministic only | Total |
 | ----------- | -------: | -------: | -----------------: | ----: |
-| development |       60 |      111 |                  4 |   175 |
-| held_out    |       25 |        0 |                  0 |    25 |
+| development |       70 |      113 |                  4 |   187 |
+| held_out    |       33 |        0 |                  0 |    33 |
 
 Every eligible scope has language examples in each split. The ten scopes are
 IDLE, EXPENSE_RECEIVING, EXPENSE_CLARIFYING, EXPENSE_REVIEW,
@@ -28,14 +28,15 @@ are listed by the report, not falsely recorded as model-tested.
 
 ## Label and split provenance
 
-Labels were authored from ADR-023 and scenario meaning, reviewed without candidate
-predictions, and frozen on 2026-09-12 **before** writing the expanded response
-fixtures. No live candidate was evaluated or used for prompt tuning. Independent
-human label adjudication remains pending. These synthetic labels should not be
-presented as a representative, externally reviewed benchmark.
+Labels were authored from ADR-023 and scenario meaning and reviewed without candidate
+predictions. The v2 labels were frozen on 2026-09-12; the appended stateful v3 labels
+were frozen on 2026-09-16, in both cases **before** writing their response fixtures.
+No live candidate was evaluated or used for prompt tuning. Independent human label
+adjudication remains pending. These synthetic labels should not be presented as a
+representative, externally reviewed benchmark.
 
-- Label version: `semantic-labels-v2`.
-- Split version: `family-split-v1`.
+- Label version: `semantic-labels-v3`.
+- Split version: `family-split-v2`.
 - Leakage-check normalization: `nfkc-case-whitespace-v1` (NFKC, Spanish lowercase,
   collapse whitespace, trim). Messages sent to the router retain their original text.
 - `manifest.json` pins the byte hashes of corpus and response files. Reports
@@ -47,7 +48,7 @@ presented as a representative, externally reviewed benchmark.
   families, so human family review remains necessary.
 - A post-freeze label correction requires a new corpus and label version, a manifest
   update and a rationale recorded here. Never relabel to hide a candidate failure.
-  No post-freeze corrections have been made in v2.
+  Version 3 appends stateful expense-flow families and does not relabel v2 cases.
 
 The Mercadona notification is the exact supplied regression: newlines, decimal
 comma, accents and non-breaking space are preserved. Its development family covers
@@ -92,14 +93,14 @@ With restricted local socket access, `node --import tsx
 src/interfaces/cli/evaluateSemanticRouter.ts` runs the same CLI without the tsx
 launcher's IPC socket. Add the same arguments on that command line.
 
-The Phase 3 rerun on 2026-09-14 completed 175/175 and 25/25 checks, with
+The expense-flow rerun on 2026-09-16 completed 187/187 and 33/33 checks, with
 zero fixture mismatches and zero critical-case failures. Actual lexical ingress agreement on the comparable
 language subset was 14/19 development and 5/8 held-out. Corresponding fixture
 projection agreement was 19/19 and 8/8. **This is not evidence of model accuracy or
 improvement.** The exact Mercadona input already produces lexical `enqueued`.
 The current deterministic-source digest is
-`418018387cebf748b8a33c88da94142133535c4451ba3895c76e4b827acf7d95`;
-the corpus, frozen labels, contract, policy version, and comparison counts did not change.
+`7e9df3bee9c64b8b1d6b7f10c50b159a17e9e6eb9a0de975e44651b2c98080be`;
+the expanded stateful labels were frozen before their fixtures were authored.
 See the [feature document](../../docs/features/semantic-router-evaluation.md)
 for source digest, baseline scope omissions and metric definitions.
 
@@ -110,7 +111,7 @@ data, a supported snapshot, case budget, timeout and output-token budget. Config
 `OPENAI_API_KEY` in the caller environment without exposing it in command history;
 never read `.env`, credential files or real private conversations into fixtures.
 
-Example only, **not executed**: full held-out candidate evaluation, at most 25
+Example only, **not executed**: capped held-out candidate sample, at most 25
 sequential requests, 256 generated tokens/request, 10 seconds/request:
 
 ```bash
@@ -139,7 +140,9 @@ fixture/imported outputs as current lexical execution.
 Any candidate report should retain its source/version/settings evidence and report
 all failures. Release thresholds require separate approval against measured
 baseline data before activation; no target is inferred from green smoke fixtures.
-Task completion, end-to-end unauthorized effects, acknowledgment latency and full
-expense cost remain unmeasured, with destinations in master Phases 2 through 7.
-Actual bank extraction/review integration belongs to
-[master Phase 4](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md).
+Conversation-level integration now measures unauthorized effects and bounded local
+acknowledgment timing, but not production percentiles, live task completion, or full
+expense cost. Before any Phase 4 capability is activated, Phase 7 must obtain approved
+numeric per-state quality/latency/cost budgets, run an explicit live held-out evaluation,
+retain zero critical false authorizations, and approve a limited cohort with rollback
+ownership. Implementation and fixture success alone do not activate a state.

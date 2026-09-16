@@ -93,6 +93,11 @@ Both queue contracts remain unchanged. Mode is resolved under the lock, so a
 `shadow` to `off` configuration rollback also applies to already queued jobs and
 requires neither migration nor dead-letter transfer.
 
+The expense-flow integration suite exercises `enabled → shadow → off` with a job
+captured before each mode change and with active clarification/review JSONB payloads.
+Processing remains deterministic, pending FIFO rows are retained or advanced once,
+and no job requires dead-letter transfer, payload conversion, or duplicate extraction.
+
 1. Receives the `process-message` job payload.
 2. Loads the user's current FSM state from PostgreSQL (`conversation_states`).
 3. Runs the FSM transition logic to determine the next state and action.

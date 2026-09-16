@@ -92,6 +92,7 @@ See `docs/architecture/data-model.md` for the full schema and `conversation_stat
 - [x] `src/application/copies/expense.copies.spec.ts` — interruption notice and reformulation copy.
 - [x] `src/application/use-cases/expense/RegisterExpense.spec.ts` — priority order, sequential amount → currency flow, and 30-minute TTL.
 - [x] `CompleteExpenseClarification.spec.ts`, `DispatchExpenseSemanticAction.spec.ts`, and `message.worker.spec.ts` — short amount/currency answers, one extraction call, queue-count continuity, complete-notification replacement, ambiguity, and failed replacement without partial effects.
+- [x] `semantic-router-expense-flows.integration.spec.ts` — webhook-to-worker short-answer completion, full bank-notification replacement, source-text continuity, FIFO advancement, and enabled-to-shadow rollback against PostgreSQL/Redis.
 - [x] `src/interfaces/workers/message.worker.spec.ts` — all six Gherkin scenarios from E1-US-05:
   1. Single missing currency.
   2. Single missing amount.

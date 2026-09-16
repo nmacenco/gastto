@@ -185,6 +185,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router shadow pip
       .mockResolvedValue({ status: 'needs_clarification', missingField: 'monto' });
     const dispatchExpenseSemanticAction = new DispatchExpenseSemanticAction({
       snapshotValidator,
+      transitionState,
       registerExpense: { interpret: registerExpenseInterpret },
       completeClarification: new CompleteExpenseClarification({
         interpret: registerExpenseInterpret,

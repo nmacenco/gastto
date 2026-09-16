@@ -90,6 +90,7 @@ Additional Definition of Done coverage:
 - Correction-versus-queue regression: provider, application, and worker tests cover `eran 35 EUR y la categoria es transporte`, `Taxi 12 EUR`, unrelated input, and rejection of correction fields on non-correction intents.
 - Inline action and dependency wiring: `src/application/use-cases/expense/ResolveExpenseSummaryActionUseCase.spec.ts`, `src/bootstrap/buildDependencies.spec.ts`, and `src/bootstrap/registerWorkers.spec.ts`.
 - Full worker flow and corrupted-state recovery: `src/interfaces/workers/message.worker.spec.ts`.
+- Conversation-level correction safety: `tests/integration/semantic-router-expense-flows.integration.spec.ts` proves the mixed affirmative correction produces a new review, rejects the old binding, performs one correction call, and saves the corrected amount once.
 
 ## Related User Stories
 

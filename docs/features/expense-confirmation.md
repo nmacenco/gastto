@@ -55,6 +55,7 @@ The `EXPENSE_REVIEW` JSONB payload includes `reviewBinding: { operationId, revis
 - `ResolveExpenseReviewReplyUseCase.spec.ts` and `message.worker.spec.ts` also prove contextual correction precedence, typed additional-expense admission, queue overflow without review mutation, and the reported `eran 35 EUR...` regression.
 - `message.worker.spec.ts` covers delegation, orientation copy, callback regression, zero-amount confirmation, correction cycle limits, and high-amount review behavior.
 - `DispatchExpenseSemanticAction.spec.ts` and `message.worker.spec.ts` cover semantic correction/queue separation, old-binding rejection, and one accepted confirmation for the newly presented corrected binding.
+- `semantic-router-expense-flows.integration.spec.ts` drives the canonical Telegram webhook through PostgreSQL/Redis and proves no record or spreadsheet append occurs before the latest bound confirmation; the final persisted row retains the original multiline source and exact `16.55 EUR` date-only expense.
 - `ResolveExpenseSummaryActionUseCase.spec.ts` covers the success confirmation with complete and omitted row metadata.
 - `RouteIncomingMessage.spec.ts` and `message.worker.spec.ts` cover the contextual `AUTH_ERROR → empezar → OAuth` recovery route while retaining ordinary `IDLE` guidance behavior.
 - `expense.copies.spec.ts` covers the location-aware successful-save copy.

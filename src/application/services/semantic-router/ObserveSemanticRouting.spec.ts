@@ -86,7 +86,8 @@ describe('ObserveSemanticRouting', () => {
     const deps = buildDeps();
     deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
 
-    const result = await new ObserveSemanticRouting(deps).execute({
+    const observer = new ObserveSemanticRouting(deps);
+    const result = await observer.execute({
       userId: 'user-1',
       externalMessageId: 'message-1',
       rawMessage: 'Mercadona 16,55 EUR',
@@ -101,6 +102,9 @@ describe('ObserveSemanticRouting', () => {
     });
     expect(deps.router.decide).toHaveBeenCalledOnce();
     expect(deps.snapshotValidator.execute).toHaveBeenCalledOnce();
+    expect(deps.telemetry.record).not.toHaveBeenCalled();
+    if (result.status !== 'expense_action') throw new Error('Expected expense action');
+    observer.recordExpenseDispatch(result, { status: 'review_required' });
     expect(deps.telemetry.record).toHaveBeenCalledWith(
       expect.objectContaining({ mode: 'enabled', policyOutcome: 'allowed_enabled' }),
     );
@@ -207,20 +211,23 @@ describe('ObserveSemanticRouting', () => {
       });
       deps.snapshotValidator.execute.mockResolvedValue({ status: 'current', state: statefulState });
 
-      await expect(
-        new ObserveSemanticRouting(deps).execute({
-          userId: 'user-1',
-          externalMessageId: 'message-1',
-          rawMessage,
-          conversationState: statefulState,
-          deterministicDecision: { kind: 'fsm_handler' },
-        }),
-      ).resolves.toEqual({
+      const observer = new ObserveSemanticRouting(deps);
+      const turn = await observer.execute({
+        userId: 'user-1',
+        externalMessageId: 'message-1',
+        rawMessage,
+        conversationState: statefulState,
+        deterministicDecision: { kind: 'fsm_handler' },
+      });
+      expect(turn).toEqual({
         status: 'expense_action',
         decision,
         expected: { revision: '4', currentState, expiry: 'unexpired' },
       });
       expect(deps.router.decide).toHaveBeenCalledOnce();
+      expect(deps.telemetry.record).not.toHaveBeenCalled();
+      if (turn.status !== 'expense_action') throw new Error('Expected expense action');
+      observer.recordExpenseDispatch(turn, { status: 'review_required' });
       expect(deps.telemetry.record).toHaveBeenCalledWith(
         expect.objectContaining({
           policyOutcome: 'allowed_enabled',
@@ -229,6 +236,40 @@ describe('ObserveSemanticRouting', () => {
       );
     },
   );
+
+  it.each([
+    ['successful dispatch', { status: 'review_required' }, 'allowed_enabled'],
+    [
+      'rejected dispatch',
+      { status: 'clarification_required', reason: 'stale_context' },
+      'dispatch_rejected',
+    ],
+    [
+      'failed dispatch',
+      { status: 'clarification_required', reason: 'dispatch_failed' },
+      'dispatch_failed',
+    ],
+  ])('records exactly one finalized enabled event for %s', async (_name, outcome, policyOutcome) => {
+    const deps = buildDeps();
+    deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+    const observer = new ObserveSemanticRouting(deps);
+    const turn = await observer.execute({
+      userId: 'user-1',
+      externalMessageId: 'message-1',
+      rawMessage: 'Mercadona 16,55 EUR',
+      conversationState: state,
+      deterministicDecision: { kind: 'expense_guidance' },
+    });
+    if (turn.status !== 'expense_action') throw new Error('Expected expense action');
+
+    observer.recordExpenseDispatch(turn, outcome);
+    observer.recordExpenseDispatch(turn, outcome);
+
+    expect(deps.telemetry.record).toHaveBeenCalledOnce();
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'enabled', policyOutcome }),
+    );
+  });
 
   it('keeps an enabled mixed intent as controlled clarification without an expense action', async () => {
     const deps = buildDeps();

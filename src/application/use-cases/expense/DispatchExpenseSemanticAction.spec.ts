@@ -31,6 +31,13 @@ const payload = {
   categoryStatus: 'none',
 } satisfies ExpenseReviewPayload;
 
+function buildTransitionState() {
+  return {
+    execute: vi.fn().mockResolvedValue({ status: 'updated' }),
+    currentState: vi.fn().mockReturnValue(null),
+  };
+}
+
 function input(overrides: Partial<Parameters<DispatchExpenseSemanticAction['execute']>[0]> = {}) {
   return {
     userId: 'user-1',
@@ -54,6 +61,7 @@ describe('DispatchExpenseSemanticAction', () => {
     };
     const useCase = new DispatchExpenseSemanticAction({
       snapshotValidator,
+      transitionState: buildTransitionState(),
       registerExpense: { interpret },
       completeClarification: { execute: vi.fn() },
       correctExpense: { execute: vi.fn() },
@@ -84,6 +92,7 @@ describe('DispatchExpenseSemanticAction', () => {
         payload: { ...payload, awaitingZeroConfirmation: true },
       });
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: { execute: vi.fn().mockResolvedValue({ status: 'current', state }) },
       registerExpense: { interpret },
       completeClarification: { execute: vi.fn() },
@@ -107,6 +116,7 @@ describe('DispatchExpenseSemanticAction', () => {
     async (status) => {
       const interpret = vi.fn();
       const useCase = new DispatchExpenseSemanticAction({
+        transitionState: buildTransitionState(),
         snapshotValidator: { execute: vi.fn().mockResolvedValue({ status }) },
         registerExpense: { interpret },
         completeClarification: { execute: vi.fn() },
@@ -124,6 +134,7 @@ describe('DispatchExpenseSemanticAction', () => {
 
   it('fails closed when interpretation throws', async () => {
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: { execute: vi.fn().mockResolvedValue({ status: 'current', state }) },
       registerExpense: { interpret: vi.fn().mockRejectedValue(new Error('extractor failed')) },
       completeClarification: { execute: vi.fn() },
@@ -151,6 +162,7 @@ describe('DispatchExpenseSemanticAction', () => {
     };
     const complete = vi.fn().mockResolvedValue({ status: 'ready_for_review', payload });
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: {
         execute: vi.fn().mockResolvedValue({ status: 'current', state: clarifying }),
       },
@@ -187,6 +199,7 @@ describe('DispatchExpenseSemanticAction', () => {
     const queue = vi.fn().mockResolvedValue({ status: 'queued', pendingCount: 1 });
     const correct = vi.fn();
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: {
         execute: vi.fn().mockResolvedValue({ status: 'current', state: review }),
       },
@@ -213,6 +226,7 @@ describe('DispatchExpenseSemanticAction', () => {
     const corrected = { ...payload, extracted: { ...payload.extracted, monto: 25 } };
     const correct = vi.fn().mockResolvedValue({ status: 'corrected', payload: corrected });
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: {
         execute: vi.fn().mockResolvedValue({ status: 'current', state: review }),
       },
@@ -254,6 +268,7 @@ describe('DispatchExpenseSemanticAction', () => {
     };
     const interpret = vi.fn().mockResolvedValue({ status: 'ready_for_review', payload });
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: {
         execute: vi.fn().mockResolvedValue({ status: 'current', state: clarifying }),
       },
@@ -297,6 +312,7 @@ describe('DispatchExpenseSemanticAction', () => {
       },
     };
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: {
         execute: vi.fn().mockResolvedValue({ status: 'current', state: clarifying }),
       },
@@ -325,6 +341,7 @@ describe('DispatchExpenseSemanticAction', () => {
     const review = { ...state, currentState: 'EXPENSE_REVIEW' as const, statePayload: payload };
     const correct = vi.fn();
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: {
         execute: vi.fn().mockResolvedValue({ status: 'current', state: review }),
       },
@@ -355,6 +372,7 @@ describe('DispatchExpenseSemanticAction', () => {
   ] as const)('maps %s correction outcomes to bounded guidance', async (status, reason) => {
     const review = { ...state, currentState: 'EXPENSE_REVIEW' as const, statePayload: payload };
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: {
         execute: vi.fn().mockResolvedValue({ status: 'current', state: review }),
       },
@@ -383,6 +401,7 @@ describe('DispatchExpenseSemanticAction', () => {
     };
     const correct = vi.fn().mockResolvedValue({ status: 'corrected', payload });
     const useCase = new DispatchExpenseSemanticAction({
+      transitionState: buildTransitionState(),
       snapshotValidator: {
         execute: vi.fn().mockResolvedValue({ status: 'current', state: review }),
       },

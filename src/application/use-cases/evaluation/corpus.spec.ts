@@ -8,8 +8,8 @@ import { caseKind } from './EvaluateSemanticRouter';
 describe('frozen evaluation corpus contracts', () => {
   it('covers each eligible scope and all allowed/forbidden action pairs with explicit protocol stimuli', () => {
     const data = EvaluationDatasetSchema.parse(corpus);
-    expect(data.cases).toHaveLength(200);
-    expect(data.cases.filter((c) => c.split === 'held_out')).toHaveLength(25);
+    expect(data.cases).toHaveLength(220);
+    expect(data.cases.filter((c) => c.split === 'held_out')).toHaveLength(33);
     for (const [state, steps] of Object.entries(STATE_ACTION_POLICY)) {
       for (const [step, allowed] of Object.entries(steps)) {
         const scope = data.cases.filter(
@@ -61,5 +61,37 @@ describe('frozen evaluation corpus contracts', () => {
     expect(
       data.cases.filter((c) => c.split === 'held_out' && c.tags.includes('bank')).length,
     ).toBeGreaterThan(5);
+  });
+  it('covers stateful expense-flow families in both independently split cohorts', () => {
+    const data = EvaluationDatasetSchema.parse(corpus);
+    for (const split of ['development', 'held_out'] as const) {
+      const phase = data.cases.filter((c) => c.split === split && c.tags.includes('phase3'));
+      for (const tag of [
+        'short-reply',
+        'bank',
+        'correction',
+        'new-expense',
+        'negation',
+        'mixed-intents',
+        'unrelated',
+        'prompt-injection',
+      ]) {
+        expect(
+          phase.some((c) => c.tags.includes(tag)),
+          `${split}/${tag}`,
+        ).toBe(true);
+      }
+    }
+    expect(
+      data.cases.some((c) => c.tags.includes('legacy-state') && c.split === 'development'),
+    ).toBe(true);
+    expect(
+      data.cases.some(
+        (c) =>
+          c.tags.includes('phase3') &&
+          c.tags.includes('failure') &&
+          c.expectedAssessment === 'router_failure',
+      ),
+    ).toBe(true);
   });
 });

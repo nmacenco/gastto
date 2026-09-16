@@ -185,18 +185,18 @@ Close the expense capability with conversation-level PostgreSQL/Redis evidence, 
 
 #### To-do actions
 
-- [ ] Add a PostgreSQL/Redis integration suite spanning idle recognition, clarification completion, correction review, additional-expense queueing, explicit save, cancellation, queue advancement, duplicate delivery, lock contention, lease loss, and a revision change while the model or extractor is pending.
-- [ ] Add end-to-end webhook-to-worker conversations for the canonical Mercadona notification and state-dependent variants. Assert exactly one final expense for `16.55 EUR` on `2026-09-11`, exact preservation of the source text, no timezone inference, and no save before the bound confirmation shown after the latest review.
-- [ ] Prove provider timeout/refusal/invalid output, unsupported action, invalid legacy payload, failed extraction/correction, telemetry failure, queue overflow, and stale preconditions retain controlled state and produce zero unauthorized writes, deletes, retries, or success messages.
-- [ ] Exercise `enabled` to `shadow` and `off` rollback with jobs already queued and active clarification/review states. Existing job and state payloads must continue deterministically with no dead letter, migration, duplicate interpretation, or lost pending expense.
-- [ ] Extend the versioned corpus with independently labeled stateful conversations for short replies, bank notifications, corrections, new-expense interruptions, negation, mixed intents, unrelated text, prompt injection, legacy state, and failures. Keep held-out families isolated and immutable after candidate results are inspected.
-- [ ] Report per-state action agreement, ambiguity and unnecessary-clarification rates, critical false-authorization results, router/extraction/correction call counts, test-observed latency, and missing live/task-completion/cost evidence. Define Phase 4 activation prerequisites without setting unapproved Phase 7 release budgets.
-- [ ] Capture telemetry assertions for `allowed_enabled`, rejection, dispatch failure, state/substep, action, provider/model, prompt/contract/policy versions, and latency while excluding raw messages, payloads, user/external IDs, operation bindings, claims, credentials, provider bodies, and reasoning.
-- [ ] Update routing, semantic-router evaluation, clarification, review, correction, confirmation, conversation-state, async-pipeline, observability, configuration, and FSM documentation with delivered capability and rollback behavior; update `docs/features/README.md` and the master tracking table with verified evidence only.
-- [ ] Run the complete PostgreSQL/Redis integration suites and `pnpm test`; any skipped expense-flow suite remains pending evidence and blocks completion.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add a PostgreSQL/Redis integration suite spanning idle recognition, clarification completion, correction review, additional-expense queueing, explicit save, cancellation, queue advancement, duplicate delivery, lock contention, lease loss, and a revision change while the model or extractor is pending.
+- [x] Add end-to-end webhook-to-worker conversations for the canonical Mercadona notification and state-dependent variants. Assert exactly one final expense for `16.55 EUR` on `2026-09-11`, exact preservation of the source text, no timezone inference, and no save before the bound confirmation shown after the latest review.
+- [x] Prove provider timeout/refusal/invalid output, unsupported action, invalid legacy payload, failed extraction/correction, telemetry failure, queue overflow, and stale preconditions retain controlled state and produce zero unauthorized writes, deletes, retries, or success messages.
+- [x] Exercise `enabled` to `shadow` and `off` rollback with jobs already queued and active clarification/review states. Existing job and state payloads must continue deterministically with no dead letter, migration, duplicate interpretation, or lost pending expense.
+- [x] Extend the versioned corpus with independently labeled stateful conversations for short replies, bank notifications, corrections, new-expense interruptions, negation, mixed intents, unrelated text, prompt injection, legacy state, and failures. Keep held-out families isolated and immutable after candidate results are inspected.
+- [x] Report per-state action agreement, ambiguity and unnecessary-clarification rates, critical false-authorization results, router/extraction/correction call counts, test-observed latency, and missing live/task-completion/cost evidence. Define Phase 4 activation prerequisites without setting unapproved Phase 7 release budgets.
+- [x] Capture telemetry assertions for `allowed_enabled`, rejection, dispatch failure, state/substep, action, provider/model, prompt/contract/policy versions, and latency while excluding raw messages, payloads, user/external IDs, operation bindings, claims, credentials, provider bodies, and reasoning.
+- [x] Update routing, semantic-router evaluation, clarification, review, correction, confirmation, conversation-state, async-pipeline, observability, configuration, and FSM documentation with delivered capability and rollback behavior; update `docs/features/README.md` and the master tracking table with verified evidence only.
+- [x] Run the complete PostgreSQL/Redis integration suites and `pnpm test`; any skipped expense-flow suite remains pending evidence and blocks completion.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Implement Phase 3 to prove end-to-end safety, evaluation coverage, and rollback compatibility.
+Review the completed expense-flow delivery and continue with master Phase 5 for semantic option selection when approved.

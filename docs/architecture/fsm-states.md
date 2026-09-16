@@ -154,6 +154,11 @@ pending-queue item and leaves the active review unchanged. Semantic dispatch has
 save, retry, delete, confirmation, cancellation, or arbitrary-transition authority;
 all other enabled state/action pairs fail closed.
 
+Conversation-level PostgreSQL/Redis tests exercise recognition, clarification,
+review correction, queue overflow/advancement, explicit save, cancellation, duplicate
+delivery, lock contention, lease loss, revision races, and flag-only rollback. These
+tests require no new state, queue payload, or JSONB migration.
+
 ---
 
 ## Timeouts

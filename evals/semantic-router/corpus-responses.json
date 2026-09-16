@@ -1230,5 +1230,85 @@
   "6c5008970dd56692d5049fc4064aea2845e910c4e19d491a4a171ddb511cf9f6": {
     "status": "failed",
     "code": "OUTPUT_TOO_LARGE"
+  },
+  "823462b093d486da9f291d31f8946c3569d50788182bd60874aecf1bd0ed42e9": {
+    "status": "response",
+    "content": { "action": "provide_missing_expense_data" }
+  },
+  "be1173a237fbf247cdf7886ae6f0b130beca125118cb65f66a65bbaadcdd43de": {
+    "status": "response",
+    "content": { "action": "provide_missing_expense_data" }
+  },
+  "ddc86326b196311bdd53bb0651112cb20929e652b90e1a514743f740e3fa4280": {
+    "status": "response",
+    "content": { "action": "register_expense" }
+  },
+  "5cddf0e8803e27a98bf3202f72eea94cafe556b516f4752feae917ee2d9512e4": {
+    "status": "response",
+    "content": { "action": "correct_expense" }
+  },
+  "8ea62280988b4e350d4da340e71dd4173cfb0c3213f8c90c6279d5321c333e3b": {
+    "status": "response",
+    "content": { "action": "register_expense" }
+  },
+  "21c8c4fc2a8036b9e5370f80183e2a66f15d73b6cb2550374888855dc9fab3b0": {
+    "status": "response",
+    "content": { "action": "request_clarification", "reason": "explicit_confirmation_required" }
+  },
+  "503473c0ce872cd311c373dd10249d0eee979de78a5ec309803cec1039903509": {
+    "status": "response",
+    "content": { "action": "request_clarification", "reason": "mixed_intents" }
+  },
+  "3962665ddb7f42f59904914291ffbe724684a5eb82332dd337edea76ccd017b8": {
+    "status": "response",
+    "content": { "action": "out_of_scope" }
+  },
+  "ef5496989e8f39f377a532090094649ec24f88e8219db3cf003e1ee753fcbe8d": {
+    "status": "response",
+    "content": { "action": "request_clarification", "reason": "explicit_confirmation_required" }
+  },
+  "3e9307b4295785ee9ce1efa379199b929b2edfc01c67c22434c954bec33f347f": {
+    "status": "response",
+    "content": { "action": "request_clarification", "reason": "ambiguous_reference" }
+  },
+  "f9eec6f5e017088adaa1175f16292e968e47b45e85eee036366a952c8a5e130d": {
+    "status": "failed",
+    "code": "TIMEOUT"
+  },
+  "6c04803f00a28355bd9c24da46d1404f9b771b06342f94a09a5b2e1582905a54": {
+    "status": "failed",
+    "code": "INVALID_OUTPUT"
+  },
+  "3ebc3122156c778f55d24feb62125118c0b9c2f818625bb4767a484393364f83": {
+    "status": "response",
+    "content": { "action": "provide_missing_expense_data" }
+  },
+  "9f1d96dbc281f6d1f0347352423e9544911d21843bdb77fd6cabdd2f9bfbbfd1": {
+    "status": "response",
+    "content": { "action": "register_expense" }
+  },
+  "629bfe4d4bc7705e3e336d613e693703c3211c02aa65d6aedbfa2399e8ee51fa": {
+    "status": "response",
+    "content": { "action": "correct_expense" }
+  },
+  "5bc374bc1bef494bf0f5c1aae7a1203b508c331cde45a6dc289d7842fb912a6d": {
+    "status": "response",
+    "content": { "action": "register_expense" }
+  },
+  "57526efdcf6bb314714a15085987ef125ce5fe7f1666784b1d725e2f1e323ce0": {
+    "status": "response",
+    "content": { "action": "request_clarification", "reason": "explicit_confirmation_required" }
+  },
+  "4907d634c938707f2722f68a58260419c639f024e9857acc6abc157e877bfde7": {
+    "status": "response",
+    "content": { "action": "request_clarification", "reason": "mixed_intents" }
+  },
+  "b72a0506ad3b124eb23ca43f087029327caf1ac46da753dfa52a086e1263a5b2": {
+    "status": "response",
+    "content": { "action": "out_of_scope" }
+  },
+  "505416ebda3226d09a52fe8229716afe9d00792cdfa1e65a9ef54c63eb13954d": {
+    "status": "response",
+    "content": { "action": "request_clarification", "reason": "explicit_confirmation_required" }
   }
 }

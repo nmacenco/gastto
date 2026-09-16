@@ -254,17 +254,27 @@ export async function processMessageJob(
           return;
         }
         if (semanticTurn?.status === 'expense_action' && conversationState !== null) {
-          const outcome = await opts.dispatchExpenseSemanticAction.execute({
-            userId,
-            externalId,
-            externalMessageId: data.externalMessageId,
-            receivedAt: data.receivedAt,
-            channel,
-            rawMessage: data.rawMessage,
-            conversationState,
-            expected: semanticTurn.expected,
-            decision: semanticTurn.decision,
-          });
+          let outcome: Awaited<ReturnType<DispatchExpenseSemanticAction['execute']>>;
+          try {
+            outcome = await opts.dispatchExpenseSemanticAction.execute({
+              userId,
+              externalId,
+              externalMessageId: data.externalMessageId,
+              receivedAt: data.receivedAt,
+              channel,
+              rawMessage: data.rawMessage,
+              conversationState,
+              expected: semanticTurn.expected,
+              decision: semanticTurn.decision,
+            });
+          } catch (error) {
+            opts.observeSemanticRouting.recordExpenseDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'dispatch_failed',
+            });
+            throw error;
+          }
+          opts.observeSemanticRouting.recordExpenseDispatch?.(semanticTurn, outcome);
           opts.transitionState.assertExecutionIsValid(userId);
           if (
             semanticTurn.decision.action === 'register_expense' &&

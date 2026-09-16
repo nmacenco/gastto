@@ -48,7 +48,7 @@ Master checkboxes track planning requirements: checking one means the child plan
 | 1     | `semantic_router_evaluation`          | None                         | [Created](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md)                   | [Deliveries 1–3 verified](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md); live evidence and activation pending                    |
 | 2     | `semantic_router_confirmation_safety` | Phase 1 contracts            | [Created](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md) | [Deliveries 1–3 verified](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md)                                        |
 | 3     | `semantic_router_shadow_pipeline`     | Phases 1 and 2               | [Created](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md)         | [Deliveries 1–3 verified](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md); live provider evidence and activation pending |
-| 4     | `semantic_router_expense_flows`       | Phases 1 through 3           | [Created](../2026_09_15-semantic_router_expense_flows/2026_09_15-semantic_router_expense_flows-plan.md)             | Pending                                                                                                                                                                    |
+| 4     | `semantic_router_expense_flows`       | Phases 1 through 3           | [Created](../2026_09_15-semantic_router_expense_flows/2026_09_15-semantic_router_expense_flows-plan.md)             | [Deliveries 1–3 verified](../2026_09_15-semantic_router_expense_flows/2026_09_15-semantic_router_expense_flows-plan.md); 26 PostgreSQL/Redis scenarios, 2,088 passing tests, v3 offline splits 187/187 and 33/33; live evidence and activation pending |
 | 5     | `semantic_router_option_selection`    | Phases 1 through 4           | Pending                                                                                                             | Pending                                                                                                                                                                    |
 | 6     | `semantic_router_control_flows`       | Phases 1 through 5           | Pending                                                                                                             | Pending                                                                                                                                                                    |
 | 7     | `semantic_router_rollout`             | Phases 1 through 6           | Pending                                                                                                             | Pending                                                                                                                                                                    |
@@ -175,8 +175,8 @@ Child plan: [Expense flows](../2026_09_15-semantic_router_expense_flows/2026_09_
 - [x] Specify tests for short missing-data answers, new-expense interruptions, amount-bearing corrections, unrelated text, queue overflow with unchanged review, legacy payloads, failed extraction, and explicit save of the corrected amount exactly once.
 - [x] Extend held-out evaluations and define per-state activation prerequisites. Implemented capability does not automatically enable its cohort.
 - [x] Require routing, clarification, review/correction/confirmation documentation and relevant index updates.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 5: Create the option-selection subplan
 
@@ -260,4 +260,4 @@ Plan integrated acceptance evidence and staged activation across delivered capab
 
 ## Next step
 
-Review or implement the Phase 4 semantic-router expense-flow subplan; retain pending live evaluation evidence and activation gates.
+Create the Phase 5 semantic option-selection subplan after reviewing the verified expense-flow delivery; retain pending live evaluation evidence and activation gates.

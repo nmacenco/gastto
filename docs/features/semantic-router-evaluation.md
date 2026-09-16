@@ -16,7 +16,7 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 - Baseline observation runs current pure classifiers. For `IDLE`/`EXPENSE_RECEIVING` it reports actual ingress admission or guidance, including command bypass. For normal review text it observes explicit confirmation/cancellation; remaining model-dependent replies and unsupported scopes are not evaluated. It does not claim complete worker simulation or baseline semantic accuracy.
 - A source hash identifies the current lexical helper/dispatch files used for baseline interpretation. Reports include dataset, contract, policy and fixture-router versions, per-scope checks, baseline coverage and mismatch IDs.
 - Raw messages, selectors, model reasoning and provider response bodies are excluded from reports. The CLI uses the injected Pino logger for bounded operational errors.
-- The Mercadona case expects a registration proposal and observes that the current lexical filter already admits the message. Actual extraction of amount/date/merchant and user review remain a later integration requirement.
+- The Mercadona case expects a registration proposal and observes that the current lexical filter already admits the message. PostgreSQL/Redis webhook-to-worker coverage now proves extraction of amount/date/merchant, review presentation, original-text retention, and bound confirmation before saving.
 - Runtime semantic turn resolution is implemented separately from the evaluator. It projects validated current state under the processing lock, calls the router at most once, revalidates the snapshot, and records one schema-bounded metadata event. Off/shadow retain deterministic behavior; enabled expense dispatch now covers recognition in `IDLE`/`EXPENSE_RECEIVING`, missing-data completion and replacement in `EXPENSE_CLARIFYING`, and validated correction or FIFO admission in `EXPENSE_REVIEW`.
 
 ## API / Interface
@@ -31,7 +31,7 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 
 No real-provider evidence has been collected. Offline model accuracy, provider latency, usage and cost remain null. Live runs can measure decision agreement, router-call latency and usage. The Phase 3 integration suite separately verifies that webhook acknowledgment completes before shadow processing and remains below the existing one-second acceptance bound in the test environment; this is test-observed timing, not a production latency percentile. Shadow agreement is not action accuracy or task-completion evidence. Fixture timings and expected-output replay are not production evidence. Per-scope agreement includes declared protocol checks; language and protocol totals are reported separately.
 
-The Phase 3 completion rerun on 2026-09-15 preserved frozen labels and comparison metrics: development completed 175/175 checks and held-out completed 25/25, both with zero fixture mismatches and zero critical-case failures. The source digest records the deterministic financial-action paths while the corpus, labels, contract, policy version, and measured lexical projections remain unchanged. These safety checks are covered by application/integration tests and are not presented as an improvement in model accuracy.
+The expense-flow completion rerun on 2026-09-16 uses `semantic-corpus-v3` and `semantic-labels-v3`: development completed 187/187 checks and held-out completed 33/33, both with zero fixture mismatches and zero critical-case failures. Twenty independently split stateful cases add short replies, bank interruptions, corrections, new expenses, negation, mixed intents, unrelated text, prompt injection, legacy context, timeout, and invalid output. Labels were frozen before their response fixtures were authored; no live candidate output was used. These fixture checks are not model-accuracy evidence.
 
 The input ceiling is 8,000 message characters, 20,000 serialized input characters, 20 options and 200 characters per option label. Dataset/response files are bounded at 2 MB and datasets at 1,000 cases. These limits reject input rather than silently rewriting it.
 
@@ -45,7 +45,7 @@ The input ceiling is 8,000 message characters, 20,000 serialized input character
 
 - Live quality evidence remains pending explicit execution; Phase 2 implementation is available below.
 - Independent human label adjudication and explicitly initiated live held-out comparisons remain pending; the expanded corpus is implemented below.
-- Real-provider sampling, controlled rollout, semantic option selection, and conversation-level PostgreSQL/Redis expense evidence remain in [master Phases 4 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). Idle/receiving recognition, stateful clarification/review expense dispatch, confirmation revision safety, and the non-authoritative shadow pipeline are implemented.
+- Real-provider sampling, controlled rollout, and semantic option selection remain in [master Phases 5 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). Conversation-level PostgreSQL/Redis expense evidence, idle/receiving recognition, stateful clarification/review dispatch, confirmation revision safety, and rollback are implemented.
 
 ## Related Decisions
 
@@ -158,15 +158,15 @@ baseline scopes remain `not_evaluated`, with `model_dependent` or
 observations; current observations are executed from local code and identified by
 the source digest. Do not substitute an imported/mock result under that provenance.
 
-### Reproduced offline observations (Phase 3 completion rerun, 2026-09-15)
+### Reproduced offline observations (expense-flow completion rerun, 2026-09-16)
 
 | Evidence                                               | Development |         Held-out |
 | ------------------------------------------------------ | ----------: | ---------------: |
-| Completed offline case checks                          |     175/175 |            25/25 |
-| Language fixture agreement (not model accuracy)        |       60/60 |            25/25 |
-| Protocol checks                                        |     111/111 | 0/0 (unmeasured) |
-| Current lexical observations, all case kinds           |          58 |               10 |
-| Baseline not evaluated, all case kinds                 |         117 |               15 |
+| Completed offline case checks                          |     187/187 |            33/33 |
+| Language fixture agreement (not model accuracy)        |       70/70 |            33/33 |
+| Protocol checks                                        |     113/113 | 0/0 (unmeasured) |
+| Current lexical observations, all case kinds           |          59 |               10 |
+| Baseline not evaluated, all case kinds                 |         128 |               23 |
 | Lexical ingress agreement on comparable language cases |       14/19 |              5/8 |
 | Fixture ingress projection agreement on that cohort    |       19/19 |              8/8 |
 
@@ -174,7 +174,7 @@ These paired counts compare fixture projections with actual lexical execution.
 They do not demonstrate model improvement. The exact bank notification already
 produces lexical `enqueued`; no claim of fixing its existing admission is made.
 Baseline source digest:
-`418018387cebf748b8a33c88da94142133535c4451ba3895c76e4b827acf7d95`.
+`7e9df3bee9c64b8b1d6b7f10c50b159a17e9e6eb9a0de975e44651b2c98080be`.
 Reproduce the observations with the commands in the
 [dataset instructions](../../evals/semantic-router/README.md). Runtime reports are
 written only to an explicitly selected new path, never automatically committed.
@@ -198,16 +198,25 @@ review with `16.55 EUR`, date `2026-09-11`, and merchant concept `Mercadona`; th
 card/bank label remains payment context and the date stays date-only. Stateful
 clarification/review dispatch now preserves retained source text, queued-batch progress,
 review bindings, the two-item FIFO limit, and explicit-confirmation authority.
-Conversation-level PostgreSQL/Redis proof and rollback exercises remain in the later delivery of
-[master Phase 4](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md#phase-4-create-the-expense-flow-integration-subplan).
+The PostgreSQL/Redis suites now cover canonical webhook delivery, deduplication,
+recognition, clarification completion/replacement, correction, queue admission and
+overflow, cancellation/advancement, bound save, lock contention, lease loss, stale
+revision, provider failures, and enabled-to-shadow/off rollback with active payloads.
+The canonical completed review uses one router call and one extraction call; the
+corrected flow uses two router calls, one extraction, and one correction call before
+the single accepted save. The clarification/queue/cancellation flow uses three router
+calls and three extraction calls because the queued item is extracted only when
+advanced. These are test call counts, not provider cost measurements.
 
-Phase 3 integration tests now exercise zero model-driven messaging, state, queue,
-append, retry, or delete authority across allowed, forbidden, failed, stale, off,
-and fail-closed enabled outcomes. Test-observed acknowledgment timing is recorded
-separately from bounded router metadata. Production percentiles, task completion,
-full expense cost, numeric activation thresholds, real held-out comparisons,
-controlled rollout, and human label review remain pending Phase 7. Offline and
-shadow green checks authorize no product activation.
+Integration tests now exercise zero unauthorized append, retry, or delete effects
+across allowed, forbidden, failed, stale, off, and fail-closed enabled outcomes.
+Local webhook acknowledgment remains below the one-second acceptance bound; the
+fixture router reports a bounded 11 ms metadata sample, neither of which is a
+production percentile. Development and held-out fixture ambiguity checks are 24/24
+and 11/11, with unnecessary clarification 0/46 and 0/22 respectively. Production
+latency, model accuracy, task completion, full expense cost, numeric activation
+thresholds, real held-out comparisons, controlled rollout, and human label review
+remain pending Phase 7. Green fixture and integration checks authorize no activation.
 
 Additional tests: `comparison.spec.ts` verifies hand-computable confusion and
 paired denominators, partial provider failures, missing usage and uncertainty;

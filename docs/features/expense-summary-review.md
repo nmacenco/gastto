@@ -69,6 +69,7 @@ After the user describes an expense in natural language, the system interprets t
 - [x] Disabled and legacy reviews preserve the existing five-field Telegram output.
 - [x] Initial review, zero-amount completion, clarification completion, correction, and re-presentation paths delegate through the same summary use case without adding an FSM state or duplicate presentation.
 - [x] Enabled review correction, direct queue admission, queue overflow, stale binding rejection, and exact-once corrected confirmation are covered at dispatcher and worker boundaries.
+- [x] PostgreSQL/Redis conversation coverage preserves the active review through two queued expenses and overflow, invalidates the old correction binding, and saves only the newly presented binding once.
 
 ## Related User Stories
 

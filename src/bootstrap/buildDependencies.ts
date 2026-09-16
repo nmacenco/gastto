@@ -608,6 +608,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   );
   const dispatchExpenseSemanticAction = new DispatchExpenseSemanticAction({
     snapshotValidator: semanticSnapshotValidator,
+    transitionState,
     registerExpense,
     completeClarification: completeExpenseClarification,
     correctExpense,

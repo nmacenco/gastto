@@ -12,6 +12,7 @@ import { ExpenseClarificationState } from '../../../domain/value-objects/expense
 import type { CompleteExpenseClarification } from './CompleteExpenseClarification';
 import type { CorrectExpenseUseCase } from './CorrectExpenseUseCase';
 import type { QueuePendingExpense } from './QueuePendingExpense';
+import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { RegisterExpenseUseCase } from './RegisterExpense';
 
 export type ExpenseGuidanceReason =
@@ -47,6 +48,7 @@ export class DispatchExpenseSemanticAction {
   constructor(
     private readonly deps: {
       readonly snapshotValidator: Pick<ValidateConversationSnapshot, 'execute'>;
+      readonly transitionState: Pick<TransitionConversationState, 'execute' | 'currentState'>;
       readonly registerExpense: Pick<RegisterExpenseUseCase, 'interpret'> | null;
       readonly completeClarification: Pick<CompleteExpenseClarification, 'execute'>;
       readonly correctExpense: Pick<CorrectExpenseUseCase, 'execute'>;
@@ -64,6 +66,7 @@ export class DispatchExpenseSemanticAction {
     if (snapshot.status !== 'current') {
       return { status: 'clarification_required', reason: 'stale_context' };
     }
+    let enteredReceiving = false;
     try {
       const state = snapshot.state.currentState;
       if (input.decision.action === 'register_expense') {
@@ -88,6 +91,14 @@ export class DispatchExpenseSemanticAction {
           queueRegisteredCount = clarification.queueRegisteredCount;
         } else if (state !== 'IDLE' && state !== 'EXPENSE_RECEIVING') {
           return { status: 'clarification_required', reason: 'unsupported_action' };
+        }
+        if (state === 'IDLE') {
+          await this.deps.transitionState.execute({
+            userId: input.userId,
+            targetState: 'EXPENSE_RECEIVING',
+            payload: { raw_message: input.rawMessage },
+          });
+          enteredReceiving = true;
         }
 
         return this.mapInterpretation(
@@ -147,6 +158,19 @@ export class DispatchExpenseSemanticAction {
 
       return { status: 'clarification_required', reason: 'unsupported_action' };
     } catch {
+      const current = this.deps.transitionState.currentState(input.userId);
+      if (enteredReceiving && current?.currentState === 'EXPENSE_RECEIVING') {
+        try {
+          await this.deps.transitionState.execute({
+            userId: input.userId,
+            targetState: 'IDLE',
+            payload: null,
+            expiresAt: null,
+          });
+        } catch {
+          // The original dispatch remains failed; a concurrent/stale writer owns recovery.
+        }
+      }
       return { status: 'clarification_required', reason: 'dispatch_failed' };
     }
   }

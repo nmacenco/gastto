@@ -159,4 +159,6 @@ evaluation and rollout gates in ADR-023 still apply.
 Rollback requires changing the affected state modes to `off`. Queue payloads do
 not carry a captured mode, so already queued jobs resolve the new setting after
 lock acquisition and make no semantic call. No queue or database migration is
-required.
+required. PostgreSQL/Redis integration exercises `enabled → shadow → off` with
+already queued work and active clarification/review payloads; deterministic commands,
+source text, review bindings, and pending expenses remain compatible.

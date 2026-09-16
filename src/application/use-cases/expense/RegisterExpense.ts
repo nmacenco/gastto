@@ -74,6 +74,15 @@ export class RegisterExpenseUseCase {
     | { status: 'needs_zero_confirmation'; payload: ExpenseReviewPayload }
     | { status: 'ready_for_review'; payload: ExpenseReviewPayload }
   > {
+    const activeState = this.transitionState.currentState?.(input.userId);
+    if (activeState?.currentState === 'IDLE') {
+      await this.transitionState.execute({
+        userId: input.userId,
+        targetState: 'EXPENSE_RECEIVING',
+        payload: { raw_message: input.rawMessage },
+      });
+    }
+
     // Fetch user's default currency through the dedicated domain port
     const defaultCurrency = await this.userProfilePort.getDefaultCurrency(input.userId);
 

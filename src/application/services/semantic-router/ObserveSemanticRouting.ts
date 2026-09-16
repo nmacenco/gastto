@@ -155,7 +155,30 @@ interface ObserveSemanticRoutingDeps {
 }
 
 export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
+  private readonly pendingDispatchObservations = new WeakMap<
+    Extract<SemanticRoutingTurnOutcome, { status: 'expense_action' }>,
+    SemanticRoutingObservation
+  >();
+
   constructor(private readonly deps: ObserveSemanticRoutingDeps) {}
+
+  recordExpenseDispatch(
+    turn: Extract<SemanticRoutingTurnOutcome, { status: 'expense_action' }>,
+    outcome: { readonly status: string; readonly reason?: string },
+  ): void {
+    const observation = this.pendingDispatchObservations.get(turn);
+    if (!observation) return;
+    this.pendingDispatchObservations.delete(turn);
+    this.record({
+      ...observation,
+      policyOutcome:
+        outcome.status !== 'clarification_required'
+          ? 'allowed_enabled'
+          : outcome.reason === 'dispatch_failed'
+            ? 'dispatch_failed'
+            : 'dispatch_rejected',
+    });
+  }
 
   async execute(input: {
     readonly userId: string;
@@ -383,14 +406,14 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
       };
     }
 
-    this.record({
+    const observation: SemanticRoutingObservation = {
       ...base,
       ...metadata,
       mode: 'enabled',
       proposedAction: assessment.decision.action,
       policyOutcome: 'allowed_enabled',
-    });
-    return {
+    };
+    const turn = {
       status: 'expense_action',
       decision: assessment.decision,
       expected: {
@@ -398,7 +421,9 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
         currentState: input.conversationState.currentState,
         expiry: 'unexpired',
       },
-    };
+    } as const;
+    this.pendingDispatchObservations.set(turn, observation);
+    return turn;
   }
 
   private async snapshotIsCurrent(input: {
