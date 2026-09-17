@@ -33,6 +33,7 @@ import type { RedisProcessedMessageRepository } from '../infrastructure/redis/Re
 import type { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProcessingLock';
 import type { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
 import type { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
+import type { DispatchOptionSelection } from '../application/use-cases/spreadsheet/DispatchOptionSelection';
 import type { CompleteExpenseClarification } from '../application/use-cases/expense/CompleteExpenseClarification';
 import type { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
@@ -180,6 +181,7 @@ export interface Dependencies {
   semanticRouter: SemanticRouterPort | null;
   observeSemanticRouting: ObserveSemanticRouting;
   dispatchExpenseSemanticAction: DispatchExpenseSemanticAction;
+  dispatchOptionSelection?: DispatchOptionSelection | null;
   completeExpenseClarification: CompleteExpenseClarification;
 
   // Queues

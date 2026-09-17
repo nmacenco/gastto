@@ -76,6 +76,8 @@ const mockRetryExpenseSaveExecute = vi.fn();
 const mockStartSpreadsheetReconfigurationExecute = vi.fn();
 const mockObserveSemanticRoutingExecute = vi.fn();
 const mockDispatchExpenseSemanticActionExecute = vi.fn();
+const mockDispatchOptionSelectionExecute = vi.fn();
+const mockRecordOptionDispatch = vi.fn();
 const mockSendGuidanceExecute = vi.fn();
 const mockDeterministicRoutingDecide = vi.fn();
 
@@ -118,10 +120,14 @@ function buildMockDeps(): MessageWorkerDeps {
     },
     observeSemanticRouting: {
       execute: mockObserveSemanticRoutingExecute,
+      recordOptionDispatch: mockRecordOptionDispatch,
     } as unknown as MessageWorkerDeps['observeSemanticRouting'],
     dispatchExpenseSemanticAction: {
       execute: mockDispatchExpenseSemanticActionExecute,
     } as unknown as MessageWorkerDeps['dispatchExpenseSemanticAction'],
+    dispatchOptionSelection: {
+      execute: mockDispatchOptionSelectionExecute,
+    } as unknown as NonNullable<MessageWorkerDeps['dispatchOptionSelection']>,
     completeExpenseClarification: new CompleteExpenseClarification({
       interpret: mockRegisterExpenseInterpret,
     }),
@@ -373,6 +379,7 @@ describe('processMessageJob', () => {
       status: 'clarification_required',
       reason: 'unsupported_action',
     });
+    mockDispatchOptionSelectionExecute.mockResolvedValue({ status: 'selected', target: 'file' });
     mockSendGuidanceExecute.mockResolvedValue(undefined);
     mockDeterministicRoutingDecide.mockReturnValue({ kind: 'fsm_handler' });
   });
@@ -1561,6 +1568,86 @@ describe('processMessageJob', () => {
 
       expect(mockObserveSemanticRoutingExecute).toHaveBeenCalledOnce();
       scenario.assertDeterministic();
+    });
+  });
+
+  describe('enabled semantic file selection', () => {
+    const fileState = () =>
+      buildConversationState({
+        revision: '7',
+        currentState: 'ONBOARDING_FILE',
+        statePayload: {
+          fileList: [
+            {
+              id: 'provider-file-1',
+              name: 'Gastos 2026',
+              mimeType: 'application/vnd.google-apps.spreadsheet',
+              modifiedAt: '2026-09-17T10:00:00.000Z',
+            },
+          ],
+        },
+      });
+
+    it('dispatches one typed handoff and does not run the lexical file handler', async () => {
+      const deps = buildMockDeps();
+      const conversationState = fileState();
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'option_selection',
+        decision: { action: 'select_option', userReference: 'el de gastos' },
+        expected: { revision: '7', currentState: 'ONBOARDING_FILE', expiry: 'unexpired' },
+        snapshot: {
+          revision: '7',
+          state: 'ONBOARDING_FILE',
+          substep: null,
+          options: [{ position: 1, label: 'Gastos 2026' }],
+        },
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'el de gastos' }), deps);
+
+      expect(mockObserveSemanticRoutingExecute).toHaveBeenCalledOnce();
+      expect(mockDispatchOptionSelectionExecute).toHaveBeenCalledOnce();
+      expect(mockDispatchOptionSelectionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationState,
+          decision: { action: 'select_option', userReference: 'el de gastos' },
+        }),
+      );
+      expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+      expect(mockRecordOptionDispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'option_selection' }),
+        { status: 'selected', target: 'file' },
+      );
+    });
+
+    it('sends bounded option guidance and performs no deterministic handoff when unresolved', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(fileState());
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'option_selection',
+        decision: { action: 'select_option', userReference: 'gastos' },
+        expected: { revision: '7', currentState: 'ONBOARDING_FILE', expiry: 'unexpired' },
+        snapshot: {
+          revision: '7',
+          state: 'ONBOARDING_FILE',
+          substep: null,
+          options: [{ position: 1, label: 'Gastos 2026' }],
+        },
+      });
+      mockDispatchOptionSelectionExecute.mockResolvedValue({
+        status: 'clarification_required',
+        reason: 'ambiguous_reference',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'gastos' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        onboardingCopies.ambiguousFileReference(),
+      );
+      expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
     });
   });
 

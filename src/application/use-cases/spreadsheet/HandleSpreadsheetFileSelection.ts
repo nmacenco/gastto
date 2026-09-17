@@ -7,9 +7,12 @@ import type { Logger } from 'pino';
 import type { CloudStoragePort } from '../../../domain/ports/cloudStorage';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
-import type { FsmState } from '../../../domain/entities/ConversationState';
+import type {
+  ConversationStatePrecondition,
+  FsmState,
+} from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
-import type { CloudFile } from '../../../domain/entities/CloudFile';
+import { CloudFile } from '../../../domain/entities/CloudFile';
 import type { HandleSheetSelection } from './HandleSheetSelection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
@@ -18,6 +21,7 @@ import {
   executeWithOAuthAccessToken,
   type OAuthAccessTokenProvider,
 } from '../../services/OAuthAccessTokenService';
+import { onboardingFilePayloadSchema } from '../../services/semantic-router/ResolveOptionReference';
 
 export interface HandleSpreadsheetFileSelectionInput {
   userId: string;
@@ -31,6 +35,14 @@ export interface HandleSpreadsheetFileSelectionOutput {
   nextState: FsmState;
   message: string;
   payload?: Record<string, unknown>;
+}
+
+export interface SelectDisplayedFileInput extends Omit<
+  HandleSpreadsheetFileSelectionInput,
+  'rawMessage'
+> {
+  readonly position: number;
+  readonly expected: ConversationStatePrecondition;
 }
 
 export interface HandleSpreadsheetFileSelectionDeps {
@@ -140,6 +152,46 @@ export class HandleSpreadsheetFileSelection {
     return { nextState: 'ONBOARDING_FILE', message };
   }
 
+  async selectDisplayedFile(
+    input: SelectDisplayedFileInput,
+  ): Promise<HandleSpreadsheetFileSelectionOutput> {
+    const { userId, externalId, channel, statePayload, position, expected } = input;
+    const provider = this.resolveProvider(statePayload);
+    if (provider === 'microsoft') {
+      const message = onboardingCopies.comingSoon('OneDrive');
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_FILE', message };
+    }
+
+    try {
+      await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
+    } catch (err) {
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
+      }
+      throw err;
+    }
+
+    const parsed = onboardingFilePayloadSchema.safeParse(statePayload);
+    if (!parsed.success) {
+      const message = onboardingCopies.invalidSelectionRePrompt(0);
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_FILE', message };
+    }
+    const files = parsed.data.fileList.map(
+      (file) => new CloudFile({ ...file, modifiedAt: new Date(file.modifiedAt) }),
+    );
+    return this.handleNumberSelection(
+      userId,
+      externalId,
+      channel,
+      provider,
+      files,
+      position,
+      expected,
+    );
+  }
+
   private resolveProvider(statePayload: Record<string, unknown> | null): SpreadsheetProvider {
     const p = statePayload?.provider;
     if (p === 'microsoft') return 'microsoft';
@@ -212,6 +264,7 @@ export class HandleSpreadsheetFileSelection {
     provider: SpreadsheetProvider,
     files: CloudFile[],
     choice: number,
+    expected?: ConversationStatePrecondition,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
     const selected = files[choice - 1];
     if (!selected) {
@@ -221,6 +274,7 @@ export class HandleSpreadsheetFileSelection {
     }
 
     try {
+      this.deps.transitionState.assertExecutionIsValid?.(userId);
       const hasAccess = await executeWithOAuthAccessToken(
         this.deps.oauthAccessTokenService,
         { userId, provider },
@@ -233,6 +287,7 @@ export class HandleSpreadsheetFileSelection {
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
+      this.deps.transitionState.assertExecutionIsValid?.(userId);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
@@ -264,9 +319,6 @@ export class HandleSpreadsheetFileSelection {
       return { nextState: 'ONBOARDING_FILE', message };
     }
 
-    const message = onboardingCopies.fileSelectedConfirmation(selected.name);
-    await this.deps.messagingPort.sendMessage(externalId, message);
-
     const payload = {
       selectedFileId: selected.id,
       selectedFileName: selected.name,
@@ -277,7 +329,11 @@ export class HandleSpreadsheetFileSelection {
       userId,
       targetState: 'ONBOARDING_SHEET',
       payload,
+      ...(expected === undefined ? {} : { expected }),
     });
+
+    const message = onboardingCopies.fileSelectedConfirmation(selected.name);
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     await this.triggerSheetSelection(
       userId,

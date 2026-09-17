@@ -140,10 +140,11 @@ operation bindings, claims, revisions, or provider identifiers.
 
 The FSM remains authoritative in every mode. `shadow` records a proposal and
 executes the deterministic handler. `off` skips the model. `enabled` may execute
-validated expense proposals only in `IDLE`, `EXPENSE_RECEIVING`,
-`EXPENSE_CLARIFYING`, and `EXPENSE_REVIEW`. The typed dispatcher revalidates
-revision, state, expiry, execution ownership, and the absence of unresolved
-financial claims before invoking exactly one action-specific boundary.
+validated expense proposals in the delivered expense states and reversible file
+selection in `ONBOARDING_FILE/default`. The option dispatcher revalidates revision,
+state, expiry, execution ownership, ordered positions/labels, and payload shape,
+then hands one application-owned position to the existing guarded file-selection
+boundary. Sheet selection remains unavailable in enabled mode during this phase.
 
 Recognition and clarification completion can reach the existing
 `EXPENSE_CLARIFYING` or `EXPENSE_REVIEW` states. Clarification replacement commits

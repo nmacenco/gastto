@@ -212,17 +212,17 @@ Resolve enabled file references against the current displayed file snapshot and 
 
 #### To-do actions
 
-- [ ] Add the option capability branch to semantic turn orchestration and return `option_selection` only for an allowed, current `ONBOARDING_FILE/default` proposal. Keep off/shadow execution byte-for-byte behaviorally equivalent and keep unavailable option capability fail-closed.
-- [ ] Implement `DispatchOptionSelection` for file snapshots with immediate precondition and snapshot revalidation, deterministic reference resolution, application-owned `fileList[position - 1]` mapping, and exactly one `selectDisplayedFile` call.
-- [ ] Extract `selectDisplayedFile` from the current numbered selection path so semantic and deterministic entry points share access validation, confirmation, CAS transition to `ONBOARDING_SHEET`, and isolated eager sheet discovery without a second lexical interpretation.
-- [ ] Preserve direct URL selection, the "none of these" search transition, free-text search queries, Microsoft unavailable behavior, token reconnect, initial listing, and invalid deterministic selection. Classify those legacy paths before semantic selection where necessary so enabled mode cannot consume them.
-- [ ] Add application-owned ambiguous/not-found/stale copies that retain `ONBOARDING_FILE` and the current snapshot. Assert zero access validation, state transition, sheet discovery, config write, spreadsheet probe, and success copy for every unresolved or stale reference.
-- [ ] Test natural labels and ordinals, duplicate file names, stale replies after a refreshed search result, reordered lists, direct URLs, search entry and result replacement, inaccessible files, auth/network failures, provider failure, malformed proposals, lease loss, and revision changes while the model or access validation is pending.
-- [ ] Extend worker and composition tests for one router call, one resolver call, and at most one typed file handoff. Record selection authorization separately from file-access validation and eager sheet discovery.
-- [ ] Update file selection, incoming routing, semantic evaluation, conversation-state, FSM, observability, and feature-index documentation for delivered file behavior only.
-- [ ] Run focused tests and `pnpm test`; keep production activation and live-provider evidence pending.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add the option capability branch to semantic turn orchestration and return `option_selection` only for an allowed, current `ONBOARDING_FILE/default` proposal. Keep off/shadow execution byte-for-byte behaviorally equivalent and keep unavailable option capability fail-closed.
+- [x] Implement `DispatchOptionSelection` for file snapshots with immediate precondition and snapshot revalidation, deterministic reference resolution, application-owned `fileList[position - 1]` mapping, and exactly one `selectDisplayedFile` call.
+- [x] Extract `selectDisplayedFile` from the current numbered selection path so semantic and deterministic entry points share access validation, confirmation, CAS transition to `ONBOARDING_SHEET`, and isolated eager sheet discovery without a second lexical interpretation.
+- [x] Preserve direct URL selection, the "none of these" search transition, free-text search queries, Microsoft unavailable behavior, token reconnect, initial listing, and invalid deterministic selection. Classify those legacy paths before semantic selection where necessary so enabled mode cannot consume them.
+- [x] Add application-owned ambiguous/not-found/stale copies that retain `ONBOARDING_FILE` and the current snapshot. Assert zero access validation, state transition, sheet discovery, config write, spreadsheet probe, and success copy for every unresolved or stale reference.
+- [x] Test natural labels and ordinals, duplicate file names, stale replies after a refreshed search result, reordered lists, direct URLs, search entry and result replacement, inaccessible files, auth/network failures, provider failure, malformed proposals, lease loss, and revision changes while the model or access validation is pending.
+- [x] Extend worker and composition tests for one router call, one resolver call, and at most one typed file handoff. Record selection authorization separately from file-access validation and eager sheet discovery.
+- [x] Update file selection, incoming routing, semantic evaluation, conversation-state, FSM, observability, and feature-index documentation for delivered file behavior only.
+- [x] Run focused tests and `pnpm test`; keep production activation and live-provider evidence pending.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Enable sheet selection and prove end-to-end option safety
 
@@ -246,4 +246,4 @@ Complete semantic option selection for ordinary and header-description sheet sna
 
 ## Next step
 
-Implement Phase 2 to enable typed semantic file selection while preserving deterministic search and direct-URL behavior.
+Implement Phase 3 to enable semantic sheet selection and prove end-to-end option safety.

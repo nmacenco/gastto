@@ -183,6 +183,7 @@ describe('buildDependencies', () => {
     expect(deps.googleOAuth?.inferColumnMapping).toBeDefined();
     expect(deps.googleOAuth?.confirmCategories).toBeDefined();
     expect(deps.googleOAuth?.modifyCategoryVocabulary).toBeDefined();
+    expect(deps.dispatchOptionSelection).toBeDefined();
     expect(deps.googleOAuth?.categoryHierarchyReaderFactory).toBeInstanceOf(
       SpreadsheetCategoryHierarchyReaderFactory,
     );
@@ -212,6 +213,7 @@ describe('buildDependencies', () => {
 
     expect(deps.telegram).not.toBeNull();
     expect(deps.googleOAuth).toBeNull();
+    expect(deps.dispatchOptionSelection).toBeNull();
   });
 
   it('selects NVIDIA when its API key is configured', () => {

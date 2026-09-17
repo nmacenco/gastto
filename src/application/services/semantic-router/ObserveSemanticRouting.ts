@@ -23,6 +23,16 @@ import {
   isExpenseSemanticDecision,
   type ExpenseSemanticDecision,
 } from './expense-capabilities';
+import {
+  isEnabledOptionSelectionState,
+  isOptionSelectionSemanticDecision,
+  shouldBypassSemanticFileSelection,
+  type OptionSelectionSemanticDecision,
+} from './option-capabilities';
+import {
+  projectOptionSelectionSnapshot,
+  type OptionSelectionSnapshot,
+} from './ResolveOptionReference';
 import { POLICY_VERSION } from './policy';
 import type { ProjectSemanticRouterInput } from './ProjectSemanticRouterInput';
 import type { SemanticRoutingMode, SemanticRoutingPolicy } from './runtime-policy';
@@ -57,8 +67,20 @@ export type SemanticRoutingTurnOutcome =
       readonly expected: ConversationStatePrecondition;
     }
   | {
+      readonly status: 'option_selection';
+      readonly decision: OptionSelectionSemanticDecision;
+      readonly expected: ConversationStatePrecondition;
+      readonly snapshot: OptionSelectionSnapshot;
+    }
+  | {
       readonly status: 'clarification';
-      readonly reason: 'ambiguous_intent' | 'mixed_intents' | 'unsupported_action';
+      readonly reason:
+        | 'ambiguous_intent'
+        | 'mixed_intents'
+        | 'ambiguous_reference'
+        | 'not_found'
+        | 'stale_context'
+        | 'unsupported_action';
     };
 
 export interface ResolveSemanticRoutingTurn {
@@ -152,11 +174,12 @@ interface ObserveSemanticRoutingDeps {
   readonly router: SemanticRouterPort | null;
   readonly snapshotValidator: Pick<ValidateConversationSnapshot, 'execute'>;
   readonly telemetry: SemanticRoutingTelemetryPort;
+  readonly optionSelectionAvailable?: boolean;
 }
 
 export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
   private readonly pendingDispatchObservations = new WeakMap<
-    Extract<SemanticRoutingTurnOutcome, { status: 'expense_action' }>,
+    Extract<SemanticRoutingTurnOutcome, { status: 'expense_action' | 'option_selection' }>,
     SemanticRoutingObservation
   >();
 
@@ -166,17 +189,33 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
     turn: Extract<SemanticRoutingTurnOutcome, { status: 'expense_action' }>,
     outcome: { readonly status: string; readonly reason?: string },
   ): void {
+    this.recordDispatch(turn, outcome);
+  }
+
+  recordOptionDispatch(
+    turn: Extract<SemanticRoutingTurnOutcome, { status: 'option_selection' }>,
+    outcome: { readonly status: string; readonly reason?: string },
+  ): void {
+    this.recordDispatch(turn, outcome);
+  }
+
+  private recordDispatch(
+    turn: Extract<SemanticRoutingTurnOutcome, { status: 'expense_action' | 'option_selection' }>,
+    outcome: { readonly status: string; readonly reason?: string },
+  ): void {
     const observation = this.pendingDispatchObservations.get(turn);
     if (!observation) return;
     this.pendingDispatchObservations.delete(turn);
     this.record({
       ...observation,
       policyOutcome:
-        outcome.status !== 'clarification_required'
-          ? 'allowed_enabled'
-          : outcome.reason === 'dispatch_failed'
+        outcome.status === 'clarification_required'
+          ? outcome.reason === 'dispatch_failed'
             ? 'dispatch_failed'
-            : 'dispatch_rejected',
+            : 'dispatch_rejected'
+          : outcome.status === 'selection_rejected'
+            ? 'dispatch_rejected'
+            : 'allowed_enabled',
     });
   }
 
@@ -192,7 +231,9 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
         ? 'typed_callback'
         : input.deterministicDecision.kind === 'sensitive_command'
           ? 'sensitive_command'
-          : 'free_text';
+          : shouldBypassSemanticFileSelection(input.conversationState, input.rawMessage)
+            ? 'sensitive_command'
+            : 'free_text';
     const substep = this.deps.projector.substepFor(input.conversationState);
     const resolution = this.deps.policy.resolve({
       userId: input.userId,
@@ -292,7 +333,7 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
           errorCode: 'STALE_CONTEXT',
         });
         return resolution.mode === 'enabled'
-          ? { status: 'clarification', reason: 'unsupported_action' }
+          ? { status: 'clarification', reason: 'stale_context' }
           : { status: 'deterministic', reason: 'shadow_only' };
       }
       this.record({
@@ -336,7 +377,7 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
         errorCode: 'STALE_CONTEXT',
       });
       return resolution.mode === 'enabled'
-        ? { status: 'clarification', reason: 'unsupported_action' }
+        ? { status: 'clarification', reason: 'stale_context' }
         : { status: 'deterministic', reason: 'shadow_only' };
     }
     const assessment = assessSemanticProposal(projection.input, result);
@@ -364,22 +405,14 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
       return { status: 'deterministic', reason: 'shadow_only' };
     }
 
-    if (
-      assessment.status !== 'allowed' ||
-      !isExpenseSemanticDecision(assessment.decision) ||
-      !isExpenseCapabilityAllowed(input.conversationState.currentState, assessment.decision)
-    ) {
+    if (assessment.status !== 'allowed') {
       this.record({
         ...base,
         ...metadata,
         mode: 'enabled',
         proposedAction: assessment.decision.action,
-        policyOutcome:
-          assessment.status === 'forbidden_action'
-            ? 'forbidden_action'
-            : 'enabled_capability_unavailable',
-        errorCode:
-          assessment.status === 'forbidden_action' ? null : 'ENABLED_CAPABILITY_UNAVAILABLE',
+        policyOutcome: 'forbidden_action',
+        errorCode: null,
       });
       return { status: 'clarification', reason: 'unsupported_action' };
     }
@@ -406,6 +439,11 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
       };
     }
 
+    const expected = {
+      revision: input.conversationState.revision,
+      currentState: input.conversationState.currentState,
+      expiry: 'unexpired',
+    } as const;
     const observation: SemanticRoutingObservation = {
       ...base,
       ...metadata,
@@ -413,14 +451,47 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
       proposedAction: assessment.decision.action,
       policyOutcome: 'allowed_enabled',
     };
+
+    if (isOptionSelectionSemanticDecision(assessment.decision)) {
+      const snapshot = projectOptionSelectionSnapshot(input.conversationState);
+      if (
+        this.deps.optionSelectionAvailable === false ||
+        !isEnabledOptionSelectionState(input.conversationState) ||
+        snapshot === null
+      ) {
+        this.record({
+          ...observation,
+          policyOutcome: 'enabled_capability_unavailable',
+          errorCode: 'ENABLED_CAPABILITY_UNAVAILABLE',
+        });
+        return { status: 'clarification', reason: 'unsupported_action' };
+      }
+      const turn = {
+        status: 'option_selection',
+        decision: assessment.decision,
+        expected,
+        snapshot,
+      } as const;
+      this.pendingDispatchObservations.set(turn, observation);
+      return turn;
+    }
+
+    if (
+      !isExpenseSemanticDecision(assessment.decision) ||
+      !isExpenseCapabilityAllowed(input.conversationState.currentState, assessment.decision)
+    ) {
+      this.record({
+        ...observation,
+        policyOutcome: 'enabled_capability_unavailable',
+        errorCode: 'ENABLED_CAPABILITY_UNAVAILABLE',
+      });
+      return { status: 'clarification', reason: 'unsupported_action' };
+    }
+
     const turn = {
       status: 'expense_action',
       decision: assessment.decision,
-      expected: {
-        revision: input.conversationState.revision,
-        currentState: input.conversationState.currentState,
-        expiry: 'unexpired',
-      },
+      expected,
     } as const;
     this.pendingDispatchObservations.set(turn, observation);
     return turn;

@@ -17,7 +17,7 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 - A source hash identifies the current lexical helper/dispatch files used for baseline interpretation. Reports include dataset, contract, policy and fixture-router versions, per-scope checks, baseline coverage and mismatch IDs.
 - Raw messages, selectors, model reasoning and provider response bodies are excluded from reports. The CLI uses the injected Pino logger for bounded operational errors.
 - The Mercadona case expects a registration proposal and observes that the current lexical filter already admits the message. PostgreSQL/Redis webhook-to-worker coverage now proves extraction of amount/date/merchant, review presentation, original-text retention, and bound confirmation before saving.
-- Runtime semantic turn resolution is implemented separately from the evaluator. It projects validated current state under the processing lock, calls the router at most once, revalidates the snapshot, and records one schema-bounded metadata event. Off/shadow retain deterministic behavior; enabled expense dispatch now covers recognition in `IDLE`/`EXPENSE_RECEIVING`, missing-data completion and replacement in `EXPENSE_CLARIFYING`, and validated correction or FIFO admission in `EXPENSE_REVIEW`.
+- Runtime semantic turn resolution is implemented separately from the evaluator. It projects validated current state under the processing lock, calls the router at most once, revalidates the snapshot, and records one schema-bounded metadata event. Off/shadow retain deterministic behavior; enabled dispatch covers the delivered expense states plus exact revision-bound file selection in `ONBOARDING_FILE/default`.
 - `option-reference-v1` derives application-owned snapshots only from validated, unexpired `ONBOARDING_FILE/default`, `ONBOARDING_SHEET/default`, and `ONBOARDING_SHEET/idk` payloads. Snapshots contain the monotonic revision, allowed state/substep, and ordered `{ position, label }` entries; provider IDs and payload details remain outside the model boundary.
 - The pure resolver accepts whole numeric positions, Spanish cardinal/ordinal phrases, and exact full labels normalized with lowercase, Unicode NFD accent removal, and collapsed whitespace. It never uses substring, prefix, edit-distance, or first-match fallback. Duplicate normalized labels and position/label collisions are ambiguous; unavailable references are not found; any revision, state, substep, order, or label change is stale.
 - The effect-free evaluator resolves only allowed `select_option` proposals and reports proposed-action agreement, unique-resolution accuracy, ambiguity handling, not-found rejection, and stale rejection separately. Downstream task completion remains null until typed selection dispatch exists.
@@ -48,7 +48,7 @@ The input ceiling is 8,000 message characters, 20,000 serialized input character
 
 - Live quality evidence remains pending explicit execution; Phase 2 implementation is available below.
 - Independent human label adjudication and explicitly initiated live held-out comparisons remain pending; the expanded corpus is implemented below.
-- Real-provider sampling, controlled rollout, and effectful semantic option dispatch remain in [master Phases 5 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). The deterministic resolver and offline evaluation slice are implemented; file/sheet selection effects remain disabled.
+- Real-provider sampling, controlled rollout, and semantic sheet dispatch remain in [master Phases 5 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). The deterministic resolver, offline evaluation slice, and guarded file-selection dispatch are implemented; production cohort activation and sheet effects remain disabled.
 
 ## Related Decisions
 
@@ -175,7 +175,7 @@ the source digest. Do not substitute an imported/mock result under that provenan
 | Fixture ingress projection agreement on that cohort    |       19/19 |              8/8 |
 | Proposed option actions                                |         9/9 | 0/0 (unmeasured) |
 | Unique option resolutions                              |         6/6 | 0/0 (unmeasured) |
-| Ambiguous / not-found / stale rejection                |   1/1 each | 0/0 (unmeasured) |
+| Ambiguous / not-found / stale rejection                |    1/1 each | 0/0 (unmeasured) |
 
 These paired counts compare fixture projections with actual lexical execution.
 They do not demonstrate model improvement. The exact bank notification already

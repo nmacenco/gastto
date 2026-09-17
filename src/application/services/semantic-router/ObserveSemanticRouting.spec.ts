@@ -315,7 +315,7 @@ describe('ObserveSemanticRouting', () => {
       deterministicDecision: { kind: 'expense_guidance' },
     });
 
-    expect(result).toEqual({ status: 'clarification', reason: 'unsupported_action' });
+    expect(result).toEqual({ status: 'clarification', reason: 'stale_context' });
     expect(deps.telemetry.record).toHaveBeenCalledWith(
       expect.objectContaining({ policyOutcome: 'stale_context', errorCode: 'STALE_CONTEXT' }),
     );
@@ -546,5 +546,97 @@ describe('ObserveSemanticRouting', () => {
 
     expect(deps.policy.resolve).toHaveBeenCalledWith(expect.objectContaining({ substep: 'idk' }));
     expect(deps.telemetry.record).toHaveBeenCalledWith(expect.objectContaining({ substep: 'idk' }));
+  });
+
+  it('returns one snapshot-bound enabled file option turn and finalizes its telemetry once', async () => {
+    const deps = buildDeps();
+    deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+    deps.router.decide.mockResolvedValue({
+      status: 'proposed',
+      decision: { action: 'select_option', userReference: 'el de gastos' },
+      metadata: {
+        provider: 'openai',
+        model: 'gpt-4o-mini-2024-07-18',
+        promptVersion: 'semantic-openai-v2',
+        contractVersion: 'semantic-contract-v2',
+        latencyMs: 12,
+        inputTokens: 10,
+        outputTokens: 3,
+      },
+    });
+    const fileState: ConversationState = {
+      ...state,
+      revision: '8',
+      currentState: 'ONBOARDING_FILE',
+      statePayload: {
+        fileList: [
+          {
+            id: 'provider-file-1',
+            name: 'Gastos 2026',
+            mimeType: 'application/vnd.google-apps.spreadsheet',
+            modifiedAt: '2026-09-17T10:00:00.000Z',
+          },
+        ],
+      },
+    };
+
+    const turn = await new ObserveSemanticRouting(deps).execute({
+      userId: 'user-1',
+      externalMessageId: 'message-1',
+      rawMessage: 'el de gastos',
+      conversationState: fileState,
+      deterministicDecision: { kind: 'fsm_handler' },
+    });
+    expect(turn).toMatchObject({
+      status: 'option_selection',
+      expected: { revision: '8', currentState: 'ONBOARDING_FILE' },
+      snapshot: { options: [{ position: 1, label: 'Gastos 2026' }] },
+    });
+    if (turn.status !== 'option_selection') throw new Error('Expected option selection');
+    const observer = new ObserveSemanticRouting(deps);
+    const secondTurn = await observer.execute({
+      userId: 'user-1',
+      externalMessageId: 'message-2',
+      rawMessage: 'el de gastos',
+      conversationState: fileState,
+      deterministicDecision: { kind: 'fsm_handler' },
+    });
+    if (secondTurn.status !== 'option_selection') throw new Error('Expected option selection');
+    observer.recordOptionDispatch(secondTurn, { status: 'selected' });
+    observer.recordOptionDispatch(secondTurn, { status: 'selected' });
+    expect(deps.telemetry.record).toHaveBeenCalledTimes(1);
+  });
+
+  it('bypasses the semantic provider for existing numbered, search and direct URL file paths', async () => {
+    const deps = buildDeps();
+    deps.policy.resolve.mockReturnValue({ mode: 'off', reason: 'deterministic_bypass' });
+    const fileState: ConversationState = {
+      ...state,
+      currentState: 'ONBOARDING_FILE',
+      statePayload: {
+        fileList: [
+          {
+            id: 'file-1',
+            name: 'Gastos',
+            mimeType: 'application/vnd.google-apps.spreadsheet',
+            modifiedAt: '2026-09-17T10:00:00.000Z',
+          },
+        ],
+      },
+    };
+    const observer = new ObserveSemanticRouting(deps);
+    for (const rawMessage of ['1', 'ninguno de estos', 'https://drive.google.com/file/d/a/view']) {
+      await observer.execute({
+        userId: 'user-1',
+        externalMessageId: rawMessage,
+        rawMessage,
+        conversationState: fileState,
+        deterministicDecision: { kind: 'fsm_handler' },
+      });
+      expect(deps.policy.resolve).toHaveBeenLastCalledWith(
+        expect.objectContaining({ messageKind: 'sensitive_command' }),
+      );
+    }
+    expect(deps.router.decide).not.toHaveBeenCalled();
   });
 });

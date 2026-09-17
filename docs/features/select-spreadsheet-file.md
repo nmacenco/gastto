@@ -30,11 +30,18 @@ The Select Spreadsheet File feature enables users to choose which spreadsheet fi
 
 7. User replies with a number matching an item in `statePayload.fileList`.
 8. The use case validates the choice and calls `CloudStoragePort.validateFileAccess` to confirm permissions.
-9. A confirmation message with the full file name is sent via `MessagingOutputPort`.
-10. The selected `fileId`, `fileName`, and `provider` are stored in the payload.
-    > **Note:** The selected file is stored in `conversationStates.statePayload` until HU-4.04 creates the definitive `spreadsheet_configs` record.
-11. FSM transitions to `ONBOARDING_SHEET`.
+9. The selected `fileId`, `fileName`, and `provider` are stored in the payload with a compare-and-swap transition bound to the displayed-list revision.
+   > **Note:** The selected file is stored in `conversationStates.statePayload` until HU-4.04 creates the definitive `spreadsheet_configs` record.
+10. FSM transitions to `ONBOARDING_SHEET`, then a confirmation message with the full file name is sent via `MessagingOutputPort`.
+11. A stale transition sends no success confirmation.
 12. `HandleSpreadsheetFileSelection` immediately invokes `HandleSheetSelection` with an empty `rawMessage`, so sheet discovery (single-sheet auto-confirmation or multi-sheet list) happens before the user sends another message.
+
+### Semantic selection by displayed reference
+
+- In `enabled` mode, `ONBOARDING_FILE/default` may propose `select_option` with only an untrusted `userReference`. Numeric deterministic replies, the "none of these" branch, active search queries, direct Drive URLs, initial listing, and Microsoft-unavailable handling bypass the semantic provider.
+- `DispatchOptionSelection` reloads and validates revision, state, expiry, execution ownership, payload shape, ordered positions, and labels. It resolves an exact normalized full label or documented Spanish ordinal/cardinal to exactly one position; duplicate labels are ambiguous and no provider identifier comes from the model.
+- A resolved position is passed once to `selectDisplayedFile`. That typed entry point reuses access validation, the guarded transition, confirmation, and isolated eager sheet discovery without reinterpreting text.
+- Ambiguous, unavailable, and stale references retain `ONBOARDING_FILE`, send bounded application-owned guidance, and perform no file-access validation, transition, sheet discovery, configuration write, spreadsheet probe, or success confirmation.
 
 ### Search by Name
 
@@ -89,15 +96,23 @@ interface HandleSpreadsheetFileSelectionOutput {
 }
 ```
 
+#### `SelectDisplayedFileInput`
+
+```ts
+interface SelectDisplayedFileInput extends Omit<HandleSpreadsheetFileSelectionInput, 'rawMessage'> {
+  position: number;
+  expected: ConversationStatePrecondition;
+}
+```
+
 #### `HandleSpreadsheetFileSelectionDeps`
 
 ```ts
 interface HandleSpreadsheetFileSelectionDeps {
   cloudStorage: CloudStoragePort;
-  tokenRepository: IOAuthTokenRepository;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
-  tokenEncryption: TokenEncryptionPort;
   logger: Logger;
   handleSheetSelection: HandleSheetSelection;
 }
@@ -136,17 +151,17 @@ class CloudFile {
 
 ## Error Handling
 
-| Scenario                           | Behavior                                                     |
-| ---------------------------------- | ------------------------------------------------------------ |
+| Scenario                           | Behavior                                                               |
+| ---------------------------------- | ---------------------------------------------------------------------- |
 | Invalid provider (`microsoft`)     | `InvalidProviderError` thrown by adapter; use case sends `comingSoon`. |
-| Missing / expired / revoked token  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`. |
-| Token decryption failure           | `reconnectAccount` message sent; transitions to `ONBOARDING_START`. |
-| Missing `fileId` in statePayload   | `fileAccessFailed` message returned; stays in `ONBOARDING_FILE`. |
-| Network failure during discovery   | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned. |
-| Non-2xx HTTP from Google Drive API | `FileDiscoveryError` thrown with HTTP status; error message returned. |
-| Invalid JSON response              | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned. |
-| File access denied (403/404)       | `validateFileAccess` returns `false`; `urlValidationFailed` returned. |
-| Unexpected HTTP during validation  | `FileDiscoveryError` thrown; `fileAccessFailed` returned.     |
+| Missing / expired / revoked token  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.    |
+| Token decryption failure           | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.    |
+| Missing `fileId` in statePayload   | `fileAccessFailed` message returned; stays in `ONBOARDING_FILE`.       |
+| Network failure during discovery   | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned.           |
+| Non-2xx HTTP from Google Drive API | `FileDiscoveryError` thrown with HTTP status; error message returned.  |
+| Invalid JSON response              | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned.           |
+| File access denied (403/404)       | `validateFileAccess` returns `false`; `urlValidationFailed` returned.  |
+| Unexpected HTTP during validation  | `FileDiscoveryError` thrown; `fileAccessFailed` returned.              |
 
 ## QA Checklist
 
@@ -167,6 +182,11 @@ class CloudFile {
   - `selectedFileId`, `selectedFileName`, and `provider` stored in payload.
   - FSM transitions to `ONBOARDING_SHEET`.
   - `HandleSheetSelection` invoked automatically with empty `rawMessage`.
+
+- [x] **Happy path — semantic displayed reference:**
+  - Natural full labels and Spanish ordinal/cardinal references resolve against the exact persisted list revision.
+  - Exactly one trusted position reaches `selectDisplayedFile`; provider IDs remain application-owned.
+  - Duplicate, missing, reordered, refreshed, expired, or lease-lost snapshots produce guidance without selection effects.
 
 - [x] **Happy path — search by name:**
   - User selects "None of these / search by name".

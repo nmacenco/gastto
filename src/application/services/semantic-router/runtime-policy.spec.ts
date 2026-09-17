@@ -105,4 +105,23 @@ describe('Sha256SemanticRoutingPolicy', () => {
       ).toBe('enabled');
     },
   );
+
+  it('enables the delivered file option capability while leaving sheet selection unavailable', () => {
+    const policy = new Sha256SemanticRoutingPolicy({
+      ...config,
+      stateModes: { ONBOARDING_FILE: 'enabled', ONBOARDING_SHEET: 'enabled' },
+    });
+    const base = {
+      userId: 'user-1',
+      externalMessageId: 'message-1',
+      substep: null,
+      messageKind: 'free_text' as const,
+      providerAvailable: true,
+    };
+    expect(policy.resolve({ ...base, state: 'ONBOARDING_FILE' }).mode).toBe('enabled');
+    expect(policy.resolve({ ...base, state: 'ONBOARDING_SHEET' })).toMatchObject({
+      mode: 'unavailable',
+      code: 'ENABLED_CAPABILITY_UNAVAILABLE',
+    });
+  });
 });

@@ -49,6 +49,10 @@ function stableBucket(seed: string, value: string): number {
   );
 }
 
+function isEnabledSemanticState(state: FsmState): boolean {
+  return isEnabledExpenseState(state) || state === 'ONBOARDING_FILE';
+}
+
 export class Sha256SemanticRoutingPolicy implements SemanticRoutingPolicy {
   constructor(private readonly config: SemanticRoutingConfig) {}
 
@@ -86,7 +90,7 @@ export class Sha256SemanticRoutingPolicy implements SemanticRoutingPolicy {
     if (!input.providerAvailable)
       return { mode: 'unavailable', requestedMode: configuredMode, code: 'PROVIDER_UNAVAILABLE' };
     if (configuredMode === 'enabled') {
-      if (!isEnabledExpenseState(input.state)) {
+      if (!isEnabledSemanticState(input.state)) {
         return {
           mode: 'unavailable',
           requestedMode: configuredMode,

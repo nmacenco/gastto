@@ -77,6 +77,8 @@ import { HandleOAuthCallback } from '../application/use-cases/spreadsheet/Handle
 import { SendOAuthReminder } from '../application/use-cases/spreadsheet/SendOAuthReminder';
 import { CancelCloudConnection } from '../application/use-cases/spreadsheet/CancelCloudConnection';
 import { HandleSpreadsheetFileSelection } from '../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
+import { DispatchOptionSelection } from '../application/use-cases/spreadsheet/DispatchOptionSelection';
+import { ResolveOptionReference } from '../application/services/semantic-router/ResolveOptionReference';
 import { HandleSheetSelection } from '../application/use-cases/spreadsheet/HandleSheetSelection';
 import { ValidateSpreadsheetAccess } from '../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import { StartSpreadsheetReconfigurationUseCase } from '../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
@@ -482,6 +484,13 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     router: semanticRouter,
     snapshotValidator: semanticSnapshotValidator,
     telemetry: new PinoSemanticRoutingTelemetry(infra.rootLogger),
+    optionSelectionAvailable: Boolean(
+      env.GOOGLE_CLIENT_ID &&
+      env.GOOGLE_CLIENT_SECRET &&
+      env.GOOGLE_REDIRECT_URI &&
+      env.TELEGRAM_BOT_TOKEN &&
+      env.TELEGRAM_WEBHOOK_SECRET,
+    ),
   });
 
   // process-message jobs run side-effectful FSM handlers that send
@@ -644,6 +653,13 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     oauthAdapter: googleOAuthAdapter,
     oauthAccessTokenService,
   });
+  const dispatchOptionSelection = googleOAuth
+    ? new DispatchOptionSelection({
+        snapshotValidator: semanticSnapshotValidator,
+        resolver: new ResolveOptionReference(),
+        fileSelection: googleOAuth.handleSpreadsheetFileSelection,
+      })
+    : null;
 
   const messagingPort = telegram?.adapter ?? {
     sendMessage: () =>
@@ -709,6 +725,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     semanticRouter,
     observeSemanticRouting,
     dispatchExpenseSemanticAction,
+    dispatchOptionSelection,
     completeExpenseClarification,
     messageQueue,
     incomingMessageQueue,

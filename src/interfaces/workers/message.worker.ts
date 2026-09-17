@@ -60,6 +60,7 @@ import type { MappingCorrection } from '../../domain/value-objects/ColumnMapping
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
+import type { DispatchOptionSelection } from '../../application/use-cases/spreadsheet/DispatchOptionSelection';
 import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
 import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
@@ -112,6 +113,7 @@ export interface MessageWorkerDeps {
   deterministicRoutingPolicy: DeterministicRoutingPolicy;
   observeSemanticRouting: ObserveSemanticRouting;
   dispatchExpenseSemanticAction: DispatchExpenseSemanticAction;
+  dispatchOptionSelection?: DispatchOptionSelection | null;
   completeExpenseClarification: CompleteExpenseClarification;
   sendGuidance: SendExpenseGuidance;
   correctExpense: CorrectExpenseUseCase | null;
@@ -249,7 +251,12 @@ export async function processMessageJob(
             externalId,
             conversationState
               ? semanticExpenseGuidance(conversationState, semanticTurn.reason)
-              : expenseCopies.semanticExpenseGuidance(semanticTurn.reason),
+              : expenseCopies.semanticExpenseGuidance(
+                  semanticTurn.reason === 'ambiguous_reference' ||
+                    semanticTurn.reason === 'not_found'
+                    ? 'unsupported_action'
+                    : semanticTurn.reason,
+                ),
           );
           return;
         }
@@ -305,6 +312,46 @@ export async function processMessageJob(
           } else if (outcome.status === 'queue_full') {
             await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
           } else if (outcome.status === 'clarification_required') {
+            await messaging.sendMessage(
+              externalId,
+              semanticExpenseGuidance(conversationState, outcome.reason),
+            );
+          }
+          return;
+        }
+        if (semanticTurn?.status === 'option_selection' && conversationState !== null) {
+          if (
+            opts.dispatchOptionSelection === null ||
+            opts.dispatchOptionSelection === undefined
+          ) {
+            opts.observeSemanticRouting.recordOptionDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'unsupported_action',
+            });
+            await messaging.sendMessage(externalId, onboardingCopies.fileReferenceNotFound());
+            return;
+          }
+          let outcome: Awaited<ReturnType<DispatchOptionSelection['execute']>>;
+          try {
+            outcome = await opts.dispatchOptionSelection.execute({
+              userId,
+              externalId,
+              channel,
+              conversationState,
+              expected: semanticTurn.expected,
+              snapshot: semanticTurn.snapshot,
+              decision: semanticTurn.decision,
+            });
+          } catch (error) {
+            opts.observeSemanticRouting.recordOptionDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'dispatch_failed',
+            });
+            throw error;
+          }
+          opts.observeSemanticRouting.recordOptionDispatch?.(semanticTurn, outcome);
+          opts.transitionState.assertExecutionIsValid(userId);
+          if (outcome.status === 'clarification_required') {
             await messaging.sendMessage(
               externalId,
               semanticExpenseGuidance(conversationState, outcome.reason),
@@ -1715,8 +1762,19 @@ async function handleClarification(
 
 function semanticExpenseGuidance(
   conversationState: ConversationState,
-  reason: Parameters<typeof expenseCopies.semanticExpenseGuidance>[0],
+  reason:
+    | Parameters<typeof expenseCopies.semanticExpenseGuidance>[0]
+    | 'ambiguous_reference'
+    | 'not_found'
+    | 'stale_context',
 ): string {
+  if (conversationState.currentState === 'ONBOARDING_FILE') {
+    if (reason === 'ambiguous_reference') return onboardingCopies.ambiguousFileReference();
+    if (reason === 'stale_context') return onboardingCopies.staleFileReference();
+    return onboardingCopies.fileReferenceNotFound();
+  }
+  const expenseReason =
+    reason === 'ambiguous_reference' || reason === 'not_found' ? 'unsupported_action' : reason;
   if (conversationState.currentState === 'EXPENSE_CLARIFYING') {
     try {
       const state = ExpenseClarificationState.fromPayload(conversationState.statePayload);
@@ -1724,11 +1782,11 @@ function semanticExpenseGuidance(
         ? expenseCopies.clarificationAmount()
         : expenseCopies.clarificationCurrency();
     } catch {
-      return expenseCopies.semanticExpenseGuidance(reason);
+      return expenseCopies.semanticExpenseGuidance(expenseReason);
     }
   }
   if (conversationState.currentState === 'EXPENSE_REVIEW') {
     return expenseCopies.ambiguousResponse();
   }
-  return expenseCopies.semanticExpenseGuidance(reason);
+  return expenseCopies.semanticExpenseGuidance(expenseReason);
 }
