@@ -5,6 +5,45 @@ import {
   errorCodeSchema,
 } from '../../services/semantic-router/contracts';
 
+const displayedOptionSchema = z
+  .object({ position: z.number().int().positive().max(20), label: z.string().min(1).max(200) })
+  .strict();
+const optionSnapshotSchema = z
+  .object({
+    revision: z.string().regex(/^(0|[1-9]\d*)$/),
+    state: z.enum(['ONBOARDING_FILE', 'ONBOARDING_SHEET']),
+    substep: z.enum(['idk']).nullable(),
+    options: z.array(displayedOptionSchema).min(1).max(20),
+  })
+  .strict()
+  .superRefine((snapshot, ctx) => {
+    if (
+      snapshot.options.some((option, index) => option.position !== index + 1) ||
+      (snapshot.state === 'ONBOARDING_FILE' && snapshot.substep !== null)
+    )
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid ordered option snapshot' });
+  });
+const resolutionResultSchema = z.discriminatedUnion('status', [
+  z
+    .object({ status: z.literal('resolved'), position: z.number().int().positive().max(20) })
+    .strict(),
+  z
+    .object({
+      status: z.literal('ambiguous'),
+      candidatePositions: z.array(z.number().int().positive().max(20)).min(2).max(20),
+    })
+    .strict(),
+  z.object({ status: z.literal('not_found') }).strict(),
+  z.object({ status: z.literal('stale') }).strict(),
+]);
+const optionResolutionSchema = z
+  .object({
+    expected: optionSnapshotSchema,
+    current: optionSnapshotSchema,
+    expectedResult: resolutionResultSchema,
+  })
+  .strict();
+
 export const identifierSchema = z.string().regex(/^[a-zA-Z0-9._-]{1,80}$/);
 export const EvaluationCaseSchema = z
   .object({
@@ -19,6 +58,7 @@ export const EvaluationCaseSchema = z
     expectedFailure: errorCodeSchema.nullable(),
     expectedAssessment: z.enum(['allowed', 'forbidden_action', 'router_failure']),
     mustNotAuthorize: z.array(z.enum(['save', 'delete', 'retry'])).max(3),
+    optionResolution: optionResolutionSchema.optional(),
   })
   .strict()
   .superRefine((c, ctx) => {
@@ -45,6 +85,18 @@ export const EvaluationCaseSchema = z
       c.acceptedDecisions.some((d) => d.action !== 'request_clarification')
     ) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Expected clarification required' });
+    }
+    if (c.optionResolution) {
+      const expectedOptions = c.optionResolution.expected.options;
+      if (
+        c.input.state !== c.optionResolution.expected.state ||
+        c.input.substep !== c.optionResolution.expected.substep ||
+        JSON.stringify(c.input.context.options) !== JSON.stringify(expectedOptions) ||
+        c.acceptedDecisions.length === 0 ||
+        c.acceptedDecisions.some((decision) => decision.action !== 'select_option') ||
+        c.expectedAssessment !== 'allowed'
+      )
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid option resolution case' });
     }
   });
 export const DatasetProvenanceSchema = z

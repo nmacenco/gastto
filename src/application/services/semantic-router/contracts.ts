@@ -8,7 +8,7 @@ import type {
 import type { ConversationDecision } from '../../../domain/value-objects/conversation-decision';
 import { allowedActionsFor } from './policy';
 
-export const CONTRACT_VERSION = 'semantic-contract-v1';
+export const CONTRACT_VERSION = 'semantic-contract-v2';
 export const actionSchema = z.enum([
   'register_expense',
   'cancel_current_flow',

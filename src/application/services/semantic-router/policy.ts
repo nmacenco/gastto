@@ -3,7 +3,7 @@ import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { ConversationDecision } from '../../../domain/value-objects/conversation-decision';
 
 type Action = ConversationDecision['action'];
-export const POLICY_VERSION = 'semantic-policy-v1';
+export const POLICY_VERSION = 'semantic-policy-v2';
 const guidance: readonly Action[] = ['request_clarification', 'out_of_scope'];
 const expense: readonly Action[] = ['register_expense', 'cancel_current_flow', ...guidance];
 const selection: readonly Action[] = ['select_option', ...guidance];

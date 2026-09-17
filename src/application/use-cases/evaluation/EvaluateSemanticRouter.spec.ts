@@ -5,11 +5,13 @@ import {
   buildOfflineResponses,
 } from '../../../__tests__/factories/semantic-router';
 import { OfflineSemanticRouterAdapter } from '../../../infrastructure/adapters/llm/OfflineSemanticRouterAdapter';
+import type { SemanticRouterPort } from '../../../domain/ports/SemanticRouterPort';
 import { EvaluateSemanticRouter, decisionsEqual } from './EvaluateSemanticRouter';
 import { observeLexicalBaseline } from './observeLexicalBaseline';
 import { EvaluationDatasetSchema } from './contracts';
+import { buildProposedRouterResult } from '../../../__tests__/factories/semantic-router';
 
-function run(dataset = buildSemanticDataset(), router = buildOfflineRouter()) {
+function run(dataset = buildSemanticDataset(), router: SemanticRouterPort = buildOfflineRouter()) {
   return new EvaluateSemanticRouter().execute({
     dataset,
     router,
@@ -89,5 +91,122 @@ describe('offline semantic evaluation', () => {
     const report = await run(dataset, new OfflineSemanticRouterAdapter(buildOfflineResponses()));
     expect(report.checks.languageFixtureAgreement?.value).toBeNull();
     expect(report.checks.clarificationRecall.value).toBeNull();
+  });
+
+  it('reports proposal, unique resolution, ambiguity and stale checks separately', async () => {
+    const dataset = buildSemanticDataset();
+    const base = dataset.cases[0]!;
+    const expected = {
+      revision: '7',
+      state: 'ONBOARDING_FILE' as const,
+      substep: null,
+      options: [
+        { position: 1, label: 'Nómina' },
+        { position: 2, label: 'Nomina' },
+      ],
+    };
+    dataset.cases = [
+      {
+        ...structuredClone(base),
+        id: 'resolved',
+        input: {
+          rawMessage: 'la segunda',
+          state: 'ONBOARDING_FILE',
+          substep: null,
+          allowedActions: ['select_option', 'request_clarification', 'out_of_scope'],
+          context: {
+            pendingQuestion: '¿Qué opción eliges?',
+            missingFields: [],
+            expense: null,
+            options: [
+              { position: 1, label: 'Casa' },
+              { position: 2, label: 'Viajes' },
+            ],
+          },
+        },
+        acceptedDecisions: [{ action: 'select_option', userReference: 'la segunda' }],
+        optionResolution: {
+          expected: {
+            ...expected,
+            options: [
+              { position: 1, label: 'Casa' },
+              { position: 2, label: 'Viajes' },
+            ],
+          },
+          current: {
+            ...expected,
+            options: [
+              { position: 1, label: 'Casa' },
+              { position: 2, label: 'Viajes' },
+            ],
+          },
+          expectedResult: { status: 'resolved', position: 2 },
+        },
+      },
+      {
+        ...structuredClone(base),
+        id: 'ambiguous',
+        input: {
+          rawMessage: 'nómina',
+          state: 'ONBOARDING_FILE',
+          substep: null,
+          allowedActions: ['select_option', 'request_clarification', 'out_of_scope'],
+          context: {
+            pendingQuestion: '¿Qué opción eliges?',
+            missingFields: [],
+            expense: null,
+            options: expected.options,
+          },
+        },
+        acceptedDecisions: [{ action: 'select_option', userReference: 'nómina' }],
+        optionResolution: {
+          expected,
+          current: expected,
+          expectedResult: { status: 'ambiguous', candidatePositions: [1, 2] },
+        },
+      },
+      {
+        ...structuredClone(base),
+        id: 'stale',
+        input: {
+          rawMessage: 'la primera',
+          state: 'ONBOARDING_FILE',
+          substep: null,
+          allowedActions: ['select_option', 'request_clarification', 'out_of_scope'],
+          context: {
+            pendingQuestion: '¿Qué opción eliges?',
+            missingFields: [],
+            expense: null,
+            options: expected.options,
+          },
+        },
+        acceptedDecisions: [{ action: 'select_option', userReference: 'la primera' }],
+        optionResolution: {
+          expected,
+          current: { ...expected, revision: '8' },
+          expectedResult: { status: 'stale' },
+        },
+      },
+    ];
+    const decisions = ['la segunda', 'nómina', 'la primera'];
+    const report = await run(dataset, {
+      decide: vi.fn(() =>
+        Promise.resolve(
+          buildProposedRouterResult({
+            action: 'select_option',
+            userReference: decisions.shift()!,
+          }),
+        ),
+      ),
+    });
+    expect(report.passed).toBe(true);
+    expect(report.checks.proposedActionAgreement.value).toBe(1);
+    expect(report.checks.uniqueResolutionAccuracy.value).toBe(1);
+    expect(report.checks.ambiguityHandling.value).toBe(1);
+    expect(report.checks.staleRejection.value).toBe(1);
+    expect(report.checks.notFoundRejection.value).toBeNull();
+    expect(report.checks.downstreamTaskCompletion).toBeNull();
+    expect(JSON.stringify(report)).not.toContain('Nómina');
+    expect(JSON.stringify(report)).not.toContain('la segunda');
   });
 });

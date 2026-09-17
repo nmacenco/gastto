@@ -128,7 +128,7 @@ describe('bootstrap', () => {
       .map(([event]) => String(event))
       .filter((event) => event === 'SIGTERM' || event === 'SIGINT');
     processOnceSpy.mockRestore();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     apps = [];

@@ -6,18 +6,20 @@ required. This smoke set and its separate `offline-responses.json` stay intact.
 
 ## Expanded corpus
 
-`corpus.json` contains 220 cases under `semantic-corpus-v3`:
+`corpus.json` contains 229 cases under `semantic-corpus-v4`:
 
 | Split       | Language | Protocol | Deterministic only | Total |
 | ----------- | -------: | -------: | -----------------: | ----: |
-| development |       70 |      113 |                  4 |   187 |
+| development |       79 |      113 |                  4 |   196 |
 | held_out    |       33 |        0 |                  0 |    33 |
 
 Every eligible scope has language examples in each split. The ten scopes are
 IDLE, EXPENSE_RECEIVING, EXPENSE_CLARIFYING, EXPENSE_REVIEW,
 EXPENSE_SAVING_RETRY, EXPENSE_UNDO_CONFIRMING, ONBOARDING_FILE and
 ONBOARDING_SHEET at the normal step, plus ONBOARDING_SHEET `idk` and
-`empty-sheet-confirm`. Normal steps are represented by `substep: null`.
+`empty-sheet-confirm`. Normal steps are represented by `substep: null`. Nine additive
+development cases carry effect-free resolution expectations for file/default,
+sheet/default, and sheet/idk snapshots; they do not enable runtime selection.
 
 The development protocol grid covers all ten actions in each of these ten scopes.
 Other protocol cases exercise all safe error codes and malformed output. Tags
@@ -29,14 +31,15 @@ are listed by the report, not falsely recorded as model-tested.
 ## Label and split provenance
 
 Labels were authored from ADR-023 and scenario meaning and reviewed without candidate
-predictions. The v2 labels were frozen on 2026-09-12; the appended stateful v3 labels
-were frozen on 2026-09-16, in both cases **before** writing their response fixtures.
+predictions. The v2 labels were frozen on 2026-09-12; the appended stateful v3 and
+effect-free option-resolution v4 labels were frozen on 2026-09-16, in every case
+**before** writing their response fixtures.
 No live candidate was evaluated or used for prompt tuning. Independent human label
 adjudication remains pending. These synthetic labels should not be presented as a
 representative, externally reviewed benchmark.
 
-- Label version: `semantic-labels-v3`.
-- Split version: `family-split-v2`.
+- Label version: `semantic-labels-v4`.
+- Split version: `family-split-v3`.
 - Leakage-check normalization: `nfkc-case-whitespace-v1` (NFKC, Spanish lowercase,
   collapse whitespace, trim). Messages sent to the router retain their original text.
 - `manifest.json` pins the byte hashes of corpus and response files. Reports
@@ -49,6 +52,7 @@ representative, externally reviewed benchmark.
 - A post-freeze label correction requires a new corpus and label version, a manifest
   update and a rationale recorded here. Never relabel to hide a candidate failure.
   Version 3 appends stateful expense-flow families and does not relabel v2 cases.
+  Version 4 adds effect-free option-resolution expectations and does not relabel v3 cases.
 
 The Mercadona notification is the exact supplied regression: newlines, decimal
 comma, accents and non-breaking space are preserved. Its development family covers
@@ -62,6 +66,8 @@ mixed intents, message/option injection, amounts, new expenses and ambiguous opt
 Each case declares `id`, `family` (required with corpus provenance),
 `datasetVersion`, `split`, `tags`, bounded `input`, `acceptedDecisions`,
 `expectedHandling`, `expectedAssessment`, `expectedFailure` and `mustNotAuthorize`.
+Option-resolution rows also declare the expected/current application snapshots and
+the expected pure resolver result; those fields never enter router input.
 Accepted decisions must match the declared allowed/forbidden assessment. Failure
 cases accept no decision. The `clarify` handling requires clarification labels.
 Legacy smoke data without provenance/family metadata remains supported and is
@@ -93,8 +99,11 @@ With restricted local socket access, `node --import tsx
 src/interfaces/cli/evaluateSemanticRouter.ts` runs the same CLI without the tsx
 launcher's IPC socket. Add the same arguments on that command line.
 
-The expense-flow rerun on 2026-09-16 completed 187/187 and 33/33 checks, with
-zero fixture mismatches and zero critical-case failures. Actual lexical ingress agreement on the comparable
+The option-resolution development rerun on 2026-09-16 completed 196/196 checks, with
+zero fixture mismatches and zero critical-case failures. Its option slice completed
+9/9 proposed actions, 6/6 unique resolutions, 1/1 ambiguity handling, 1/1 not-found
+rejection, and 1/1 stale rejection; downstream task completion remains null. The v3
+held-out expense-flow result remains 33/33. Actual lexical ingress agreement on the comparable
 language subset was 14/19 development and 5/8 held-out. Corresponding fixture
 projection agreement was 19/19 and 8/8. **This is not evidence of model accuracy or
 improvement.** The exact Mercadona input already produces lexical `enqueued`.

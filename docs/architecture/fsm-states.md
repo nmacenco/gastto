@@ -131,7 +131,7 @@ Save, retry, and undo execution may additionally carry `executionClaim: { claimI
 ## Semantic observation by state
 
 Semantic routing does not add a state or transition. Runtime projection supports
-only the state/substep pairs enumerated by `semantic-policy-v1`; unsupported states,
+only the state/substep pairs enumerated by `semantic-policy-v2`; unsupported states,
 unknown substeps, malformed payloads, expired snapshots, and unresolved financial
 claims produce metadata-only failure/stale observations. Projection allowlists the
 current question, missing amount/currency fields, bounded expense summary, and

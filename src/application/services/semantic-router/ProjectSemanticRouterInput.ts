@@ -1,5 +1,4 @@
 // LAYER: Application. Allowlisted projection of persisted state into untrusted model input.
-import { z } from 'zod';
 import {
   getFinancialExecutionClaim,
   type ConversationState,
@@ -16,6 +15,10 @@ import { parseExpenseUndoPayload } from '../../../domain/value-objects/expense-u
 import { expenseCopies } from '../../copies/expense.copies';
 import { SemanticRouterInputSchema } from './contracts';
 import { allowedActionsFor, STATE_ACTION_POLICY } from './policy';
+import {
+  onboardingSheetEmptyPayloadSchema,
+  projectOptionSelectionSnapshot,
+} from './ResolveOptionReference';
 
 export type SemanticInputProjection =
   | { readonly status: 'supported'; readonly input: SemanticRouterInput }
@@ -23,49 +26,6 @@ export type SemanticInputProjection =
       readonly status: 'unsupported';
       readonly code: 'UNSUPPORTED_STATE' | 'UNSUPPORTED_SUBSTEP' | 'INVALID_STATE_CONTEXT';
     };
-
-const boundedIdentifier = z.string().trim().min(1).max(500);
-const boundedLabel = z.string().trim().min(1).max(200);
-const cloudFileSchema = z
-  .object({
-    id: boundedIdentifier,
-    name: boundedLabel,
-    mimeType: z.string().trim().min(1).max(200),
-    modifiedAt: z.string().datetime({ offset: true }),
-  })
-  .strict();
-const sheetInfoSchema = z
-  .object({ name: boundedLabel, index: z.number().int().nonnegative() })
-  .strict();
-const providerSchema = z.enum(['google', 'microsoft']);
-const onboardingFilePayloadSchema = z
-  .object({ fileList: z.array(cloudFileSchema).min(1).max(20) })
-  .strict();
-const onboardingSheetDefaultPayloadSchema = z
-  .object({
-    selectedFileId: boundedIdentifier,
-    selectedFileName: boundedLabel,
-    provider: providerSchema,
-    sheetList: z.array(sheetInfoSchema).min(1).max(20),
-  })
-  .strict();
-const onboardingSheetIdkPayloadSchema = z
-  .object({
-    selectedFileId: boundedIdentifier,
-    sheetList: z.array(sheetInfoSchema).min(1).max(20),
-    step: z.literal('idk'),
-  })
-  .strict();
-const onboardingSheetEmptyPayloadSchema = z
-  .object({
-    selectedFileId: boundedIdentifier,
-    selectedFileName: boundedLabel,
-    selectedSheetName: boundedLabel,
-    provider: providerSchema,
-    step: z.literal('empty-sheet-confirm'),
-    sheetList: z.array(sheetInfoSchema).min(1).max(20).optional(),
-  })
-  .strict();
 
 const emptyContext = (): SemanticRouterContext => ({
   pendingQuestion: null,
@@ -148,9 +108,9 @@ export class ProjectSemanticRouterInput {
       case 'EXPENSE_UNDO_CONFIRMING':
         return this.projectUndo(payload, conversationState.expiresAt);
       case 'ONBOARDING_FILE':
-        return this.projectFiles(payload);
+        return this.projectFiles(conversationState);
       case 'ONBOARDING_SHEET':
-        return this.projectSheets(payload, substep);
+        return this.projectSheets(conversationState, substep);
       default:
         return null;
     }
@@ -215,32 +175,39 @@ export class ProjectSemanticRouterInput {
     return undo?.actionBinding?.presentedAt && expiresAt !== null ? emptyContext() : null;
   }
 
-  private projectFiles(payload: unknown): SemanticRouterContext | null {
-    const parsed = onboardingFilePayloadSchema.safeParse(payload);
-    if (!parsed.success) return null;
+  private projectFiles(conversationState: ConversationState): SemanticRouterContext | null {
+    const snapshot = projectOptionSelectionSnapshot(conversationState);
+    if (!snapshot) return null;
     return {
       ...emptyContext(),
       pendingQuestion: '¿Qué opción eliges?',
-      options: parsed.data.fileList.map((file, index) => ({
-        position: index + 1,
-        label: file.name,
-      })),
+      options: snapshot.options,
     };
   }
 
-  private projectSheets(payload: unknown, substep: string | null): SemanticRouterContext | null {
-    const parsed =
-      substep === 'idk'
-        ? onboardingSheetIdkPayloadSchema.safeParse(payload)
-        : substep === 'empty-sheet-confirm'
-          ? onboardingSheetEmptyPayloadSchema.safeParse(payload)
-          : onboardingSheetDefaultPayloadSchema.safeParse(payload);
-    if (!parsed.success) return null;
-    const sheets = parsed.data.sheetList ?? [];
+  private projectSheets(
+    conversationState: ConversationState,
+    substep: string | null,
+  ): SemanticRouterContext | null {
+    const payload = conversationState.statePayload;
+    if (substep === 'empty-sheet-confirm') {
+      const parsed = onboardingSheetEmptyPayloadSchema.safeParse(payload);
+      if (!parsed.success) return null;
+      return {
+        ...emptyContext(),
+        pendingQuestion: '¿Qué opción eliges?',
+        options: (parsed.data.sheetList ?? []).map((sheet, index) => ({
+          position: index + 1,
+          label: sheet.name,
+        })),
+      };
+    }
+    const snapshot = projectOptionSelectionSnapshot(conversationState);
+    if (!snapshot || snapshot.substep !== substep) return null;
     return {
       ...emptyContext(),
       pendingQuestion: '¿Qué opción eliges?',
-      options: sheets.map((sheet, index) => ({ position: index + 1, label: sheet.name })),
+      options: snapshot.options,
     };
   }
 }

@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone offline/live proposal evaluator plus runtime off/shadow resolution and enabled stateful expense recognition, clarification, correction, queue dispatch, conversation-level safety evidence, privacy-safe telemetry, and migration-free rollback boundaries.
+- [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone offline/live proposal evaluator, deterministic revision-bound file/sheet reference resolution, runtime off/shadow observation, enabled stateful expense dispatch, privacy-safe telemetry, and migration-free rollback boundaries.
 
 - [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, encrypted token lifecycle, and transparent Google access-token refresh (MVP), with OneDrive planned for the future.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, search, and selection for spreadsheet records.

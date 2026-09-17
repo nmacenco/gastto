@@ -156,7 +156,7 @@ describe('expanded corpus CLI evidence', () => {
     'evals/semantic-router/corpus-responses.json',
   ];
   it.each([
-    ['development', 187],
+    ['development', 196],
     ['held_out', 33],
   ])('replays %s with versions, coverage and no financial text', async (split, count) => {
     const emit = vi.fn<(text: string) => void>();
@@ -197,10 +197,10 @@ describe('expanded corpus CLI evidence', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect((JSON.parse(emit.mock.calls[0]![0]) as EvaluationReport).selection).toEqual({
       split: 'development',
-      available: 187,
+      available: 196,
       excludedProtocol: 113,
       excludedDeterministic: 4,
-      omittedByLimit: 69,
+      omittedByLimit: 78,
     });
   });
   it('refuses existing live output before invoking the SDK', async () => {

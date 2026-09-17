@@ -43,15 +43,15 @@ Prefer just-in-time planning after predecessors are implemented and verified. A 
 
 Master checkboxes track planning requirements: checking one means the child plan contains that requirement, not that application behavior exists. Track implementation separately below, with links to validation evidence. Never mark the overall feature delivered merely because all child plans exist.
 
-| Phase | Stable child-plan slug                | Implementation prerequisites | Plan created                                                                                                        | Implementation verified                                                                                                                                                    |
-| ----- | ------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | `semantic_router_evaluation`          | None                         | [Created](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md)                   | [Deliveries 1–3 verified](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md); live evidence and activation pending                    |
-| 2     | `semantic_router_confirmation_safety` | Phase 1 contracts            | [Created](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md) | [Deliveries 1–3 verified](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md)                                        |
-| 3     | `semantic_router_shadow_pipeline`     | Phases 1 and 2               | [Created](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md)         | [Deliveries 1–3 verified](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md); live provider evidence and activation pending |
+| Phase | Stable child-plan slug                | Implementation prerequisites | Plan created                                                                                                        | Implementation verified                                                                                                                                                                                                                                |
+| ----- | ------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | `semantic_router_evaluation`          | None                         | [Created](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md)                   | [Deliveries 1–3 verified](../2026_09_11-semantic_router_evaluation/2026_09_11-semantic_router_evaluation-plan.md); live evidence and activation pending                                                                                                |
+| 2     | `semantic_router_confirmation_safety` | Phase 1 contracts            | [Created](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md) | [Deliveries 1–3 verified](../2026_09_12-semantic_router_confirmation_safety/2026_09_12-semantic_router_confirmation_safety-plan.md)                                                                                                                    |
+| 3     | `semantic_router_shadow_pipeline`     | Phases 1 and 2               | [Created](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md)         | [Deliveries 1–3 verified](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md); live provider evidence and activation pending                                                                             |
 | 4     | `semantic_router_expense_flows`       | Phases 1 through 3           | [Created](../2026_09_15-semantic_router_expense_flows/2026_09_15-semantic_router_expense_flows-plan.md)             | [Deliveries 1–3 verified](../2026_09_15-semantic_router_expense_flows/2026_09_15-semantic_router_expense_flows-plan.md); 26 PostgreSQL/Redis scenarios, 2,088 passing tests, v3 offline splits 187/187 and 33/33; live evidence and activation pending |
-| 5     | `semantic_router_option_selection`    | Phases 1 through 4           | Pending                                                                                                             | Pending                                                                                                                                                                    |
-| 6     | `semantic_router_control_flows`       | Phases 1 through 5           | Pending                                                                                                             | Pending                                                                                                                                                                    |
-| 7     | `semantic_router_rollout`             | Phases 1 through 6           | Pending                                                                                                             | Pending                                                                                                                                                                    |
+| 5     | `semantic_router_option_selection`    | Phases 1 through 4           | [Created](../2026_09_16-semantic_router_option_selection/2026_09_16-semantic_router_option_selection-plan.md)       | Pending                                                                                                                                                                                                                                                |
+| 6     | `semantic_router_control_flows`       | Phases 1 through 5           | Pending                                                                                                             | Pending                                                                                                                                                                                                                                                |
+| 7     | `semantic_router_rollout`             | Phases 1 through 6           | Pending                                                                                                             | Pending                                                                                                                                                                                                                                                |
 
 ### Shared implementation gates
 
@@ -192,17 +192,17 @@ Plan natural references to displayed files and sheets with deterministic, unique
 
 #### To-do actions
 
-- [ ] Create and link the normal plan after inspecting current file discovery, search, sheet selection, and substep behavior.
-- [ ] Define the bounded model-facing labels/positions and separate application-owned identifier mapping; model output never supplies trusted provider IDs.
-- [ ] Resolve ordinals against the displayed ordering and labels against documented normalization, rejecting zero or multiple matches, duplicate labels, out-of-range positions, and stale snapshots.
-- [ ] Specify compatibility for existing option payloads, pagination/search changes, refreshed lists, and selected-file changes during interpretation.
-- [ ] Preserve single-sheet behavior, unknown-selection guidance, header-description requests, empty-sheet confirmation, authorization, and deterministic eager advance; classify selection effects separately from automatic validation probes.
-- [ ] Ensure a validated selection reaches a typed application entry point without being reinterpreted by a conflicting lexical matcher.
-- [ ] Specify tests for ordinal and label references, duplicate names, injection in option labels, refreshed lists, stale replies, unavailable choices, selection failure, and access-validation errors.
-- [ ] Extend per-state evaluations and keep unrelated onboarding configuration mutations outside this selection capability.
-- [ ] Require file/sheet selection, FSM payload/policy, and feature index updates.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create and link the normal plan after inspecting current file discovery, search, sheet selection, and substep behavior.
+- [x] Define the bounded model-facing labels/positions and separate application-owned identifier mapping; model output never supplies trusted provider IDs.
+- [x] Resolve ordinals against the displayed ordering and labels against documented normalization, rejecting zero or multiple matches, duplicate labels, out-of-range positions, and stale snapshots.
+- [x] Specify compatibility for existing option payloads, pagination/search changes, refreshed lists, and selected-file changes during interpretation.
+- [x] Preserve single-sheet behavior, unknown-selection guidance, header-description requests, empty-sheet confirmation, authorization, and deterministic eager advance; classify selection effects separately from automatic validation probes.
+- [x] Ensure a validated selection reaches a typed application entry point without being reinterpreted by a conflicting lexical matcher.
+- [x] Specify tests for ordinal and label references, duplicate names, injection in option labels, refreshed lists, stale replies, unavailable choices, selection failure, and access-validation errors.
+- [x] Extend per-state evaluations and keep unrelated onboarding configuration mutations outside this selection capability.
+- [x] Require file/sheet selection, FSM payload/policy, and feature index updates.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 6: Create the control-flow subplan
 
@@ -260,4 +260,4 @@ Plan integrated acceptance evidence and staged activation across delivered capab
 
 ## Next step
 
-Create the Phase 5 semantic option-selection subplan after reviewing the verified expense-flow delivery; retain pending live evaluation evidence and activation gates.
+Review and execute the Phase 5 semantic option-selection plan; retain pending live evaluation evidence and activation gates.

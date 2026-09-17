@@ -8,7 +8,7 @@ import { caseKind } from './EvaluateSemanticRouter';
 describe('frozen evaluation corpus contracts', () => {
   it('covers each eligible scope and all allowed/forbidden action pairs with explicit protocol stimuli', () => {
     const data = EvaluationDatasetSchema.parse(corpus);
-    expect(data.cases).toHaveLength(220);
+    expect(data.cases).toHaveLength(229);
     expect(data.cases.filter((c) => c.split === 'held_out')).toHaveLength(33);
     for (const [state, steps] of Object.entries(STATE_ACTION_POLICY)) {
       for (const [step, allowed] of Object.entries(steps)) {
@@ -93,5 +93,18 @@ describe('frozen evaluation corpus contracts', () => {
           c.expectedAssessment === 'router_failure',
       ),
     ).toBe(true);
+  });
+  it('covers effect-free file/default, sheet/default and sheet/idk resolution outcomes', () => {
+    const data = EvaluationDatasetSchema.parse(corpus);
+    const optionCases = data.cases.filter((c) => c.tags.includes('option-resolution'));
+    expect(optionCases).toHaveLength(9);
+    expect(
+      new Set(optionCases.map((c) => `${c.input.state}/${c.input.substep ?? 'default'}`)),
+    ).toEqual(
+      new Set(['ONBOARDING_FILE/default', 'ONBOARDING_SHEET/default', 'ONBOARDING_SHEET/idk']),
+    );
+    expect(new Set(optionCases.map((c) => c.optionResolution?.expectedResult.status))).toEqual(
+      new Set(['resolved', 'ambiguous', 'not_found', 'stale']),
+    );
   });
 });

@@ -10,6 +10,10 @@ import {
   SemanticRouterResultSchema,
 } from '../../services/semantic-router/contracts';
 import { POLICY_VERSION, STATE_ACTION_POLICY } from '../../services/semantic-router/policy';
+import {
+  ResolveOptionReference,
+  type ResolveOptionReferenceResult,
+} from '../../services/semantic-router/ResolveOptionReference';
 import { EvaluationDatasetSchema, type EvaluationCase, type EvaluationDataset } from './contracts';
 import type { observeLexicalBaseline, BaselineObservation } from './observeLexicalBaseline';
 import { rate, percentile, wilsonInterval } from './statistics';
@@ -75,6 +79,11 @@ export interface CaseResult {
     dimension: 'ingress_admission' | 'review_cancel';
     baselineMatched: boolean;
     candidateMatched: boolean;
+  } | null;
+  optionResolution: {
+    expectedStatus: ResolveOptionReferenceResult['status'];
+    actualStatus: ResolveOptionReferenceResult['status'] | null;
+    passed: boolean;
   } | null;
 }
 export function decisionsEqual(a: ConversationDecision, b: ConversationDecision): boolean {
@@ -209,11 +218,28 @@ export class EvaluateSemanticRouter {
         assessment = { status: 'router_failure', code: 'PROVIDER_ERROR' };
       }
       if (live && assessment.status === 'router_failure') complete = false;
-      const passed =
+      const proposalPassed =
         assessment.status === item.expectedAssessment &&
         (assessment.status === 'router_failure'
           ? item.expectedFailure === assessment.code
           : item.acceptedDecisions.some((d) => decisionsEqual(d, assessment.decision)));
+      let resolutionResult: ResolveOptionReferenceResult | null = null;
+      if (
+        item.optionResolution &&
+        assessment.status === 'allowed' &&
+        assessment.decision.action === 'select_option'
+      )
+        resolutionResult = new ResolveOptionReference().execute({
+          userReference: assessment.decision.userReference,
+          expected: item.optionResolution.expected,
+          current: item.optionResolution.current,
+        });
+      const resolutionPassed =
+        !item.optionResolution ||
+        (resolutionResult !== null &&
+          JSON.stringify(resolutionResult) ===
+            JSON.stringify(item.optionResolution.expectedResult));
+      const passed = proposalPassed && resolutionPassed;
       cases.push({
         id: item.id,
         state: item.input.state,
@@ -229,6 +255,13 @@ export class EvaluateSemanticRouter {
         critical: item.mustNotAuthorize.length > 0,
         baseline,
         comparison: comparison(item, baseline, assessment),
+        optionResolution: item.optionResolution
+          ? {
+              expectedStatus: item.optionResolution.expectedResult.status,
+              actualStatus: resolutionResult?.status ?? null,
+              passed: resolutionPassed,
+            }
+          : null,
       });
     }
     const language = cases.filter((c) => c.kind === 'language'),
@@ -255,8 +288,13 @@ export class EvaluateSemanticRouter {
       };
     };
     const comparisons = cases.filter((c) => c.comparison !== null);
+    const optionCases = cases.filter((c) => c.optionResolution !== null);
+    const resolutionRate = (status: ResolveOptionReferenceResult['status']) => {
+      const cohort = optionCases.filter((c) => c.optionResolution?.expectedStatus === status);
+      return rate(cohort.filter((c) => c.optionResolution?.passed).length, cohort.length);
+    };
     return {
-      reportVersion: 'semantic-evaluation-v2',
+      reportVersion: 'semantic-evaluation-v3',
       datasetVersion: dataset.data.version,
       datasetProvenance: dataset.data.provenance ?? null,
       artifactDigests,
@@ -278,6 +316,17 @@ export class EvaluateSemanticRouter {
         deterministicOnly: cases.filter((c) => c.kind === 'deterministic_only').length,
       },
       checks: {
+        proposedActionAgreement: rate(
+          optionCases.filter(
+            (c) => c.assessment === 'allowed' && c.proposedAction === 'select_option',
+          ).length,
+          optionCases.length,
+        ),
+        uniqueResolutionAccuracy: resolutionRate('resolved'),
+        ambiguityHandling: resolutionRate('ambiguous'),
+        notFoundRejection: resolutionRate('not_found'),
+        staleRejection: resolutionRate('stale'),
+        downstreamTaskCompletion: null,
         languageFixtureAgreement: live ? null : checks.agreement,
         modelDecisionAgreement: live ? checks.agreement : null,
         protocol: rate(protocol.filter((c) => c.passed).length, protocol.length),

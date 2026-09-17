@@ -198,6 +198,7 @@ describe('ProjectSemanticRouterInput', () => {
     expect(serialized).not.toContain('category-private-id');
     expect(serialized).not.toContain('mensaje histórico privado');
     expect(serialized).not.toContain('abcdefghijklmnopqrstuv');
+    expect(serialized).not.toContain('"revision"');
   });
 
   it.each([

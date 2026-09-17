@@ -52,8 +52,8 @@ export function buildProposedRouterResult(
     metadata: {
       provider: 'openai',
       model: 'gpt-4o-mini-2024-07-18',
-      promptVersion: 'semantic-openai-v1',
-      contractVersion: 'semantic-contract-v1',
+      promptVersion: 'semantic-openai-v2',
+      contractVersion: 'semantic-contract-v2',
       latencyMs: 10,
       inputTokens: 100,
       outputTokens: 10,

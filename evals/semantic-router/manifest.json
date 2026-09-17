@@ -1,13 +1,13 @@
 {
-  "corpusVersion": "semantic-corpus-v3",
-  "labelVersion": "semantic-labels-v3",
+  "corpusVersion": "semantic-corpus-v4",
+  "labelVersion": "semantic-labels-v4",
   "frozenOn": "2026-09-16",
-  "corpusSha256": "aa25083e9b067e47538379c03ed7d0760a5f7b5c7288097d72b66e27824dc916",
-  "responsesSha256": "2cd1247fd06084c05259af2d574e99eecd5bd1b45e7577bdc7fe68dd51cde502",
-  "labelReview": "Author reviewed the v3 stateful-expense labels from ADR-023 and scenario meaning before writing their response fixtures; no candidate model predictions were used. Independent human adjudication remains pending.",
+  "corpusSha256": "0df7d23754cd268e585dd801fa7d9755b8d289001d5065e0176d00c72c004cce",
+  "responsesSha256": "aa87f2320a3c27d113d245ec7b599564c822701a1e7927cfa9791682d546003b",
+  "labelReview": "Author reviewed the v4 effect-free option-resolution labels from ADR-023 and the Phase 5 specification before writing their response fixtures; no candidate model predictions were used. Independent human adjudication remains pending.",
   "liveEvaluations": [],
   "splitCounts": {
-    "development": 187,
+    "development": 196,
     "held_out": 33
   }
 }

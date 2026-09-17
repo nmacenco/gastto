@@ -18,6 +18,9 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 - Raw messages, selectors, model reasoning and provider response bodies are excluded from reports. The CLI uses the injected Pino logger for bounded operational errors.
 - The Mercadona case expects a registration proposal and observes that the current lexical filter already admits the message. PostgreSQL/Redis webhook-to-worker coverage now proves extraction of amount/date/merchant, review presentation, original-text retention, and bound confirmation before saving.
 - Runtime semantic turn resolution is implemented separately from the evaluator. It projects validated current state under the processing lock, calls the router at most once, revalidates the snapshot, and records one schema-bounded metadata event. Off/shadow retain deterministic behavior; enabled expense dispatch now covers recognition in `IDLE`/`EXPENSE_RECEIVING`, missing-data completion and replacement in `EXPENSE_CLARIFYING`, and validated correction or FIFO admission in `EXPENSE_REVIEW`.
+- `option-reference-v1` derives application-owned snapshots only from validated, unexpired `ONBOARDING_FILE/default`, `ONBOARDING_SHEET/default`, and `ONBOARDING_SHEET/idk` payloads. Snapshots contain the monotonic revision, allowed state/substep, and ordered `{ position, label }` entries; provider IDs and payload details remain outside the model boundary.
+- The pure resolver accepts whole numeric positions, Spanish cardinal/ordinal phrases, and exact full labels normalized with lowercase, Unicode NFD accent removal, and collapsed whitespace. It never uses substring, prefix, edit-distance, or first-match fallback. Duplicate normalized labels and position/label collisions are ambiguous; unavailable references are not found; any revision, state, substep, order, or label change is stale.
+- The effect-free evaluator resolves only allowed `select_option` proposals and reports proposed-action agreement, unique-resolution accuracy, ambiguity handling, not-found rejection, and stale rejection separately. Downstream task completion remains null until typed selection dispatch exists.
 
 ## API / Interface
 
@@ -31,7 +34,7 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 
 No real-provider evidence has been collected. Offline model accuracy, provider latency, usage and cost remain null. Live runs can measure decision agreement, router-call latency and usage. The Phase 3 integration suite separately verifies that webhook acknowledgment completes before shadow processing and remains below the existing one-second acceptance bound in the test environment; this is test-observed timing, not a production latency percentile. Shadow agreement is not action accuracy or task-completion evidence. Fixture timings and expected-output replay are not production evidence. Per-scope agreement includes declared protocol checks; language and protocol totals are reported separately.
 
-The expense-flow completion rerun on 2026-09-16 uses `semantic-corpus-v3` and `semantic-labels-v3`: development completed 187/187 checks and held-out completed 33/33, both with zero fixture mismatches and zero critical-case failures. Twenty independently split stateful cases add short replies, bank interruptions, corrections, new expenses, negation, mixed intents, unrelated text, prompt injection, legacy context, timeout, and invalid output. Labels were frozen before their response fixtures were authored; no live candidate output was used. These fixture checks are not model-accuracy evidence.
+The option-resolution rerun on 2026-09-16 uses `semantic-corpus-v4` and `semantic-labels-v4`: development completed 196/196 checks, including 9/9 proposed option actions, 6/6 unique resolutions, 1/1 ambiguity handling, 1/1 not-found rejection, and 1/1 stale rejection. Downstream task completion remains unmeasured. The prior v3 expense-flow evidence remains preserved by the additive corpus. Labels were frozen before their response fixtures were authored; no live candidate output was used. These fixture checks are not model-accuracy evidence.
 
 The input ceiling is 8,000 message characters, 20,000 serialized input characters, 20 options and 200 characters per option label. Dataset/response files are bounded at 2 MB and datasets at 1,000 cases. These limits reject input rather than silently rewriting it.
 
@@ -45,7 +48,7 @@ The input ceiling is 8,000 message characters, 20,000 serialized input character
 
 - Live quality evidence remains pending explicit execution; Phase 2 implementation is available below.
 - Independent human label adjudication and explicitly initiated live held-out comparisons remain pending; the expanded corpus is implemented below.
-- Real-provider sampling, controlled rollout, and semantic option selection remain in [master Phases 5 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). Conversation-level PostgreSQL/Redis expense evidence, idle/receiving recognition, stateful clarification/review dispatch, confirmation revision safety, and rollback are implemented.
+- Real-provider sampling, controlled rollout, and effectful semantic option dispatch remain in [master Phases 5 through 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). The deterministic resolver and offline evaluation slice are implemented; file/sheet selection effects remain disabled.
 
 ## Related Decisions
 
@@ -82,7 +85,7 @@ including the root-object restriction, refusal field and truncated-output handli
 [GPT-4o](https://developers.openai.com/api/docs/models/gpt-4o) document structured
 output support and the listed snapshots. Account availability is unverified.
 
-`semantic-openai-v1` treats messages, questions, concepts and option labels as
+`semantic-openai-v2` treats messages, questions, concepts and option labels as
 untrusted data. It receives only validated router input, never expected labels.
 No tools, business ports or generated source-text replacements are available.
 A separate deadline aborts the request, even if the transport remains pending.
@@ -115,13 +118,13 @@ fake SDK/HTTP boundaries, including deadline, refusal, truncation and retry chec
 ## Versioned corpus and comparative reporting
 
 The default remains the original 12-case smoke regression. `corpus.json` adds a
-separate 200-case corpus: 175 development cases (60 language, 111 protocol, four
-deterministic-only) and 25 held-out language cases. Every one of the ten eligible
+separate 229-case corpus: 196 development cases (79 language, 113 protocol, four
+deterministic-only) and 33 held-out language cases. Every one of the ten eligible
 state/substep scopes has language coverage in both splits. A 100-case development
 protocol matrix injects every action into every eligible scope, testing both
 allowed and forbidden proposals; these rows never count as language quality.
 
-Corpus `semantic-corpus-v2`, labels `semantic-labels-v2`, and `family-split-v1`
+Corpus `semantic-corpus-v4`, labels `semantic-labels-v4`, and `family-split-v3`
 are pinned by `evals/semantic-router/manifest.json`. Labels were authored and
 reviewed from the specification and scenario meaning before response fixtures,
 without candidate predictions. Human independent review is **pending**. This is a
@@ -133,13 +136,14 @@ Validation rejects duplicate IDs, inconsistent versions, incompatible allowed or
 forbidden expectations, missing family IDs in a provenance-bearing corpus, and
 family/normalized-message overlap across splits. Split-check normalization is
 NFKC, Spanish lowercase, whitespace collapsing and trimming. It does not modify
-router messages or implement selector resolution. Selector decision comparison
-uses the schema-trimmed reference exactly; no hidden synonym matching is applied.
+router messages. Selector decision comparison uses the schema-trimmed reference
+exactly; cases with an application-owned `optionResolution` expectation additionally
+exercise `option-reference-v1` without exposing snapshots to the router.
 The checks cannot detect undeclared semantic paraphrase relationships: family
 assignment still requires review. Any later label correction requires a new
 corpus/label version, a refreshed manifest and a recorded rationale.
 
-`semantic-evaluation-v2` reports versions, whole parsed-artifact SHA-256 digests,
+`semantic-evaluation-v3` reports versions, whole parsed-artifact SHA-256 digests,
 selected split and exclusions, per-scope counts, decision agreement, clarification
 confusion/precision/recall, unnecessary clarification, schema/policy rejection,
 critical-case check failures, safe failure counts and mismatch IDs. Live agreement
@@ -158,17 +162,20 @@ baseline scopes remain `not_evaluated`, with `model_dependent` or
 observations; current observations are executed from local code and identified by
 the source digest. Do not substitute an imported/mock result under that provenance.
 
-### Reproduced offline observations (expense-flow completion rerun, 2026-09-16)
+### Reproduced offline observations (option-resolver rerun, 2026-09-16)
 
 | Evidence                                               | Development |         Held-out |
 | ------------------------------------------------------ | ----------: | ---------------: |
-| Completed offline case checks                          |     187/187 |            33/33 |
-| Language fixture agreement (not model accuracy)        |       70/70 |            33/33 |
+| Completed offline case checks                          |     196/196 |            33/33 |
+| Language fixture agreement (not model accuracy)        |       79/79 |            33/33 |
 | Protocol checks                                        |     113/113 | 0/0 (unmeasured) |
 | Current lexical observations, all case kinds           |          59 |               10 |
-| Baseline not evaluated, all case kinds                 |         128 |               23 |
+| Baseline not evaluated, all case kinds                 |         137 |               23 |
 | Lexical ingress agreement on comparable language cases |       14/19 |              5/8 |
 | Fixture ingress projection agreement on that cohort    |       19/19 |              8/8 |
+| Proposed option actions                                |         9/9 | 0/0 (unmeasured) |
+| Unique option resolutions                              |         6/6 | 0/0 (unmeasured) |
+| Ambiguous / not-found / stale rejection                |   1/1 each | 0/0 (unmeasured) |
 
 These paired counts compare fixture projections with actual lexical execution.
 They do not demonstrate model improvement. The exact bank notification already

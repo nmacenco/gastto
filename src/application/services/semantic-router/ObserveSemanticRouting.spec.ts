@@ -27,8 +27,8 @@ function buildDeps() {
         metadata: {
           provider: 'openai',
           model: 'gpt-4o-mini-2024-07-18',
-          promptVersion: 'semantic-openai-v1',
-          contractVersion: 'semantic-contract-v1',
+          promptVersion: 'semantic-openai-v2',
+          contractVersion: 'semantic-contract-v2',
           latencyMs: 12,
           inputTokens: 10,
           outputTokens: 3,
@@ -202,8 +202,8 @@ describe('ObserveSemanticRouting', () => {
         metadata: {
           provider: 'openai',
           model: 'gpt-4o-mini-2024-07-18',
-          promptVersion: 'semantic-openai-v1',
-          contractVersion: 'semantic-contract-v1',
+          promptVersion: 'semantic-openai-v2',
+          contractVersion: 'semantic-contract-v2',
           latencyMs: 12,
           inputTokens: 10,
           outputTokens: 3,
@@ -249,27 +249,30 @@ describe('ObserveSemanticRouting', () => {
       { status: 'clarification_required', reason: 'dispatch_failed' },
       'dispatch_failed',
     ],
-  ])('records exactly one finalized enabled event for %s', async (_name, outcome, policyOutcome) => {
-    const deps = buildDeps();
-    deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
-    const observer = new ObserveSemanticRouting(deps);
-    const turn = await observer.execute({
-      userId: 'user-1',
-      externalMessageId: 'message-1',
-      rawMessage: 'Mercadona 16,55 EUR',
-      conversationState: state,
-      deterministicDecision: { kind: 'expense_guidance' },
-    });
-    if (turn.status !== 'expense_action') throw new Error('Expected expense action');
+  ])(
+    'records exactly one finalized enabled event for %s',
+    async (_name, outcome, policyOutcome) => {
+      const deps = buildDeps();
+      deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+      const observer = new ObserveSemanticRouting(deps);
+      const turn = await observer.execute({
+        userId: 'user-1',
+        externalMessageId: 'message-1',
+        rawMessage: 'Mercadona 16,55 EUR',
+        conversationState: state,
+        deterministicDecision: { kind: 'expense_guidance' },
+      });
+      if (turn.status !== 'expense_action') throw new Error('Expected expense action');
 
-    observer.recordExpenseDispatch(turn, outcome);
-    observer.recordExpenseDispatch(turn, outcome);
+      observer.recordExpenseDispatch(turn, outcome);
+      observer.recordExpenseDispatch(turn, outcome);
 
-    expect(deps.telemetry.record).toHaveBeenCalledOnce();
-    expect(deps.telemetry.record).toHaveBeenCalledWith(
-      expect.objectContaining({ mode: 'enabled', policyOutcome }),
-    );
-  });
+      expect(deps.telemetry.record).toHaveBeenCalledOnce();
+      expect(deps.telemetry.record).toHaveBeenCalledWith(
+        expect.objectContaining({ mode: 'enabled', policyOutcome }),
+      );
+    },
+  );
 
   it('keeps an enabled mixed intent as controlled clarification without an expense action', async () => {
     const deps = buildDeps();
@@ -280,8 +283,8 @@ describe('ObserveSemanticRouting', () => {
       metadata: {
         provider: 'openai',
         model: 'gpt-4o-mini-2024-07-18',
-        promptVersion: 'semantic-openai-v1',
-        contractVersion: 'semantic-contract-v1',
+        promptVersion: 'semantic-openai-v2',
+        contractVersion: 'semantic-contract-v2',
         latencyMs: 12,
         inputTokens: 10,
         outputTokens: 3,
@@ -410,8 +413,8 @@ describe('ObserveSemanticRouting', () => {
       metadata: {
         provider: 'openai',
         model: 'gpt-4o-mini-2024-07-18',
-        promptVersion: 'semantic-openai-v1',
-        contractVersion: 'semantic-contract-v1',
+        promptVersion: 'semantic-openai-v2',
+        contractVersion: 'semantic-contract-v2',
         latencyMs: 12,
         inputTokens: 10,
         outputTokens: 3,
@@ -442,8 +445,8 @@ describe('ObserveSemanticRouting', () => {
       metadata: {
         provider: 'openai',
         model: 'gpt-4o-mini-2024-07-18',
-        promptVersion: 'semantic-openai-v1',
-        contractVersion: 'semantic-contract-v1',
+        promptVersion: 'semantic-openai-v2',
+        contractVersion: 'semantic-contract-v2',
         latencyMs: 12,
         inputTokens: 10,
         outputTokens: 3,
