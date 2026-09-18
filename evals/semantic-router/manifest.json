@@ -1,13 +1,13 @@
 {
-  "corpusVersion": "semantic-corpus-v4",
-  "labelVersion": "semantic-labels-v4",
-  "frozenOn": "2026-09-16",
-  "corpusSha256": "0df7d23754cd268e585dd801fa7d9755b8d289001d5065e0176d00c72c004cce",
-  "responsesSha256": "aa87f2320a3c27d113d245ec7b599564c822701a1e7927cfa9791682d546003b",
-  "labelReview": "Author reviewed the v4 effect-free option-resolution labels from ADR-023 and the Phase 5 specification before writing their response fixtures; no candidate model predictions were used. Independent human adjudication remains pending.",
+  "corpusVersion": "semantic-corpus-v5",
+  "labelVersion": "semantic-labels-v5",
+  "frozenOn": "2026-09-17",
+  "corpusSha256": "e3c5fd21ef2cfb2292e39bd97204b4c98832b47ad7440ce10f2e861acaf3abe9",
+  "responsesSha256": "d3218310517e1a69e8bb131e4c89487ed3366ae8c7dd1d45ca83ae2eda697e80",
+  "labelReview": "Author reviewed the v5 held-out sheet-option labels from ADR-023 and the Phase 5 specification before writing their response fixtures; no candidate model predictions were used. Independent human adjudication remains pending.",
   "liveEvaluations": [],
   "splitCounts": {
     "development": 196,
-    "held_out": 33
+    "held_out": 41
   }
 }

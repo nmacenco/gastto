@@ -607,6 +607,57 @@ describe('ObserveSemanticRouting', () => {
     expect(deps.telemetry.record).toHaveBeenCalledTimes(1);
   });
 
+  it.each([undefined, 'idk'] as const)(
+    'returns a snapshot-bound enabled sheet option turn in the %s substep',
+    async (step) => {
+      const deps = buildDeps();
+      deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+      deps.router.decide.mockResolvedValue({
+        status: 'proposed',
+        decision: { action: 'select_option', userReference: 'la hoja de gastos' },
+        metadata: {
+          provider: 'openai',
+          model: 'gpt-4o-mini-2024-07-18',
+          promptVersion: 'semantic-openai-v2',
+          contractVersion: 'semantic-contract-v2',
+          latencyMs: 12,
+          inputTokens: 10,
+          outputTokens: 3,
+        },
+      });
+      const sheetState: ConversationState = {
+        ...state,
+        revision: '9',
+        currentState: 'ONBOARDING_SHEET',
+        statePayload: {
+          selectedFileId: 'provider-file-1',
+          selectedFileName: 'Gastos 2026',
+          provider: 'google',
+          sheetList: [{ name: 'Gastos', index: 0 }],
+          ...(step === undefined ? {} : { step }),
+        },
+      };
+
+      await expect(
+        new ObserveSemanticRouting(deps).execute({
+          userId: 'user-1',
+          externalMessageId: 'message-sheet',
+          rawMessage: 'la hoja de gastos',
+          conversationState: sheetState,
+          deterministicDecision: { kind: 'fsm_handler' },
+        }),
+      ).resolves.toMatchObject({
+        status: 'option_selection',
+        expected: { revision: '9', currentState: 'ONBOARDING_SHEET' },
+        snapshot: {
+          state: 'ONBOARDING_SHEET',
+          substep: step ?? null,
+          options: [{ position: 1, label: 'Gastos' }],
+        },
+      });
+    },
+  );
+
   it('bypasses the semantic provider for existing numbered, search and direct URL file paths', async () => {
     const deps = buildDeps();
     deps.policy.resolve.mockReturnValue({ mode: 'off', reason: 'deterministic_bypass' });
@@ -637,6 +688,52 @@ describe('ObserveSemanticRouting', () => {
         expect.objectContaining({ messageKind: 'sensitive_command' }),
       );
     }
+    expect(deps.router.decide).not.toHaveBeenCalled();
+  });
+
+  it('bypasses the semantic provider for numbered, IDK and empty-confirm sheet paths', async () => {
+    const deps = buildDeps();
+    deps.policy.resolve.mockReturnValue({ mode: 'off', reason: 'deterministic_bypass' });
+    const observer = new ObserveSemanticRouting(deps);
+    const baseSheetState: ConversationState = {
+      ...state,
+      currentState: 'ONBOARDING_SHEET',
+      statePayload: {
+        selectedFileId: 'file-1',
+        selectedFileName: 'Gastos 2026',
+        provider: 'google',
+        sheetList: [{ name: 'Gastos', index: 0 }],
+      },
+    };
+    for (const rawMessage of ['1', 'no sé', 'no tengo idea']) {
+      await observer.execute({
+        userId: 'user-1',
+        externalMessageId: rawMessage,
+        rawMessage,
+        conversationState: baseSheetState,
+        deterministicDecision: { kind: 'fsm_handler' },
+      });
+      expect(deps.policy.resolve).toHaveBeenLastCalledWith(
+        expect.objectContaining({ messageKind: 'sensitive_command' }),
+      );
+    }
+    await observer.execute({
+      userId: 'user-1',
+      externalMessageId: 'confirm',
+      rawMessage: 'sí',
+      conversationState: {
+        ...baseSheetState,
+        statePayload: {
+          ...baseSheetState.statePayload,
+          selectedSheetName: 'Gastos',
+          step: 'empty-sheet-confirm',
+        },
+      },
+      deterministicDecision: { kind: 'fsm_handler' },
+    });
+    expect(deps.policy.resolve).toHaveBeenLastCalledWith(
+      expect.objectContaining({ messageKind: 'sensitive_command' }),
+    );
     expect(deps.router.decide).not.toHaveBeenCalled();
   });
 });

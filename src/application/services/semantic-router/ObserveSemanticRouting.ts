@@ -26,7 +26,7 @@ import {
 import {
   isEnabledOptionSelectionState,
   isOptionSelectionSemanticDecision,
-  shouldBypassSemanticFileSelection,
+  shouldBypassSemanticOptionSelection,
   type OptionSelectionSemanticDecision,
 } from './option-capabilities';
 import {
@@ -231,7 +231,7 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
         ? 'typed_callback'
         : input.deterministicDecision.kind === 'sensitive_command'
           ? 'sensitive_command'
-          : shouldBypassSemanticFileSelection(input.conversationState, input.rawMessage)
+          : shouldBypassSemanticOptionSelection(input.conversationState, input.rawMessage)
             ? 'sensitive_command'
             : 'free_text';
     const substep = this.deps.projector.substepFor(input.conversationState);

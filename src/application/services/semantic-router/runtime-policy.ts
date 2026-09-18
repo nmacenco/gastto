@@ -50,7 +50,9 @@ function stableBucket(seed: string, value: string): number {
 }
 
 function isEnabledSemanticState(state: FsmState): boolean {
-  return isEnabledExpenseState(state) || state === 'ONBOARDING_FILE';
+  return (
+    isEnabledExpenseState(state) || state === 'ONBOARDING_FILE' || state === 'ONBOARDING_SHEET'
+  );
 }
 
 export class Sha256SemanticRoutingPolicy implements SemanticRoutingPolicy {

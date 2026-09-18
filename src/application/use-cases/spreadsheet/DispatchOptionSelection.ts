@@ -1,4 +1,4 @@
-// LAYER: Application. Resolves an untrusted semantic reference to one displayed file position.
+// LAYER: Application. Resolves an untrusted semantic reference to one displayed option position.
 import type {
   ConversationState,
   ConversationStatePrecondition,
@@ -12,6 +12,7 @@ import {
 } from '../../services/semantic-router/ResolveOptionReference';
 import type { ValidateConversationSnapshot } from '../../services/semantic-router/ValidateConversationSnapshot';
 import type { HandleSpreadsheetFileSelection } from './HandleSpreadsheetFileSelection';
+import type { HandleSheetSelection } from './HandleSheetSelection';
 
 export interface DispatchOptionSelectionInput {
   readonly userId: string;
@@ -24,12 +25,12 @@ export interface DispatchOptionSelectionInput {
 }
 
 export type DispatchOptionSelectionOutcome =
-  | { readonly status: 'selected'; readonly target: 'file' }
+  | { readonly status: 'selected'; readonly target: 'file' | 'sheet' }
   | {
       readonly status: 'clarification_required';
       readonly reason: 'ambiguous_reference' | 'not_found' | 'stale_context';
     }
-  | { readonly status: 'selection_rejected'; readonly target: 'file' };
+  | { readonly status: 'selection_rejected'; readonly target: 'file' | 'sheet' };
 
 export class DispatchOptionSelection {
   constructor(
@@ -37,6 +38,7 @@ export class DispatchOptionSelection {
       readonly snapshotValidator: Pick<ValidateConversationSnapshot, 'execute'>;
       readonly resolver: Pick<ResolveOptionReference, 'execute'>;
       readonly fileSelection: Pick<HandleSpreadsheetFileSelection, 'selectDisplayedFile'>;
+      readonly sheetSelection: Pick<HandleSheetSelection, 'selectDisplayedSheet'>;
     },
   ) {}
 
@@ -50,7 +52,7 @@ export class DispatchOptionSelection {
     }
 
     const current = projectOptionSelectionSnapshot(checked.state);
-    if (current === null || current.state !== 'ONBOARDING_FILE') {
+    if (current === null) {
       return { status: 'clarification_required', reason: 'stale_context' };
     }
     const resolution = this.deps.resolver.execute({
@@ -69,7 +71,20 @@ export class DispatchOptionSelection {
     }
 
     try {
-      const selected = await this.deps.fileSelection.selectDisplayedFile({
+      if (current.state === 'ONBOARDING_FILE') {
+        const selected = await this.deps.fileSelection.selectDisplayedFile({
+          userId: input.userId,
+          externalId: input.externalId,
+          channel: input.channel,
+          statePayload: checked.state.statePayload,
+          position: resolution.position,
+          expected: input.expected,
+        });
+        return selected.nextState === 'ONBOARDING_SHEET'
+          ? { status: 'selected', target: 'file' }
+          : { status: 'selection_rejected', target: 'file' };
+      }
+      const selected = await this.deps.sheetSelection.selectDisplayedSheet({
         userId: input.userId,
         externalId: input.externalId,
         channel: input.channel,
@@ -77,9 +92,9 @@ export class DispatchOptionSelection {
         position: resolution.position,
         expected: input.expected,
       });
-      return selected.nextState === 'ONBOARDING_SHEET'
-        ? { status: 'selected', target: 'file' }
-        : { status: 'selection_rejected', target: 'file' };
+      return selected.nextState === 'ONBOARDING_VALIDATING_ACCESS'
+        ? { status: 'selected', target: 'sheet' }
+        : { status: 'selection_rejected', target: 'sheet' };
     } catch (error) {
       if (error instanceof StaleConversationStateError) {
         return { status: 'clarification_required', reason: 'stale_context' };

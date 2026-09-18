@@ -94,9 +94,10 @@ sampling/disabled state, and the fail-closed `enabled_capability_unavailable`
 guard. Enabled events are finalized after typed dispatch: safe business outcomes use
 `allowed_enabled`, rejected/stale/unsupported outcomes use `dispatch_rejected`, and
 contained dispatcher exceptions use `dispatch_failed`. Exactly one event is emitted
-for a finalized turn. File-selection authorization is therefore separate from
-downstream file-access validation and eager sheet discovery; telemetry still excludes
-option labels, provider file IDs, snapshot revisions, and user identifiers. A malformed provider
-result is reduced to `INVALID_OUTPUT` before metadata access. If the telemetry sink
+for a finalized turn. File/sheet selection authorization is therefore separate from
+downstream file access, config persistence, sheet access validation, and eager probes;
+telemetry still excludes option labels, provider file/sheet identifiers, snapshot
+revisions, and user identifiers. A malformed provider result is reduced to
+`INVALID_OUTPUT` before metadata access. If the telemetry sink
 throws, the adapter attempts a metadata-only `SEMANTIC_TELEMETRY_FAILED` error
 record and never propagates the failure into deterministic or enabled processing.

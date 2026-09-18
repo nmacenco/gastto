@@ -1651,6 +1651,80 @@ describe('processMessageJob', () => {
     });
   });
 
+  describe('enabled semantic sheet selection', () => {
+    const sheetState = () =>
+      buildConversationState({
+        revision: '8',
+        currentState: 'ONBOARDING_SHEET',
+        statePayload: {
+          selectedFileId: 'provider-file-1',
+          selectedFileName: 'Gastos 2026',
+          provider: 'google',
+          sheetList: [{ name: 'Movimientos', index: 0 }],
+        },
+      });
+
+    it('dispatches one typed sheet handoff without running the lexical sheet handler', async () => {
+      const deps = buildMockDeps();
+      const conversationState = sheetState();
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'option_selection',
+        decision: { action: 'select_option', userReference: 'la de movimientos' },
+        expected: { revision: '8', currentState: 'ONBOARDING_SHEET', expiry: 'unexpired' },
+        snapshot: {
+          revision: '8',
+          state: 'ONBOARDING_SHEET',
+          substep: null,
+          options: [{ position: 1, label: 'Movimientos' }],
+        },
+      });
+      mockDispatchOptionSelectionExecute.mockResolvedValue({
+        status: 'selected',
+        target: 'sheet',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'la de movimientos' }), deps);
+
+      expect(mockDispatchOptionSelectionExecute).toHaveBeenCalledOnce();
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      expect(mockRecordOptionDispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'option_selection' }),
+        { status: 'selected', target: 'sheet' },
+      );
+    });
+
+    it.each([
+      ['ambiguous_reference', onboardingCopies.ambiguousSheetReference()],
+      ['not_found', onboardingCopies.sheetReferenceNotFound()],
+      ['stale_context', onboardingCopies.staleSheetReference()],
+    ] as const)('sends bounded %s sheet guidance without a lexical effect', async (reason, copy) => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(sheetState());
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'option_selection',
+        decision: { action: 'select_option', userReference: 'movimientos' },
+        expected: { revision: '8', currentState: 'ONBOARDING_SHEET', expiry: 'unexpired' },
+        snapshot: {
+          revision: '8',
+          state: 'ONBOARDING_SHEET',
+          substep: null,
+          options: [{ position: 1, label: 'Movimientos' }],
+        },
+      });
+      mockDispatchOptionSelectionExecute.mockResolvedValue({
+        status: 'clarification_required',
+        reason,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'movimientos' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', copy);
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+  });
+
   describe('EXPENSE_UNDO_CONFIRMING state', () => {
     it('deletes only after affirmative confirmation and returns to IDLE', async () => {
       const deps = buildMockDeps();

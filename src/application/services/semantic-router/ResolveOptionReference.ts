@@ -62,6 +62,8 @@ export const onboardingSheetDefaultPayloadSchema = z
 export const onboardingSheetIdkPayloadSchema = z
   .object({
     selectedFileId: boundedIdentifier,
+    selectedFileName: boundedLabel.optional(),
+    provider: providerSchema.optional(),
     sheetList: z.array(sheetInfoSchema).min(1).max(20),
     step: z.literal('idk'),
   })

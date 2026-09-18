@@ -157,7 +157,7 @@ describe('expanded corpus CLI evidence', () => {
   ];
   it.each([
     ['development', 196],
-    ['held_out', 33],
+    ['held_out', 41],
   ])('replays %s with versions, coverage and no financial text', async (split, count) => {
     const emit = vi.fn<(text: string) => void>();
     expect(

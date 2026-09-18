@@ -658,6 +658,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
         snapshotValidator: semanticSnapshotValidator,
         resolver: new ResolveOptionReference(),
         fileSelection: googleOAuth.handleSpreadsheetFileSelection,
+        sheetSelection: googleOAuth.handleSheetSelection,
       })
     : null;
 

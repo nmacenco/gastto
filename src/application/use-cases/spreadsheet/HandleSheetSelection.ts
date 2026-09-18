@@ -4,7 +4,7 @@
 // left by HU-4.02), and the decrypted OAuth token. Calls
 // SpreadsheetPort.listSheets to discover available sheets, then branches
 // according to the Gherkin scenarios: single-sheet auto-confirmation,
-// numbered list selection, fuzzy name matching, header-based description for
+// numbered list selection, normalized exact-name matching, header-based description for
 // "I don't know", and re-prompt for invalid names. After confirmation, it
 // persists the spreadsheet_configs record via
 // ISpreadsheetConfigRepository.upsertByUserId (idempotent on re-onboarding),
@@ -17,8 +17,9 @@ import type { ISpreadsheetConfigRepository } from '../../../domain/ports/reposit
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
+import type { ConversationStatePrecondition } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
-import type { SheetInfo } from '../../../domain/entities/SheetInfo';
+import { SheetInfo } from '../../../domain/entities/SheetInfo';
 import type { ValidateSpreadsheetAccess } from './ValidateSpreadsheetAccess';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
@@ -27,6 +28,10 @@ import {
   executeWithOAuthAccessToken,
   type OAuthAccessTokenProvider,
 } from '../../services/OAuthAccessTokenService';
+import {
+  onboardingSheetDefaultPayloadSchema,
+  onboardingSheetIdkPayloadSchema,
+} from '../../services/semantic-router/ResolveOptionReference';
 
 export interface HandleSheetSelectionInput {
   userId: string;
@@ -40,6 +45,11 @@ export interface HandleSheetSelectionOutput {
   nextState: FsmState;
   message: string;
   payload?: Record<string, unknown>;
+}
+
+export interface SelectDisplayedSheetInput extends Omit<HandleSheetSelectionInput, 'rawMessage'> {
+  readonly position: number;
+  readonly expected: ConversationStatePrecondition;
 }
 
 export interface HandleSheetSelectionDeps {
@@ -129,6 +139,57 @@ export class HandleSheetSelection {
 
     // 4. First time: list sheets
     return this.handleInitialListing(userId, externalId, channel, fileId, fileName, provider);
+  }
+
+  async selectDisplayedSheet(
+    input: SelectDisplayedSheetInput,
+  ): Promise<HandleSheetSelectionOutput> {
+    const { userId, externalId, channel, statePayload, position, expected } = input;
+    const provider = this.resolveProvider(statePayload);
+    if (provider === 'microsoft') {
+      const message = onboardingCopies.comingSoon('OneDrive');
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+
+    try {
+      await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
+    } catch (err) {
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
+      }
+      throw err;
+    }
+
+    const parsed =
+      statePayload?.step === 'idk'
+        ? onboardingSheetIdkPayloadSchema.safeParse(statePayload)
+        : onboardingSheetDefaultPayloadSchema.safeParse(statePayload);
+    if (!parsed.success) {
+      const message = onboardingCopies.sheetNotFoundRePrompt([]);
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+    const sheetList = parsed.data.sheetList.map((sheet) => new SheetInfo(sheet));
+    const selected = sheetList[position - 1];
+    if (!selected) {
+      const message = onboardingCopies.sheetNotFoundRePrompt(sheetList);
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+
+    this.deps.transitionState.assertExecutionIsValid?.(userId);
+    return this.confirmSheet(
+      userId,
+      externalId,
+      channel,
+      parsed.data.selectedFileId,
+      parsed.data.selectedFileName ?? '',
+      parsed.data.provider ?? provider,
+      selected,
+      sheetList,
+      expected,
+    );
   }
 
   private resolveProvider(statePayload: Record<string, unknown> | null): SpreadsheetProvider {
@@ -284,7 +345,7 @@ export class HandleSheetSelection {
 
     // Scenario 3: "I don't know" variant
     if (isIdkVariant(trimmed)) {
-      return this.handleIdk(userId, externalId, channel, fileId, provider, sheetList);
+      return this.handleIdk(userId, externalId, channel, fileId, fileName, provider, sheetList);
     }
 
     // Scenario 2: Selection by number
@@ -302,7 +363,7 @@ export class HandleSheetSelection {
       );
     }
 
-    // Scenario 4: Fuzzy name matching
+    // Scenario 4: Normalized exact-name matching
     const normalizedInput = normalizeForComparison(trimmed);
     const matched = sheetList.find((s) => normalizeForComparison(s.name) === normalizedInput);
     if (matched) {
@@ -329,6 +390,7 @@ export class HandleSheetSelection {
     externalId: string,
     channel: 'telegram' | 'whatsapp',
     fileId: string,
+    fileName: string,
     provider: SpreadsheetProvider,
     sheetList: SheetInfo[],
   ): Promise<HandleSheetSelectionOutput> {
@@ -346,6 +408,8 @@ export class HandleSheetSelection {
 
       const payload = {
         selectedFileId: fileId,
+        selectedFileName: fileName,
+        provider,
         sheetList: sheetList as unknown as Record<string, unknown>[],
         step: 'idk',
       };
@@ -409,7 +473,9 @@ export class HandleSheetSelection {
     provider: SpreadsheetProvider,
     sheet: SheetInfo,
     sheetList?: SheetInfo[],
+    expected?: ConversationStatePrecondition,
   ): Promise<HandleSheetSelectionOutput> {
+    this.deps.transitionState.assertExecutionIsValid?.(userId);
     // Persist spreadsheet config (idempotent on re-onboarding via upsert on
     // the per-user unique constraint uq_user_spreadsheet).
     await this.deps.spreadsheetConfigRepository.upsertByUserId({
@@ -437,6 +503,7 @@ export class HandleSheetSelection {
       userId,
       targetState: 'ONBOARDING_VALIDATING_ACCESS',
       payload,
+      ...(expected === undefined ? {} : { expected }),
     });
 
     const message = onboardingCopies.sheetSelectedConfirmation(sheet.name);

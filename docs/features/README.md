@@ -6,17 +6,17 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone offline/live proposal evaluator, deterministic revision-bound file/sheet reference resolution, runtime off/shadow observation, enabled expense and guarded file-option dispatch, privacy-safe telemetry, and migration-free rollback boundaries.
+- [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone offline/live proposal evaluator, deterministic revision-bound file/sheet reference resolution, runtime off/shadow observation, enabled expense and guarded file/sheet option dispatch, privacy-safe telemetry, and migration-free rollback boundaries.
 
 - [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, encrypted token lifecycle, and transparent Google access-token refresh (MVP), with OneDrive planned for the future.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, deterministic search/direct URL handling, and revision-bound numeric or semantic displayed-file selection.
-- [`select-sheet.md`](./select-sheet.md) — Sheet selection within the chosen spreadsheet file.
+- [`select-sheet.md`](./select-sheet.md) — Deterministic and revision-bound semantic sheet selection, IDK header guidance, config persistence, and eager access validation within the chosen file.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation before expense recording, with one transparent OAuth refresh/replay for provider authorization failures.
 - [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference with untrusted-data boundaries, optional multilingual subcategory mapping, and category-only compatibility.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — User confirmation and one-field-per-message correction for legacy and optional subcategory mappings, preserving the detected header row for category detection.
 - [`category-confirmation.md`](./category-confirmation.md) — Confirms flat or linked category vocabulary only after transactional aggregate persistence, preserving legacy payloads and category-only row layouts.
 - [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, manages, classifies, reviews, saves, retries, and undoes parent-scoped subcategories with stable references, immutable snapshots, and legacy compatibility.
-- [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation, sender-bound compact callbacks, command-aware routing, and snapshot-bound enabled expense/file dispatch.
+- [`incoming-message-routing.md`](./incoming-message-routing.md) — Private-chat-only Telegram ingestion with strict BullMQ payload validation, sender-bound compact callbacks, command-aware routing, and snapshot-bound enabled expense/file/sheet dispatch.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow with retained-source semantic completion, safe replacement, and queued-batch continuity.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Structured interpreted-expense summary with persisted presentation identity and version-bound confirm / correct / cancel actions.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Text cancellation plus review-bound callbacks that cannot cancel a replacement draft.

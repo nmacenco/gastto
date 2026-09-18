@@ -2,7 +2,7 @@
 // Concrete IConversationStateRepository implementation using Drizzle ORM.
 // Maps between schema row shape and domain ConversationState entity.
 
-import { and, eq, gt, isNotNull, lte, sql } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { conversationStates } from '../schema';
 import type * as schema from '../schema';
@@ -94,7 +94,7 @@ export class DrizzleConversationStateRepository implements IConversationStateRep
             lte(conversationStates.expiresAt, sql`now()`),
           )
         : input.expected.expiry === 'unexpired'
-          ? gt(conversationStates.expiresAt, sql`now()`)
+          ? or(isNull(conversationStates.expiresAt), gt(conversationStates.expiresAt, sql`now()`))
           : undefined;
     const predicates = [
       eq(conversationStates.userId, input.userId),

@@ -320,15 +320,15 @@ export async function processMessageJob(
           return;
         }
         if (semanticTurn?.status === 'option_selection' && conversationState !== null) {
-          if (
-            opts.dispatchOptionSelection === null ||
-            opts.dispatchOptionSelection === undefined
-          ) {
+          if (opts.dispatchOptionSelection === null || opts.dispatchOptionSelection === undefined) {
             opts.observeSemanticRouting.recordOptionDispatch?.(semanticTurn, {
               status: 'clarification_required',
               reason: 'unsupported_action',
             });
-            await messaging.sendMessage(externalId, onboardingCopies.fileReferenceNotFound());
+            await messaging.sendMessage(
+              externalId,
+              semanticExpenseGuidance(conversationState, 'not_found'),
+            );
             return;
           }
           let outcome: Awaited<ReturnType<DispatchOptionSelection['execute']>>;
@@ -1772,6 +1772,11 @@ function semanticExpenseGuidance(
     if (reason === 'ambiguous_reference') return onboardingCopies.ambiguousFileReference();
     if (reason === 'stale_context') return onboardingCopies.staleFileReference();
     return onboardingCopies.fileReferenceNotFound();
+  }
+  if (conversationState.currentState === 'ONBOARDING_SHEET') {
+    if (reason === 'ambiguous_reference') return onboardingCopies.ambiguousSheetReference();
+    if (reason === 'stale_context') return onboardingCopies.staleSheetReference();
+    return onboardingCopies.sheetReferenceNotFound();
   }
   const expenseReason =
     reason === 'ambiguous_reference' || reason === 'not_found' ? 'unsupported_action' : reason;

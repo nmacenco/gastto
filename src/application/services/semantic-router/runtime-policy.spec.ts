@@ -106,7 +106,7 @@ describe('Sha256SemanticRoutingPolicy', () => {
     },
   );
 
-  it('enables the delivered file option capability while leaving sheet selection unavailable', () => {
+  it('enables delivered file and sheet option capabilities', () => {
     const policy = new Sha256SemanticRoutingPolicy({
       ...config,
       stateModes: { ONBOARDING_FILE: 'enabled', ONBOARDING_SHEET: 'enabled' },
@@ -119,9 +119,9 @@ describe('Sha256SemanticRoutingPolicy', () => {
       providerAvailable: true,
     };
     expect(policy.resolve({ ...base, state: 'ONBOARDING_FILE' }).mode).toBe('enabled');
-    expect(policy.resolve({ ...base, state: 'ONBOARDING_SHEET' })).toMatchObject({
-      mode: 'unavailable',
-      code: 'ENABLED_CAPABILITY_UNAVAILABLE',
-    });
+    expect(policy.resolve({ ...base, state: 'ONBOARDING_SHEET' }).mode).toBe('enabled');
+    expect(policy.resolve({ ...base, state: 'ONBOARDING_SHEET', substep: 'idk' }).mode).toBe(
+      'enabled',
+    );
   });
 });

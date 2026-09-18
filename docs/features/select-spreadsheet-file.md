@@ -42,6 +42,7 @@ The Select Spreadsheet File feature enables users to choose which spreadsheet fi
 - `DispatchOptionSelection` reloads and validates revision, state, expiry, execution ownership, payload shape, ordered positions, and labels. It resolves an exact normalized full label or documented Spanish ordinal/cardinal to exactly one position; duplicate labels are ambiguous and no provider identifier comes from the model.
 - A resolved position is passed once to `selectDisplayedFile`. That typed entry point reuses access validation, the guarded transition, confirmation, and isolated eager sheet discovery without reinterpreting text.
 - Ambiguous, unavailable, and stale references retain `ONBOARDING_FILE`, send bounded application-owned guidance, and perform no file-access validation, transition, sheet discovery, configuration write, spreadsheet probe, or success confirmation.
+- After eager discovery stores a multi-sheet snapshot, enabled routing can continue with the revision-bound semantic sheet-selection contract documented in [`select-sheet.md`](./select-sheet.md). The selected file ID and name remain application-owned throughout the file-to-sheet handoff.
 
 ### Search by Name
 

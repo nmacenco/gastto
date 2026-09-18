@@ -73,6 +73,12 @@ export const onboardingCopies = {
     const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
     return `No encontré esa hoja. Elegí una de estas:\n${lines.join('\n')}`;
   },
+  ambiguousSheetReference: () =>
+    'Encontré más de una hoja con esa referencia. Elegí el número exacto de la lista.',
+  sheetReferenceNotFound: () =>
+    'No encontré esa hoja en la lista actual. Elegí el número exacto de la lista.',
+  staleSheetReference: () =>
+    'La lista de hojas cambió. Revisá la lista actual y elegí nuevamente.',
   sheetHeadersDescription: (sheetName: string, headers: string[]) =>
     `Hoja *${sheetName}*: tiene las columnas ${headers.join(', ')}`,
   sheetHeaderDescription: (descriptions: { sheetName: string; headers: string[] }[]) =>

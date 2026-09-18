@@ -232,18 +232,18 @@ Complete semantic option selection for ordinary and header-description sheet sna
 
 #### To-do actions
 
-- [ ] Extend `DispatchOptionSelection` to `ONBOARDING_SHEET/default|idk` and add `selectDisplayedSheet`, sharing the existing config upsert, guarded transition, confirmation copy, and eager `ValidateSpreadsheetAccess` path without re-running name matching.
-- [ ] Preserve single-sheet auto-confirmation, IDK header descriptions, empty-sheet confirmation, unknown-selection re-prompts, selected-file identity, reconnect behavior, and access-error recovery. Keep `empty-sheet-confirm` deterministic and do not treat it as an option snapshot.
-- [ ] Reject duplicate normalized sheet names as ambiguous even when the current lexical `.find` path would choose the first. Reject stale replies after file changes, sheet-list refreshes, IDK self-transitions, validation fallback, or any competing revision.
-- [ ] Add PostgreSQL/Redis integration conversations for natural file then sheet selection, IDK then selection, duplicate names, stale file and sheet replies, concurrent refresh, lock/lease loss, config upsert failure, access-validation failure, empty-sheet fallback, and duplicate message delivery.
-- [ ] Assert unresolved/stale selection produces no config mutation, file/sheet transition, external selection effect, access probe, success copy, or eager advance. Assert a resolved sheet persists the application-owned name once and only then starts the existing validation probe.
-- [ ] Exercise `enabled` to `shadow` and `off` rollback with active file and sheet snapshots and already queued messages. Existing payloads and deterministic selection must continue without migration, dead letter, duplicate selection, or lost search/IDK context.
-- [ ] Extend held-out option-selection families for ordinals, normalized labels, duplicates, injection, refreshed lists, unavailable choices, and failures. Report router, resolver, selection, access/persistence, and probe outcomes separately, leaving live quality, cost, latency budgets, and cohort activation to master Phase 7.
-- [ ] Update sheet selection, file selection, semantic evaluation, incoming routing, conversation-state, FSM, observability, and feature-index documentation; synchronize the master tracking table with verified implementation evidence only after all checks pass.
-- [ ] Run the complete option-selection PostgreSQL/Redis suites and `pnpm test`; any skipped required suite remains pending evidence and blocks implementation completion.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Extend `DispatchOptionSelection` to `ONBOARDING_SHEET/default|idk` and add `selectDisplayedSheet`, sharing the existing config upsert, guarded transition, confirmation copy, and eager `ValidateSpreadsheetAccess` path without re-running name matching.
+- [x] Preserve single-sheet auto-confirmation, IDK header descriptions, empty-sheet confirmation, unknown-selection re-prompts, selected-file identity, reconnect behavior, and access-error recovery. Keep `empty-sheet-confirm` deterministic and do not treat it as an option snapshot.
+- [x] Reject duplicate normalized sheet names as ambiguous even when the current lexical `.find` path would choose the first. Reject stale replies after file changes, sheet-list refreshes, IDK self-transitions, validation fallback, or any competing revision.
+- [x] Add PostgreSQL/Redis integration conversations for natural file then sheet selection, IDK then selection, duplicate names, stale file and sheet replies, concurrent refresh, lock/lease loss, config upsert failure, access-validation failure, empty-sheet fallback, and duplicate message delivery.
+- [x] Assert unresolved/stale selection produces no config mutation, file/sheet transition, external selection effect, access probe, success copy, or eager advance. Assert a resolved sheet persists the application-owned name once and only then starts the existing validation probe.
+- [x] Exercise `enabled` to `shadow` and `off` rollback with active file and sheet snapshots and already queued messages. Existing payloads and deterministic selection must continue without migration, dead letter, duplicate selection, or lost search/IDK context.
+- [x] Extend held-out option-selection families for ordinals, normalized labels, duplicates, injection, refreshed lists, unavailable choices, and failures. Report router, resolver, selection, access/persistence, and probe outcomes separately, leaving live quality, cost, latency budgets, and cohort activation to master Phase 7.
+- [x] Update sheet selection, file selection, semantic evaluation, incoming routing, conversation-state, FSM, observability, and feature-index documentation; synchronize the master tracking table with verified implementation evidence only after all checks pass.
+- [x] Run the complete option-selection PostgreSQL/Redis suites and `pnpm test`; any skipped required suite remains pending evidence and blocks implementation completion.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Implement Phase 3 to enable semantic sheet selection and prove end-to-end option safety.
+Phase 3 is complete; review and commit the verified semantic option-selection delivery before starting the Phase 6 control-flow plan.

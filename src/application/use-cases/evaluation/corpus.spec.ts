@@ -8,8 +8,8 @@ import { caseKind } from './EvaluateSemanticRouter';
 describe('frozen evaluation corpus contracts', () => {
   it('covers each eligible scope and all allowed/forbidden action pairs with explicit protocol stimuli', () => {
     const data = EvaluationDatasetSchema.parse(corpus);
-    expect(data.cases).toHaveLength(229);
-    expect(data.cases.filter((c) => c.split === 'held_out')).toHaveLength(33);
+    expect(data.cases).toHaveLength(237);
+    expect(data.cases.filter((c) => c.split === 'held_out')).toHaveLength(41);
     for (const [state, steps] of Object.entries(STATE_ACTION_POLICY)) {
       for (const [step, allowed] of Object.entries(steps)) {
         const scope = data.cases.filter(
@@ -97,7 +97,7 @@ describe('frozen evaluation corpus contracts', () => {
   it('covers effect-free file/default, sheet/default and sheet/idk resolution outcomes', () => {
     const data = EvaluationDatasetSchema.parse(corpus);
     const optionCases = data.cases.filter((c) => c.tags.includes('option-resolution'));
-    expect(optionCases).toHaveLength(9);
+    expect(optionCases).toHaveLength(16);
     expect(
       new Set(optionCases.map((c) => `${c.input.state}/${c.input.substep ?? 'default'}`)),
     ).toEqual(
@@ -106,5 +106,20 @@ describe('frozen evaluation corpus contracts', () => {
     expect(new Set(optionCases.map((c) => c.optionResolution?.expectedResult.status))).toEqual(
       new Set(['resolved', 'ambiguous', 'not_found', 'stale']),
     );
+    const heldOut = optionCases.filter((c) => c.split === 'held_out');
+    for (const tag of [
+      'ordinal',
+      'normalized-label',
+      'duplicate',
+      'injection',
+      'refreshed-list',
+      'unavailable-choice',
+      'idk',
+    ]) {
+      expect(
+        heldOut.some((c) => c.tags.includes(tag)),
+        `held_out/${tag}`,
+      ).toBe(true);
+    }
   });
 });
