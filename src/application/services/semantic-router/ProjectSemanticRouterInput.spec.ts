@@ -100,6 +100,19 @@ describe('ProjectSemanticRouterInput', () => {
       },
     },
     {
+      name: 'correction',
+      value: state('EXPENSE_CORRECTING', {
+        _type: 'ExpenseCorrectionState',
+        payload: reviewPayload(),
+        correctionCycles: 1,
+        pendingHighAmountConfirmation: false,
+      }),
+      substep: null,
+      expected: {
+        expense: { amount: 25, currency: 'EUR', date: '2026-09-14', concept: null },
+      },
+    },
+    {
       name: 'retry',
       value: state('EXPENSE_SAVING_RETRY', {
         expense: reviewPayload({ reviewBinding: undefined }),
@@ -202,7 +215,6 @@ describe('ProjectSemanticRouterInput', () => {
   });
 
   it.each([
-    'EXPENSE_CORRECTING',
     'EXPENSE_SAVING',
     'ONBOARDING_START',
     'ONBOARDING_DRIVE',
@@ -230,6 +242,14 @@ describe('ProjectSemanticRouterInput', () => {
   it.each([
     ['malformed clarification', state('EXPENSE_CLARIFYING', { missingField: 'monto' })],
     ['malformed JSONB', state('EXPENSE_REVIEW', { extracted: 'not-an-object' })],
+    [
+      'malformed correction',
+      state('EXPENSE_CORRECTING', {
+        _type: 'ExpenseCorrectionState',
+        payload: { extracted: 'not-an-object' },
+        correctionCycles: 0,
+      }),
+    ],
     ['legacy unbound review', state('EXPENSE_REVIEW', reviewPayload({ reviewBinding: undefined }))],
     [
       'unpresented retry',

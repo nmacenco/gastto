@@ -579,6 +579,7 @@ describe('processMessageJob', () => {
         expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
           userId: 'user-123',
           action: 'request',
+          provenance: 'deterministic_command',
           immediateExpenseId: 'expense-1',
         });
         expect(mockTransitionStateExecute).toHaveBeenCalledWith({
@@ -665,11 +666,13 @@ describe('processMessageJob', () => {
       expect(mockUndoLastExpenseExecute).toHaveBeenNthCalledWith(1, {
         userId: 'user-123',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       });
       expect(mockUndoLastExpenseExecute).toHaveBeenNthCalledWith(2, {
         userId: 'user-123',
         action: 'request',
+        provenance: 'deterministic_command',
       });
       expect(mockTransitionStateExecute).toHaveBeenNthCalledWith(1, {
         userId: 'user-123',
@@ -723,6 +726,7 @@ describe('processMessageJob', () => {
       expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'request',
+        provenance: 'deterministic_command',
       });
       expect(mockTransitionStateExecute).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1698,31 +1702,34 @@ describe('processMessageJob', () => {
       ['ambiguous_reference', onboardingCopies.ambiguousSheetReference()],
       ['not_found', onboardingCopies.sheetReferenceNotFound()],
       ['stale_context', onboardingCopies.staleSheetReference()],
-    ] as const)('sends bounded %s sheet guidance without a lexical effect', async (reason, copy) => {
-      const deps = buildMockDeps();
-      mockGetConversationStateExecute.mockResolvedValue(sheetState());
-      mockObserveSemanticRoutingExecute.mockResolvedValue({
-        status: 'option_selection',
-        decision: { action: 'select_option', userReference: 'movimientos' },
-        expected: { revision: '8', currentState: 'ONBOARDING_SHEET', expiry: 'unexpired' },
-        snapshot: {
-          revision: '8',
-          state: 'ONBOARDING_SHEET',
-          substep: null,
-          options: [{ position: 1, label: 'Movimientos' }],
-        },
-      });
-      mockDispatchOptionSelectionExecute.mockResolvedValue({
-        status: 'clarification_required',
-        reason,
-      });
+    ] as const)(
+      'sends bounded %s sheet guidance without a lexical effect',
+      async (reason, copy) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(sheetState());
+        mockObserveSemanticRoutingExecute.mockResolvedValue({
+          status: 'option_selection',
+          decision: { action: 'select_option', userReference: 'movimientos' },
+          expected: { revision: '8', currentState: 'ONBOARDING_SHEET', expiry: 'unexpired' },
+          snapshot: {
+            revision: '8',
+            state: 'ONBOARDING_SHEET',
+            substep: null,
+            options: [{ position: 1, label: 'Movimientos' }],
+          },
+        });
+        mockDispatchOptionSelectionExecute.mockResolvedValue({
+          status: 'clarification_required',
+          reason,
+        });
 
-      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'movimientos' }), deps);
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'movimientos' }), deps);
 
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', copy);
-      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
-      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
-    });
+        expect(mockSendMessage).toHaveBeenCalledWith('123456789', copy);
+        expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('EXPENSE_UNDO_CONFIRMING state', () => {
@@ -1787,6 +1794,7 @@ describe('processMessageJob', () => {
       expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'request',
+        provenance: 'deterministic_command',
       });
       expect(mockTransitionStateExecute).toHaveBeenCalledTimes(2);
       expect(mockTransitionStateExecute).toHaveBeenNthCalledWith(
@@ -1849,6 +1857,7 @@ describe('processMessageJob', () => {
       expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       });
       expect(mockTransitionStateExecute.mock.invocationCallOrder[0]!).toBeLessThan(

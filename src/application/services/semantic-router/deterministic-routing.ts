@@ -9,7 +9,7 @@ export type DeterministicRoutingDecision =
   | { readonly kind: 'typed_callback' }
   | {
       readonly kind: 'sensitive_command';
-      readonly command: 'save' | 'retry' | 'undo' | 'cancel';
+      readonly command: 'save' | 'retry' | 'undo' | 'undo_confirmation' | 'cancel' | 'reconfigure';
     }
   | { readonly kind: 'unsupported' };
 
@@ -30,7 +30,7 @@ export class CurrentDeterministicRoutingPolicy implements DeterministicRoutingPo
     readonly hasCallback: boolean;
   }): DeterministicRoutingDecision {
     if (input.hasCallback) return { kind: 'typed_callback' };
-    if (input.state === 'IDLE' && isUndoIntent(input.rawMessage)) {
+    if (isUndoIntent(input.rawMessage)) {
       return { kind: 'sensitive_command', command: 'undo' };
     }
     if (isCancelIntent(input.rawMessage)) {
@@ -44,6 +44,15 @@ export class CurrentDeterministicRoutingPolicy implements DeterministicRoutingPo
       input.rawMessage.toLocaleLowerCase('es-AR').trim() === 'reintentar'
     ) {
       return { kind: 'sensitive_command', command: 'retry' };
+    }
+    if (
+      input.state === 'EXPENSE_SAVING_RETRY' &&
+      input.rawMessage.toLocaleLowerCase('es-AR').trim() === 'reconfigurar'
+    ) {
+      return { kind: 'sensitive_command', command: 'reconfigure' };
+    }
+    if (input.state === 'EXPENSE_UNDO_CONFIRMING' && isConfirmIntent(input.rawMessage)) {
+      return { kind: 'sensitive_command', command: 'undo_confirmation' };
     }
     if (input.state === 'IDLE' || input.state === 'EXPENSE_RECEIVING') {
       const intent = this.classifier.execute(input.rawMessage);

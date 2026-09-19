@@ -131,12 +131,14 @@ Save, retry, and undo execution may additionally carry `executionClaim: { claimI
 ## Semantic observation by state
 
 Semantic routing does not add a state or transition. Runtime projection supports
-only the state/substep pairs enumerated by `semantic-policy-v2`; unsupported states,
+only the state/substep pairs enumerated by `semantic-policy-v3`; unsupported states,
 unknown substeps, malformed payloads, expired snapshots, and unresolved financial
 claims produce metadata-only failure/stale observations. Projection allowlists the
 current question, missing amount/currency fields, bounded expense summary, and
 displayed option positions/labels. It never exposes the full `state_payload`,
-operation bindings, claims, revisions, or provider identifiers.
+operation bindings, claims, revisions, or provider identifiers. `EXPENSE_CORRECTING/default`
+is projected only after `ExpenseCorrectionState` validation and exposes only bounded amount,
+currency, and date context.
 
 The FSM remains authoritative in every mode. `shadow` records a proposal and
 executes the deterministic handler. `off` skips the model. `enabled` may execute
@@ -154,8 +156,14 @@ only through the new interpretation result, so extractor failure preserves the o
 draft. Review correction advances the review binding and requires a fresh
 presentation and explicit confirmation. Review `register_expense` admits only a raw
 pending-queue item and leaves the active review unchanged. Semantic dispatch has no
-save, retry, delete, confirmation, cancellation, or arbitrary-transition authority;
+save, retry, delete, confirmation, cancellation, reconfiguration, or arbitrary-transition authority;
 all other enabled state/action pairs fail closed.
+
+The control capability matrix permits proposals only for inferred undo in `IDLE`,
+cancellation in the four active expense-draft states, and request-only retry or bounded
+reconfiguration in `EXPENSE_SAVING_RETRY`. `EXPENSE_UNDO_CONFIRMING` is guidance-only.
+Unknown substeps and all processing/onboarding states outside this matrix reject control
+capabilities. Phase 1 evaluates these proposals but does not dispatch their effects.
 
 Conversation-level PostgreSQL/Redis tests exercise recognition, clarification,
 review correction, queue overflow/advancement, explicit save, cancellation, duplicate

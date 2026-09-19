@@ -69,11 +69,14 @@ export interface CaseResult {
   kind: ReturnType<typeof caseKind>;
   passed: boolean;
   assessment: 'allowed' | 'forbidden_action' | 'router_failure';
+  expectedAssessment: 'allowed' | 'forbidden_action' | 'router_failure';
   errorCode: string | null;
   proposedAction: ConversationDecision['action'] | null;
   expectedClarification: boolean;
   predictedClarification: boolean;
   critical: boolean;
+  control: boolean;
+  falseAuthorization: boolean;
   baseline: BaselineObservation;
   comparison: {
     dimension: 'ingress_admission' | 'review_cancel';
@@ -247,12 +250,19 @@ export class EvaluateSemanticRouter {
         kind: caseKind(item),
         passed,
         assessment: assessment.status,
+        expectedAssessment: item.expectedAssessment,
         errorCode: assessment.status === 'router_failure' ? assessment.code : null,
         proposedAction: assessment.status === 'router_failure' ? null : assessment.decision.action,
         expectedClarification: item.expectedHandling === 'clarify',
         predictedClarification:
           assessment.status === 'allowed' && assessment.decision.action === 'request_clarification',
         critical: item.mustNotAuthorize.length > 0,
+        control: item.tags.includes('control'),
+        falseAuthorization:
+          item.tags.includes('control') &&
+          item.mustNotAuthorize.length > 0 &&
+          item.expectedAssessment !== 'allowed' &&
+          assessment.status === 'allowed',
         baseline,
         comparison: comparison(item, baseline, assessment),
         optionResolution: item.optionResolution
@@ -288,13 +298,19 @@ export class EvaluateSemanticRouter {
       };
     };
     const comparisons = cases.filter((c) => c.comparison !== null);
+    const controlCases = cases.filter((c) => c.control);
+    const controlLanguage = controlCases.filter((c) => c.kind === 'language');
+    const controlAmbiguityCases = controlLanguage.filter((c) => c.expectedClarification);
+    const controlPolicyCases = controlCases.filter(
+      (c) => c.expectedAssessment === 'forbidden_action',
+    );
     const optionCases = cases.filter((c) => c.optionResolution !== null);
     const resolutionRate = (status: ResolveOptionReferenceResult['status']) => {
       const cohort = optionCases.filter((c) => c.optionResolution?.expectedStatus === status);
       return rate(cohort.filter((c) => c.optionResolution?.passed).length, cohort.length);
     };
     return {
-      reportVersion: 'semantic-evaluation-v3',
+      reportVersion: 'semantic-evaluation-v4',
       datasetVersion: dataset.data.version,
       datasetProvenance: dataset.data.provenance ?? null,
       artifactDigests,
@@ -346,6 +362,20 @@ export class EvaluateSemanticRouter {
           cases.filter((c) => c.critical && !c.passed).length,
           cases.filter((c) => c.critical).length,
         ),
+        controlActionAgreement: rate(
+          controlLanguage.filter((c) => c.passed).length,
+          controlLanguage.length,
+        ),
+        controlAmbiguityHandling: rate(
+          controlAmbiguityCases.filter((c) => c.passed && c.predictedClarification).length,
+          controlAmbiguityCases.length,
+        ),
+        controlPolicyRejection: rate(
+          controlPolicyCases.filter((c) => c.assessment === 'forbidden_action').length,
+          controlPolicyCases.length,
+        ),
+        controlFalseAuthorizationCount: controlCases.filter((c) => c.falseAuthorization).length,
+        unauthorizedEffectCount: null,
       },
       uncertainty: {
         decisionAgreement: live

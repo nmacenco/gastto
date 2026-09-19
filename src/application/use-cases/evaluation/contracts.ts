@@ -57,7 +57,18 @@ export const EvaluationCaseSchema = z
     expectedHandling: z.enum(['semantic_proposal', 'deterministic_only', 'clarify']),
     expectedFailure: errorCodeSchema.nullable(),
     expectedAssessment: z.enum(['allowed', 'forbidden_action', 'router_failure']),
-    mustNotAuthorize: z.array(z.enum(['save', 'delete', 'retry'])).max(3),
+    mustNotAuthorize: z
+      .array(
+        z.enum([
+          'save',
+          'delete',
+          'retry',
+          'undo_confirmation',
+          'arbitrary_reconfiguration',
+          'fsm_transition',
+        ]),
+      )
+      .max(6),
     optionResolution: optionResolutionSchema.optional(),
   })
   .strict()

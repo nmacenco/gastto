@@ -1233,43 +1233,67 @@
   },
   "823462b093d486da9f291d31f8946c3569d50788182bd60874aecf1bd0ed42e9": {
     "status": "response",
-    "content": { "action": "provide_missing_expense_data" }
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
   },
   "be1173a237fbf247cdf7886ae6f0b130beca125118cb65f66a65bbaadcdd43de": {
     "status": "response",
-    "content": { "action": "provide_missing_expense_data" }
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
   },
   "ddc86326b196311bdd53bb0651112cb20929e652b90e1a514743f740e3fa4280": {
     "status": "response",
-    "content": { "action": "register_expense" }
+    "content": {
+      "action": "register_expense"
+    }
   },
   "5cddf0e8803e27a98bf3202f72eea94cafe556b516f4752feae917ee2d9512e4": {
     "status": "response",
-    "content": { "action": "correct_expense" }
+    "content": {
+      "action": "correct_expense"
+    }
   },
   "8ea62280988b4e350d4da340e71dd4173cfb0c3213f8c90c6279d5321c333e3b": {
     "status": "response",
-    "content": { "action": "register_expense" }
+    "content": {
+      "action": "register_expense"
+    }
   },
   "21c8c4fc2a8036b9e5370f80183e2a66f15d73b6cb2550374888855dc9fab3b0": {
     "status": "response",
-    "content": { "action": "request_clarification", "reason": "explicit_confirmation_required" }
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
   },
   "503473c0ce872cd311c373dd10249d0eee979de78a5ec309803cec1039903509": {
     "status": "response",
-    "content": { "action": "request_clarification", "reason": "mixed_intents" }
+    "content": {
+      "action": "request_clarification",
+      "reason": "mixed_intents"
+    }
   },
   "3962665ddb7f42f59904914291ffbe724684a5eb82332dd337edea76ccd017b8": {
     "status": "response",
-    "content": { "action": "out_of_scope" }
+    "content": {
+      "action": "out_of_scope"
+    }
   },
   "ef5496989e8f39f377a532090094649ec24f88e8219db3cf003e1ee753fcbe8d": {
     "status": "response",
-    "content": { "action": "request_clarification", "reason": "explicit_confirmation_required" }
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
   },
   "3e9307b4295785ee9ce1efa379199b929b2edfc01c67c22434c954bec33f347f": {
     "status": "response",
-    "content": { "action": "request_clarification", "reason": "ambiguous_reference" }
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_reference"
+    }
   },
   "f9eec6f5e017088adaa1175f16292e968e47b45e85eee036366a952c8a5e130d": {
     "status": "failed",
@@ -1281,35 +1305,54 @@
   },
   "3ebc3122156c778f55d24feb62125118c0b9c2f818625bb4767a484393364f83": {
     "status": "response",
-    "content": { "action": "provide_missing_expense_data" }
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
   },
   "9f1d96dbc281f6d1f0347352423e9544911d21843bdb77fd6cabdd2f9bfbbfd1": {
     "status": "response",
-    "content": { "action": "register_expense" }
+    "content": {
+      "action": "register_expense"
+    }
   },
   "629bfe4d4bc7705e3e336d613e693703c3211c02aa65d6aedbfa2399e8ee51fa": {
     "status": "response",
-    "content": { "action": "correct_expense" }
+    "content": {
+      "action": "correct_expense"
+    }
   },
   "5bc374bc1bef494bf0f5c1aae7a1203b508c331cde45a6dc289d7842fb912a6d": {
     "status": "response",
-    "content": { "action": "register_expense" }
+    "content": {
+      "action": "register_expense"
+    }
   },
   "57526efdcf6bb314714a15085987ef125ce5fe7f1666784b1d725e2f1e323ce0": {
     "status": "response",
-    "content": { "action": "request_clarification", "reason": "explicit_confirmation_required" }
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
   },
   "4907d634c938707f2722f68a58260419c639f024e9857acc6abc157e877bfde7": {
     "status": "response",
-    "content": { "action": "request_clarification", "reason": "mixed_intents" }
+    "content": {
+      "action": "request_clarification",
+      "reason": "mixed_intents"
+    }
   },
   "b72a0506ad3b124eb23ca43f087029327caf1ac46da753dfa52a086e1263a5b2": {
     "status": "response",
-    "content": { "action": "out_of_scope" }
+    "content": {
+      "action": "out_of_scope"
+    }
   },
   "505416ebda3226d09a52fe8229716afe9d00792cdfa1e65a9ef54c63eb13954d": {
     "status": "response",
-    "content": { "action": "request_clarification", "reason": "explicit_confirmation_required" }
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
   },
   "a68e93fc85b686fb071d83e6e903cefb115c33387318be8a74c26b016da5d30c": {
     "status": "response",
@@ -1376,15 +1419,24 @@
   },
   "56ce64dfaba4f76b34a0e2fdef54fd90068766a15bdd4351540a89a3ecda1128": {
     "status": "response",
-    "content": { "action": "select_option", "userReference": "la segunda hoja" }
+    "content": {
+      "action": "select_option",
+      "userReference": "la segunda hoja"
+    }
   },
   "405585a2a5d66252b824f1ab89415ad58d001cc7f4bceec3d0bce23ca0bbd382": {
     "status": "response",
-    "content": { "action": "select_option", "userReference": "  MOVIMIÉNTOS  " }
+    "content": {
+      "action": "select_option",
+      "userReference": "  MOVIMIÉNTOS  "
+    }
   },
   "9bf201a27f980d35d256082863a039f958a23ed1ac6c3d6c63b7ff966751ca68": {
     "status": "response",
-    "content": { "action": "select_option", "userReference": "Gastos" }
+    "content": {
+      "action": "select_option",
+      "userReference": "Gastos"
+    }
   },
   "e7f3bc5bf076f2cf754ba82e03bbb198487cdb0a1dd31a8d7d1cd29e217d63fc": {
     "status": "response",
@@ -1395,18 +1447,282 @@
   },
   "448eaf58fc26b666271330c5fe41d9e92c2519347843b5e639d3a116789be03c": {
     "status": "response",
-    "content": { "action": "select_option", "userReference": "la primera" }
+    "content": {
+      "action": "select_option",
+      "userReference": "la primera"
+    }
   },
   "b34777c819af853e49ca53fc9177febf9325110b09a2b83ad7ca0de266c33323": {
     "status": "response",
-    "content": { "action": "select_option", "userReference": "Anual" }
+    "content": {
+      "action": "select_option",
+      "userReference": "Anual"
+    }
   },
   "2b031568f2a2d0feb7b6ce88b5d7149d6b11b671f06f4b711b4196767365365e": {
     "status": "response",
-    "content": { "action": "select_option", "userReference": "la tercera hoja" }
+    "content": {
+      "action": "select_option",
+      "userReference": "la tercera hoja"
+    }
   },
   "03be2c9bb4fe014ae789126ead3c27c016482e5307f2dc43755c0c091792caaf": {
     "status": "failed",
     "code": "TIMEOUT"
+  },
+  "9b399b24fa8bc682b0d8b50a3c1b9d40eb26800a08f33d9893c24827621db1d3": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "20e70826fe884ac17d686e6518c576d6b93a4236ad841bfa15a34f6653723bee": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "487d38a4279c0fc8ae895fc409ef64a1cd46934c66cb3921d59ae319245f2928": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "081b61afafd212cbaac2bf75c69371c6f9c3526a205c6f0a90e385941afe3c89": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "7d44d55fa40b91ebf33005bf813785a93c4b5a195beaa238212873c86c0678a0": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "7b2230e509dd1e645abb326cf9cf587d719cab33021d43b7be533270689e5612": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "b6e50e2dc353febc3ff685ee7fc8cfb3ac9f7125a9f1641814f86fe98ae1c606": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "b9967759242200a99f464796b72a487cf06ef721aa4650991827533fbca21190": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "2ec2297befc34aa603d98492fccc2eaf0c5397c6440740029c8c6a54c20ffe15": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "9f702287e797358b624ffe9738e5f4d178fc6a7994c8202b552561feaf6665c2": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "2620475c468012b01b42027b221b1d7ce8b878870c4101dace1e0326b79e0b94": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "mixed_intents"
+    }
+  },
+  "1648a1817fe8b88a6aa4002903c11cfbbf04d0d34078091df3e34a3482f56710": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "mixed_intents"
+    }
+  },
+  "89eb59d31fccd2b8f6a80bfab136bfbc9bea942c43938f05fe02f16135f27cd9": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "a44cc5ea7adec9507359ce2ccba8f95e4f4c0d1b4c405367f2d707631462c852": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "0111308748db8b94e748398a66b8022d908412ce7d8ccc55d30635ce53918254": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
+  },
+  "2d1f5cc5f8f2c84c74a720ffd07caa2668cf73ed23e82dd4ca591c69dbf7ae30": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "mixed_intents"
+    }
+  },
+  "2cb78fd16240f5f97b5d9a097e09ced1d5154dad34101399b33864fc0a8ffd9c": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "2a475916702ef33d2c38c18d959635db4bae2c863d8cf80e8d55c6c9bb9d45b8": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
+  },
+  "c4af444d006e62777c3101d60a6f5a0bbe61d5a74bc5591059179355cd2e182b": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "28d4657f3975ca42fb66f98d033d464b70843e56bd5ee5171cebe39b7ff13a00": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "538b1c7cbfda60f8064fbeb4e3caad2642c92393b759635d3ba44dfc924bb9d9": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "c9be1d0fbfe30577ed9e24514b04050f2e59d043d381a6d0b37159734b6f6fb5": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "2cb8608a9e2057aab4f07a9990446188762ea05e68d587e7d48b0f8330e35142": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "a80151d7c00c246c79aae1c3823fed33bd80ff0db7b2a494cb68dd77c156d055": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "2a2ae81e2c50b10afe87385356a41955dc6ee0715e13bae7df44b130439b01d6": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "4dc161e9ab4c13e258a9fa474ac18c0a1160e3b40cc5ac8519dd414edf30a43d": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "mixed_intents"
+    }
+  },
+  "8b16d133e4c0d37b90f48d13190f9ba1b6b1488c507958c5ad30d9e277f95e1e": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "2d7ae45dfde535ffc60b7a993e44d4d6399023beedebf0a3db5d8f26618d7f1a": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
+  },
+  "f4ce95812b1bcd000444c9f2b77d2aea754cab5e60343991b63cd74c703eccf7": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "explicit_confirmation_required"
+    }
+  },
+  "5a4feb2e9fd41b698454adc936bbc3e5d1058da5c1419db3f7ff479cd355e81e": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "f88aefe34178e331a3cf68021f237ee0e13fd1d8bc7464996bae492629320dd1": {
+    "status": "response",
+    "content": {
+      "action": "register_expense"
+    }
+  },
+  "a99f17e5ab1ab0b90264700dd2ccc01246410d83674c7067a2c72fcf2a31e5c3": {
+    "status": "response",
+    "content": {
+      "action": "cancel_current_flow"
+    }
+  },
+  "4c8db1e494f26c0848daedaea5d95c1c98330f8fe1c0aad5910b158aa4575f4f": {
+    "status": "response",
+    "content": {
+      "action": "correct_expense"
+    }
+  },
+  "3429a8b087957f3b68ae081c3e9a0daf767a773397a73adffbbc9ea2b4474802": {
+    "status": "response",
+    "content": {
+      "action": "provide_missing_expense_data"
+    }
+  },
+  "edce47559d8d896569330d6882ae1730fc0bffe73c1b1be74ee1dc478bd69103": {
+    "status": "response",
+    "content": {
+      "action": "undo_last_expense"
+    }
+  },
+  "28889e4086ccbb40c66e280f73436a9b6347a700ca0ce12bb4527b8957c9d880": {
+    "status": "response",
+    "content": {
+      "action": "select_option",
+      "userReference": "la primera"
+    }
+  },
+  "da581242eb48538c8f7a399b73b5f28ae8c3f37108d1bf021203e54ad8a1be8f": {
+    "status": "response",
+    "content": {
+      "action": "request_save_retry"
+    }
+  },
+  "6cde882e4ca95534558f5a6927824b5a001693d59a39d3b4616d317faf58e4ec": {
+    "status": "response",
+    "content": {
+      "action": "request_reconfiguration"
+    }
+  },
+  "68e56ece3b9d3ed666fa05ff5afd8cb029d18b22bd98e03f9fde556a3c8bcb28": {
+    "status": "response",
+    "content": {
+      "action": "request_clarification",
+      "reason": "ambiguous_intent"
+    }
+  },
+  "397cc34d991b302db79ca40326e011adeb662e1b125724da5497470682d323b1": {
+    "status": "response",
+    "content": {
+      "action": "out_of_scope"
+    }
   }
 }

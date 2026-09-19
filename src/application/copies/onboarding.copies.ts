@@ -77,8 +77,7 @@ export const onboardingCopies = {
     'Encontré más de una hoja con esa referencia. Elegí el número exacto de la lista.',
   sheetReferenceNotFound: () =>
     'No encontré esa hoja en la lista actual. Elegí el número exacto de la lista.',
-  staleSheetReference: () =>
-    'La lista de hojas cambió. Revisá la lista actual y elegí nuevamente.',
+  staleSheetReference: () => 'La lista de hojas cambió. Revisá la lista actual y elegí nuevamente.',
   sheetHeadersDescription: (sheetName: string, headers: string[]) =>
     `Hoja *${sheetName}*: tiene las columnas ${headers.join(', ')}`,
   sheetHeaderDescription: (descriptions: { sheetName: string; headers: string[] }[]) =>

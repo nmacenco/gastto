@@ -8,8 +8,8 @@ import { caseKind } from './EvaluateSemanticRouter';
 describe('frozen evaluation corpus contracts', () => {
   it('covers each eligible scope and all allowed/forbidden action pairs with explicit protocol stimuli', () => {
     const data = EvaluationDatasetSchema.parse(corpus);
-    expect(data.cases).toHaveLength(237);
-    expect(data.cases.filter((c) => c.split === 'held_out')).toHaveLength(41);
+    expect(data.cases).toHaveLength(277);
+    expect(data.cases.filter((c) => c.split === 'held_out')).toHaveLength(53);
     for (const [state, steps] of Object.entries(STATE_ACTION_POLICY)) {
       for (const [step, allowed] of Object.entries(steps)) {
         const scope = data.cases.filter(
@@ -121,5 +121,40 @@ describe('frozen evaluation corpus contracts', () => {
         `held_out/${tag}`,
       ).toBe(true);
     }
+  });
+
+  it('covers control language, safety families and the correcting-state protocol matrix', () => {
+    const data = EvaluationDatasetSchema.parse(corpus);
+    const control = data.cases.filter((c) => c.tags.includes('phase6'));
+    expect(control).toHaveLength(40);
+    for (const split of ['development', 'held_out'] as const) {
+      const language = control.filter((c) => c.split === split && !c.tags.includes('protocol'));
+      for (const tag of [
+        'paraphrase',
+        'regional',
+        'negation',
+        'conditional',
+        'mixed-intents',
+        'stale-state',
+        'prompt-injection',
+      ]) {
+        expect(
+          language.some((c) => c.tags.includes(tag)),
+          `${split}/${tag}`,
+        ).toBe(true);
+      }
+    }
+    const correctingMatrix = control.filter(
+      (c) =>
+        c.input.state === 'EXPENSE_CORRECTING' &&
+        c.tags.includes('protocol') &&
+        c.tags.includes('matrix'),
+    );
+    expect(correctingMatrix).toHaveLength(actionSchema.options.length);
+    expect(new Set(correctingMatrix.map((c) => c.acceptedDecisions[0]?.action))).toEqual(
+      new Set(actionSchema.options),
+    );
+    expect(control.every((c) => c.mustNotAuthorize.includes('fsm_transition'))).toBe(true);
+    expect(control.every((c) => c.mustNotAuthorize.includes('undo_confirmation'))).toBe(true);
   });
 });

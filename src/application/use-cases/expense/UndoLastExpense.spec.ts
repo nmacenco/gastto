@@ -174,6 +174,7 @@ describe('UndoLastExpenseUseCase', () => {
         buildUseCase().execute({
           userId: 'user-1',
           action: 'request',
+          provenance: 'deterministic_command',
           immediateExpenseId: 'expense-1',
         }),
       ).resolves.toMatchObject({ status: 'deleted' });
@@ -192,6 +193,7 @@ describe('UndoLastExpenseUseCase', () => {
     const result = await buildUseCase().execute({
       userId: 'user-1',
       action: 'request',
+      provenance: 'deterministic_command',
       immediateExpenseId: 'expense-1',
     });
 
@@ -221,6 +223,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toEqual({ status: 'deletion_failed', errorType: 'AUTH_ERROR' });
@@ -247,6 +250,7 @@ describe('UndoLastExpenseUseCase', () => {
     await buildUseCase().execute({
       userId: 'user-1',
       action: 'request',
+      provenance: 'deterministic_command',
       immediateExpenseId: 'expense-1',
     });
 
@@ -262,6 +266,7 @@ describe('UndoLastExpenseUseCase', () => {
     await buildUseCase().execute({
       userId: 'user-1',
       action: 'request',
+      provenance: 'deterministic_command',
       immediateExpenseId: 'expense-1',
     });
 
@@ -278,6 +283,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toEqual({ status: 'deletion_failed', errorType: 'NETWORK_ERROR' });
@@ -298,6 +304,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toEqual({ status: 'deletion_failed', errorType: 'STRUCTURE_ERROR' });
@@ -310,7 +317,11 @@ describe('UndoLastExpenseUseCase', () => {
 
   it('returns confirmation_required without creating a spreadsheet port when immediate undo is unavailable', async () => {
     await expect(
-      buildUseCase().execute({ userId: 'user-1', action: 'request' }),
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        provenance: 'deterministic_command',
+      }),
     ).resolves.toMatchObject({ status: 'confirmation_required', expense: { id: 'expense-1' } });
     expect(createPort).not.toHaveBeenCalled();
     expect(deleteRow).not.toHaveBeenCalled();
@@ -322,6 +333,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'already-deleted-expense',
       }),
     ).resolves.toMatchObject({ status: 'confirmation_required', expense: { id: 'expense-1' } });
@@ -343,6 +355,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toMatchObject({ status: 'deleted' });
@@ -361,6 +374,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toMatchObject({ status: 'deleted' });
@@ -370,5 +384,19 @@ describe('UndoLastExpenseUseCase', () => {
     expect(createPort).toHaveBeenNthCalledWith(2, 'refreshed-access-token');
     expect(deleteRow).toHaveBeenCalledTimes(2);
     expect(softDeleteWithAudit).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires confirmation for semantic requests even when immediate eligibility is known', async () => {
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        provenance: 'semantic_request',
+      }),
+    ).resolves.toMatchObject({ status: 'confirmation_required', expense: { id: 'expense-1' } });
+
+    expect(transition).not.toHaveBeenCalled();
+    expect(deleteRow).not.toHaveBeenCalled();
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
   });
 });

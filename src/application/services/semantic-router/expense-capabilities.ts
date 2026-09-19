@@ -1,4 +1,4 @@
-// LAYER: Application. Semantic expense capabilities narrow, never broaden, semantic-policy-v2.
+// LAYER: Application. Semantic expense capabilities narrow, never broaden, semantic-policy-v3.
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { ConversationDecision } from '../../../domain/value-objects/conversation-decision';
 

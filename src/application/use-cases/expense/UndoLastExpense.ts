@@ -34,13 +34,24 @@ export interface UndoLastExpenseOutput {
   errorType?: 'NETWORK_ERROR' | 'AUTH_ERROR' | 'STRUCTURE_ERROR';
 }
 
-export interface UndoLastExpenseInput {
-  userId: string;
-  action: 'request' | 'confirm';
-  immediateExpenseId?: string | undefined;
-  pendingExpenseId?: string | undefined;
-  authorization?: { receivedAt: string; sourceMessageId: string } | undefined;
-}
+export type UndoLastExpenseInput =
+  | {
+      readonly userId: string;
+      readonly action: 'request';
+      readonly provenance: 'deterministic_command';
+      readonly immediateExpenseId?: string;
+    }
+  | {
+      readonly userId: string;
+      readonly action: 'request';
+      readonly provenance: 'semantic_request';
+    }
+  | {
+      readonly userId: string;
+      readonly action: 'confirm';
+      readonly pendingExpenseId: string;
+      readonly authorization: { readonly receivedAt: string; readonly sourceMessageId: string };
+    };
 
 export class UndoLastExpenseUseCase {
   constructor(
@@ -68,7 +79,10 @@ export class UndoLastExpenseUseCase {
       savedAt: last.savedAt,
     };
 
-    if (input.action === 'request' && input.immediateExpenseId !== last.id) {
+    if (
+      input.action === 'request' &&
+      (input.provenance === 'semantic_request' || input.immediateExpenseId !== last.id)
+    ) {
       return { status: 'confirmation_required', expense };
     }
     if (
@@ -84,7 +98,7 @@ export class UndoLastExpenseUseCase {
       kind: 'undo' as const,
       operationId:
         authorization?.status === 'authorized' ? authorization.operationId : randomUUID(),
-      sourceMessageId: input.authorization?.sourceMessageId ?? null,
+      sourceMessageId: input.action === 'confirm' ? input.authorization.sourceMessageId : null,
       status: 'in_flight' as const,
       target: { expenseId: last.id, sheetName: last.sheetName, rowIndex: last.rowIndex },
     };
@@ -187,7 +201,7 @@ export class UndoLastExpenseUseCase {
   }
 
   private authorizeConfirmation(
-    input: UndoLastExpenseInput,
+    input: Extract<UndoLastExpenseInput, { action: 'confirm' }>,
   ):
     | { status: 'authorized'; pendingExpenseId: string; operationId: string }
     | { status: 'stale' | 'expired' | 'unbound' | 'invalid' | 'operation_in_progress' } {
@@ -203,7 +217,6 @@ export class UndoLastExpenseUseCase {
     if (!payload.actionBinding || payload.actionBinding.presentedAt === null) {
       return { status: 'unbound' };
     }
-    if (!input.authorization) return { status: 'invalid' };
     const receivedAt = Date.parse(input.authorization.receivedAt);
     if (!Number.isFinite(receivedAt)) return { status: 'invalid' };
     if (receivedAt <= Date.parse(payload.actionBinding.presentedAt)) return { status: 'unbound' };

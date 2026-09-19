@@ -9,7 +9,7 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 - `pnpm eval:semantic-router` runs 12 development smoke cases without credentials, dotenv, network, database, queues, messaging, or spreadsheet operations.
 - The provider-neutral `SemanticRouterPort` accepts a bounded message, FSM state/substep, caller-narrowed action list, and a strict context projection. Domain types have no validation-library dependency.
 - Strict Zod schemas reject unknown fields/actions, invalid dates/currencies, oversized inputs, duplicate positions and caller attempts to widen the policy. Source text is preserved, including the Mercadona notification's newlines and non-breaking space.
-- The policy enumerates every current FSM state. Normal input steps support expense proposals, missing-data replies, review corrections, file/sheet selections, and request-only recovery. Unknown substeps and processing-only/unsupported states reject semantic input. Sheet `idk` permits selection; `empty-sheet-confirm` permits guidance only. Other onboarding configuration states remain unsupported.
+- The `semantic-policy-v3` policy enumerates every current FSM state. Normal input steps support expense proposals, missing-data replies, review corrections, validated correction-state cancellation proposals, file/sheet selections, and request-only recovery. Unknown substeps and processing-only/unsupported states reject semantic input. Sheet `idk` permits selection; `empty-sheet-confirm` and bound undo confirmation permit guidance only. Other onboarding configuration states remain unsupported.
 - A valid proposal outside the input allowlist produces `forbidden_action`, distinct from `router_failure/INVALID_OUTPUT`. No proposal constitutes authority to execute an operation.
 - The offline adapter reads a separate response map keyed by message/state/substep hash and never accesses expected labels. Its results measure protocol fixture agreement, not model accuracy.
 - Cases identify language, protocol rejection/failure, or deterministic-only handling. Reports compare relevant decision fields, including clarification reasons and selector strings. Zero denominators are null.
@@ -34,7 +34,7 @@ Evaluate ADR-023's constrained proposals through reproducible offline checks and
 
 No real-provider evidence has been collected. Offline model accuracy, provider latency, usage and cost remain null. Live runs can measure decision agreement, router-call latency and usage. The Phase 3 integration suite separately verifies that webhook acknowledgment completes before shadow processing and remains below the existing one-second acceptance bound in the test environment; this is test-observed timing, not a production latency percentile. Shadow agreement is not action accuracy or task-completion evidence. Fixture timings and expected-output replay are not production evidence. Per-scope agreement includes declared protocol checks; language and protocol totals are reported separately.
 
-The option-resolution development rerun uses `semantic-corpus-v5` and `semantic-labels-v5`: development completed 196/196 checks, including 9/9 proposed option actions, 6/6 unique resolutions, 1/1 ambiguity handling, 1/1 not-found rejection, and 1/1 stale rejection. The held-out split now contains 41 cases, including seven effect-free sheet-option families for ordinals, normalized labels, duplicates, injection, refreshed lists, unavailable choices, and `idk`, plus one typed timeout failure. Offline downstream task completion remains unmeasured. Eight PostgreSQL/Redis option-selection scenarios passed on 2026-09-18, and the full suite completed with 2,156 passing tests and 29 unrelated skipped tests. Labels were frozen before their response fixtures were authored; no live candidate output was used. These fixture checks are not model-accuracy evidence.
+The control-flow rerun uses `semantic-corpus-v6` and `semantic-labels-v6`: development completed 224/224 and held-out completed 53/53 checks. Control action agreement was 18/18 and 12/12, ambiguity handling was 8/8 and 5/5, development policy rejection was 3/3, and proposal-level false authorization was zero. Unauthorized downstream effects remain null because this phase executes no control effect. Labels were frozen before either split was run; independent review and live evidence remain pending. These fixture checks are not model-accuracy evidence.
 
 The input ceiling is 8,000 message characters, 20,000 serialized input characters, 20 options and 200 characters per option label. Dataset/response files are bounded at 2 MB and datasets at 1,000 cases. These limits reject input rather than silently rewriting it.
 
@@ -85,7 +85,7 @@ including the root-object restriction, refusal field and truncated-output handli
 [GPT-4o](https://developers.openai.com/api/docs/models/gpt-4o) document structured
 output support and the listed snapshots. Account availability is unverified.
 
-`semantic-openai-v2` treats messages, questions, concepts and option labels as
+`semantic-openai-v3` treats messages, questions, concepts and option labels as
 untrusted data. It receives only validated router input, never expected labels.
 No tools, business ports or generated source-text replacements are available.
 A separate deadline aborts the request, even if the transport remains pending.
@@ -118,13 +118,13 @@ fake SDK/HTTP boundaries, including deadline, refusal, truncation and retry chec
 ## Versioned corpus and comparative reporting
 
 The default remains the original 12-case smoke regression. `corpus.json` adds a
-separate 237-case corpus: 196 development cases (79 language, 113 protocol, four
-deterministic-only) and 41 held-out cases. Every one of the ten eligible
+separate 277-case corpus: 224 development cases (97 language, 123 protocol, four
+deterministic-only) and 53 held-out cases (52 language and one protocol). Every one of the eleven eligible
 state/substep scopes has language coverage in both splits. A 100-case development
 protocol matrix injects every action into every eligible scope, testing both
 allowed and forbidden proposals; these rows never count as language quality.
 
-Corpus `semantic-corpus-v5`, labels `semantic-labels-v5`, and `family-split-v3`
+Corpus `semantic-corpus-v6`, labels `semantic-labels-v6`, and `family-split-v5`
 are pinned by `evals/semantic-router/manifest.json`. Labels were authored and
 reviewed from the specification and scenario meaning before response fixtures,
 without candidate predictions. Human independent review is **pending**. This is a
@@ -143,7 +143,7 @@ The checks cannot detect undeclared semantic paraphrase relationships: family
 assignment still requires review. Any later label correction requires a new
 corpus/label version, a refreshed manifest and a recorded rationale.
 
-`semantic-evaluation-v3` reports versions, whole parsed-artifact SHA-256 digests,
+`semantic-evaluation-v4` reports versions, whole parsed-artifact SHA-256 digests,
 selected split and exclusions, per-scope counts, decision agreement, clarification
 confusion/precision/recall, unnecessary clarification, schema/policy rejection,
 critical-case check failures, safe failure counts and mismatch IDs. Live agreement
@@ -162,20 +162,18 @@ baseline scopes remain `not_evaluated`, with `model_dependent` or
 observations; current observations are executed from local code and identified by
 the source digest. Do not substitute an imported/mock result under that provenance.
 
-### Reproduced offline observations (sheet-option rerun, 2026-09-18)
+### Reproduced offline observations (control-policy rerun, 2026-09-18)
 
-| Evidence                                               | Development | Held-out |
-| ------------------------------------------------------ | ----------: | -------: |
-| Completed offline case checks                          |     196/196 |    41/41 |
-| Language fixture agreement (not model accuracy)        |       79/79 |    40/40 |
-| Protocol checks                                        |     113/113 |      1/1 |
-| Current lexical observations, all case kinds           |          59 |       10 |
-| Baseline not evaluated, all case kinds                 |         137 |       31 |
-| Lexical ingress agreement on comparable language cases |       14/19 |      5/8 |
-| Fixture ingress projection agreement on that cohort    |       19/19 |      8/8 |
-| Proposed option actions                                |         9/9 |      7/7 |
-| Unique option resolutions                              |         6/6 |      4/4 |
-| Ambiguous / not-found / stale rejection                |    1/1 each | 1/1 each |
+| Evidence                                        | Development |   Held-out |
+| ----------------------------------------------- | ----------: | ---------: |
+| Completed offline case checks                   |     224/224 |      53/53 |
+| Language fixture agreement (not model accuracy) |       97/97 |      52/52 |
+| Protocol checks                                 |     123/123 |        1/1 |
+| Control action agreement                        |       18/18 |      12/12 |
+| Control ambiguity handling                      |         8/8 |        5/5 |
+| Control policy rejection                        |         3/3 |        0/0 |
+| Proposal-level false authorizations             |           0 |          0 |
+| Unauthorized downstream effects                 |  unmeasured | unmeasured |
 
 These paired counts compare fixture projections with actual lexical execution.
 They do not demonstrate model improvement. The exact bank notification already

@@ -6,22 +6,22 @@ required. This smoke set and its separate `offline-responses.json` stay intact.
 
 ## Expanded corpus
 
-`corpus.json` contains 229 cases under `semantic-corpus-v4`:
+`corpus.json` contains 277 cases under `semantic-corpus-v6`:
 
 | Split       | Language | Protocol | Deterministic only | Total |
 | ----------- | -------: | -------: | -----------------: | ----: |
-| development |       79 |      113 |                  4 |   196 |
-| held_out    |       33 |        0 |                  0 |    33 |
+| development |       97 |      123 |                  4 |   224 |
+| held_out    |       52 |        1 |                  0 |    53 |
 
-Every eligible scope has language examples in each split. The ten scopes are
-IDLE, EXPENSE_RECEIVING, EXPENSE_CLARIFYING, EXPENSE_REVIEW,
+Every eligible scope has language examples in each split. The eleven scopes are
+IDLE, EXPENSE_RECEIVING, EXPENSE_CLARIFYING, EXPENSE_REVIEW, EXPENSE_CORRECTING,
 EXPENSE_SAVING_RETRY, EXPENSE_UNDO_CONFIRMING, ONBOARDING_FILE and
 ONBOARDING_SHEET at the normal step, plus ONBOARDING_SHEET `idk` and
 `empty-sheet-confirm`. Normal steps are represented by `substep: null`. Nine additive
 development cases carry effect-free resolution expectations for file/default,
 sheet/default, and sheet/idk snapshots; they do not enable runtime selection.
 
-The development protocol grid covers all ten actions in each of these ten scopes.
+The development protocol grid covers all ten actions in each of these eleven scopes.
 Other protocol cases exercise all safe error codes and malformed output. Tags
 include `protocol` for boundary-only stimuli, which never enter live language
 scoring. Explicit confirmations are `deterministic_only`, not semantic authority.
@@ -31,15 +31,15 @@ are listed by the report, not falsely recorded as model-tested.
 ## Label and split provenance
 
 Labels were authored from ADR-023 and scenario meaning and reviewed without candidate
-predictions. The v2 labels were frozen on 2026-09-12; the appended stateful v3 and
-effect-free option-resolution v4 labels were frozen on 2026-09-16, in every case
-**before** writing their response fixtures.
+predictions. The v2 labels were frozen on 2026-09-12; the appended stateful v3,
+effect-free option-resolution v4/v5, and control-flow v6 labels were frozen before
+running their corresponding fixtures. The v6 labels were frozen on 2026-09-18.
 No live candidate was evaluated or used for prompt tuning. Independent human label
 adjudication remains pending. These synthetic labels should not be presented as a
 representative, externally reviewed benchmark.
 
-- Label version: `semantic-labels-v4`.
-- Split version: `family-split-v3`.
+- Label version: `semantic-labels-v6`.
+- Split version: `family-split-v5`.
 - Leakage-check normalization: `nfkc-case-whitespace-v1` (NFKC, Spanish lowercase,
   collapse whitespace, trim). Messages sent to the router retain their original text.
 - `manifest.json` pins the byte hashes of corpus and response files. Reports
@@ -53,13 +53,18 @@ representative, externally reviewed benchmark.
   update and a rationale recorded here. Never relabel to hide a candidate failure.
   Version 3 appends stateful expense-flow families and does not relabel v2 cases.
   Version 4 adds effect-free option-resolution expectations and does not relabel v3 cases.
+  Version 5 extends held-out option selection without relabeling earlier cases. Version 6
+  adds control-flow families and the `EXPENSE_CORRECTING/default` protocol matrix without
+  relabeling v5 cases.
 
 The Mercadona notification is the exact supplied regression: newlines, decimal
 comma, accents and non-breaking space are preserved. Its development family covers
 format variants and state-dependent handling; held-out wallet push, receipt mail
 and settlement families differ in structure/intent rather than just whitespace.
 Synthetic Spanish cases also cover regional forms, typos, negation, conditions,
-mixed intents, message/option injection, amounts, new expenses and ambiguous options.
+mixed intents, message/option injection, amounts, new expenses, ambiguous options,
+natural cancellation, inferred undo, request-only retry, bounded reconfiguration, and
+stale-state control requests.
 
 ## Case contract and response independence
 
@@ -79,7 +84,10 @@ The offline adapter only receives that map and router input. Expected decisions,
 case IDs, split/family metadata and label provenance never reach either adapter.
 Changing a label does not change its fixture response. Protocol-grid responses
 are deliberate action/error injections; their agreement tests policy, not language.
-`mustNotAuthorize` labels critical cases but cannot certify downstream effects.
+`mustNotAuthorize` labels save, deletion, retry, undo-confirmation, arbitrary
+reconfiguration, and raw-FSM-transition boundaries. Proposal-level false-authorization
+counts remain separate from downstream unauthorized effects, which this effect-free
+evaluator cannot measure.
 
 ## Reproduce both offline splits
 
@@ -99,14 +107,13 @@ With restricted local socket access, `node --import tsx
 src/interfaces/cli/evaluateSemanticRouter.ts` runs the same CLI without the tsx
 launcher's IPC socket. Add the same arguments on that command line.
 
-The option-resolution development rerun on 2026-09-16 completed 196/196 checks, with
-zero fixture mismatches and zero critical-case failures. Its option slice completed
-9/9 proposed actions, 6/6 unique resolutions, 1/1 ambiguity handling, 1/1 not-found
-rejection, and 1/1 stale rejection; downstream task completion remains null. The v3
-held-out expense-flow result remains 33/33. Actual lexical ingress agreement on the comparable
-language subset was 14/19 development and 5/8 held-out. Corresponding fixture
-projection agreement was 19/19 and 8/8. **This is not evidence of model accuracy or
-improvement.** The exact Mercadona input already produces lexical `enqueued`.
+The frozen v6 offline rerun on 2026-09-18 completed 224/224 development and 53/53
+held-out checks, with zero fixture mismatches and zero critical-case failures. The
+control slice completed 18/18 development and 12/12 held-out action checks; ambiguity
+handling completed 8/8 and 5/5; development control policy rejection completed 3/3.
+Proposal-level false-authorization counts were zero. Unauthorized downstream effects,
+task completion, and model accuracy remain unmeasured. **This is not evidence of model
+accuracy or improvement.** The exact Mercadona input already produces lexical `enqueued`.
 The current deterministic-source digest is
 `7e9df3bee9c64b8b1d6b7f10c50b159a17e9e6eb9a0de975e44651b2c98080be`;
 the expanded stateful labels were frozen before their fixtures were authored.

@@ -3,7 +3,7 @@ import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { ConversationDecision } from '../../../domain/value-objects/conversation-decision';
 
 type Action = ConversationDecision['action'];
-export const POLICY_VERSION = 'semantic-policy-v2';
+export const POLICY_VERSION = 'semantic-policy-v3';
 const guidance: readonly Action[] = ['request_clarification', 'out_of_scope'];
 const expense: readonly Action[] = ['register_expense', 'cancel_current_flow', ...guidance];
 const selection: readonly Action[] = ['select_option', ...guidance];
@@ -16,7 +16,7 @@ export const STATE_ACTION_POLICY: Readonly<
   EXPENSE_RECEIVING: { default: expense },
   EXPENSE_CLARIFYING: { default: ['provide_missing_expense_data', ...expense] },
   EXPENSE_REVIEW: { default: ['correct_expense', ...expense] },
-  EXPENSE_CORRECTING: {},
+  EXPENSE_CORRECTING: { default: ['cancel_current_flow', ...guidance] },
   EXPENSE_SAVING: {},
   EXPENSE_SAVING_RETRY: { default: ['request_save_retry', 'request_reconfiguration', ...guidance] },
   EXPENSE_UNDO_CONFIRMING: { default: guidance },

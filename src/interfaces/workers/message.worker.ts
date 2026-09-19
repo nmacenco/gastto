@@ -461,6 +461,7 @@ async function routeByState(
       const result = await opts.undoLastExpense.execute({
         userId,
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: immediateUndoExpenseId,
       });
       await sendUndoOutcome(result, messaging, externalId);
@@ -523,6 +524,7 @@ async function routeByState(
         const result = await opts.undoLastExpense.execute({
           userId,
           action: 'request',
+          provenance: 'deterministic_command',
           ...(typeof immediateUndoExpenseId === 'string'
             ? { immediateExpenseId: immediateUndoExpenseId }
             : {}),
@@ -964,7 +966,11 @@ async function representUndoConfirmation(
   opts: MessageWorkerDeps,
   messaging: MessagingOutputPort,
 ): Promise<void> {
-  const result = await opts.undoLastExpense!.execute({ userId, action: 'request' });
+  const result = await opts.undoLastExpense!.execute({
+    userId,
+    action: 'request',
+    provenance: 'deterministic_command',
+  });
   if (result.status !== 'confirmation_required' || !result.expense) {
     await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
     await sendUndoOutcome(result, messaging, chatId);

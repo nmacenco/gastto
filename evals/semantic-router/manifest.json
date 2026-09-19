@@ -1,13 +1,13 @@
 {
-  "corpusVersion": "semantic-corpus-v5",
-  "labelVersion": "semantic-labels-v5",
-  "frozenOn": "2026-09-17",
-  "corpusSha256": "e3c5fd21ef2cfb2292e39bd97204b4c98832b47ad7440ce10f2e861acaf3abe9",
-  "responsesSha256": "d3218310517e1a69e8bb131e4c89487ed3366ae8c7dd1d45ca83ae2eda697e80",
-  "labelReview": "Author reviewed the v5 held-out sheet-option labels from ADR-023 and the Phase 5 specification before writing their response fixtures; no candidate model predictions were used. Independent human adjudication remains pending.",
+  "corpusVersion": "semantic-corpus-v6",
+  "labelVersion": "semantic-labels-v6",
+  "frozenOn": "2026-09-18",
+  "corpusSha256": "4a9dd9ad08b15a5eb835854dc3d00eecfee2b29e339ab5ef7a43800446abbeef",
+  "responsesSha256": "fc0b1250e9e8e84f07f31fb9d63543d169130ed1cb742c047e71a7f9385c33a1",
+  "labelReview": "Author reviewed the v6 control-flow labels from ADR-023 and the Phase 6 specification before running either offline split; no candidate model predictions were used. Independent human adjudication remains pending.",
   "liveEvaluations": [],
   "splitCounts": {
-    "development": 196,
-    "held_out": 41
+    "development": 224,
+    "held_out": 53
   }
 }

@@ -39,5 +39,39 @@ describe('CurrentDeterministicRoutingPolicy', () => {
         hasCallback: false,
       }),
     ).toEqual({ kind: 'sensitive_command', command: 'retry' });
+    expect(
+      policy.decide({
+        state: 'EXPENSE_SAVING_RETRY',
+        rawMessage: ' reconfigurar ',
+        hasCallback: false,
+      }),
+    ).toEqual({ kind: 'sensitive_command', command: 'reconfigure' });
+    expect(
+      policy.decide({
+        state: 'EXPENSE_UNDO_CONFIRMING',
+        rawMessage: 'sí',
+        hasCallback: false,
+      }),
+    ).toEqual({ kind: 'sensitive_command', command: 'undo_confirmation' });
+    expect(
+      policy.decide({ state: 'EXPENSE_REVIEW', rawMessage: 'undo', hasCallback: false }),
+    ).toEqual({ kind: 'sensitive_command', command: 'undo' });
+  });
+
+  it('does not treat natural control paraphrases as exact sensitive commands', () => {
+    expect(
+      policy.decide({
+        state: 'EXPENSE_SAVING_RETRY',
+        rawMessage: 'quiero revisar la planilla',
+        hasCallback: false,
+      }),
+    ).toEqual({ kind: 'fsm_handler' });
+    expect(
+      policy.decide({
+        state: 'EXPENSE_UNDO_CONFIRMING',
+        rawMessage: 'sí, pero no todavía',
+        hasCallback: false,
+      }),
+    ).toEqual({ kind: 'fsm_handler' });
   });
 });

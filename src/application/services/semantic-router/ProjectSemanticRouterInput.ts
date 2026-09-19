@@ -9,6 +9,7 @@ import type {
   SemanticRouterInput,
 } from '../../../domain/ports/SemanticRouterPort';
 import { ExpenseClarificationState } from '../../../domain/value-objects/expense-clarification-state';
+import { ExpenseCorrectionState } from '../../../domain/value-objects/expense-correction-state';
 import { normalizeExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { parseExpenseSaveRetryPayload } from '../../../domain/value-objects/expense-save-retry-payload';
 import { parseExpenseUndoPayload } from '../../../domain/value-objects/expense-undo-payload';
@@ -103,6 +104,8 @@ export class ProjectSemanticRouterInput {
         return this.projectClarification(payload);
       case 'EXPENSE_REVIEW':
         return this.projectReview(payload);
+      case 'EXPENSE_CORRECTING':
+        return this.projectCorrection(payload);
       case 'EXPENSE_SAVING_RETRY':
         return this.projectRetry(payload);
       case 'EXPENSE_UNDO_CONFIRMING':
@@ -150,6 +153,22 @@ export class ProjectSemanticRouterInput {
           amount: review.extracted.monto,
           currency: review.extracted.moneda,
           date: review.resolvedDate,
+        }),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private projectCorrection(payload: unknown): SemanticRouterContext | null {
+    try {
+      const correction = ExpenseCorrectionState.fromPayload(payload);
+      return {
+        ...emptyContext(),
+        expense: expenseContext({
+          amount: correction.payload.extracted.monto,
+          currency: correction.payload.extracted.moneda,
+          date: correction.payload.resolvedDate,
         }),
       };
     } catch {

@@ -80,6 +80,8 @@ describe('comparative semantic reporting', () => {
       value: 0.5,
     });
     expect(report.checks.criticalCaseFailures.value).toBe(0.5);
+    expect(report.checks.controlFalseAuthorizationCount).toBe(0);
+    expect(report.checks.unauthorizedEffectCount).toBeNull();
     expect(report.byScope[0]!.language.confusion).toEqual(report.checks.clarificationConfusion);
     expect(report.baseline.comparisons[0]).toMatchObject({
       lexicalAgreement: { numerator: 2, denominator: 2 },
