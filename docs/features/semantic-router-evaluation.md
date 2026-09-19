@@ -186,7 +186,7 @@ written only to an explicitly selected new path, never automatically committed.
 
 ### Remaining integration evidence
 
-The unsupported states are `EXPENSE_CORRECTING`, `EXPENSE_SAVING`,
+The unsupported states are `EXPENSE_SAVING`,
 `ONBOARDING_START`, `ONBOARDING_DRIVE`, `ONBOARDING_VALIDATING_ACCESS`,
 `ONBOARDING_MAPPING`, and `ONBOARDING_CATEGORIES`. All unknown substeps reject
 semantic input. Explicit save/delete/retry authorization stays deterministic.
@@ -215,6 +215,10 @@ advanced. These are test call counts, not provider cost measurements.
 
 Integration tests now exercise zero unauthorized append, retry, or delete effects
 across allowed, forbidden, failed, stale, off, and fail-closed enabled outcomes.
+The completed control-flow slice additionally proves request-only natural retry,
+one later exact append, bounded Google reconfiguration, and one typed control handoff
+per accepted Telegram or WhatsApp proposal. Offline unauthorized-effect and call-count
+fields remain unavailable; worker and PostgreSQL/Redis suites supply those runtime results.
 Local webhook acknowledgment remains below the one-second acceptance bound; the
 fixture router reports a bounded 11 ms metadata sample, neither of which is a
 production percentile. Development and held-out fixture ambiguity checks are 24/24

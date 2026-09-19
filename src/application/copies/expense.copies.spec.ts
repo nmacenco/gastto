@@ -13,6 +13,9 @@ describe('expenseCopies', () => {
       );
       expect(expenseCopies.saveStructureFailure()).toContain('reconfigurar');
       expect(expenseCopies.saveRetryExpired()).toContain('venció');
+      expect(expenseCopies.saveRetryRecoveryChoice()).toBe(
+        'Respondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla.',
+      );
     });
 
     it('formats a manual-copy fallback without claiming a successful save', () => {

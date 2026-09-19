@@ -353,6 +353,8 @@ export async function processMessageJob(
           opts.transitionState.assertExecutionIsValid(userId);
           if (outcome.status === 'undo_unavailable') {
             await messaging.sendMessage(externalId, expenseCopies.undoNotFound());
+          } else if (outcome.status === 'explicit_command_required') {
+            await messaging.sendMessage(externalId, expenseCopies.saveRetryRecoveryChoice());
           } else if (outcome.status === 'clarification_required') {
             await messaging.sendMessage(
               externalId,

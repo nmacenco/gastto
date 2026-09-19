@@ -1563,6 +1563,31 @@ describe('processMessageJob', () => {
         assertDeterministic: () => expect(mockRetryExpenseSaveExecute).toHaveBeenCalledOnce(),
       },
       {
+        name: 'reconfiguration',
+        rawMessage: 'reconfigurar',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_SAVING_RETRY',
+              statePayload: {
+                expense: buildReviewStatePayload(),
+                failureCode: 'STRUCTURE_ERROR',
+                firstAttemptAt: '2026-09-14T10:00:00.000Z',
+                attemptCount: 1,
+                actionBinding: {
+                  operationId: 'abcdefghijklmnopqrstuv',
+                  revision: 1,
+                  presentedAt: '2026-09-14T10:00:00.000Z',
+                },
+              },
+              expiresAt: new Date(Date.now() + 60_000),
+            }),
+          );
+        },
+        assertDeterministic: () =>
+          expect(mockStartSpreadsheetReconfigurationExecute).toHaveBeenCalledOnce(),
+      },
+      {
         name: 'undo',
         rawMessage: 'sí',
         arrange: () => {
@@ -1706,6 +1731,97 @@ describe('processMessageJob', () => {
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
       expect(mockCancelExpenseRegistrationExecute).not.toHaveBeenCalled();
     });
+
+    it.each(['telegram', 'whatsapp'] as const)(
+      'renders request-only retry guidance through one typed %s handoff',
+      async (channel) => {
+        const deps = buildMockDeps();
+        const conversationState = buildConversationState({
+          revision: '11',
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: { bounded: true },
+          expiresAt: new Date(Date.now() + 60_000),
+        });
+        mockGetConversationStateExecute.mockResolvedValue(conversationState);
+        const turn = {
+          status: 'control_action' as const,
+          decision: { action: 'request_save_retry' as const },
+          expected: {
+            revision: '11',
+            currentState: 'EXPENSE_SAVING_RETRY' as const,
+            expiry: 'unexpired' as const,
+          },
+          provenance: { kind: 'semantic_proposal' as const, sourceMessageId: 'msg-42' },
+        };
+        mockObserveSemanticRoutingExecute.mockResolvedValue(turn);
+        mockDispatchControlSemanticActionExecute.mockResolvedValue({
+          status: 'explicit_command_required',
+          command: 'reintentar',
+        });
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, channel, rawMessage: 'probemos guardarlo de nuevo' }),
+          deps,
+        );
+
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledOnce();
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledWith(
+          expect.objectContaining({ channel, decision: turn.decision, expected: turn.expected }),
+        );
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          baseJobData.externalId,
+          expenseCopies.saveRetryRecoveryChoice(),
+        );
+        expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+        expect(mockStartSpreadsheetReconfigurationExecute).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+        expect(mockRecordControlDispatch).toHaveBeenCalledWith(turn, {
+          status: 'explicit_command_required',
+          command: 'reintentar',
+        });
+      },
+    );
+
+    it.each(['telegram', 'whatsapp'] as const)(
+      'hands semantic reconfiguration to one bounded %s dispatcher',
+      async (channel) => {
+        const deps = buildMockDeps();
+        const conversationState = buildConversationState({
+          revision: '12',
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: { bounded: true },
+          expiresAt: new Date(Date.now() + 60_000),
+        });
+        mockGetConversationStateExecute.mockResolvedValue(conversationState);
+        const turn = {
+          status: 'control_action' as const,
+          decision: { action: 'request_reconfiguration' as const },
+          expected: {
+            revision: '12',
+            currentState: 'EXPENSE_SAVING_RETRY' as const,
+            expiry: 'unexpired' as const,
+          },
+          provenance: { kind: 'semantic_proposal' as const, sourceMessageId: 'msg-43' },
+        };
+        mockObserveSemanticRoutingExecute.mockResolvedValue(turn);
+        mockDispatchControlSemanticActionExecute.mockResolvedValue({
+          status: 'reconfiguration_started',
+        });
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, channel, rawMessage: 'revisemos la planilla' }),
+          deps,
+        );
+
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledOnce();
+        expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+        expect(mockStartSpreadsheetReconfigurationExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockRecordControlDispatch).toHaveBeenCalledWith(turn, {
+          status: 'reconfiguration_started',
+        });
+      },
+    );
   });
 
   describe('enabled semantic file selection', () => {

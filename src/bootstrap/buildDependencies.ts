@@ -692,6 +692,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     cancelExpenseRegistration,
     undoLastExpense,
     presentUndoConfirmation,
+    startSpreadsheetReconfiguration: googleOAuth?.startSpreadsheetReconfiguration ?? null,
   });
   const retryExpenseSave = new RetryExpenseSaveUseCase({
     registerExpense,

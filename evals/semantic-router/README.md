@@ -114,6 +114,12 @@ handling completed 8/8 and 5/5; development control policy rejection completed 3
 Proposal-level false-authorization counts were zero. Unauthorized downstream effects,
 task completion, and model accuracy remain unmeasured. **This is not evidence of model
 accuracy or improvement.** The exact Mercadona input already produces lexical `enqueued`.
+Phase 6 implementation reran both frozen splits unchanged and added runtime evidence:
+the seven-scenario PostgreSQL/Redis control suite proves request-only retry, one later
+exact append, and captured-precondition reconfiguration; shared worker tests prove one
+typed handoff for accepted Telegram and WhatsApp proposals. These runtime assertions
+supply zero unauthorized-effect and bounded call-count evidence that the effect-free
+offline report intentionally cannot calculate.
 The current deterministic-source digest is
 `7e9df3bee9c64b8b1d6b7f10c50b159a17e9e6eb9a0de975e44651b2c98080be`;
 the expanded stateful labels were frozen before their fixtures were authored.

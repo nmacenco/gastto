@@ -40,7 +40,7 @@ Apply migration `0006_add_undo_confirming_state.sql` with `pnpm db:migrate` to e
 - Worker and application tests cover recognized commands, one-message eligibility consumption, bound/re-presented delayed confirmation, strict received-time ordering, cancellation, expiry-before-sweep, replacement of the latest target, concurrent confirmation, and zero unauthorized deletion.
 - `tests/integration/financial-action-context.integration.spec.ts` uses PostgreSQL and Redis to cover expiry predicates, single claim consumption, unresolved-claim restart behavior, competing timeout/OAuth-style writers, and stale deferred proposals.
 - PostgreSQL integration tests cover latest non-deleted lookup and transactional local undo persistence.
-- `semantic-router-control-flows.integration.spec.ts` defines PostgreSQL/Redis inferred-offer, no-premature-deletion, and concurrent later-confirmation coverage (execution requires Docker).
+- `semantic-router-control-flows.integration.spec.ts` passes PostgreSQL/Redis inferred-offer, no-premature-deletion, exact immediate undo, and concurrent later-confirmation coverage alongside the complete recovery control slice.
 
 ## Related User Stories
 

@@ -149,9 +149,10 @@ Runtime routing is independent from the extraction-provider preference and the
 standalone evaluator. All states, cohorting, and sampling default off. `shadow`
 may spend provider capacity but cannot change the deterministic route. `enabled`
 can execute the delivered expense capability matrix in `IDLE`,
-`EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, and `EXPENSE_REVIEW`. Every other
-configured state/action pair fails closed until its action-specific dispatcher is
-implemented. Missing credentials or invalid/unsupported enabled settings produce
+`EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `EXPENSE_CORRECTING`,
+and `EXPENSE_SAVING_RETRY`, plus bound file/sheet option selection. Retry proposals
+are request-only and reconfiguration remains inside the existing Google recovery use
+case. Every other configured state/action pair fails closed. Missing credentials or invalid/unsupported enabled settings produce
 bounded guidance without extraction or mutation. Shadow provider failures retain
 the deterministic path. Configuration alone does not authorize a cohort; the
 evaluation and rollout gates in ADR-023 still apply.
@@ -160,5 +161,6 @@ Rollback requires changing the affected state modes to `off`. Queue payloads do
 not carry a captured mode, so already queued jobs resolve the new setting after
 lock acquisition and make no semantic call. No queue or database migration is
 required. PostgreSQL/Redis integration exercises `enabled → shadow → off` with
-already queued work and active clarification/review payloads; deterministic commands,
-source text, review bindings, and pending expenses remain compatible.
+already queued work and active review, retry, and undo-confirming payloads;
+deterministic commands, source text, bindings, expiry, pending expenses, and financial
+claims remain compatible.

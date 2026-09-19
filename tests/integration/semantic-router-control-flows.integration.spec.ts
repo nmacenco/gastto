@@ -27,6 +27,8 @@ import { CancelExpenseRegistrationUseCase } from '../../src/application/use-case
 import { UndoLastExpenseUseCase } from '../../src/application/use-cases/expense/UndoLastExpense';
 import { PresentUndoConfirmation } from '../../src/application/use-cases/expense/PresentUndoConfirmation';
 import { DispatchControlSemanticAction } from '../../src/application/use-cases/expense/DispatchControlSemanticAction';
+import { RetryExpenseSaveUseCase } from '../../src/application/use-cases/expense/RetryExpenseSaveUseCase';
+import { StartSpreadsheetReconfigurationUseCase } from '../../src/application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 
 type Database = PostgresJsDatabase<typeof schema>;
 
@@ -243,6 +245,138 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
     expect(await harness.expenseRepo.findLatestByUserId(harness.userId)).toBeNull();
   });
 
+  it('keeps semantic retry request-only and preserves the bound retry state', async () => {
+    const user = await createUser(db);
+    await createConversationState(db, {
+      userId: user.userId,
+      currentState: 'EXPENSE_SAVING_RETRY',
+      statePayload: retryPayload(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const stateRepo = new DrizzleConversationStateRepository(db);
+    const transitionState = new TransitionConversationState(stateRepo);
+    const observed = (await stateRepo.findByUserId(user.userId))!;
+    const dispatcher = new DispatchControlSemanticAction({
+      snapshotValidator: new ValidateConversationSnapshot(
+        stateRepo,
+        (userId) => transitionState.currentState(userId) !== null,
+      ),
+      cancelExpenseRegistration: { execute: vi.fn() },
+      undoLastExpense: { execute: vi.fn() },
+      presentUndoConfirmation: { execute: vi.fn() },
+      startSpreadsheetReconfiguration: { execute: vi.fn() },
+    });
+
+    const outcome = await transitionState.runWithState(observed, () =>
+      dispatcher.execute({
+        userId: user.userId,
+        externalId: 'chat-1',
+        channel: 'telegram',
+        conversationState: observed,
+        expected: transitionState.precondition(observed, 'unexpired'),
+        decision: { action: 'request_save_retry' },
+        provenance: { kind: 'semantic_proposal', sourceMessageId: 'message-semantic' },
+      }),
+    );
+
+    expect(outcome).toEqual({ status: 'explicit_command_required', command: 'reintentar' });
+    expect(await stateRepo.findByUserId(user.userId)).toEqual(observed);
+  });
+
+  it('allows one later exact retry append and rejects the repeated request', async () => {
+    const user = await createUser(db);
+    await createConversationState(db, {
+      userId: user.userId,
+      currentState: 'EXPENSE_SAVING_RETRY',
+      statePayload: retryPayload(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const stateRepo = new DrizzleConversationStateRepository(db);
+    const transitionState = new TransitionConversationState(stateRepo);
+    const operationLogRepo = new DrizzleOperationLogRepository(db);
+    const save = vi.fn().mockResolvedValue({ sheetName: 'Gastos', rowIndex: 9 });
+    const retry = new RetryExpenseSaveUseCase({
+      registerExpense: { save } as never,
+      transitionState,
+      messagingPort: { sendMessage: vi.fn().mockResolvedValue({ status: 'success' }) },
+      operationLogRepo,
+    });
+    const observed = (await stateRepo.findByUserId(user.userId))!;
+    const presentedAt = String(
+      (observed.statePayload?.actionBinding as Record<string, unknown>).presentedAt,
+    );
+    const authorization = {
+      receivedAt: new Date(Date.parse(presentedAt) + 1).toISOString(),
+      sourceMessageId: randomUUID(),
+    };
+
+    const first = await transitionState.runWithState(observed, () =>
+      retry.execute({ userId: user.userId, chatId: 'chat-1', authorization }),
+    );
+    const claimed = (await stateRepo.findByUserId(user.userId))!;
+    const second = await transitionState.runWithState(claimed, () =>
+      retry.execute({
+        userId: user.userId,
+        chatId: 'chat-1',
+        authorization: { ...authorization, sourceMessageId: randomUUID() },
+      }),
+    );
+
+    expect(first).toEqual({ status: 'handled' });
+    expect(second).toEqual({ status: 'operation_in_progress' });
+    expect(save).toHaveBeenCalledOnce();
+  });
+
+  it('reconfigures only the captured retry revision and does not replay the expense', async () => {
+    const user = await createUser(db);
+    await createSpreadsheetConfig(db, { userId: user.userId });
+    await createConversationState(db, {
+      userId: user.userId,
+      currentState: 'EXPENSE_SAVING_RETRY',
+      statePayload: retryPayload(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const stateRepo = new DrizzleConversationStateRepository(db);
+    const configRepo = new DrizzleSpreadsheetConfigRepository(db);
+    const transitionState = new TransitionConversationState(stateRepo);
+    const validate = vi.fn().mockResolvedValue(undefined);
+    const reconfiguration = new StartSpreadsheetReconfigurationUseCase({
+      spreadsheetConfigRepository: configRepo,
+      transitionState,
+      validateSpreadsheetAccess: { execute: validate } as never,
+      messagingPort: { sendMessage: vi.fn().mockResolvedValue({ status: 'success' }) },
+    });
+    const observed = (await stateRepo.findByUserId(user.userId))!;
+    const dispatcher = new DispatchControlSemanticAction({
+      snapshotValidator: new ValidateConversationSnapshot(
+        stateRepo,
+        (userId) => transitionState.currentState(userId) !== null,
+      ),
+      cancelExpenseRegistration: { execute: vi.fn() },
+      undoLastExpense: { execute: vi.fn() },
+      presentUndoConfirmation: { execute: vi.fn() },
+      startSpreadsheetReconfiguration: reconfiguration,
+    });
+
+    const outcome = await transitionState.runWithState(observed, () =>
+      dispatcher.execute({
+        userId: user.userId,
+        externalId: 'chat-1',
+        channel: 'whatsapp',
+        conversationState: observed,
+        expected: transitionState.precondition(observed, 'unexpired'),
+        decision: { action: 'request_reconfiguration' },
+        provenance: { kind: 'semantic_proposal', sourceMessageId: 'message-semantic' },
+      }),
+    );
+
+    expect(outcome).toEqual({ status: 'reconfiguration_started' });
+    expect((await stateRepo.findByUserId(user.userId))?.currentState).toBe(
+      'ONBOARDING_VALIDATING_ACCESS',
+    );
+    expect(validate).toHaveBeenCalledOnce();
+  });
+
   async function buildUndoHarness(initialPayload: Record<string, unknown> | null) {
     const user = await createUser(db);
     const config = await createSpreadsheetConfig(db, { userId: user.userId });
@@ -282,6 +416,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
       cancelExpenseRegistration: { execute: vi.fn() },
       undoLastExpense: undo,
       presentUndoConfirmation: presenter,
+      startSpreadsheetReconfiguration: null,
     });
     return {
       userId: user.userId,
@@ -317,3 +452,33 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
     };
   }
 });
+
+function retryPayload(): Record<string, unknown> {
+  return {
+    expense: {
+      rawMessage: 'Café 4.5 EUR',
+      extracted: {
+        monto: 4.5,
+        moneda: 'EUR',
+        categoriaRaw: 'Comida',
+        subcategoriaRaw: null,
+        fechaRaw: '2026-09-19',
+        medioPago: null,
+        confianzaCategoria: 'alta',
+        confianzaSubcategoria: 'nula',
+      },
+      resolvedDate: '2026-09-19',
+      resolvedCategory: 'Comida',
+      resolvedCategoryId: null,
+      categoryStatus: 'confirmed',
+    },
+    failureCode: 'NETWORK_ERROR',
+    firstAttemptAt: '2026-09-19T10:00:00.000Z',
+    attemptCount: 1,
+    actionBinding: {
+      operationId: 'abcdefghijklmnopqrstuv',
+      revision: 1,
+      presentedAt: '2026-09-19T10:01:00.000Z',
+    },
+  };
+}

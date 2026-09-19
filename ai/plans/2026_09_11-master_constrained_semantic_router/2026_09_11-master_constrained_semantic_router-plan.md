@@ -50,7 +50,7 @@ Master checkboxes track planning requirements: checking one means the child plan
 | 3     | `semantic_router_shadow_pipeline`     | Phases 1 and 2               | [Created](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md)         | [Deliveries 1–3 verified](../2026_09_14-semantic_router_shadow_pipeline/2026_09_14-semantic_router_shadow_pipeline-plan.md); live provider evidence and activation pending                                                                                  |
 | 4     | `semantic_router_expense_flows`       | Phases 1 through 3           | [Created](../2026_09_15-semantic_router_expense_flows/2026_09_15-semantic_router_expense_flows-plan.md)             | [Deliveries 1–3 verified](../2026_09_15-semantic_router_expense_flows/2026_09_15-semantic_router_expense_flows-plan.md); 26 PostgreSQL/Redis scenarios, 2,088 passing tests, v3 offline splits 187/187 and 33/33; live evidence and activation pending      |
 | 5     | `semantic_router_option_selection`    | Phases 1 through 4           | [Created](../2026_09_16-semantic_router_option_selection/2026_09_16-semantic_router_option_selection-plan.md)       | [Deliveries 1–3 verified](../2026_09_16-semantic_router_option_selection/2026_09_16-semantic_router_option_selection-plan.md); 8 PostgreSQL/Redis scenarios, 2,156 passing tests, v5 offline splits 196/196 and 41/41; live evidence and activation pending |
-| 6     | `semantic_router_control_flows`       | Phases 1 through 5           | Pending                                                                                                             | Pending                                                                                                                                                                                                                                                     |
+| 6     | `semantic_router_control_flows`       | Phases 1 through 5           | [Created](../2026_09_18-semantic_router_control_flows/2026_09_18-semantic_router_control_flows-plan.md)              | [Deliveries 1–3 verified](../2026_09_18-semantic_router_control_flows/2026_09_18-semantic_router_control_flows-plan.md); 7 PostgreSQL/Redis control scenarios, 2,216 passing tests, v6 offline splits 224/224 and 53/53; live evidence and activation pending |
 | 7     | `semantic_router_rollout`             | Phases 1 through 6           | Pending                                                                                                             | Pending                                                                                                                                                                                                                                                     |
 
 ### Shared implementation gates
@@ -218,17 +218,17 @@ Plan state-bounded cancellation, inferred undo requests, and recovery proposals 
 
 #### To-do actions
 
-- [ ] Create and link the normal plan with state/substep scope for cancellation, undo request, retry request, and reconfiguration request.
-- [ ] Preserve cancellation's active-draft boundary, queue advancement after cancellation, and no-active-flow response; do not infer onboarding cancellation from the generic action name.
-- [ ] Distinguish explicit undo commands from inferred requests through application-owned provenance, not a model-supplied authorization field.
-- [ ] Preserve one-message immediate eligibility only for existing deterministic commands; inferred undo always presents the pending latest expense in `EXPENSE_UNDO_CONFIRMING`.
-- [ ] Require explicit confirmation, valid expiry, and latest-record identity before deletion. Preserve external-delete-before-local-success ordering and audit semantics.
-- [ ] Make `request_save_retry` prompt for the explicit permitted retry command rather than perform the append; preserve the single-attempt limit and manual fallback. Scope reconfiguration to the existing recovery policy.
-- [ ] Define no-mutation clarification behavior for ambiguous or mixed control intents, unsupported state/action pairs, and failures.
-- [ ] Specify tests for immediate versus inferred undo, intervening messages, expired/replaced targets, failed deletion, cancellation with queued expenses, repeated retries, recovery limits, and injection requesting silent writes.
-- [ ] Extend critical authorization evaluations and update cancellation, undo, recovery, FSM documentation, and indexes.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create and link the normal plan with state/substep scope for cancellation, undo request, retry request, and reconfiguration request.
+- [x] Preserve cancellation's active-draft boundary, queue advancement after cancellation, and no-active-flow response; do not infer onboarding cancellation from the generic action name.
+- [x] Distinguish explicit undo commands from inferred requests through application-owned provenance, not a model-supplied authorization field.
+- [x] Preserve one-message immediate eligibility only for existing deterministic commands; inferred undo always presents the pending latest expense in `EXPENSE_UNDO_CONFIRMING`.
+- [x] Require explicit confirmation, valid expiry, and latest-record identity before deletion. Preserve external-delete-before-local-success ordering and audit semantics.
+- [x] Make `request_save_retry` prompt for the explicit permitted retry command rather than perform the append; preserve the single-attempt limit and manual fallback. Scope reconfiguration to the existing recovery policy.
+- [x] Define no-mutation clarification behavior for ambiguous or mixed control intents, unsupported state/action pairs, and failures.
+- [x] Specify tests for immediate versus inferred undo, intervening messages, expired/replaced targets, failed deletion, cancellation with queued expenses, repeated retries, recovery limits, and injection requesting silent writes.
+- [x] Extend critical authorization evaluations and update cancellation, undo, recovery, FSM documentation, and indexes.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 7: Create the evaluation and gradual-rollout subplan
 
@@ -260,4 +260,4 @@ Plan integrated acceptance evidence and staged activation across delivered capab
 
 ## Next step
 
-Create the Phase 6 semantic control-flow plan after reviewing the verified Phase 5 option-selection evidence.
+Create the Phase 7 evaluation and gradual-rollout plan after reviewing the verified Phase 6 control-flow evidence.

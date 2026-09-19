@@ -104,8 +104,10 @@ record and never propagates the failure into deterministic or enabled processing
 
 `semantic-evaluation-v4` separately reports control action agreement, control ambiguity
 handling, deterministic-policy rejection, and proposal-level false-authorization counts.
-Phase 2 control turns remain pending until the typed cancellation or undo-presentation
-dispatcher returns. Successful bounded handoffs finalize as `allowed_enabled`; stale,
+The effect-free evaluator leaves unauthorized-effect and call-count fields unavailable;
+worker and PostgreSQL/Redis suites verify those runtime properties. Successful cancellation,
+undo-presentation, request-only retry, and bounded reconfiguration handoffs finalize as
+`allowed_enabled`; stale,
 malformed, unsupported, or unbound outcomes finalize as `dispatch_rejected`, and contained
 dispatcher exceptions finalize as `dispatch_failed`. Exactly one observation is emitted and
 it contains no control provenance, source ID, expense ID, binding, revision, user ID, or raw text.

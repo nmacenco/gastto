@@ -34,7 +34,17 @@ describe('StartSpreadsheetReconfigurationUseCase', () => {
       sheetName: 'Gastos',
     });
 
-    await buildUseCase().execute({ userId: 'user-123', chatId: 'chat-123', channel: 'telegram' });
+    const expected = {
+      revision: '7',
+      currentState: 'EXPENSE_SAVING_RETRY' as const,
+      expiry: 'unexpired' as const,
+    };
+    await buildUseCase().execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      channel: 'telegram',
+      expected,
+    });
 
     const payload = {
       selectedFileId: 'file-1',
@@ -46,6 +56,7 @@ describe('StartSpreadsheetReconfigurationUseCase', () => {
       userId: 'user-123',
       targetState: 'ONBOARDING_VALIDATING_ACCESS',
       payload,
+      expected,
     });
     expect(validate).toHaveBeenCalledWith({
       userId: 'user-123',
@@ -53,5 +64,29 @@ describe('StartSpreadsheetReconfigurationUseCase', () => {
       channel: 'telegram',
       statePayload: payload,
     });
+  });
+
+  it('uses the captured retry precondition for the missing-config fallback', async () => {
+    findByUserId.mockResolvedValue(null);
+    const expected = {
+      revision: '7',
+      currentState: 'EXPENSE_SAVING_RETRY' as const,
+      expiry: 'unexpired' as const,
+    };
+
+    await buildUseCase().execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      channel: 'whatsapp',
+      expected,
+    });
+
+    expect(transition).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'IDLE',
+      payload: null,
+      expected,
+    });
+    expect(validate).not.toHaveBeenCalled();
   });
 });

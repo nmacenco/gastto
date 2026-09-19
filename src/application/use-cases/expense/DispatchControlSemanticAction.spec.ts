@@ -28,6 +28,18 @@ const review: ExpenseReviewPayload = {
   },
 };
 
+const retryPayload = {
+  expense: review,
+  failureCode: 'NETWORK_ERROR',
+  firstAttemptAt: '2026-09-19T10:00:00.000Z',
+  attemptCount: 1,
+  actionBinding: {
+    operationId: 'abcdefghijklmnopqrstuv',
+    revision: 1,
+    presentedAt: '2026-09-19T10:01:00.000Z',
+  },
+};
+
 function state(currentState: FsmState, statePayload: unknown): ConversationState {
   return {
     userId: 'user-1',
@@ -45,11 +57,13 @@ describe('DispatchControlSemanticAction', () => {
   const cancelExpenseRegistration = { execute: vi.fn() };
   const undoLastExpense = { execute: vi.fn() };
   const presentUndoConfirmation = { execute: vi.fn() };
+  const startSpreadsheetReconfiguration = { execute: vi.fn() };
   const dispatcher = new DispatchControlSemanticAction({
     snapshotValidator,
     cancelExpenseRegistration,
     undoLastExpense,
     presentUndoConfirmation,
+    startSpreadsheetReconfiguration,
   });
   const expected = {
     revision: '5',
@@ -193,5 +207,87 @@ describe('DispatchControlSemanticAction', () => {
       expect.objectContaining({ expected: idleExpected }),
     );
     expect(cancelExpenseRegistration.execute).not.toHaveBeenCalled();
+  });
+
+  it('turns a natural retry into an exact-command requirement without any effect handoff', async () => {
+    const current = state('EXPENSE_SAVING_RETRY', retryPayload);
+    snapshotValidator.execute.mockResolvedValue({ status: 'current', state: current });
+    const retryExpected = {
+      revision: '5',
+      currentState: 'EXPENSE_SAVING_RETRY',
+      expiry: 'unexpired' as const,
+    };
+
+    await expect(
+      dispatcher.execute({
+        userId: 'user-1',
+        externalId: 'chat-1',
+        channel: 'whatsapp',
+        conversationState: current,
+        expected: retryExpected,
+        decision: { action: 'request_save_retry' },
+        provenance: { kind: 'semantic_proposal', sourceMessageId: 'message-1' },
+      }),
+    ).resolves.toEqual({ status: 'explicit_command_required', command: 'reintentar' });
+
+    expect(startSpreadsheetReconfiguration.execute).not.toHaveBeenCalled();
+    expect(cancelExpenseRegistration.execute).not.toHaveBeenCalled();
+    expect(undoLastExpense.execute).not.toHaveBeenCalled();
+  });
+
+  it('starts bounded spreadsheet reconfiguration with the captured retry precondition', async () => {
+    const current = state('EXPENSE_SAVING_RETRY', retryPayload);
+    snapshotValidator.execute.mockResolvedValue({ status: 'current', state: current });
+    startSpreadsheetReconfiguration.execute.mockResolvedValue(undefined);
+    const retryExpected = {
+      revision: '5',
+      currentState: 'EXPENSE_SAVING_RETRY',
+      expiry: 'unexpired' as const,
+    };
+
+    await expect(
+      dispatcher.execute({
+        userId: 'user-1',
+        externalId: 'chat-1',
+        channel: 'telegram',
+        conversationState: current,
+        expected: retryExpected,
+        decision: { action: 'request_reconfiguration' },
+        provenance: { kind: 'semantic_proposal', sourceMessageId: 'message-1' },
+      }),
+    ).resolves.toEqual({ status: 'reconfiguration_started' });
+
+    expect(startSpreadsheetReconfiguration.execute).toHaveBeenCalledWith({
+      userId: 'user-1',
+      chatId: 'chat-1',
+      channel: 'telegram',
+      expected: retryExpected,
+    });
+  });
+
+  it.each([
+    ['request_save_retry', { ...retryPayload, actionBinding: null }],
+    ['request_reconfiguration', { malformed: true }],
+  ] as const)('rejects %s from an invalid retry context', async (action, payload) => {
+    const current = state('EXPENSE_SAVING_RETRY', payload);
+    snapshotValidator.execute.mockResolvedValue({ status: 'current', state: current });
+
+    await expect(
+      dispatcher.execute({
+        userId: 'user-1',
+        externalId: 'chat-1',
+        channel: 'telegram',
+        conversationState: current,
+        expected: {
+          revision: '5',
+          currentState: 'EXPENSE_SAVING_RETRY',
+          expiry: 'unexpired',
+        },
+        decision: { action },
+        provenance: { kind: 'semantic_proposal', sourceMessageId: 'message-1' },
+      }),
+    ).resolves.toEqual({ status: 'clarification_required', reason: 'invalid_state_context' });
+
+    expect(startSpreadsheetReconfiguration.execute).not.toHaveBeenCalled();
   });
 });

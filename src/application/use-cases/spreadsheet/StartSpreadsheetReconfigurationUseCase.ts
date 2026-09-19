@@ -2,6 +2,7 @@
 // Restarts validation and eager column inference for the active Google spreadsheet.
 
 import type { ISpreadsheetConfigRepository } from '../../../domain/ports/repositories';
+import type { ConversationStatePrecondition } from '../../../domain/entities/ConversationState';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { ValidateSpreadsheetAccess } from './ValidateSpreadsheetAccess';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
@@ -11,6 +12,7 @@ export interface StartSpreadsheetReconfigurationInput {
   userId: string;
   chatId: string;
   channel: 'telegram' | 'whatsapp';
+  expected?: ConversationStatePrecondition;
 }
 
 export interface StartSpreadsheetReconfigurationDeps {
@@ -30,6 +32,7 @@ export class StartSpreadsheetReconfigurationUseCase {
         userId: input.userId,
         targetState: 'IDLE',
         payload: null,
+        ...(input.expected === undefined ? {} : { expected: input.expected }),
       });
       await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.saveRetryExpired());
       return;
@@ -45,6 +48,7 @@ export class StartSpreadsheetReconfigurationUseCase {
       userId: input.userId,
       targetState: 'ONBOARDING_VALIDATING_ACCESS',
       payload,
+      ...(input.expected === undefined ? {} : { expected: input.expected }),
     });
     await this.deps.validateSpreadsheetAccess.execute({
       userId: input.userId,

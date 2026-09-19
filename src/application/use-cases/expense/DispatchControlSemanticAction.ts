@@ -6,6 +6,7 @@ import type {
 } from '../../../domain/entities/ConversationState';
 import { ExpenseClarificationState } from '../../../domain/value-objects/expense-clarification-state';
 import { ExpenseCorrectionState } from '../../../domain/value-objects/expense-correction-state';
+import { parseExpenseSaveRetryPayload } from '../../../domain/value-objects/expense-save-retry-payload';
 import { tryNormalizeExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import type {
   ControlSemanticDecision,
@@ -15,6 +16,7 @@ import type { ValidateConversationSnapshot } from '../../services/semantic-route
 import type { CancelExpenseRegistrationUseCase } from './CancelExpenseRegistrationUseCase';
 import type { PresentUndoConfirmation } from './PresentUndoConfirmation';
 import type { UndoLastExpenseUseCase } from './UndoLastExpense';
+import type { StartSpreadsheetReconfigurationUseCase } from '../spreadsheet/StartSpreadsheetReconfigurationUseCase';
 
 export type ControlGuidanceReason =
   | 'stale_context'
@@ -49,6 +51,10 @@ export class DispatchControlSemanticAction {
       readonly cancelExpenseRegistration: Pick<CancelExpenseRegistrationUseCase, 'execute'>;
       readonly undoLastExpense: Pick<UndoLastExpenseUseCase, 'execute'>;
       readonly presentUndoConfirmation: Pick<PresentUndoConfirmation, 'execute'>;
+      readonly startSpreadsheetReconfiguration: Pick<
+        StartSpreadsheetReconfigurationUseCase,
+        'execute'
+      > | null;
     },
   ) {}
 
@@ -111,6 +117,29 @@ export class DispatchControlSemanticAction {
             };
       }
 
+      if (input.decision.action === 'request_save_retry') {
+        if (!this.hasValidRetryContext(snapshot.state)) {
+          return { status: 'clarification_required', reason: 'invalid_state_context' };
+        }
+        return { status: 'explicit_command_required', command: 'reintentar' };
+      }
+
+      if (input.decision.action === 'request_reconfiguration') {
+        if (
+          !this.hasValidRetryContext(snapshot.state) ||
+          this.deps.startSpreadsheetReconfiguration === null
+        ) {
+          return { status: 'clarification_required', reason: 'invalid_state_context' };
+        }
+        await this.deps.startSpreadsheetReconfiguration.execute({
+          userId: input.userId,
+          chatId: input.externalId,
+          channel: input.channel,
+          expected: input.expected,
+        });
+        return { status: 'reconfiguration_started' };
+      }
+
       return { status: 'clarification_required', reason: 'unsupported_action' };
     } catch {
       return { status: 'clarification_required', reason: 'dispatch_failed' };
@@ -145,5 +174,12 @@ export class DispatchControlSemanticAction {
       default:
         return false;
     }
+  }
+
+  private hasValidRetryContext(state: ConversationState): boolean {
+    if (state.currentState !== 'EXPENSE_SAVING_RETRY' || state.expiresAt === null) return false;
+    if (state.expiresAt.getTime() <= Date.now()) return false;
+    const retry = parseExpenseSaveRetryPayload(state.statePayload);
+    return retry?.actionBinding?.presentedAt !== null && retry?.actionBinding !== undefined;
   }
 }

@@ -31,7 +31,7 @@ The feature updates the existing `conversation_states` row only. It does not cre
 - [x] Worker tests verify global text commands, callback cancellation, prevention of NLP/correction processing, and immediate subsequent expense handling.
 - [x] PostgreSQL integration tests persist cancellation cleanup and prove a fresh subsequent expense payload does not reuse the canceled one.
 - [x] Semantic dispatcher and worker tests cover all four active states, malformed/stale/claimed contexts, cleanup ordering, typed handoff, and zero unrelated extractor/correction/undo effects.
-- [x] `semantic-router-control-flows.integration.spec.ts` defines PostgreSQL/Redis revision-bound cancellation and FIFO advancement coverage (execution requires Docker).
+- [x] `semantic-router-control-flows.integration.spec.ts` passes PostgreSQL/Redis revision-bound cancellation and FIFO advancement coverage and remains green with the complete retry/reconfiguration control slice.
 
 ## Related User Stories
 

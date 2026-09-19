@@ -31,6 +31,8 @@ export const expenseCopies = {
     'No pude guardar el gasto porque la hoja o sus columnas cambiaron. Respondé *reconfigurar* para revisar la configuración.',
   saveRetryExpired: () =>
     'El tiempo para reintentar este guardado venció. Verificá tu planilla y registrá el gasto nuevamente.',
+  saveRetryRecoveryChoice: () =>
+    'Respondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla.',
   staleFinancialAction: () =>
     'Esa respuesta corresponde a otra operación. Revisá la solicitud actual y confirmala de nuevo.',
   saveManualCopyFallback: (input: { concept: string; amount: number; currency: string }): string =>

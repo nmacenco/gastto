@@ -202,6 +202,10 @@ Every `ONBOARDING_*` state has an explicit transition to `IDLE`. Generic onboard
 
 ## Rule: FSM exclusivity
 
+### Semantic recovery boundary
+
+`EXPENSE_SAVING_RETRY` accepts semantic proposals only as revision-bound requests. `request_save_retry` leaves the state, expiry, binding, queue, and retained expense unchanged and asks for the exact deterministic `reintentar` command. `request_reconfiguration` may transition only the captured unexpired, claim-free retry revision through the existing Google recovery path to `ONBOARDING_VALIDATING_ACCESS`; it never replays the retained expense. Switching semantic routing to `shadow` or `off` requires no payload rewrite or migration.
+
 > **Never add conditional conversational flow logic outside the FSM.**
 
 All branching based on "what the user said" or "what step we are in" must be expressed as a state transition inside the FSM. If you find yourself writing an `if` in a service that checks `user.status === 'onboarding'` or `if (message.includes('cancelar'))`, that logic belongs inside the FSM transition table, not in the service layer.
