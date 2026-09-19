@@ -33,6 +33,8 @@ import type { RedisProcessedMessageRepository } from '../infrastructure/redis/Re
 import type { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProcessingLock';
 import type { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
 import type { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
+import type { DispatchControlSemanticAction } from '../application/use-cases/expense/DispatchControlSemanticAction';
+import type { PresentUndoConfirmation } from '../application/use-cases/expense/PresentUndoConfirmation';
 import type { DispatchOptionSelection } from '../application/use-cases/spreadsheet/DispatchOptionSelection';
 import type { CompleteExpenseClarification } from '../application/use-cases/expense/CompleteExpenseClarification';
 import type { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
@@ -181,6 +183,7 @@ export interface Dependencies {
   semanticRouter: SemanticRouterPort | null;
   observeSemanticRouting: ObserveSemanticRouting;
   dispatchExpenseSemanticAction: DispatchExpenseSemanticAction;
+  dispatchControlSemanticAction: DispatchControlSemanticAction;
   dispatchOptionSelection?: DispatchOptionSelection | null;
   completeExpenseClarification: CompleteExpenseClarification;
 
@@ -215,6 +218,7 @@ export interface Dependencies {
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase;
   undoLastExpense?: UndoLastExpenseUseCase;
+  presentUndoConfirmation: PresentUndoConfirmation;
   retryExpenseSave: RetryExpenseSaveUseCase;
   expenseSummaryPresenterFactory: (
     messaging: MessagingOutputPort,

@@ -14,10 +14,12 @@ Let users safely abandon an in-progress expense registration from any active exp
 - Telegram's **Cancelar** callback and review text replies reach the cancellation use case only after the application validates the current successfully presented review binding. An old, forged, malformed, unbound, or expired button cannot cancel a replacement draft, refresh its TTL, or cancel another FSM flow.
 - A later expense starts with fresh state and cannot reuse the canceled payload.
 - If pending expenses exist, cancellation clears only the active draft, delivers the cancellation copy, and then advances the oldest queued expense for review.
+- In enabled semantic mode, an unambiguous natural cancellation may reach the same use case only from the four active expense states. The control dispatcher revalidates the captured state/revision, expiry, execution-claim absence, and state-specific payload before cleanup.
+- Semantic review cancellation additionally requires the current review version to have been presented successfully. Stale, malformed, expired, mixed, unsupported, lease-lost, or financially claimed proposals send bounded guidance and cannot cancel or advance the queue.
 
 ## API / Interface
 
-No HTTP route or queue contract is added. `CancelExpenseRegistrationUseCase` accepts the user and chat identifiers, current FSM state, and source (`text` or `callback`), then returns `cancelled` or `no_active_expense`.
+No HTTP route or queue contract is added. `CancelExpenseRegistrationUseCase` accepts the user and chat identifiers, current FSM state, and source (`text`, `callback`, or revision-bound `semantic`), then returns `cancelled` or `no_active_expense`.
 
 ## Data Model
 
@@ -28,6 +30,8 @@ The feature updates the existing `conversation_states` row only. It does not cre
 - [x] Unit tests verify cleanup-before-response ordering, all active expense states, and the no-active-flow response.
 - [x] Worker tests verify global text commands, callback cancellation, prevention of NLP/correction processing, and immediate subsequent expense handling.
 - [x] PostgreSQL integration tests persist cancellation cleanup and prove a fresh subsequent expense payload does not reuse the canceled one.
+- [x] Semantic dispatcher and worker tests cover all four active states, malformed/stale/claimed contexts, cleanup ordering, typed handoff, and zero unrelated extractor/correction/undo effects.
+- [x] `semantic-router-control-flows.integration.spec.ts` defines PostgreSQL/Redis revision-bound cancellation and FIFO advancement coverage (execution requires Docker).
 
 ## Related User Stories
 

@@ -1,7 +1,10 @@
 // LAYER: Application
 // Cancels an in-progress expense registration without touching expense records.
 
-import type { FsmState } from '../../../domain/entities/ConversationState';
+import type {
+  ConversationStatePrecondition,
+  FsmState,
+} from '../../../domain/entities/ConversationState';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { expenseCopies } from '../../copies/expense.copies';
@@ -14,14 +17,19 @@ const ACTIVE_EXPENSE_STATES: readonly FsmState[] = [
   'EXPENSE_CORRECTING',
 ];
 
-export interface CancelExpenseRegistrationInput {
+interface CancelExpenseRegistrationInputBase {
   userId: string;
   chatId: string;
   currentState: FsmState;
-  source: 'text' | 'callback';
   channel?: 'telegram' | 'whatsapp';
   completedCount?: number;
 }
+
+export type CancelExpenseRegistrationInput = CancelExpenseRegistrationInputBase &
+  (
+    | { source: 'text' | 'callback' }
+    | { source: 'semantic'; expected: ConversationStatePrecondition }
+  );
 
 export type CancelExpenseRegistrationOutcome =
   | { status: 'not_requested' }
@@ -51,6 +59,7 @@ export class CancelExpenseRegistrationUseCase {
       targetState: 'IDLE',
       payload: null,
       expiresAt: null,
+      ...(input.source === 'semantic' ? { expected: input.expected } : {}),
     });
     await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.cancelled());
     if (this.deps.advancePendingExpense) {

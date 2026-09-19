@@ -110,6 +110,82 @@ describe('ObserveSemanticRouting', () => {
     );
   });
 
+  it('returns one enabled control action with application-owned provenance and finalizes telemetry once', async () => {
+    const deps = buildDeps();
+    deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+    deps.router.decide.mockResolvedValue({
+      status: 'proposed',
+      decision: { action: 'undo_last_expense' },
+      metadata: {
+        provider: 'openai',
+        model: 'gpt-4o-mini-2024-07-18',
+        promptVersion: 'semantic-openai-v3',
+        contractVersion: 'semantic-contract-v2',
+        latencyMs: 12,
+        inputTokens: 10,
+        outputTokens: 3,
+      },
+    });
+
+    const observer = new ObserveSemanticRouting({ ...deps, controlActionAvailable: true });
+    const turn = await observer.execute({
+      userId: 'user-1',
+      externalMessageId: 'message-undo',
+      rawMessage: 'me arrepentí del último gasto',
+      conversationState: state,
+      deterministicDecision: { kind: 'fsm_handler' },
+    });
+
+    expect(turn).toEqual({
+      status: 'control_action',
+      decision: { action: 'undo_last_expense' },
+      expected: { revision: '4', currentState: 'IDLE', expiry: 'unexpired' },
+      provenance: { kind: 'semantic_proposal', sourceMessageId: 'message-undo' },
+    });
+    expect(deps.telemetry.record).not.toHaveBeenCalled();
+    if (turn.status !== 'control_action') throw new Error('Expected control action');
+    observer.recordControlDispatch(turn, { status: 'undo_confirmation_presented' });
+    observer.recordControlDispatch(turn, { status: 'undo_confirmation_presented' });
+    expect(deps.telemetry.record).toHaveBeenCalledOnce();
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policyOutcome: 'allowed_enabled',
+        proposedAction: 'undo_last_expense',
+      }),
+    );
+  });
+
+  it('fails closed before dispatch when the enabled control dispatcher is unavailable', async () => {
+    const deps = buildDeps();
+    deps.policy.resolve.mockReturnValue({ mode: 'enabled', cohortBucket: 1, sampleBucket: 2 });
+    deps.router.decide.mockResolvedValue({
+      status: 'proposed',
+      decision: { action: 'undo_last_expense' },
+      metadata: {
+        provider: 'openai',
+        model: 'gpt-4o-mini-2024-07-18',
+        promptVersion: 'semantic-openai-v3',
+        contractVersion: 'semantic-contract-v2',
+        latencyMs: 12,
+        inputTokens: 10,
+        outputTokens: 3,
+      },
+    });
+
+    await expect(
+      new ObserveSemanticRouting({ ...deps, controlActionAvailable: false }).execute({
+        userId: 'user-1',
+        externalMessageId: 'message-undo',
+        rawMessage: 'borrá lo último',
+        conversationState: state,
+        deterministicDecision: { kind: 'fsm_handler' },
+      }),
+    ).resolves.toEqual({ status: 'clarification', reason: 'unsupported_action' });
+    expect(deps.telemetry.record).toHaveBeenCalledWith(
+      expect.objectContaining({ policyOutcome: 'enabled_capability_unavailable' }),
+    );
+  });
+
   it.each([
     {
       currentState: 'EXPENSE_CLARIFYING' as const,

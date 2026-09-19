@@ -71,6 +71,18 @@ export const expenseCopies = {
     reason === 'ambiguous_intent' || reason === 'mixed_intents'
       ? 'No me quedó claro qué gasto querés registrar. Indicá un solo gasto con monto y moneda.'
       : 'No pude procesar ese gasto de forma segura. Indicá el gasto con monto y moneda para intentarlo de nuevo.',
+  semanticControlGuidance: (
+    reason:
+      | 'ambiguous_intent'
+      | 'mixed_intents'
+      | 'stale_context'
+      | 'invalid_state_context'
+      | 'unsupported_action'
+      | 'dispatch_failed',
+  ) =>
+    reason === 'ambiguous_intent' || reason === 'mixed_intents'
+      ? 'No me quedó claro qué querés hacer. Pedime una sola acción.'
+      : 'Esa solicitud ya no corresponde al estado actual. Revisá la conversación e intentá de nuevo.',
   undoDeleted: (concept: string, amount: number, currency: string) =>
     `Listo, se eliminó el último registro (${concept.slice(0, 80)}, ${amount} ${currency}).`,
   undoNotFound: () => 'No encontré un registro reciente para deshacer.',

@@ -98,8 +98,11 @@ export class ProjectSemanticRouterInput {
     const payload = conversationState.statePayload;
     switch (state) {
       case 'IDLE':
-      case 'EXPENSE_RECEIVING':
         return emptyContext();
+      case 'EXPENSE_RECEIVING':
+        return typeof payload?.raw_message === 'string' && payload.raw_message.trim().length > 0
+          ? emptyContext()
+          : null;
       case 'EXPENSE_CLARIFYING':
         return this.projectClarification(payload);
       case 'EXPENSE_REVIEW':

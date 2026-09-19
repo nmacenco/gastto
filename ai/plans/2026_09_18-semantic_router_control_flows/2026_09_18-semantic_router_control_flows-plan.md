@@ -230,18 +230,18 @@ Dispatch natural cancellation within the exact active-draft boundary and turn ev
 
 #### To-do actions
 
-- [ ] Add `control_action` to `SemanticRoutingTurnOutcome`, enabled capability checks, pending dispatch telemetry, and `recordControlDispatch`; retain one finalized observation per turn and fail closed when the dispatcher is unavailable.
-- [ ] Implement `DispatchControlSemanticAction` snapshot revalidation and cancellation branches for receiving, clarifying, review, and correcting states. Pass semantic source plus the captured precondition into `CancelExpenseRegistrationUseCase` and invoke no extractor, correction interpreter, save, retry, undo, or reconfiguration dependency.
-- [ ] Preserve cancellation cleanup-before-copy ordering, null payload/expiry, no saved-record mutation, and exact FIFO advancement. Assert review replacement, queue overflow, stale revision, lease loss, financial claims, malformed payloads, and unsupported states cannot cancel or advance anything.
-- [ ] Extract `PresentUndoConfirmation` from the current worker flow and reuse it for deterministic delayed and semantic undo requests. Persist the binding before delivery, set `presentedAt` only after success, preserve the five-minute expiry, and leave failed delivery unbound.
-- [ ] Dispatch `undo_last_expense` only from `IDLE` with `semantic_request` provenance and no immediate ID. Even with a valid one-message token, present the current latest expense in `EXPENSE_UNDO_CONFIRMING` and perform zero provider deletion or local soft delete.
-- [ ] Preserve exact immediate undo, queued-review immediate undo, delayed exact confirmation, exact cancellation of an undo offer, expiry, latest-record replacement rejection, external-delete-before-local-success ordering, transactional audit, and unknown-outcome claim behavior.
-- [ ] Add worker and use-case tests for natural cancellation in all four active states, cancellation with zero/one/two queued expenses, inferred undo with and without immediate eligibility, failed offer delivery and safe re-presentation, mixed requests, stale proposals, lost leases, expired/replaced targets, duplicate confirmation, provider deletion failure, and zero premature success copy.
-- [ ] Add the first PostgreSQL/Redis control-flow scenarios for revision-bound cancellation, FIFO advancement, inferred undo confirmation, immediate explicit undo preservation, concurrent confirmation, and no deletion before the later exact authorization.
-- [ ] Update `docs/features/expense-cancellation.md`, `docs/features/undo-last-expense.md`, `docs/features/conversation-state-management.md`, `docs/features/incoming-message-routing.md`, `docs/architecture/fsm-states.md`, `docs/architecture/observability.md`, and `docs/features/README.md` with the delivered behavior and remaining recovery TODOs.
-- [ ] Run focused tests and `pnpm test`; keep retry/reconfiguration semantic dispatch, live evaluation, and production activation pending.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add `control_action` to `SemanticRoutingTurnOutcome`, enabled capability checks, pending dispatch telemetry, and `recordControlDispatch`; retain one finalized observation per turn and fail closed when the dispatcher is unavailable.
+- [x] Implement `DispatchControlSemanticAction` snapshot revalidation and cancellation branches for receiving, clarifying, review, and correcting states. Pass semantic source plus the captured precondition into `CancelExpenseRegistrationUseCase` and invoke no extractor, correction interpreter, save, retry, undo, or reconfiguration dependency.
+- [x] Preserve cancellation cleanup-before-copy ordering, null payload/expiry, no saved-record mutation, and exact FIFO advancement. Assert review replacement, queue overflow, stale revision, lease loss, financial claims, malformed payloads, and unsupported states cannot cancel or advance anything.
+- [x] Extract `PresentUndoConfirmation` from the current worker flow and reuse it for deterministic delayed and semantic undo requests. Persist the binding before delivery, set `presentedAt` only after success, preserve the five-minute expiry, and leave failed delivery unbound.
+- [x] Dispatch `undo_last_expense` only from `IDLE` with `semantic_request` provenance and no immediate ID. Even with a valid one-message token, present the current latest expense in `EXPENSE_UNDO_CONFIRMING` and perform zero provider deletion or local soft delete.
+- [x] Preserve exact immediate undo, queued-review immediate undo, delayed exact confirmation, exact cancellation of an undo offer, expiry, latest-record replacement rejection, external-delete-before-local-success ordering, transactional audit, and unknown-outcome claim behavior.
+- [x] Add worker and use-case tests for natural cancellation in all four active states, cancellation with zero/one/two queued expenses, inferred undo with and without immediate eligibility, failed offer delivery and safe re-presentation, mixed requests, stale proposals, lost leases, expired/replaced targets, duplicate confirmation, provider deletion failure, and zero premature success copy.
+- [x] Add the first PostgreSQL/Redis control-flow scenarios for revision-bound cancellation, FIFO advancement, inferred undo confirmation, immediate explicit undo preservation, concurrent confirmation, and no deletion before the later exact authorization.
+- [x] Update `docs/features/expense-cancellation.md`, `docs/features/undo-last-expense.md`, `docs/features/conversation-state-management.md`, `docs/features/incoming-message-routing.md`, `docs/architecture/fsm-states.md`, `docs/architecture/observability.md`, and `docs/features/README.md` with the delivered behavior and remaining recovery TODOs.
+- [x] Run focused tests and `pnpm test`; keep retry/reconfiguration semantic dispatch, live evaluation, and production activation pending.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Enable request-only retry and bounded recovery, then prove rollback safety
 
@@ -267,4 +267,4 @@ Complete control dispatch by turning natural retry into an exact-command prompt,
 
 ## Next step
 
-Implement Phase 2 to enable revision-bound semantic cancellation and confirmation-only inferred undo without weakening deterministic authorization.
+Implement Phase 3 to enable request-only semantic retry and bounded spreadsheet recovery, then prove flag-only rollback safety.

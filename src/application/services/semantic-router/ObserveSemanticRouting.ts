@@ -19,6 +19,12 @@ import {
 } from './contracts';
 import type { DeterministicRoutingDecision } from './deterministic-routing';
 import {
+  isControlCapabilityAllowed,
+  isControlSemanticDecision,
+  type ControlSemanticDecision,
+  type SemanticControlProvenance,
+} from './control-capabilities';
+import {
   isExpenseCapabilityAllowed,
   isExpenseSemanticDecision,
   type ExpenseSemanticDecision,
@@ -65,6 +71,12 @@ export type SemanticRoutingTurnOutcome =
       readonly status: 'expense_action';
       readonly decision: ExpenseSemanticDecision;
       readonly expected: ConversationStatePrecondition;
+    }
+  | {
+      readonly status: 'control_action';
+      readonly decision: ControlSemanticDecision;
+      readonly expected: ConversationStatePrecondition;
+      readonly provenance: SemanticControlProvenance;
     }
   | {
       readonly status: 'option_selection';
@@ -175,11 +187,15 @@ interface ObserveSemanticRoutingDeps {
   readonly snapshotValidator: Pick<ValidateConversationSnapshot, 'execute'>;
   readonly telemetry: SemanticRoutingTelemetryPort;
   readonly optionSelectionAvailable?: boolean;
+  readonly controlActionAvailable?: boolean;
 }
 
 export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
   private readonly pendingDispatchObservations = new WeakMap<
-    Extract<SemanticRoutingTurnOutcome, { status: 'expense_action' | 'option_selection' }>,
+    Extract<
+      SemanticRoutingTurnOutcome,
+      { status: 'expense_action' | 'option_selection' | 'control_action' }
+    >,
     SemanticRoutingObservation
   >();
 
@@ -199,8 +215,18 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
     this.recordDispatch(turn, outcome);
   }
 
+  recordControlDispatch(
+    turn: Extract<SemanticRoutingTurnOutcome, { status: 'control_action' }>,
+    outcome: { readonly status: string; readonly reason?: string },
+  ): void {
+    this.recordDispatch(turn, outcome);
+  }
+
   private recordDispatch(
-    turn: Extract<SemanticRoutingTurnOutcome, { status: 'expense_action' | 'option_selection' }>,
+    turn: Extract<
+      SemanticRoutingTurnOutcome,
+      { status: 'expense_action' | 'option_selection' | 'control_action' }
+    >,
     outcome: { readonly status: string; readonly reason?: string },
   ): void {
     const observation = this.pendingDispatchObservations.get(turn);
@@ -471,6 +497,35 @@ export class ObserveSemanticRouting implements ResolveSemanticRoutingTurn {
         decision: assessment.decision,
         expected,
         snapshot,
+      } as const;
+      this.pendingDispatchObservations.set(turn, observation);
+      return turn;
+    }
+
+    if (isControlSemanticDecision(assessment.decision)) {
+      if (
+        this.deps.controlActionAvailable === false ||
+        !isControlCapabilityAllowed(
+          input.conversationState.currentState,
+          substep,
+          assessment.decision,
+        )
+      ) {
+        this.record({
+          ...observation,
+          policyOutcome: 'enabled_capability_unavailable',
+          errorCode: 'ENABLED_CAPABILITY_UNAVAILABLE',
+        });
+        return { status: 'clarification', reason: 'unsupported_action' };
+      }
+      const turn = {
+        status: 'control_action',
+        decision: assessment.decision,
+        expected,
+        provenance: {
+          kind: 'semantic_proposal',
+          sourceMessageId: input.externalMessageId,
+        },
       } as const;
       this.pendingDispatchObservations.set(turn, observation);
       return turn;

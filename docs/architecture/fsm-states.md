@@ -155,15 +155,18 @@ Recognition and clarification completion can reach the existing
 only through the new interpretation result, so extractor failure preserves the old
 draft. Review correction advances the review binding and requires a fresh
 presentation and explicit confirmation. Review `register_expense` admits only a raw
-pending-queue item and leaves the active review unchanged. Semantic dispatch has no
-save, retry, delete, confirmation, cancellation, reconfiguration, or arbitrary-transition authority;
-all other enabled state/action pairs fail closed.
+pending-queue item and leaves the active review unchanged. Semantic expense/option
+dispatch has no save, retry, delete, confirmation, reconfiguration, or arbitrary-transition
+authority. The separate control dispatcher may cancel only a validated active draft or
+present a delayed undo offer; it cannot confirm or execute a deletion. All other enabled
+state/action pairs fail closed.
 
 The control capability matrix permits proposals only for inferred undo in `IDLE`,
 cancellation in the four active expense-draft states, and request-only retry or bounded
 reconfiguration in `EXPENSE_SAVING_RETRY`. `EXPENSE_UNDO_CONFIRMING` is guidance-only.
 Unknown substeps and all processing/onboarding states outside this matrix reject control
-capabilities. Phase 1 evaluates these proposals but does not dispatch their effects.
+capabilities. Phase 2 dispatches only cancellation and inferred-undo presentation. Retry and
+reconfiguration proposals remain unavailable pending the recovery slice.
 
 Conversation-level PostgreSQL/Redis tests exercise recognition, clarification,
 review correction, queue overflow/advancement, explicit save, cancellation, duplicate

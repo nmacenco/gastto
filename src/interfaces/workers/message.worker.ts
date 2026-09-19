@@ -8,6 +8,8 @@ import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
 import type { DispatchExpenseSemanticAction } from '../../application/use-cases/expense/DispatchExpenseSemanticAction';
+import type { DispatchControlSemanticAction } from '../../application/use-cases/expense/DispatchControlSemanticAction';
+import type { PresentUndoConfirmation } from '../../application/use-cases/expense/PresentUndoConfirmation';
 import type { CompleteExpenseClarification } from '../../application/use-cases/expense/CompleteExpenseClarification';
 import type { CorrectExpenseUseCase } from '../../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
@@ -91,17 +93,13 @@ import { ExpenseCorrectionState } from '../../domain/value-objects/expense-corre
 import { parseExpenseSaveRetryPayload } from '../../domain/value-objects/expense-save-retry-payload';
 import { parseExpenseUndoPayload } from '../../domain/value-objects/expense-undo-payload';
 import { isExpenseLikeIntent } from '../../domain/value-objects/FreeTextIntent';
-import {
-  advanceExpenseReviewBinding,
-  createExpenseReviewBinding,
-} from '../../domain/value-objects/expense-review-binding';
+import { advanceExpenseReviewBinding } from '../../domain/value-objects/expense-review-binding';
 
 // Lock TTL must exceed the longest possible job duration (LLM + side effects).
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
 // without renewal complexity.
 const USER_LOCK_TTL_MS = 180_000;
 const USER_LOCK_RENEW_MS = 30_000;
-const UNDO_CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface MessageWorkerDeps {
   redis: Redis;
@@ -113,6 +111,7 @@ export interface MessageWorkerDeps {
   deterministicRoutingPolicy: DeterministicRoutingPolicy;
   observeSemanticRouting: ObserveSemanticRouting;
   dispatchExpenseSemanticAction: DispatchExpenseSemanticAction;
+  dispatchControlSemanticAction?: DispatchControlSemanticAction | null;
   dispatchOptionSelection?: DispatchOptionSelection | null;
   completeExpenseClarification: CompleteExpenseClarification;
   sendGuidance: SendExpenseGuidance;
@@ -123,6 +122,7 @@ export interface MessageWorkerDeps {
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase | null;
   retryExpenseSave?: RetryExpenseSaveUseCase | null;
   undoLastExpense?: UndoLastExpenseUseCase | null | undefined;
+  presentUndoConfirmation?: PresentUndoConfirmation | null;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
   expenseSummaryPresenterFactory?: (
@@ -315,6 +315,48 @@ export async function processMessageJob(
             await messaging.sendMessage(
               externalId,
               semanticExpenseGuidance(conversationState, outcome.reason),
+            );
+          }
+          return;
+        }
+        if (semanticTurn?.status === 'control_action' && conversationState !== null) {
+          if (!opts.dispatchControlSemanticAction) {
+            opts.observeSemanticRouting.recordControlDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'unsupported_action',
+            });
+            await messaging.sendMessage(
+              externalId,
+              expenseCopies.semanticControlGuidance('unsupported_action'),
+            );
+            return;
+          }
+          let outcome: Awaited<ReturnType<DispatchControlSemanticAction['execute']>>;
+          try {
+            outcome = await opts.dispatchControlSemanticAction.execute({
+              userId,
+              externalId,
+              channel,
+              conversationState,
+              expected: semanticTurn.expected,
+              decision: semanticTurn.decision,
+              provenance: semanticTurn.provenance,
+            });
+          } catch (error) {
+            opts.observeSemanticRouting.recordControlDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'dispatch_failed',
+            });
+            throw error;
+          }
+          opts.observeSemanticRouting.recordControlDispatch?.(semanticTurn, outcome);
+          opts.transitionState.assertExecutionIsValid(userId);
+          if (outcome.status === 'undo_unavailable') {
+            await messaging.sendMessage(externalId, expenseCopies.undoNotFound());
+          } else if (outcome.status === 'clarification_required') {
+            await messaging.sendMessage(
+              externalId,
+              expenseCopies.semanticControlGuidance(outcome.reason),
             );
           }
           return;
@@ -530,35 +572,17 @@ async function routeByState(
             : {}),
         });
         if (result.status === 'confirmation_required' && result.expense) {
-          const actionBinding = createExpenseReviewBinding();
-          const expiresAt = new Date(Date.now() + UNDO_CONFIRMATION_TIMEOUT_MS);
-          const payload = { pendingExpenseId: result.expense.id, actionBinding };
-          await opts.transitionState.execute({
-            userId,
-            targetState: 'EXPENSE_UNDO_CONFIRMING',
-            payload,
-            expiresAt,
-          });
-          const delivery = await messaging.sendMessage(
-            externalId,
-            expenseCopies.undoConfirmationRequired(
-              result.expense.concepto,
-              result.expense.monto,
-              result.expense.moneda,
-              result.expense.savedAt,
-            ),
-          );
-          if (delivery.status === 'success') {
-            await opts.transitionState.execute({
-              userId,
-              targetState: 'EXPENSE_UNDO_CONFIRMING',
-              payload: {
-                ...payload,
-                actionBinding: { ...actionBinding, presentedAt: new Date().toISOString() },
-              },
-              expiresAt,
-            });
+          const current = opts.transitionState.currentState(userId);
+          if (!current || !opts.presentUndoConfirmation) {
+            await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+            break;
           }
+          await opts.presentUndoConfirmation.execute({
+            userId,
+            chatId: externalId,
+            expense: result.expense,
+            expected: opts.transitionState.precondition(current, 'unexpired'),
+          });
         } else {
           await sendUndoOutcome(result, messaging, externalId);
         }
@@ -966,6 +990,10 @@ async function representUndoConfirmation(
   opts: MessageWorkerDeps,
   messaging: MessagingOutputPort,
 ): Promise<void> {
+  if (!opts.presentUndoConfirmation) {
+    await messaging.sendMessage(chatId, expenseCopies.expenseRegistrationUnavailable());
+    return;
+  }
   const result = await opts.undoLastExpense!.execute({
     userId,
     action: 'request',
@@ -976,35 +1004,15 @@ async function representUndoConfirmation(
     await sendUndoOutcome(result, messaging, chatId);
     return;
   }
-  const previous = parseExpenseUndoPayload(state.statePayload)?.actionBinding;
-  const actionBinding = advanceExpenseReviewBinding(previous);
-  const payload = { pendingExpenseId: result.expense.id, actionBinding };
-  await opts.transitionState.execute({
+  await opts.presentUndoConfirmation.execute({
     userId,
-    targetState: 'EXPENSE_UNDO_CONFIRMING',
-    payload,
-    expiresAt: state.expiresAt,
-  });
-  const delivery = await messaging.sendMessage(
     chatId,
-    expenseCopies.undoConfirmationRequired(
-      result.expense.concepto,
-      result.expense.monto,
-      result.expense.moneda,
-      result.expense.savedAt,
-    ),
-  );
-  if (delivery.status === 'success') {
-    await opts.transitionState.execute({
-      userId,
-      targetState: 'EXPENSE_UNDO_CONFIRMING',
-      payload: {
-        ...payload,
-        actionBinding: { ...actionBinding, presentedAt: new Date().toISOString() },
-      },
-      expiresAt: state.expiresAt,
-    });
-  }
+    expense: result.expense,
+    expected: opts.transitionState.precondition(state, 'unexpired'),
+    ...(parseExpenseUndoPayload(state.statePayload)?.actionBinding === undefined
+      ? {}
+      : { previousBinding: parseExpenseUndoPayload(state.statePayload)!.actionBinding }),
+  });
 }
 
 async function sendUndoOutcome(

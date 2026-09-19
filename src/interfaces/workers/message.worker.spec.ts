@@ -36,11 +36,13 @@ import { SpreadsheetCategoryReader } from '../../infrastructure/adapters/sheets/
 import type { SpreadsheetPort } from '../../domain/ports/services';
 import { CategoryVocabulary } from '../../domain/entities/CategoryVocabulary';
 import { CompleteExpenseClarification } from '../../application/use-cases/expense/CompleteExpenseClarification';
+import { PresentUndoConfirmation } from '../../application/use-cases/expense/PresentUndoConfirmation';
+import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
 const mockLoggerError = vi.fn();
-const mockTransitionStateExecute = vi.fn();
+const mockTransitionStateExecute = vi.fn<TransitionConversationState['execute']>();
 const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
 const mockUserRepoFindByMessagingIdentity = vi.fn();
@@ -76,8 +78,10 @@ const mockRetryExpenseSaveExecute = vi.fn();
 const mockStartSpreadsheetReconfigurationExecute = vi.fn();
 const mockObserveSemanticRoutingExecute = vi.fn();
 const mockDispatchExpenseSemanticActionExecute = vi.fn();
+const mockDispatchControlSemanticActionExecute = vi.fn();
 const mockDispatchOptionSelectionExecute = vi.fn();
 const mockRecordOptionDispatch = vi.fn();
+const mockRecordControlDispatch = vi.fn();
 const mockSendGuidanceExecute = vi.fn();
 const mockDeterministicRoutingDecide = vi.fn();
 
@@ -98,6 +102,19 @@ vi.mock('bullmq', () => ({
 }));
 
 function buildMockDeps(): MessageWorkerDeps {
+  const transitionState = {
+    execute: mockTransitionStateExecute,
+    runWithState: <T>(_state: ConversationState, operation: () => Promise<T>) => operation(),
+    runForUser: <T>(_userId: string, operation: () => Promise<T>) => operation(),
+    currentState: vi.fn().mockReturnValue(buildConversationState()),
+    assertExecutionIsValid: vi.fn(),
+    precondition: (state: ConversationState, expiry: 'unexpired' | 'expired' | 'any') => ({
+      revision: state.revision,
+      currentState: state.currentState,
+      expiry,
+    }),
+  } as unknown as MessageWorkerDeps['transitionState'];
+  const messagingPort = { sendMessage: mockSendMessage };
   return {
     redis: {} as unknown as MessageWorkerDeps['redis'],
     logger: { error: mockLoggerError } as unknown as MessageWorkerDeps['logger'],
@@ -121,10 +138,14 @@ function buildMockDeps(): MessageWorkerDeps {
     observeSemanticRouting: {
       execute: mockObserveSemanticRoutingExecute,
       recordOptionDispatch: mockRecordOptionDispatch,
+      recordControlDispatch: mockRecordControlDispatch,
     } as unknown as MessageWorkerDeps['observeSemanticRouting'],
     dispatchExpenseSemanticAction: {
       execute: mockDispatchExpenseSemanticActionExecute,
     } as unknown as MessageWorkerDeps['dispatchExpenseSemanticAction'],
+    dispatchControlSemanticAction: {
+      execute: mockDispatchControlSemanticActionExecute,
+    } as unknown as NonNullable<MessageWorkerDeps['dispatchControlSemanticAction']>,
     dispatchOptionSelection: {
       execute: mockDispatchOptionSelectionExecute,
     } as unknown as NonNullable<MessageWorkerDeps['dispatchOptionSelection']>,
@@ -160,24 +181,14 @@ function buildMockDeps(): MessageWorkerDeps {
     undoLastExpense: {
       execute: mockUndoLastExpenseExecute,
     } as unknown as MessageWorkerDeps['undoLastExpense'],
+    presentUndoConfirmation: new PresentUndoConfirmation({ transitionState, messagingPort }),
     retryExpenseSave: {
       execute: mockRetryExpenseSaveExecute,
     } as unknown as RetryExpenseSaveUseCase,
     getConversationState: {
       execute: mockGetConversationStateExecute,
     } as unknown as MessageWorkerDeps['getConversationState'],
-    transitionState: {
-      execute: mockTransitionStateExecute,
-      runWithState: <T>(_state: ConversationState, operation: () => Promise<T>) => operation(),
-      runForUser: <T>(_userId: string, operation: () => Promise<T>) => operation(),
-      currentState: vi.fn().mockReturnValue({ revision: '0' }),
-      assertExecutionIsValid: vi.fn(),
-      precondition: (state: ConversationState, expiry: 'unexpired' | 'expired' | 'any') => ({
-        revision: state.revision,
-        currentState: state.currentState,
-        expiry,
-      }),
-    } as unknown as MessageWorkerDeps['transitionState'],
+    transitionState,
     recoverCorruptedState: {
       execute: mockRecoverCorruptedStateExecute,
     } as unknown as MessageWorkerDeps['recoverCorruptedState'],
@@ -338,6 +349,17 @@ const baseJobData: ProcessMessageJobData = {
 describe('processMessageJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTransitionStateExecute.mockImplementation((input) =>
+      Promise.resolve({
+        status: 'updated',
+        state: buildConversationState({
+          revision: '1',
+          currentState: input.targetState,
+          statePayload: input.payload ?? null,
+          expiresAt: input.expiresAt ?? null,
+        }),
+      }),
+    );
     mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
     mockUserRepoFindByMessagingIdentity.mockResolvedValue({ userId: 'user-123' });
     mockResolveExpenseReviewReplyExecute.mockResolvedValue({
@@ -379,6 +401,7 @@ describe('processMessageJob', () => {
       status: 'clarification_required',
       reason: 'unsupported_action',
     });
+    mockDispatchControlSemanticActionExecute.mockResolvedValue({ status: 'cancelled' });
     mockDispatchOptionSelectionExecute.mockResolvedValue({ status: 'selected', target: 'file' });
     mockSendGuidanceExecute.mockResolvedValue(undefined);
     mockDeterministicRoutingDecide.mockReturnValue({ kind: 'fsm_handler' });
@@ -1575,6 +1598,116 @@ describe('processMessageJob', () => {
     });
   });
 
+  describe('enabled semantic control actions', () => {
+    it.each([
+      'EXPENSE_RECEIVING',
+      'EXPENSE_CLARIFYING',
+      'EXPENSE_REVIEW',
+      'EXPENSE_CORRECTING',
+    ] as const)(
+      'hands natural cancellation in %s to exactly one typed dispatcher',
+      async (currentState) => {
+        const deps = buildMockDeps();
+        const conversationState = buildConversationState({
+          revision: '6',
+          currentState,
+          statePayload: { bounded: true },
+        });
+        mockGetConversationStateExecute.mockResolvedValue(conversationState);
+        mockObserveSemanticRoutingExecute.mockResolvedValue({
+          status: 'control_action',
+          decision: { action: 'cancel_current_flow' },
+          expected: { revision: '6', currentState, expiry: 'unexpired' },
+          provenance: { kind: 'semantic_proposal', sourceMessageId: 'msg-42' },
+        });
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, rawMessage: 'mejor dejemos este registro' }),
+          deps,
+        );
+
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledOnce();
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'user-123',
+            conversationState,
+            decision: { action: 'cancel_current_flow' },
+            provenance: { kind: 'semantic_proposal', sourceMessageId: 'msg-42' },
+          }),
+        );
+        expect(mockRecordControlDispatch).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'control_action' }),
+          { status: 'cancelled' },
+        );
+        expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+        expect(mockCorrectExpenseExecute).not.toHaveBeenCalled();
+        expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([null, { immediateUndoExpenseId: 'expense-1' }])(
+      'hands inferred undo to confirmation-only dispatch with IDLE payload %j',
+      async (statePayload) => {
+        const deps = buildMockDeps();
+        const conversationState = buildConversationState({ revision: '9', statePayload });
+        mockGetConversationStateExecute.mockResolvedValue(conversationState);
+        const turn = {
+          status: 'control_action' as const,
+          decision: { action: 'undo_last_expense' as const },
+          expected: { revision: '9', currentState: 'IDLE', expiry: 'unexpired' as const },
+          provenance: { kind: 'semantic_proposal' as const, sourceMessageId: 'msg-42' },
+        };
+        mockObserveSemanticRoutingExecute.mockResolvedValue(turn);
+        mockDispatchControlSemanticActionExecute.mockResolvedValue({
+          status: 'undo_confirmation_presented',
+          pendingExpenseId: 'expense-1',
+        });
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, rawMessage: 'quisiera quitar el último gasto' }),
+          deps,
+        );
+
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledOnce();
+        expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+        expect(mockRecordControlDispatch).toHaveBeenCalledWith(turn, {
+          status: 'undo_confirmation_presented',
+          pendingExpenseId: 'expense-1',
+        });
+      },
+    );
+
+    it('renders bounded guidance for a stale control proposal without deterministic fallthrough', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        revision: '6',
+        currentState: 'EXPENSE_RECEIVING',
+        statePayload: { raw_message: 'Taxi 12 EUR' },
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'control_action',
+        decision: { action: 'cancel_current_flow' },
+        expected: { revision: '6', currentState: 'EXPENSE_RECEIVING', expiry: 'unexpired' },
+        provenance: { kind: 'semantic_proposal', sourceMessageId: 'msg-42' },
+      });
+      mockDispatchControlSemanticActionExecute.mockResolvedValue({
+        status: 'clarification_required',
+        reason: 'stale_context',
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.semanticControlGuidance('stale_context'),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockCancelExpenseRegistrationExecute).not.toHaveBeenCalled();
+    });
+  });
+
   describe('enabled semantic file selection', () => {
     const fileState = () =>
       buildConversationState({
@@ -1802,9 +1935,9 @@ describe('processMessageJob', () => {
         expect.objectContaining({
           userId: 'user-123',
           targetState: 'EXPENSE_UNDO_CONFIRMING',
-          expiresAt,
         }),
       );
+      expect(mockTransitionStateExecute.mock.calls[0]?.[0].expiresAt).toBeInstanceOf(Date);
       expect(mockSendMessage).not.toHaveBeenCalledWith(
         '123456789',
         expenseCopies.undoDeleted('Café', 4.5, 'EUR'),

@@ -59,6 +59,8 @@ import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProces
 // Application
 import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
 import { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
+import { DispatchControlSemanticAction } from '../application/use-cases/expense/DispatchControlSemanticAction';
+import { PresentUndoConfirmation } from '../application/use-cases/expense/PresentUndoConfirmation';
 import { CompleteExpenseClarification } from '../application/use-cases/expense/CompleteExpenseClarification';
 import { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
@@ -491,6 +493,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       env.TELEGRAM_BOT_TOKEN &&
       env.TELEGRAM_WEBHOOK_SECRET,
     ),
+    controlActionAvailable: true,
   });
 
   // process-message jobs run side-effectful FSM handlers that send
@@ -680,6 +683,16 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     messagingPort,
     advancePendingExpense,
   });
+  const presentUndoConfirmation = new PresentUndoConfirmation({
+    transitionState,
+    messagingPort,
+  });
+  const dispatchControlSemanticAction = new DispatchControlSemanticAction({
+    snapshotValidator: semanticSnapshotValidator,
+    cancelExpenseRegistration,
+    undoLastExpense,
+    presentUndoConfirmation,
+  });
   const retryExpenseSave = new RetryExpenseSaveUseCase({
     registerExpense,
     transitionState,
@@ -726,6 +739,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     semanticRouter,
     observeSemanticRouting,
     dispatchExpenseSemanticAction,
+    dispatchControlSemanticAction,
     dispatchOptionSelection,
     completeExpenseClarification,
     messageQueue,
@@ -750,6 +764,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     cancelExpenseRegistration,
     resolveExpenseReviewReply,
     undoLastExpense,
+    presentUndoConfirmation,
     retryExpenseSave,
     expenseSummaryPresenterFactory,
     telegram,

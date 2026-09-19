@@ -59,7 +59,7 @@ function reviewPayload(): Record<string, unknown> {
 
 const runtimeStates: Record<string, ConversationState> = {
   'regional-ar': state('IDLE', null),
-  'cancel-receiving': state('EXPENSE_RECEIVING', null),
+  'cancel-receiving': state('EXPENSE_RECEIVING', { raw_message: 'Taxi 12 EUR' }),
   'currency-answer': state('EXPENSE_CLARIFYING', {
     missingField: 'moneda',
     rawMessage: 'Cena 20',
