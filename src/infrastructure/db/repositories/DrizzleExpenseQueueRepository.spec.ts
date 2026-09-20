@@ -93,10 +93,34 @@ describe('DrizzleExpenseQueueRepository', () => {
       transaction: vi.fn((callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)),
     } as unknown as PostgresJsDatabase<typeof schema>;
 
-    await expect(new DrizzleExpenseQueueRepository(db).dequeueFirst('user-1')).resolves.toEqual(
-      first,
-    );
+    await expect(
+      new DrizzleExpenseQueueRepository(db).dequeueFirst('user-1', first.id),
+    ).resolves.toEqual(first);
     expect(tx.delete).toHaveBeenCalledOnce();
     expect(tx.update).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a different successor intact when the expected FIFO item changed', async () => {
+    const successor = buildRow({ id: 'queue-2', rawMessage: 'Lunch 15 EUR' });
+    const tx = {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            orderBy: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([successor]) }),
+          }),
+        }),
+      }),
+      delete: vi.fn(),
+      update: vi.fn(),
+    };
+    const db = {
+      transaction: vi.fn((callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)),
+    } as unknown as PostgresJsDatabase<typeof schema>;
+
+    await expect(
+      new DrizzleExpenseQueueRepository(db).dequeueFirst('user-1', 'queue-1'),
+    ).resolves.toBeNull();
+    expect(tx.delete).not.toHaveBeenCalled();
+    expect(tx.update).not.toHaveBeenCalled();
   });
 });

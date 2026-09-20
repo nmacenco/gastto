@@ -43,6 +43,12 @@ export const onboardingCopies = {
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
   invalidSelectionRePrompt: (fileCount: number) =>
     `No entendí. Escribí un número del *1* al *${fileCount}*, o *${fileCount + 1}* para buscar por nombre.`,
+  ambiguousFileReference: () =>
+    'Encontré más de una opción con esa referencia. Elegí el número exacto de la lista.',
+  fileReferenceNotFound: () =>
+    'No encontré esa opción en la lista actual. Elegí el número exacto de la lista.',
+  staleFileReference: () =>
+    'La lista de archivos cambió. Revisá la lista actual y elegí nuevamente.',
   searchByNamePrompt: () => 'Escribí parte del nombre del archivo que querés usar:',
   urlValidationFailed: () =>
     'No pude acceder a ese archivo. Verificá que el enlace sea correcto y que tengas permisos.',
@@ -67,6 +73,11 @@ export const onboardingCopies = {
     const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
     return `No encontré esa hoja. Elegí una de estas:\n${lines.join('\n')}`;
   },
+  ambiguousSheetReference: () =>
+    'Encontré más de una hoja con esa referencia. Elegí el número exacto de la lista.',
+  sheetReferenceNotFound: () =>
+    'No encontré esa hoja en la lista actual. Elegí el número exacto de la lista.',
+  staleSheetReference: () => 'La lista de hojas cambió. Revisá la lista actual y elegí nuevamente.',
   sheetHeadersDescription: (sheetName: string, headers: string[]) =>
     `Hoja *${sheetName}*: tiene las columnas ${headers.join(', ')}`,
   sheetHeaderDescription: (descriptions: { sheetName: string; headers: string[] }[]) =>

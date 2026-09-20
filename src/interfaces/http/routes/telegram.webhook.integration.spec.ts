@@ -20,6 +20,7 @@ import type { HandleStartCommand } from '../../../application/use-cases/conversa
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
 import type { ProcessMessageJobData } from '../../../application/ports/ProcessMessageJob';
 import type { MessagingOutputPort } from '../../../application/ports/output/messaging.port';
+import { CurrentDeterministicRoutingPolicy } from '../../../application/services/semantic-router/deterministic-routing';
 
 const WEBHOOK_SECRET = 'test-secret-token';
 
@@ -51,12 +52,18 @@ function buildRouteIncomingMessage(): RouteIncomingMessage {
     messageQueue: { add: mockProcessQueueAdd } as unknown as Queue<ProcessMessageJobData>,
     resolveIdentity: { execute: mockResolveIdentity } as unknown as ResolveUserIdentityUseCase,
     handleUnsupportedMessage: new HandleUnsupportedMessage(buildMessagingPort()),
-    classifyFreeTextExpenseIntent: new ClassifyFreeTextExpenseIntent(),
+    deterministicRoutingPolicy: new CurrentDeterministicRoutingPolicy(
+      new ClassifyFreeTextExpenseIntent(),
+    ),
     sendGuidance: new SendExpenseGuidance(buildMessagingPort()),
     getConversationState: {
       execute: mockGetConversationStateExecute,
     } as unknown as GetConversationState,
     processedMessageRepository: buildProcessedMessageRepository(),
+    semanticRoutingPolicy: {
+      admitsForObservation: () => false,
+      resolve: () => ({ mode: 'off', reason: 'state_off' }),
+    },
   });
 }
 

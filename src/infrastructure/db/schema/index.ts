@@ -3,6 +3,7 @@
 // Uses `postgres` driver (not `pg`) per package.json and ADR decisions.
 
 import {
+  bigint,
   pgTable,
   uuid,
   text,
@@ -78,6 +79,9 @@ export const conversationStates = pgTable(
       .primaryKey()
       .references(() => users.userId, { onDelete: 'cascade' }),
     currentState: text('current_state').notNull().default('IDLE'),
+    revision: bigint('revision', { mode: 'bigint' })
+      .notNull()
+      .default(sql`0`),
     statePayload: jsonb('state_payload'),
     enteredAt: timestamp('entered_at').notNull().defaultNow(),
     expiresAt: timestamp('expires_at'),

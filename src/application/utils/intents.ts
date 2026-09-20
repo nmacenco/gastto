@@ -77,16 +77,17 @@ const IDK_VARIANTS = [
 ];
 
 export function isConfirmIntent(rawMessage: string): boolean {
-  const tokens = rawMessage
-    .toLowerCase()
+  const normalized = rawMessage
+    .toLocaleLowerCase('es')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
     .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+    .replace(/^[¿?¡!.,]+/, '')
+    .replace(/[¿?¡!.,]+$/, '')
+    .trim()
+    .replace(/\s+/g, ' ');
 
-  return tokens.length > 0 && tokens.every((token) => CONFIRM_WORDS.includes(token));
+  return CONFIRM_WORDS.includes(normalized);
 }
 
 export function isCancelIntent(rawMessage: string): boolean {

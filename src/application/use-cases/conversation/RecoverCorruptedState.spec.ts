@@ -51,6 +51,7 @@ function buildOperationLog(overrides: Partial<OperationLog> = {}): OperationLog 
 function buildConversationState(overrides: Partial<ConversationState> = {}): ConversationState {
   return {
     userId: 'user-123',
+    revision: '0',
     currentState: 'IDLE',
     statePayload: null,
     enteredAt: new Date('2026-01-01T00:00:00Z'),
@@ -64,7 +65,7 @@ describe('RecoverCorruptedState', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLogCreate.mockResolvedValue(buildOperationLog());
-    mockTransition.mockResolvedValue(buildConversationState());
+    mockTransition.mockResolvedValue({ status: 'updated', state: buildConversationState() });
   });
 
   it('detects invalid state, logs anomaly, resets to IDLE, and returns recovery message', async () => {
@@ -75,6 +76,7 @@ describe('RecoverCorruptedState', () => {
     const result = await useCase.execute({
       userId: 'user-123',
       observedState: 'INVALID_STATE',
+      observedRevision: '0',
     });
 
     expect(result.recovered).toBe(true);
@@ -83,10 +85,16 @@ describe('RecoverCorruptedState', () => {
     expect(mockLogCreate).toHaveBeenCalledWith(
       'user-123',
       'STATE_CORRUPTED',
-      { observedState: 'INVALID_STATE' },
+      { observedState: 'INVALID_STATE', observedRevision: '0' },
       'CORRUPTED_STATE',
     );
-    expect(mockTransition).toHaveBeenCalledWith('user-123', 'IDLE', null, null);
+    expect(mockTransition).toHaveBeenCalledWith({
+      userId: 'user-123',
+      expected: { revision: '0', currentState: 'INVALID_STATE', expiry: 'any' },
+      nextState: 'IDLE',
+      payload: null,
+      expiresAt: null,
+    });
   });
 
   it('returns empty message and recovered=false when state is valid', async () => {
@@ -97,6 +105,7 @@ describe('RecoverCorruptedState', () => {
     const result = await useCase.execute({
       userId: 'user-123',
       observedState: 'IDLE',
+      observedRevision: '0',
     });
 
     expect(result.recovered).toBe(false);
@@ -113,6 +122,7 @@ describe('RecoverCorruptedState', () => {
     const result = await useCase.execute({
       userId: 'user-123',
       observedState: 'EXPENSE_SAVING_RETRY',
+      observedRevision: '0',
     });
 
     expect(result.recovered).toBe(false);

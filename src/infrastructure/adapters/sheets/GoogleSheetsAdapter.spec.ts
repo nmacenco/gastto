@@ -519,12 +519,14 @@ describe('GoogleSheetsAdapter', () => {
       await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
         code: 'NETWORK_ERROR',
         retryable: true,
+        outcomeUnknown: true,
       });
 
       fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
       await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
         code: 'NETWORK_ERROR',
         retryable: true,
+        outcomeUnknown: true,
       });
     });
   });
@@ -600,6 +602,28 @@ describe('GoogleSheetsAdapter', () => {
       await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toMatchObject({
         code: 'NETWORK_ERROR',
         retryable: true,
+        outcomeUnknown: true,
+      });
+    });
+
+    it('distinguishes lookup failure from an uncertain deletion request', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('metadata unavailable'));
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        outcomeUnknown: false,
+      });
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 1 } }] }),
+        })
+        .mockRejectedValueOnce(new Error('connection closed'));
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        outcomeUnknown: true,
       });
     });
   });

@@ -35,12 +35,7 @@ export async function processIncomingMessageJob(
     chatId: data.chatId,
     userId: data.userId,
     text: data.text,
-    callbackData:
-      data.callbackData === undefined
-        ? undefined
-        : data.callbackData.field === undefined
-          ? { action: data.callbackData.action }
-          : { action: data.callbackData.action, field: data.callbackData.field },
+    callbackData: data.callbackData,
     timestamp: new Date(data.timestamp),
     channel: data.channel,
     externalMessageId: data.externalMessageId,

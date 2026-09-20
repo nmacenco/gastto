@@ -17,14 +17,23 @@ import { encodeUrlComponent, parseSpreadsheetRange } from './spreadsheetRange';
 const GOOGLE_SHEETS_API_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
 const GOOGLE_DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
 
-function networkError(operation: string, error: unknown): SpreadsheetError {
+function networkError(
+  operation: string,
+  error: unknown,
+  outcomeUnknown: boolean = false,
+): SpreadsheetError {
   return new SpreadsheetError(`Network error during ${operation}: ${String(error)}`, {
     code: 'NETWORK_ERROR',
     retryable: true,
+    outcomeUnknown,
   });
 }
 
-function providerHttpError(operation: string, status: number): SpreadsheetError {
+function providerHttpError(
+  operation: string,
+  status: number,
+  outcomeUnknown: boolean = false,
+): SpreadsheetError {
   if (status === 401 || status === 403) {
     return new SpreadsheetError(`Google authorization error during ${operation}: HTTP ${status}`, {
       code: 'AUTH_ERROR',
@@ -34,6 +43,7 @@ function providerHttpError(operation: string, status: number): SpreadsheetError 
     return new SpreadsheetError(`Google API error during ${operation}: HTTP ${status}`, {
       code: 'NETWORK_ERROR',
       retryable: true,
+      outcomeUnknown,
     });
   }
   if (status === 400 || status === 404) {
@@ -190,11 +200,11 @@ export class GoogleSheetsAdapter
         body: JSON.stringify({ values: [values.map(sanitizeGoogleSheetsCellValue)] }),
       });
     } catch (err) {
-      throw networkError('row append', err);
+      throw networkError('row append', err, true);
     }
 
     if (!response.ok) {
-      throw providerHttpError('row append', response.status);
+      throw providerHttpError('row append', response.status, response.status >= 500);
     }
 
     let data: unknown;
@@ -261,10 +271,10 @@ export class GoogleSheetsAdapter
         }),
       });
     } catch (error) {
-      throw networkError('row deletion', error);
+      throw networkError('row deletion', error, true);
     }
     if (!deleteResponse.ok) {
-      throw providerHttpError('row deletion', deleteResponse.status);
+      throw providerHttpError('row deletion', deleteResponse.status, deleteResponse.status >= 500);
     }
   }
 

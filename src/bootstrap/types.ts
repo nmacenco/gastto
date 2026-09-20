@@ -32,6 +32,11 @@ import type { RedisMappingCorrectionStateRepository } from '../infrastructure/re
 import type { RedisProcessedMessageRepository } from '../infrastructure/redis/RedisProcessedMessageRepository';
 import type { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProcessingLock';
 import type { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import type { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
+import type { DispatchControlSemanticAction } from '../application/use-cases/expense/DispatchControlSemanticAction';
+import type { PresentUndoConfirmation } from '../application/use-cases/expense/PresentUndoConfirmation';
+import type { DispatchOptionSelection } from '../application/use-cases/spreadsheet/DispatchOptionSelection';
+import type { CompleteExpenseClarification } from '../application/use-cases/expense/CompleteExpenseClarification';
 import type { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
@@ -73,6 +78,10 @@ import type { ProcessMessageJobData } from '../application/ports/ProcessMessageJ
 import type { IncomingMessageJobData } from '../application/ports/IncomingMessageJob';
 import type { MessagingOutputPort } from '../application/ports/output/messaging.port';
 import type { OAuthAccessTokenProvider } from '../application/services/OAuthAccessTokenService';
+import type { SemanticRouterPort } from '../domain/ports/SemanticRouterPort';
+import type { Sha256SemanticRoutingPolicy } from '../application/services/semantic-router/runtime-policy';
+import type { CurrentDeterministicRoutingPolicy } from '../application/services/semantic-router/deterministic-routing';
+import type { ObserveSemanticRouting } from '../application/services/semantic-router/ObserveSemanticRouting';
 
 /** Drizzle database handle produced by `drizzle(sql)`. */
 export type DrizzleDatabase = ReturnType<typeof drizzle>;
@@ -169,6 +178,14 @@ export interface Dependencies {
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
   recoverCorruptedState: RecoverCorruptedState;
+  semanticRoutingPolicy: Sha256SemanticRoutingPolicy;
+  deterministicRoutingPolicy: CurrentDeterministicRoutingPolicy;
+  semanticRouter: SemanticRouterPort | null;
+  observeSemanticRouting: ObserveSemanticRouting;
+  dispatchExpenseSemanticAction: DispatchExpenseSemanticAction;
+  dispatchControlSemanticAction: DispatchControlSemanticAction;
+  dispatchOptionSelection?: DispatchOptionSelection | null;
+  completeExpenseClarification: CompleteExpenseClarification;
 
   // Queues
   messageQueue: Queue<ProcessMessageJobData>;
@@ -201,6 +218,7 @@ export interface Dependencies {
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase;
   undoLastExpense?: UndoLastExpenseUseCase;
+  presentUndoConfirmation: PresentUndoConfirmation;
   retryExpenseSave: RetryExpenseSaveUseCase;
   expenseSummaryPresenterFactory: (
     messaging: MessagingOutputPort,

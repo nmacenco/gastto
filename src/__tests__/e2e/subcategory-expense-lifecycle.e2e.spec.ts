@@ -25,6 +25,11 @@ const categoryId = '22222222-2222-4222-8222-222222222222';
 const subcategoryId = '33333333-3333-4333-8333-333333333333';
 const spreadsheetId = '44444444-4444-4444-8444-444444444444';
 const externalId = 'chat-123';
+const reviewBinding = {
+  operationId: 'abcdefghijklmnopqrstuv',
+  revision: 1,
+  presentedAt: '2026-09-05T10:00:00.000Z',
+} as const;
 
 const basePayload: ExpenseReviewPayload = {
   rawMessage: 'Dinner 24.50 EUR',
@@ -46,6 +51,7 @@ const basePayload: ExpenseReviewPayload = {
   resolvedSubcategoryId: subcategoryId,
   subcategoryStatus: 'confirmed',
   subcategoryEnabled: true,
+  reviewBinding,
 };
 
 type Mapping = {
@@ -64,22 +70,24 @@ class MemoryConversationRepository implements IConversationStateRepository {
     return Promise.resolve(this.state);
   }
 
-  transition(
-    _userId: string,
-    nextState: ConversationState['currentState'],
-    payload: Record<string, unknown> | null,
-    expiresAt: Date | null,
-  ): Promise<ConversationState> {
+  transition(input: Parameters<IConversationStateRepository['transition']>[0]) {
+    if (
+      input.expected.revision !== this.state.revision ||
+      input.expected.currentState !== this.state.currentState
+    ) {
+      return Promise.resolve({ status: 'stale' as const });
+    }
     const now = new Date();
     this.state = {
       ...this.state,
-      currentState: nextState,
-      statePayload: payload,
-      expiresAt,
+      revision: (BigInt(this.state.revision) + 1n).toString(),
+      currentState: input.nextState,
+      statePayload: input.payload,
+      expiresAt: input.expiresAt,
       enteredAt: now,
       updatedAt: now,
     };
-    return Promise.resolve(this.state);
+    return Promise.resolve({ status: 'updated' as const, state: this.state });
   }
 
   findExpired(): Promise<ConversationState[]> {
@@ -138,15 +146,28 @@ type HarnessOptions = {
   appendFailures?: number;
 };
 
-function buildJob(input: { rawMessage: string; callbackData?: { action: 'confirm' } }) {
+function buildJob(input: {
+  rawMessage: string;
+  callbackData?: { action: 'confirm' };
+  receivedAt?: string;
+}) {
   const data: ProcessMessageJobData = {
     userId,
     rawMessage: input.rawMessage,
     channel: 'telegram',
     externalId,
     externalMessageId: `message-${Math.random()}`,
-    receivedAt: new Date().toISOString(),
-    ...(input.callbackData === undefined ? {} : { callbackData: input.callbackData }),
+    receivedAt: input.receivedAt ?? new Date().toISOString(),
+    ...(input.callbackData === undefined
+      ? {}
+      : {
+          callbackData: {
+            version: 1 as const,
+            action: input.callbackData.action,
+            operationId: reviewBinding.operationId,
+            reviewRevision: reviewBinding.revision,
+          },
+        }),
   };
   return { data } as Job<ProcessMessageJobData>;
 }
@@ -155,8 +176,9 @@ function createHarness(options: HarnessOptions) {
   const now = new Date();
   const conversationRepo = new MemoryConversationRepository({
     userId,
+    revision: '0',
     currentState: 'EXPENSE_REVIEW',
-    statePayload: { ...options.payload },
+    statePayload: { ...options.payload, reviewBinding },
     enteredAt: now,
     expiresAt: new Date(now.getTime() + 10 * 60 * 1000),
     updatedAt: now,
@@ -215,6 +237,7 @@ function createHarness(options: HarnessOptions) {
     }),
     forceRefreshAccessToken: vi.fn(),
   };
+  const transitionState = new TransitionConversationState(conversationRepo);
   const registerExpense = new RegisterExpenseUseCase(
     {} as never,
     { create: vi.fn(() => spreadsheet) } as never,
@@ -223,13 +246,12 @@ function createHarness(options: HarnessOptions) {
     { findBySpreadsheetId: vi.fn().mockResolvedValue(options.mappings) } as never,
     {} as never,
     {} as never,
-    conversationRepo,
+    transitionState,
     logRepo,
     {} as never,
     {} as never,
     oauthAccessTokenService,
   );
-  const transitionState = new TransitionConversationState(conversationRepo);
   const resolveExpenseSummaryAction = new ResolveExpenseSummaryActionUseCase({
     registerExpense,
     transitionState,
@@ -249,17 +271,26 @@ function createHarness(options: HarnessOptions) {
     spreadsheetConfigRepo as never,
     logRepo,
     oauthAccessTokenService,
+    transitionState,
   );
   const deps: MessageWorkerDeps = {
     redis: {} as never,
     logger: { error: vi.fn() } as never,
     userProcessingLock: {
       acquire: vi.fn().mockResolvedValue('lock-token'),
+      renew: vi.fn().mockResolvedValue(true),
       release: vi.fn().mockResolvedValue(undefined),
     },
     registerExpense,
     queuePendingExpense: {} as never,
     classifyFreeTextExpenseIntent: { execute: vi.fn().mockReturnValue('non_financial') },
+    deterministicRoutingPolicy: {
+      decide: () => ({ kind: 'fsm_handler' }),
+    },
+    observeSemanticRouting: { execute: vi.fn().mockResolvedValue(undefined) } as never,
+    dispatchExpenseSemanticAction: { execute: vi.fn() } as never,
+    completeExpenseClarification: { execute: vi.fn() } as never,
+    sendGuidance: { execute: vi.fn().mockResolvedValue(undefined) } as never,
     correctExpense: null,
     generateExpenseSummary: null,
     resolveExpenseSummaryAction,
@@ -454,7 +485,16 @@ describe('linked-subcategory expense lifecycle through the message worker', () =
     });
     expect(successMessages(harness.messages)).toHaveLength(0);
 
-    await processMessageJob(buildJob({ rawMessage: 'reintentar' }), harness.deps);
+    const retryPresentedAt = (
+      harness.conversationRepo.state.statePayload?.actionBinding as { presentedAt: string }
+    ).presentedAt;
+    await processMessageJob(
+      buildJob({
+        rawMessage: 'reintentar',
+        receivedAt: new Date(Date.parse(retryPresentedAt) + 1).toISOString(),
+      }),
+      harness.deps,
+    );
 
     expect(harness.appendedRows).toEqual([
       [24.5, 'Food', 'Restaurant'],
@@ -487,7 +527,16 @@ describe('linked-subcategory expense lifecycle through the message worker', () =
     );
     expect(successMessages(harness.messages)).toHaveLength(0);
 
-    await processMessageJob(buildJob({ rawMessage: 'reintentar' }), harness.deps);
+    const retryPresentedAt = (
+      harness.conversationRepo.state.statePayload?.actionBinding as { presentedAt: string }
+    ).presentedAt;
+    await processMessageJob(
+      buildJob({
+        rawMessage: 'reintentar',
+        receivedAt: new Date(Date.parse(retryPresentedAt) + 1).toISOString(),
+      }),
+      harness.deps,
+    );
 
     expect(harness.appendedRows).toHaveLength(2);
     expect(harness.expenseRepo.records).toHaveLength(0);

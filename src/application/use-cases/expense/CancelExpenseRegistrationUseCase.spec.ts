@@ -79,4 +79,41 @@ describe('CancelExpenseRegistrationUseCase', () => {
       advancePendingExpense.mock.invocationCallOrder[0]!,
     );
   });
+
+  it('uses the captured revision before semantic cleanup, copy, and FIFO advancement', async () => {
+    const advancePendingExpense = vi.fn().mockResolvedValue({ status: 'empty' });
+    const semanticUseCase = new CancelExpenseRegistrationUseCase({
+      transitionState: { execute: transition } as unknown as TransitionConversationState,
+      messagingPort: { sendMessage },
+      advancePendingExpense: { execute: advancePendingExpense } as never,
+    });
+    const expected = {
+      revision: '12',
+      currentState: 'EXPENSE_REVIEW',
+      expiry: 'unexpired' as const,
+    };
+
+    await semanticUseCase.execute({
+      userId: 'user-1',
+      chatId: 'chat-1',
+      currentState: 'EXPENSE_REVIEW',
+      source: 'semantic',
+      expected,
+      channel: 'telegram',
+    });
+
+    expect(transition).toHaveBeenCalledWith({
+      userId: 'user-1',
+      targetState: 'IDLE',
+      payload: null,
+      expiresAt: null,
+      expected,
+    });
+    expect(transition.mock.invocationCallOrder[0]).toBeLessThan(
+      sendMessage.mock.invocationCallOrder[0]!,
+    );
+    expect(sendMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      advancePendingExpense.mock.invocationCallOrder[0]!,
+    );
+  });
 });

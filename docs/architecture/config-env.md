@@ -1,6 +1,6 @@
 ---
 title: 'Configuration & Environment'
-last_updated: '2026-08-23'
+last_updated: '2026-09-12'
 source_of_truth: ['src/config/env.schema.ts']
 tags: ['architecture', 'config', 'env']
 ---
@@ -9,10 +9,12 @@ tags: ['architecture', 'config', 'env']
 
 This document describes the configuration and environment setup for this project.
 
+The release-evidence command accepts configuration only through explicit JSON file arguments. It intentionally has no environment-variable fallback, does not load `.env`, and cannot activate semantic routing. Runtime state modes, cohort percentages, sampling, model, timeout, and output-token cap remain the existing explicit server configuration and must be recorded separately in an approved rollout record.
+
 ## Environment variables
 
 | Variable                                       | Scope  | Required | Description                                                                                                               |
-| ---------------------------------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| ---------------------------------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------- | ------ | --------------------------------------------- |
 | `NODE_ENV`                                     | Server | No       | Runtime environment: `development`, `production`, or `test`. Defaults to `development`.                                   |
 | `PORT`                                         | Server | No       | HTTP server port. Defaults to `3000`.                                                                                     |
 | `LOG_LEVEL`                                    | Server | No       | Pino log level. Defaults to `info`.                                                                                       |
@@ -26,6 +28,14 @@ This document describes the configuration and environment setup for this project
 | `SENTRY_DSN`                                   | Server | No       | Sentry error tracking DSN. Optional.                                                                                      |
 | `CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD` | Server | No       | Minimum confidence for keyword-based category classification (E1-US-04). Range: [0, 1]. Default: `0.6`.                   |
 | `ENCRYPTION_KEY`                               | Server | No       | AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars). Currently commented out in schema. |
+| `SEMANTIC_ROUTER_STATE_MODES`                  | Server | No       | Strict comma-separated `FSM_STATE=off                                                                                     | shadow | enabled` map. Empty means every state is off. |
+| `SEMANTIC_ROUTER_COHORT_PERCENT`               | Server | No       | Stable user-cohort percentage from 0 through 100. Defaults to `0`.                                                        |
+| `SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT`        | Server | No       | Stable per-message sampling percentage from 0 through 100. Defaults to `0`.                                               |
+| `SEMANTIC_ROUTER_COHORT_SEED`                  | Server | No       | Bounded non-secret identifier used for stable hashing. Never use a credential.                                            |
+| `SEMANTIC_ROUTER_PROVIDER`                     | Server | No       | Runtime router provider. Only the validated `openai` snapshot is currently supported.                                     |
+| `SEMANTIC_ROUTER_MODEL`                        | Server | No       | Explicit supported runtime model snapshot; aliases are rejected.                                                          |
+| `SEMANTIC_ROUTER_TIMEOUT_MS`                   | Server | No       | Router deadline from 1 through 29,000 ms, below the 30-second lock-renewal interval. Defaults to `10000`.                 |
+| `SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS`            | Server | No       | Structured router output cap from 64 through 4,096. Defaults to `256`.                                                    |
 
 **Security note**: All secrets are server-side only. No env var is exposed to the client.
 
@@ -124,3 +134,35 @@ previous provider URI in an approved password manager for rollback.
 | `pnpm db:generate`   | Generate Drizzle migration files                     |
 | `pnpm db:migrate`    | Run pending migrations                               |
 | `pnpm db:studio`     | Open Drizzle Studio                                  |
+
+## Standalone semantic evaluator
+
+`pnpm eval:semantic-router` defaults to offline fixtures and never loads dotenv or
+application bootstrap. Explicit live mode uses only the caller-provided
+`OPENAI_API_KEY` and requires model, provider, case, timeout and output-token limits
+on the command line. It does not use the application's provider preference or
+initialize DB/Redis clients. See [Semantic Router Evaluation](../features/semantic-router-evaluation.md)
+for supported snapshots, bounds and optional live commands. Do not read environment
+files or print key values to run evaluations.
+
+## Runtime semantic routing modes
+
+Runtime routing is independent from the extraction-provider preference and the
+standalone evaluator. All states, cohorting, and sampling default off. `shadow`
+may spend provider capacity but cannot change the deterministic route. `enabled`
+can execute the delivered expense capability matrix in `IDLE`,
+`EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, `EXPENSE_CORRECTING`,
+and `EXPENSE_SAVING_RETRY`, plus bound file/sheet option selection. Retry proposals
+are request-only and reconfiguration remains inside the existing Google recovery use
+case. Every other configured state/action pair fails closed. Missing credentials or invalid/unsupported enabled settings produce
+bounded guidance without extraction or mutation. Shadow provider failures retain
+the deterministic path. Configuration alone does not authorize a cohort; the
+evaluation and rollout gates in ADR-023 still apply.
+
+Rollback requires changing the affected state modes to `off`. Queue payloads do
+not carry a captured mode, so already queued jobs resolve the new setting after
+lock acquisition and make no semantic call. No queue or database migration is
+required. PostgreSQL/Redis integration exercises `enabled → shadow → off` with
+already queued work and active review, retry, and undo-confirming payloads;
+deterministic commands, source text, bindings, expiry, pending expenses, and financial
+claims remain compatible.

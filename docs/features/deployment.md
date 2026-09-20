@@ -126,6 +126,14 @@ single-Machine capacity policy.
 
 This separation ensures that rotating a third-party API key or database credential requires a single `flyctl secrets set` command, with no GitHub interaction needed.
 
+## Semantic router staged rollout and rollback
+
+Release evidence and deployment authorization are separate. Before any candidate or shadow execution, an immutable bundle must contain independently reviewed labels, Product Owner and Tech Lead approval, numeric gates/minimums, approved pricing, the exact candidate tuple, artifact checksums, accountable owner, and technical operator. `approved_for_next_stage` authorizes only the stage named by the manifest; it is not production-wide approval.
+
+Each external stage records exact state modes, cohort and shadow percentages, model snapshot, timeout, output-token cap, observation window, prior/applied configuration digests, report digest, and stop conditions without copying secret values. Stop and set affected state modes to `off` first on any critical false authorization, unauthorized effect, breached approved budget, missing safety telemetry, version drift, incomplete usage/task denominators, unresolved operator concern, or manual stop. Already queued work resolves current flags after lock acquisition; do not rewrite queue payloads, database rows, or migrations. Verify deterministic exact commands and active review, queue, selection, retry, and undo contexts after the flag change.
+
+Phase 1 performed no deployment or configuration change. Its local acceptance report is `hold`; live provider, shadow, controlled rollout, and production rollback records remain pending explicit authorization.
+
 ## Redis-Compatible Broker Isolation
 
 `REDIS_URL` is a provider-independent runtime contract. BullMQ and application

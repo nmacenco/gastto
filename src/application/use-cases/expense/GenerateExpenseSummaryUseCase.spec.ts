@@ -11,6 +11,8 @@ import type { ExpenseSummary } from '../../dtos/expense-summary.dto';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { IExpenseRecordRepository } from '../../../domain/ports/repositories';
+import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import type { ConversationState } from '../../../domain/entities/ConversationState';
 
 const mockFindAverageAmountByUserId = vi.fn();
 
@@ -286,5 +288,72 @@ describe('GenerateExpenseSummaryUseCase', () => {
     const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
     expect(summary.isHighAmount).toBe(false);
     expect(summary.requiresExplicitConfirmation).toBe(false);
+  });
+});
+
+describe('GenerateExpenseSummaryUseCase presentation binding', () => {
+  function buildBoundUseCase(payload: ExpenseReviewPayload) {
+    let state: ConversationState = {
+      userId: 'user-123',
+      revision: '1',
+      currentState: 'EXPENSE_REVIEW' as const,
+      statePayload: payload as unknown as Record<string, unknown>,
+      expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+      enteredAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const execute = vi.fn((input: Parameters<TransitionConversationState['execute']>[0]) => {
+      state = {
+        ...state,
+        revision: String(Number(state.revision) + 1),
+        statePayload: input.payload ?? null,
+        expiresAt: input.expiresAt ?? null,
+      };
+      return Promise.resolve({ status: 'updated' as const, state });
+    });
+    const transitionState = {
+      currentState: () => state,
+      execute,
+    } as unknown as TransitionConversationState;
+    return {
+      useCase: new GenerateExpenseSummaryUseCase(buildMockExpenseRepo(), transitionState),
+      execute,
+      currentState: () => state,
+    };
+  }
+
+  it('upgrades and persists a legacy binding before rendering, then marks successful delivery', async () => {
+    const payload = buildReviewPayload();
+    const presenter = buildMockPresenter();
+    const { useCase, execute, currentState } = buildBoundUseCase(payload);
+
+    await useCase.execute({ userId: 'user-123', payload, presenter });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    const firstPayload = execute.mock.calls[0]?.[0].payload as unknown as ExpenseReviewPayload;
+    expect(firstPayload.reviewBinding).toMatchObject({ revision: 1, presentedAt: null });
+    expect(presenter.presentSummary).toHaveBeenCalledWith(
+      expect.any(Object),
+      firstPayload.reviewBinding,
+    );
+    expect(
+      (currentState().statePayload as unknown as ExpenseReviewPayload).reviewBinding?.presentedAt,
+    ).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('leaves authorization unavailable when presentation fails', async () => {
+    const payload = buildReviewPayload();
+    const presenter = buildMockPresenter();
+    presenter.presentSummary.mockRejectedValue(new Error('delivery uncertain'));
+    const { useCase, execute, currentState } = buildBoundUseCase(payload);
+
+    await expect(useCase.execute({ userId: 'user-123', payload, presenter })).rejects.toThrow(
+      'delivery uncertain',
+    );
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(
+      (currentState().statePayload as unknown as ExpenseReviewPayload).reviewBinding?.presentedAt,
+    ).toBeNull();
   });
 });

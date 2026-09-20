@@ -111,6 +111,15 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
     });
   }
 
+  async function executeWithCurrentState(
+    useCase: ValidateSpreadsheetAccess,
+    input: Parameters<ValidateSpreadsheetAccess['execute']>[0],
+  ) {
+    const observed = await conversationRepo.findByUserId(input.userId);
+    if (!observed) throw new Error('Expected persisted conversation state');
+    return transitionState.runWithState(observed, () => useCase.execute(input));
+  }
+
   const mockPreview = new SpreadsheetPreview({
     provider: 'google',
     fileId: 'file-123',
@@ -136,7 +145,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
       const portFactory = createMockPortFactory({ kind: 'success', preview: mockPreview });
       const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -185,7 +194,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
       );
       const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -227,7 +236,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
       const portFactory = createMockPortFactory({ kind: 'read-only', preview: mockPreview });
       const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -268,7 +277,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
       const portFactory = createMockPortFactory({ kind: 'empty-sheet' });
       const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -330,7 +339,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
 
       const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -383,7 +392,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
 
       const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',

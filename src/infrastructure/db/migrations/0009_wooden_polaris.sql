@@ -1,0 +1,1 @@
+ALTER TABLE "conversation_states" ADD COLUMN "revision" bigint DEFAULT 0 NOT NULL;

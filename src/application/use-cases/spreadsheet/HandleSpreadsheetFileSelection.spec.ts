@@ -208,6 +208,38 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(result.message).toBe(onboardingCopies.invalidSelectionRePrompt(2));
       expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
+
+    it('selects a trusted displayed position with the captured revision precondition', async () => {
+      mockValidateAccess.mockResolvedValue(true);
+      const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
+      const expected = {
+        revision: '9',
+        currentState: 'ONBOARDING_FILE',
+        expiry: 'unexpired' as const,
+      };
+      const result = await useCase.selectDisplayedFile({
+        userId: baseInput.userId,
+        externalId: baseInput.externalId,
+        channel: baseInput.channel,
+        position: 2,
+        expected,
+        statePayload: {
+          fileList: mockFiles.map((file) => ({
+            id: file.id,
+            name: file.name,
+            mimeType: file.mimeType,
+            modifiedAt: file.modifiedAt.toISOString(),
+          })),
+        },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockValidateAccess).toHaveBeenCalledWith('f2', 'decrypted-access-token', 'google');
+      const transition = mockTransitionExecute.mock.calls.at(-1)?.[0];
+      expect(transition).toMatchObject({ targetState: 'ONBOARDING_SHEET', expected });
+      expect(transition?.payload?.selectedFileId).toBe('f2');
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledOnce();
+    });
   });
 
   describe('"none of these"', () => {

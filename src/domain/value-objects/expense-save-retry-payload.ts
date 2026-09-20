@@ -3,12 +3,17 @@
 
 import type { SpreadsheetErrorCode } from '../errors/SpreadsheetError';
 import { normalizeExpenseReviewPayload, type ExpenseReviewPayload } from './expense-review-payload';
+import {
+  normalizeFinancialActionBinding,
+  type FinancialActionBinding,
+} from './financial-action-binding';
 
 export interface ExpenseSaveRetryPayload {
   expense: ExpenseReviewPayload;
   failureCode: SpreadsheetErrorCode;
   firstAttemptAt: string;
   attemptCount: 1;
+  actionBinding: FinancialActionBinding | null;
 }
 
 export function isExpenseSaveRetryPayload(
@@ -40,11 +45,16 @@ export function parseExpenseSaveRetryPayload(payload: unknown): ExpenseSaveRetry
   }
 
   try {
+    const actionBinding =
+      payload.actionBinding === undefined
+        ? null
+        : normalizeFinancialActionBinding(payload.actionBinding);
     return {
       expense: normalizeExpenseReviewPayload(payload.expense),
       failureCode: payload.failureCode,
       firstAttemptAt: payload.firstAttemptAt,
       attemptCount: 1,
+      actionBinding,
     };
   } catch {
     return null;

@@ -5,7 +5,12 @@
 // No imports of Drizzle, postgres, or any ORM here.
 
 import type { User, MessagingIdentity } from '../entities/User';
-import type { ConversationState, ExpenseQueueItem } from '../entities/ConversationState';
+import type {
+  ConversationState,
+  ConversationStatePrecondition,
+  ConversationStateWriteResult,
+  ExpenseQueueItem,
+} from '../entities/ConversationState';
 import type { ExpenseRecord } from '../entities/ExpenseRecord';
 import type {
   SpreadsheetConfig,
@@ -51,16 +56,18 @@ export interface IUserRepository {
 export interface IConversationStateRepository {
   findByUserId(userId: string): Promise<ConversationState | null>;
 
-  // Crea el estado inicial IDLE para un usuario recién creado
+  // Idempotently creates the initial IDLE state without resetting an existing row.
   create(userId: string): Promise<ConversationState>;
 
-  // Actualiza estado y payload en una sola operación atómica
-  transition(
-    userId: string,
-    nextState: ConversationState['currentState'],
-    payload: Record<string, unknown> | null,
-    expiresAt: Date | null,
-  ): Promise<ConversationState>;
+  // Optimistic state mutation. Every writer must present the snapshot it observed.
+  transition(input: {
+    userId: string;
+    expected: ConversationStatePrecondition;
+    nextState: ConversationState['currentState'];
+    payload: Record<string, unknown> | null;
+    expiresAt: Date | null;
+    claimId?: string;
+  }): Promise<ConversationStateWriteResult>;
 
   // Encuentra estados expirados (para el job BullMQ de timeout)
   findExpired(): Promise<ConversationState[]>;
@@ -75,7 +82,7 @@ export interface IExpenseQueueRepository {
     rawMessage: string,
     channel: 'telegram' | 'whatsapp',
   ): Promise<ExpenseQueueItem>;
-  dequeueFirst(userId: string): Promise<ExpenseQueueItem | null>;
+  dequeueFirst(userId: string, expectedItemId: string): Promise<ExpenseQueueItem | null>;
   countByUserId(userId: string): Promise<number>;
   clearByUserId(userId: string): Promise<void>;
 }

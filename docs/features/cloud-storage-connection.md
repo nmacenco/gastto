@@ -26,16 +26,18 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 4. For **Google Drive**:
    - Generates a cryptographically random `state` (32 bytes hex).
    - Builds the Google OAuth URL via `GoogleDriveOAuthAdapter.buildAuthUrl()`.
-   - Stores `oauth:state:{state}` in Redis with a **15-minute TTL**.
    - Schedules a BullMQ job on the `oauth-reminder` queue with a **10-minute delay**.
-   - Sends the auth link to the user via `MessagingOutputPort`.
    - Transitions FSM to `ONBOARDING_DRIVE`.
+   - Stores `oauth:state:{state}` with the committed revision in Redis with a **15-minute TTL**.
+   - Sends the auth link to the user via `MessagingOutputPort` only after the transition commits.
 5. For **OneDrive**: returns a "coming soon" message; state remains `ONBOARDING_START`.
 6. For **invalid input**: returns a re-prompt; state remains `ONBOARDING_START`.
 
 Reconnection paths for terminal authorization loss transition back to `ONBOARDING_START` with `promptShown: true`, so the user receives the standard re-prompt instead of the welcome message. Normal access-token expiration is refreshed silently and does not restart onboarding.
 
 ### Callback (`HandleOAuthCallback`)
+
+The Redis CSRF record includes the committed conversation revision. The callback acquires and renews the same per-user lease as message processing, then compares the persisted `ONBOARDING_DRIVE` nonce and revision before code exchange and again before token persistence. Lease invalidation is checked immediately before token persistence. It commits `ONBOARDING_FILE` before sending success copy; a callback stale before persistence stores no token, and any stale final transition sends no success copy or file-selection effect.
 
 6. User completes Google authorization and the redirect delivers `code` + `state`.
 7. `HandleOAuthCallback`:
@@ -44,19 +46,21 @@ Reconnection paths for terminal authorization loss transition back to `ONBOARDIN
    - Encrypts the access token and refresh token separately (AES-256-GCM), each with its own IV, and persists both ciphertexts plus both IVs via `IOAuthTokenRepository.upsert()`.
    - Cancels the pending BullMQ reminder job using the stored `reminderJobId`.
    - Removes the Redis CSRF key.
-   - Sends a success confirmation to the user.
    - Transitions FSM to `ONBOARDING_FILE`.
+   - Sends a success confirmation to the user only after that transition commits.
 
 ### Reminder (`SendOAuthReminder`)
+
+The reminder owns the per-user lease, commits a guarded nonce/revision self-transition, and only then stores and sends the replacement authorization link. A stale reminder has no state or message effect.
 
 8. If the user has not completed authorization within **10 minutes**, the BullMQ job fires.
 9. `SendOAuthReminder`:
    - Checks if tokens already exist; if so, silently skips.
    - Generates a fresh CSRF `state`.
-   - Builds a new auth URL and stores the new state in Redis (15-minute TTL).
    - Schedules a new BullMQ reminder job for +10 minutes.
    - Updates the FSM payload via self-transition `ONBOARDING_DRIVE` → `ONBOARDING_DRIVE`.
-   - Resends the auth link to the user.
+   - Stores the new state and committed revision in Redis (15-minute TTL).
+   - Resends the auth link to the user only after the self-transition commits.
 
 ### Transparent access-token refresh (`OAuthAccessTokenService`)
 
@@ -79,7 +83,7 @@ Reconnection paths for terminal authorization loss transition back to `ONBOARDIN
 
 | Key                   | Value                                                            | TTL            |
 | --------------------- | ---------------------------------------------------------------- | -------------- |
-| `oauth:state:{state}` | JSON: `{ userId, provider, externalId, channel, reminderJobId }` | 15 min (900 s) |
+| `oauth:state:{state}` | JSON: `{ userId, provider, externalId, channel, reminderJobId, revision }` | 15 min (900 s) |
 
 ## BullMQ Reminder Queue
 

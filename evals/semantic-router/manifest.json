@@ -1,0 +1,13 @@
+{
+  "corpusVersion": "semantic-corpus-v6",
+  "labelVersion": "semantic-labels-v6",
+  "frozenOn": "2026-09-18",
+  "corpusSha256": "4a9dd9ad08b15a5eb835854dc3d00eecfee2b29e339ab5ef7a43800446abbeef",
+  "responsesSha256": "fc0b1250e9e8e84f07f31fb9d63543d169130ed1cb742c047e71a7f9385c33a1",
+  "labelReview": "Author reviewed the v6 control-flow labels from ADR-023 and the Phase 6 specification before running either offline split; no candidate model predictions were used. Independent human adjudication remains pending.",
+  "liveEvaluations": [],
+  "splitCounts": {
+    "development": 224,
+    "held_out": 53
+  }
+}

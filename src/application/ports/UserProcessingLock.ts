@@ -6,5 +6,6 @@
 
 export interface IUserProcessingLock {
   acquire(userId: string, ttlMs: number): Promise<string | null>;
+  renew(userId: string, token: string, ttlMs: number): Promise<boolean>;
   release(userId: string, token: string): Promise<void>;
 }

@@ -19,12 +19,22 @@ export const expenseCopies = {
   saving: () => 'Guardando tu gasto…',
   saveNetworkFailure: () =>
     'No pude confirmar el guardado por un problema de conexión. Respondé *reintentar* dentro de los próximos 10 minutos.',
+  financialOutcomeUnknown: () =>
+    'El resultado de esa operación todavía no está confirmado. Revisá la planilla antes de volver a intentarlo.',
+  staleReview: () =>
+    'Ese botón o respuesta corresponde a otro resumen. Revisá el resumen actual y confirmalo de nuevo.',
+  expiredReview: () => 'Ese resumen expiró. Revisá el nuevo resumen antes de confirmar.',
+  noActiveReview: () => 'No hay un gasto pendiente de confirmación.',
   saveAuthorizationFailure: () =>
     'No pude acceder a tu planilla. Respondé *empezar* para volver a conectar tu cuenta.',
   saveStructureFailure: () =>
     'No pude guardar el gasto porque la hoja o sus columnas cambiaron. Respondé *reconfigurar* para revisar la configuración.',
   saveRetryExpired: () =>
     'El tiempo para reintentar este guardado venció. Verificá tu planilla y registrá el gasto nuevamente.',
+  saveRetryRecoveryChoice: () =>
+    'Respondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla.',
+  staleFinancialAction: () =>
+    'Esa respuesta corresponde a otra operación. Revisá la solicitud actual y confirmala de nuevo.',
   saveManualCopyFallback: (input: { concept: string; amount: number; currency: string }): string =>
     [
       'No pude confirmar que el gasto se haya guardado. Copiá estos datos manualmente en tu planilla:',
@@ -47,12 +57,41 @@ export const expenseCopies = {
   fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
   expenseRegistrationUnavailable: () =>
     'El registro de gastos no está disponible en este momento. Volvé a intentarlo más tarde.',
+  semanticExpenseGuidance: (
+    reason:
+      | 'ambiguous_intent'
+      | 'mixed_intents'
+      | 'unsupported_action'
+      | 'stale_context'
+      | 'registration_unavailable'
+      | 'invalid_state_context'
+      | 'correction_not_interpretable'
+      | 'invalid_subcategory'
+      | 'correction_cycle_limit'
+      | 'dispatch_failed',
+  ) =>
+    reason === 'ambiguous_intent' || reason === 'mixed_intents'
+      ? 'No me quedó claro qué gasto querés registrar. Indicá un solo gasto con monto y moneda.'
+      : 'No pude procesar ese gasto de forma segura. Indicá el gasto con monto y moneda para intentarlo de nuevo.',
+  semanticControlGuidance: (
+    reason:
+      | 'ambiguous_intent'
+      | 'mixed_intents'
+      | 'stale_context'
+      | 'invalid_state_context'
+      | 'unsupported_action'
+      | 'dispatch_failed',
+  ) =>
+    reason === 'ambiguous_intent' || reason === 'mixed_intents'
+      ? 'No me quedó claro qué querés hacer. Pedime una sola acción.'
+      : 'Esa solicitud ya no corresponde al estado actual. Revisá la conversación e intentá de nuevo.',
   undoDeleted: (concept: string, amount: number, currency: string) =>
     `Listo, se eliminó el último registro (${concept.slice(0, 80)}, ${amount} ${currency}).`,
   undoNotFound: () => 'No encontré un registro reciente para deshacer.',
   undoConfirmationRequired: (concept: string, amount: number, currency: string, savedAt: Date) =>
     `¿Querés eliminar '${concept.slice(0, 80)}, ${amount} ${currency}' registrado a las ${savedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}? Respondé sí o cancelar.`,
   undoCancelled: () => 'No se eliminó ningún registro.',
+  undoExpired: () => 'La confirmación para eliminar ese registro venció. No se eliminó nada.',
   undoDeletionFailed: () =>
     'No pude eliminar el último registro en este momento. Verificá tu planilla e intentá de nuevo más tarde.',
   clarificationInterrupted: () => 'El registro anterior fue cancelado. Procesando el nuevo gasto…',

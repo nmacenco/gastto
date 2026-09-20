@@ -35,11 +35,14 @@ import type { ResolveExpenseSummaryActionInput } from '../../application/use-cas
 import { SpreadsheetCategoryReader } from '../../infrastructure/adapters/sheets/SpreadsheetCategoryReader';
 import type { SpreadsheetPort } from '../../domain/ports/services';
 import { CategoryVocabulary } from '../../domain/entities/CategoryVocabulary';
+import { CompleteExpenseClarification } from '../../application/use-cases/expense/CompleteExpenseClarification';
+import { PresentUndoConfirmation } from '../../application/use-cases/expense/PresentUndoConfirmation';
+import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
 const mockLoggerError = vi.fn();
-const mockTransitionStateExecute = vi.fn();
+const mockTransitionStateExecute = vi.fn<TransitionConversationState['execute']>();
 const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
 const mockUserRepoFindByMessagingIdentity = vi.fn();
@@ -73,6 +76,14 @@ const mockCancelExpenseRegistrationExecute = vi.fn();
 const mockUndoLastExpenseExecute = vi.fn();
 const mockRetryExpenseSaveExecute = vi.fn();
 const mockStartSpreadsheetReconfigurationExecute = vi.fn();
+const mockObserveSemanticRoutingExecute = vi.fn();
+const mockDispatchExpenseSemanticActionExecute = vi.fn();
+const mockDispatchControlSemanticActionExecute = vi.fn();
+const mockDispatchOptionSelectionExecute = vi.fn();
+const mockRecordOptionDispatch = vi.fn();
+const mockRecordControlDispatch = vi.fn();
+const mockSendGuidanceExecute = vi.fn();
+const mockDeterministicRoutingDecide = vi.fn();
 
 vi.mock('bullmq', () => ({
   Worker: vi.fn().mockImplementation(() => {
@@ -91,11 +102,25 @@ vi.mock('bullmq', () => ({
 }));
 
 function buildMockDeps(): MessageWorkerDeps {
+  const transitionState = {
+    execute: mockTransitionStateExecute,
+    runWithState: <T>(_state: ConversationState, operation: () => Promise<T>) => operation(),
+    runForUser: <T>(_userId: string, operation: () => Promise<T>) => operation(),
+    currentState: vi.fn().mockReturnValue(buildConversationState()),
+    assertExecutionIsValid: vi.fn(),
+    precondition: (state: ConversationState, expiry: 'unexpired' | 'expired' | 'any') => ({
+      revision: state.revision,
+      currentState: state.currentState,
+      expiry,
+    }),
+  } as unknown as MessageWorkerDeps['transitionState'];
+  const messagingPort = { sendMessage: mockSendMessage };
   return {
     redis: {} as unknown as MessageWorkerDeps['redis'],
     logger: { error: mockLoggerError } as unknown as MessageWorkerDeps['logger'],
     userProcessingLock: {
       acquire: mockAcquireLock,
+      renew: vi.fn().mockResolvedValue(true),
       release: mockReleaseLock,
     },
     registerExpense: {
@@ -107,6 +132,29 @@ function buildMockDeps(): MessageWorkerDeps {
     classifyFreeTextExpenseIntent: {
       execute: mockClassifyFreeTextExpenseIntentExecute,
     },
+    deterministicRoutingPolicy: {
+      decide: mockDeterministicRoutingDecide,
+    },
+    observeSemanticRouting: {
+      execute: mockObserveSemanticRoutingExecute,
+      recordOptionDispatch: mockRecordOptionDispatch,
+      recordControlDispatch: mockRecordControlDispatch,
+    } as unknown as MessageWorkerDeps['observeSemanticRouting'],
+    dispatchExpenseSemanticAction: {
+      execute: mockDispatchExpenseSemanticActionExecute,
+    } as unknown as MessageWorkerDeps['dispatchExpenseSemanticAction'],
+    dispatchControlSemanticAction: {
+      execute: mockDispatchControlSemanticActionExecute,
+    } as unknown as NonNullable<MessageWorkerDeps['dispatchControlSemanticAction']>,
+    dispatchOptionSelection: {
+      execute: mockDispatchOptionSelectionExecute,
+    } as unknown as NonNullable<MessageWorkerDeps['dispatchOptionSelection']>,
+    completeExpenseClarification: new CompleteExpenseClarification({
+      interpret: mockRegisterExpenseInterpret,
+    }),
+    sendGuidance: {
+      execute: mockSendGuidanceExecute,
+    } as unknown as MessageWorkerDeps['sendGuidance'],
     correctExpense: {
       execute: mockCorrectExpenseExecute,
     } as unknown as MessageWorkerDeps['correctExpense'],
@@ -133,15 +181,14 @@ function buildMockDeps(): MessageWorkerDeps {
     undoLastExpense: {
       execute: mockUndoLastExpenseExecute,
     } as unknown as MessageWorkerDeps['undoLastExpense'],
+    presentUndoConfirmation: new PresentUndoConfirmation({ transitionState, messagingPort }),
     retryExpenseSave: {
       execute: mockRetryExpenseSaveExecute,
     } as unknown as RetryExpenseSaveUseCase,
     getConversationState: {
       execute: mockGetConversationStateExecute,
     } as unknown as MessageWorkerDeps['getConversationState'],
-    transitionState: {
-      execute: mockTransitionStateExecute,
-    } as unknown as MessageWorkerDeps['transitionState'],
+    transitionState,
     recoverCorruptedState: {
       execute: mockRecoverCorruptedStateExecute,
     } as unknown as MessageWorkerDeps['recoverCorruptedState'],
@@ -259,6 +306,7 @@ function buildJob(data: ProcessMessageJobData): Job<ProcessMessageJobData> {
 function buildConversationState(overrides: Partial<ConversationState> = {}): ConversationState {
   return {
     userId: 'user-123',
+    revision: '0',
     currentState: 'IDLE',
     statePayload: null,
     enteredAt: new Date('2026-01-01T00:00:00Z'),
@@ -301,6 +349,17 @@ const baseJobData: ProcessMessageJobData = {
 describe('processMessageJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTransitionStateExecute.mockImplementation((input) =>
+      Promise.resolve({
+        status: 'updated',
+        state: buildConversationState({
+          revision: '1',
+          currentState: input.targetState,
+          statePayload: input.payload ?? null,
+          expiresAt: input.expiresAt ?? null,
+        }),
+      }),
+    );
     mockAcquireLock.mockResolvedValue(LOCK_TOKEN_A);
     mockUserRepoFindByMessagingIdentity.mockResolvedValue({ userId: 'user-123' });
     mockResolveExpenseReviewReplyExecute.mockResolvedValue({
@@ -333,6 +392,19 @@ describe('processMessageJob', () => {
         savedAt: new Date(),
       },
     });
+    mockRetryExpenseSaveExecute.mockResolvedValue({ status: 'handled' });
+    mockObserveSemanticRoutingExecute.mockResolvedValue({
+      status: 'deterministic',
+      reason: 'state_off',
+    });
+    mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+      status: 'clarification_required',
+      reason: 'unsupported_action',
+    });
+    mockDispatchControlSemanticActionExecute.mockResolvedValue({ status: 'cancelled' });
+    mockDispatchOptionSelectionExecute.mockResolvedValue({ status: 'selected', target: 'file' });
+    mockSendGuidanceExecute.mockResolvedValue(undefined);
+    mockDeterministicRoutingDecide.mockReturnValue({ kind: 'fsm_handler' });
   });
 
   it('rejects malformed payloads before identity lookup or lock acquisition', async () => {
@@ -356,7 +428,166 @@ describe('processMessageJob', () => {
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
+  it.each(['reintentar', 'reconfigurar', 'cancelar'])(
+    'blocks %s while a financial outcome remains unresolved',
+    async (rawMessage) => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: {
+            executionClaim: {
+              claimId: 'claim-1',
+              kind: 'retry',
+              operationId: 'abcdefghijklmnopqrstuv',
+              sourceMessageId: 'message-1',
+              status: 'outcome_unknown',
+              target: { attemptCount: 2 },
+            },
+          },
+          expiresAt: new Date(Date.now() - 1),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+      expect(mockStartSpreadsheetReconfigurationExecute).not.toHaveBeenCalled();
+      expect(mockCancelExpenseRegistrationExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.financialOutcomeUnknown(),
+      );
+    },
+  );
+
   describe('IDLE / EXPENSE_RECEIVING state', () => {
+    it('dispatches one enabled registration with the original message and presents review only', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState();
+      const rawMessage =
+        'Fecha: 11 sept 2026, 21:09\nComercio: Mercadona\nImporte: 16,55\u00a0€\nTarjeta: CREDITO SANTANDER\nNombre: Mercadona\nTransacción: Mercadona';
+      const reviewPayload = buildReviewStatePayload({
+        rawMessage,
+        extracted: {
+          monto: 16.55,
+          moneda: 'EUR',
+          categoriaRaw: 'Mercadona',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-09-11',
+          medioPago: 'CREDITO SANTANDER',
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+        resolvedDate: '2026-09-11',
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'register_expense' },
+        expected: { revision: '0', currentState: 'IDLE', expiry: 'unexpired' },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: reviewPayload,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+
+      expect(mockObserveSemanticRoutingExecute).toHaveBeenCalledOnce();
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawMessage,
+          conversationState,
+          decision: { action: 'register_expense' },
+        }),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(String(mockSendMessage.mock.calls[0]?.[1])).toContain('16.55 EUR');
+      expect(String(mockSendMessage.mock.calls[0]?.[1])).not.toContain('Gasto guardado');
+    });
+
+    it('returns controlled guidance for an enabled router failure without extraction or state effects', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'clarification',
+        reason: 'unsupported_action',
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockDispatchExpenseSemanticActionExecute).not.toHaveBeenCalled();
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.semanticExpenseGuidance('unsupported_action'),
+      );
+    });
+
+    it('observes a lexically rejected bank notification and preserves deterministic guidance', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState();
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockDeterministicRoutingDecide.mockReturnValue({ kind: 'expense_guidance' });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'El banco informa que tu saldo cambió' }),
+        deps,
+      );
+
+      expect(mockObserveSemanticRoutingExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawMessage: 'El banco informa que tu saldo cambió',
+          conversationState,
+          deterministicDecision: { kind: 'expense_guidance' },
+        }),
+      );
+      expect(mockSendGuidanceExecute).toHaveBeenCalledTimes(1);
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('runs deterministic guidance once when shadow observation fails unexpectedly', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      mockObserveSemanticRoutingExecute.mockRejectedValue(new Error('router failure'));
+      mockDeterministicRoutingDecide.mockReturnValue({ kind: 'expense_guidance' });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'El banco informa que tu saldo cambió' }),
+        deps,
+      );
+
+      expect(mockSendGuidanceExecute).toHaveBeenCalledTimes(1);
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { rawMessage: '', callbackData: { action: 'confirm' as const } },
+      { rawMessage: 'deshacer' },
+    ])('passes deterministic callback/command bypass to observation', async (jobOverride) => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      mockDeterministicRoutingDecide.mockReturnValue(
+        jobOverride.callbackData
+          ? { kind: 'typed_callback' }
+          : { kind: 'sensitive_command', command: 'undo' },
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, ...jobOverride }), deps);
+
+      const [observed] = mockObserveSemanticRoutingExecute.mock.calls[0] as [
+        { deterministicDecision: { kind: string } },
+      ];
+      expect(observed.deterministicDecision.kind).toBe(
+        jobOverride.callbackData ? 'typed_callback' : 'sensitive_command',
+      );
+    });
     it.each(['deshacer', 'UNDO', 'borrar el último'])(
       'routes normalized undo command %s without interpreting a new expense',
       async (rawMessage) => {
@@ -371,6 +602,7 @@ describe('processMessageJob', () => {
         expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
           userId: 'user-123',
           action: 'request',
+          provenance: 'deterministic_command',
           immediateExpenseId: 'expense-1',
         });
         expect(mockTransitionStateExecute).toHaveBeenCalledWith({
@@ -457,11 +689,13 @@ describe('processMessageJob', () => {
       expect(mockUndoLastExpenseExecute).toHaveBeenNthCalledWith(1, {
         userId: 'user-123',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       });
       expect(mockUndoLastExpenseExecute).toHaveBeenNthCalledWith(2, {
         userId: 'user-123',
         action: 'request',
+        provenance: 'deterministic_command',
       });
       expect(mockTransitionStateExecute).toHaveBeenNthCalledWith(1, {
         userId: 'user-123',
@@ -473,8 +707,10 @@ describe('processMessageJob', () => {
         expect.objectContaining({
           userId: 'user-123',
           targetState: 'EXPENSE_UNDO_CONFIRMING',
-          payload: { pendingExpenseId: 'expense-older' },
         }),
+      );
+      expect(JSON.stringify(mockTransitionStateExecute.mock.calls[1]?.[0])).toContain(
+        '"pendingExpenseId":"expense-older"',
       );
       expect(mockSendMessage).toHaveBeenCalledTimes(2);
       expect(mockSendMessage).toHaveBeenNthCalledWith(
@@ -513,13 +749,16 @@ describe('processMessageJob', () => {
       expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'request',
+        provenance: 'deterministic_command',
       });
       expect(mockTransitionStateExecute).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: 'user-123',
           targetState: 'EXPENSE_UNDO_CONFIRMING',
-          payload: { pendingExpenseId: 'expense-1' },
         }),
+      );
+      expect(JSON.stringify(mockTransitionStateExecute.mock.calls[0]?.[0])).toContain(
+        '"pendingExpenseId":"expense-1"',
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
@@ -867,13 +1106,896 @@ describe('processMessageJob', () => {
     };
   }
 
+  describe('enabled semantic clarification and review actions', () => {
+    it.each([
+      { missingField: 'monto' as const, rawMessage: '25' },
+      { missingField: 'moneda' as const, rawMessage: 'euros' },
+    ])('completes a short $missingField answer through one semantic dispatch', async (scenario) => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_CLARIFYING',
+        statePayload: buildClarificationStatePayload(
+          scenario.missingField,
+          scenario.missingField === 'monto' ? 'Taxi en euros' : 'Taxi 25',
+        ),
+      });
+      const reviewPayload = buildReviewStatePayload({
+        rawMessage: scenario.missingField === 'monto' ? 'Taxi en euros 25' : 'Taxi 25 euros',
+        extracted: {
+          monto: 25,
+          moneda: 'EUR',
+          categoriaRaw: 'Taxi',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-09-15',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'provide_missing_expense_data' },
+        expected: {
+          revision: '0',
+          currentState: 'EXPENSE_CLARIFYING',
+          expiry: 'unexpired',
+        },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: reviewPayload,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: scenario.rawMessage }), deps);
+
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledOnce();
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawMessage: scenario.rawMessage,
+          decision: { action: 'provide_missing_expense_data' },
+        }),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(String(mockSendMessage.mock.calls[0]?.[1])).toContain('Monto: 25 EUR');
+    });
+
+    it('replaces a clarification with a complete notification and announces the interruption', async () => {
+      const deps = buildMockDeps();
+      const rawMessage =
+        'Fecha: 11 sept 2026, 21:09\nComercio: Mercadona\nImporte: 16,55\u00a0€\nTarjeta: CREDITO SANTANDER';
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_CLARIFYING',
+        statePayload: buildClarificationStatePayload('monto', 'Borrador anterior'),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'register_expense' },
+        expected: {
+          revision: '0',
+          currentState: 'EXPENSE_CLARIFYING',
+          expiry: 'unexpired',
+        },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: buildReviewStatePayload({
+          rawMessage,
+          extracted: {
+            monto: 16.55,
+            moneda: 'EUR',
+            categoriaRaw: 'Mercadona',
+            subcategoriaRaw: null,
+            fechaRaw: '2026-09-11',
+            medioPago: 'CREDITO SANTANDER',
+            confianzaCategoria: 'alta',
+            confianzaSubcategoria: 'nula',
+          },
+          resolvedDate: '2026-09-11',
+        }),
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ rawMessage, decision: { action: 'register_expense' } }),
+      );
+      expect(mockSendMessage).toHaveBeenNthCalledWith(
+        1,
+        '123456789',
+        expenseCopies.clarificationInterrupted(),
+      );
+      expect(String(mockSendMessage.mock.calls[1]?.[1])).toContain('Monto: 16.55 EUR');
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
+    it('keeps an ambiguous clarification interruption unchanged and repeats the pending question', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_CLARIFYING',
+        statePayload: buildClarificationStatePayload('moneda', 'Taxi 25'),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'clarification',
+        reason: 'mixed_intents',
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'euros, y también otro taxi' }),
+        deps,
+      );
+
+      expect(mockDispatchExpenseSemanticActionExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationCurrency(),
+      );
+    });
+
+    it('presents a corrected amount for a mixed affirmative without saving or queueing', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: buildReviewStatePayload(),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'correct_expense' },
+        expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'unexpired' },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: buildReviewStatePayload({
+          extracted: {
+            monto: 25,
+            moneda: 'ARS',
+            categoriaRaw: 'café',
+            subcategoriaRaw: null,
+            fechaRaw: '2026-07-25',
+            medioPago: null,
+            confianzaCategoria: 'alta',
+            confianzaSubcategoria: 'nula',
+          },
+          reviewBinding: {
+            operationId: 'abcdefghijklmnopqrstuv',
+            revision: 2,
+            presentedAt: null,
+          },
+        }),
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'sí, pero cambia el importe a 25' }),
+        deps,
+      );
+
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledOnce();
+      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(String(mockSendMessage.mock.calls[0]?.[1])).toContain('Monto: 25 ARS');
+    });
+
+    it('reports semantic review queue overflow without changing the active review', async () => {
+      const deps = buildMockDeps();
+      const activePayload = buildReviewStatePayload();
+      const conversationState = buildConversationState({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: activePayload,
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'register_expense' },
+        expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'unexpired' },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'queue_full',
+        pendingCount: 2,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 25 EUR' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.expenseQueueFull());
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+      expect(conversationState.statePayload).toBe(activePayload);
+    });
+
+    it.each([
+      {
+        name: 'invalid subcategory',
+        state: 'EXPENSE_REVIEW' as const,
+        statePayload: buildReviewStatePayload(),
+        decision: { action: 'correct_expense' as const },
+        reason: 'invalid_subcategory' as const,
+        expectedCopy: expenseCopies.ambiguousResponse(),
+      },
+      {
+        name: 'correction failure',
+        state: 'EXPENSE_REVIEW' as const,
+        statePayload: buildReviewStatePayload(),
+        decision: { action: 'correct_expense' as const },
+        reason: 'dispatch_failed' as const,
+        expectedCopy: expenseCopies.ambiguousResponse(),
+      },
+      {
+        name: 'replacement extraction failure',
+        state: 'EXPENSE_CLARIFYING' as const,
+        statePayload: buildClarificationStatePayload('monto', 'Taxi en EUR'),
+        decision: { action: 'register_expense' as const },
+        reason: 'dispatch_failed' as const,
+        expectedCopy: expenseCopies.clarificationAmount(),
+      },
+    ])('keeps state unchanged after $name', async (scenario) => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        currentState: scenario.state,
+        statePayload: scenario.statePayload,
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: scenario.decision,
+        expected: { revision: '0', currentState: scenario.state, expiry: 'unexpired' },
+      });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'clarification_required',
+        reason: scenario.reason,
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'mensaje' }), deps);
+
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', scenario.expectedCopy);
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationInterrupted(),
+      );
+    });
+
+    it('rejects the old review binding and accepts the corrected binding exactly once', async () => {
+      const deps = buildMockDeps();
+      const originalState = buildConversationState({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: buildReviewStatePayload({
+          reviewBinding: {
+            operationId: 'abcdefghijklmnopqrstuv',
+            revision: 1,
+            presentedAt: '2026-09-15T09:00:00.000Z',
+          },
+        }),
+      });
+      const correctedPayload = buildReviewStatePayload({
+        extracted: {
+          monto: 25,
+          moneda: 'ARS',
+          categoriaRaw: 'café',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-07-25',
+          medioPago: null,
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+        reviewBinding: {
+          operationId: 'abcdefghijklmnopqrstuv',
+          revision: 2,
+          presentedAt: '2026-09-15T10:00:00.000Z',
+        },
+      });
+      const correctedState = buildConversationState({
+        revision: '1',
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: correctedPayload,
+      });
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(originalState)
+        .mockResolvedValue(correctedState);
+      mockObserveSemanticRoutingExecute
+        .mockResolvedValueOnce({
+          status: 'expense_action',
+          decision: { action: 'correct_expense' },
+          expected: { revision: '0', currentState: 'EXPENSE_REVIEW', expiry: 'unexpired' },
+        })
+        .mockResolvedValue({ status: 'deterministic', reason: 'deterministic_bypass' });
+      mockDispatchExpenseSemanticActionExecute.mockResolvedValue({
+        status: 'review_required',
+        payload: correctedPayload,
+      });
+      let saveCount = 0;
+      mockResolveExpenseSummaryActionExecute.mockImplementation(
+        (input: ResolveExpenseSummaryActionInput) => {
+          const authorization = input.authorization;
+          if (
+            authorization?.kind !== 'callback' ||
+            !('version' in authorization.callbackData) ||
+            authorization.callbackData.reviewRevision !== 2 ||
+            saveCount > 0
+          ) {
+            return { status: 'stale' };
+          }
+          saveCount += 1;
+          return { status: 'handled' };
+        },
+      );
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'sí, pero cambia el importe a 25' }),
+        deps,
+      );
+      const oldCallback = {
+        version: 1 as const,
+        action: 'confirm' as const,
+        operationId: 'abcdefghijklmnopqrstuv',
+        reviewRevision: 1,
+      };
+      const correctedCallback = { ...oldCallback, reviewRevision: 2 };
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          rawMessage: '',
+          externalMessageId: 'old',
+          callbackData: oldCallback,
+        }),
+        deps,
+      );
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          rawMessage: '',
+          externalMessageId: 'current',
+          callbackData: correctedCallback,
+        }),
+        deps,
+      );
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          rawMessage: '',
+          externalMessageId: 'duplicate',
+          callbackData: correctedCallback,
+        }),
+        deps,
+      );
+
+      expect(mockDispatchExpenseSemanticActionExecute).toHaveBeenCalledOnce();
+      expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledTimes(3);
+      expect(saveCount).toBe(1);
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('semantic shadow non-interference across deterministic handlers', () => {
+    it.each([
+      {
+        name: 'clarification',
+        rawMessage: '850',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_CLARIFYING',
+              statePayload: buildClarificationStatePayload('monto', 'Cafe'),
+            }),
+          );
+          mockRegisterExpenseInterpret.mockResolvedValue({
+            status: 'needs_clarification',
+            missingField: 'moneda',
+          });
+        },
+        assertDeterministic: () => expect(mockRegisterExpenseInterpret).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'review',
+        rawMessage: 'corregir el monto',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_REVIEW',
+              statePayload: buildReviewStatePayload(),
+            }),
+          );
+        },
+        assertDeterministic: () =>
+          expect(mockResolveExpenseReviewReplyExecute).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'selection',
+        rawMessage: '1',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'ONBOARDING_FILE',
+              statePayload: { fileList: [{ id: 'file-1', name: 'Casa' }] },
+            }),
+          );
+          mockHandleSpreadsheetFileSelectionExecute.mockResolvedValue({
+            nextState: 'ONBOARDING_SHEET',
+            message: 'selected',
+          });
+        },
+        assertDeterministic: () =>
+          expect(mockHandleSpreadsheetFileSelectionExecute).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'cancellation',
+        rawMessage: 'para',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_CLARIFYING',
+              statePayload: buildClarificationStatePayload('monto', 'Cafe'),
+            }),
+          );
+        },
+        assertDeterministic: () =>
+          expect(mockCancelExpenseRegistrationExecute).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'retry',
+        rawMessage: 'reintentar',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_SAVING_RETRY',
+              statePayload: {
+                expense: buildReviewStatePayload(),
+                failureCode: 'NETWORK_ERROR',
+                firstAttemptAt: '2026-09-14T10:00:00.000Z',
+                attemptCount: 1,
+                actionBinding: {
+                  operationId: 'abcdefghijklmnopqrstuv',
+                  revision: 1,
+                  presentedAt: '2026-09-14T10:00:00.000Z',
+                },
+              },
+              expiresAt: new Date(Date.now() + 60_000),
+            }),
+          );
+        },
+        assertDeterministic: () => expect(mockRetryExpenseSaveExecute).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'reconfiguration',
+        rawMessage: 'reconfigurar',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_SAVING_RETRY',
+              statePayload: {
+                expense: buildReviewStatePayload(),
+                failureCode: 'STRUCTURE_ERROR',
+                firstAttemptAt: '2026-09-14T10:00:00.000Z',
+                attemptCount: 1,
+                actionBinding: {
+                  operationId: 'abcdefghijklmnopqrstuv',
+                  revision: 1,
+                  presentedAt: '2026-09-14T10:00:00.000Z',
+                },
+              },
+              expiresAt: new Date(Date.now() + 60_000),
+            }),
+          );
+        },
+        assertDeterministic: () =>
+          expect(mockStartSpreadsheetReconfigurationExecute).toHaveBeenCalledOnce(),
+      },
+      {
+        name: 'undo',
+        rawMessage: 'sí',
+        arrange: () => {
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'EXPENSE_UNDO_CONFIRMING',
+              statePayload: {
+                pendingExpenseId: 'expense-1',
+                actionBinding: {
+                  operationId: 'abcdefghijklmnopqrstuv',
+                  revision: 1,
+                  presentedAt: '2026-09-14T10:00:00.000Z',
+                },
+              },
+              expiresAt: new Date(Date.now() + 60_000),
+            }),
+          );
+        },
+        assertDeterministic: () => expect(mockUndoLastExpenseExecute).toHaveBeenCalledOnce(),
+      },
+    ])('runs $name exactly once regardless of the shadow proposal', async (scenario) => {
+      const deps = buildMockDeps();
+      scenario.arrange();
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        policyOutcome: 'allowed_shadow',
+        proposedAction: 'out_of_scope',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: scenario.rawMessage }), deps);
+
+      expect(mockObserveSemanticRoutingExecute).toHaveBeenCalledOnce();
+      scenario.assertDeterministic();
+    });
+  });
+
+  describe('enabled semantic control actions', () => {
+    it.each([
+      'EXPENSE_RECEIVING',
+      'EXPENSE_CLARIFYING',
+      'EXPENSE_REVIEW',
+      'EXPENSE_CORRECTING',
+    ] as const)(
+      'hands natural cancellation in %s to exactly one typed dispatcher',
+      async (currentState) => {
+        const deps = buildMockDeps();
+        const conversationState = buildConversationState({
+          revision: '6',
+          currentState,
+          statePayload: { bounded: true },
+        });
+        mockGetConversationStateExecute.mockResolvedValue(conversationState);
+        mockObserveSemanticRoutingExecute.mockResolvedValue({
+          status: 'control_action',
+          decision: { action: 'cancel_current_flow' },
+          expected: { revision: '6', currentState, expiry: 'unexpired' },
+          provenance: { kind: 'semantic_proposal', sourceMessageId: 'msg-42' },
+        });
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, rawMessage: 'mejor dejemos este registro' }),
+          deps,
+        );
+
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledOnce();
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'user-123',
+            conversationState,
+            decision: { action: 'cancel_current_flow' },
+            provenance: { kind: 'semantic_proposal', sourceMessageId: 'msg-42' },
+          }),
+        );
+        expect(mockRecordControlDispatch).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'control_action' }),
+          { status: 'cancelled' },
+        );
+        expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+        expect(mockCorrectExpenseExecute).not.toHaveBeenCalled();
+        expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([null, { immediateUndoExpenseId: 'expense-1' }])(
+      'hands inferred undo to confirmation-only dispatch with IDLE payload %j',
+      async (statePayload) => {
+        const deps = buildMockDeps();
+        const conversationState = buildConversationState({ revision: '9', statePayload });
+        mockGetConversationStateExecute.mockResolvedValue(conversationState);
+        const turn = {
+          status: 'control_action' as const,
+          decision: { action: 'undo_last_expense' as const },
+          expected: { revision: '9', currentState: 'IDLE', expiry: 'unexpired' as const },
+          provenance: { kind: 'semantic_proposal' as const, sourceMessageId: 'msg-42' },
+        };
+        mockObserveSemanticRoutingExecute.mockResolvedValue(turn);
+        mockDispatchControlSemanticActionExecute.mockResolvedValue({
+          status: 'undo_confirmation_presented',
+          pendingExpenseId: 'expense-1',
+        });
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, rawMessage: 'quisiera quitar el último gasto' }),
+          deps,
+        );
+
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledOnce();
+        expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+        expect(mockRecordControlDispatch).toHaveBeenCalledWith(turn, {
+          status: 'undo_confirmation_presented',
+          pendingExpenseId: 'expense-1',
+        });
+      },
+    );
+
+    it('renders bounded guidance for a stale control proposal without deterministic fallthrough', async () => {
+      const deps = buildMockDeps();
+      const conversationState = buildConversationState({
+        revision: '6',
+        currentState: 'EXPENSE_RECEIVING',
+        statePayload: { raw_message: 'Taxi 12 EUR' },
+      });
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'control_action',
+        decision: { action: 'cancel_current_flow' },
+        expected: { revision: '6', currentState: 'EXPENSE_RECEIVING', expiry: 'unexpired' },
+        provenance: { kind: 'semantic_proposal', sourceMessageId: 'msg-42' },
+      });
+      mockDispatchControlSemanticActionExecute.mockResolvedValue({
+        status: 'clarification_required',
+        reason: 'stale_context',
+      });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.semanticControlGuidance('stale_context'),
+      );
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockCancelExpenseRegistrationExecute).not.toHaveBeenCalled();
+    });
+
+    it.each(['telegram', 'whatsapp'] as const)(
+      'renders request-only retry guidance through one typed %s handoff',
+      async (channel) => {
+        const deps = buildMockDeps();
+        const conversationState = buildConversationState({
+          revision: '11',
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: { bounded: true },
+          expiresAt: new Date(Date.now() + 60_000),
+        });
+        mockGetConversationStateExecute.mockResolvedValue(conversationState);
+        const turn = {
+          status: 'control_action' as const,
+          decision: { action: 'request_save_retry' as const },
+          expected: {
+            revision: '11',
+            currentState: 'EXPENSE_SAVING_RETRY' as const,
+            expiry: 'unexpired' as const,
+          },
+          provenance: { kind: 'semantic_proposal' as const, sourceMessageId: 'msg-42' },
+        };
+        mockObserveSemanticRoutingExecute.mockResolvedValue(turn);
+        mockDispatchControlSemanticActionExecute.mockResolvedValue({
+          status: 'explicit_command_required',
+          command: 'reintentar',
+        });
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, channel, rawMessage: 'probemos guardarlo de nuevo' }),
+          deps,
+        );
+
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledOnce();
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledWith(
+          expect.objectContaining({ channel, decision: turn.decision, expected: turn.expected }),
+        );
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          baseJobData.externalId,
+          expenseCopies.saveRetryRecoveryChoice(),
+        );
+        expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+        expect(mockStartSpreadsheetReconfigurationExecute).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+        expect(mockRecordControlDispatch).toHaveBeenCalledWith(turn, {
+          status: 'explicit_command_required',
+          command: 'reintentar',
+        });
+      },
+    );
+
+    it.each(['telegram', 'whatsapp'] as const)(
+      'hands semantic reconfiguration to one bounded %s dispatcher',
+      async (channel) => {
+        const deps = buildMockDeps();
+        const conversationState = buildConversationState({
+          revision: '12',
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: { bounded: true },
+          expiresAt: new Date(Date.now() + 60_000),
+        });
+        mockGetConversationStateExecute.mockResolvedValue(conversationState);
+        const turn = {
+          status: 'control_action' as const,
+          decision: { action: 'request_reconfiguration' as const },
+          expected: {
+            revision: '12',
+            currentState: 'EXPENSE_SAVING_RETRY' as const,
+            expiry: 'unexpired' as const,
+          },
+          provenance: { kind: 'semantic_proposal' as const, sourceMessageId: 'msg-43' },
+        };
+        mockObserveSemanticRoutingExecute.mockResolvedValue(turn);
+        mockDispatchControlSemanticActionExecute.mockResolvedValue({
+          status: 'reconfiguration_started',
+        });
+
+        await processMessageJob(
+          buildJob({ ...baseJobData, channel, rawMessage: 'revisemos la planilla' }),
+          deps,
+        );
+
+        expect(mockDispatchControlSemanticActionExecute).toHaveBeenCalledOnce();
+        expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+        expect(mockStartSpreadsheetReconfigurationExecute).not.toHaveBeenCalled();
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockRecordControlDispatch).toHaveBeenCalledWith(turn, {
+          status: 'reconfiguration_started',
+        });
+      },
+    );
+  });
+
+  describe('enabled semantic file selection', () => {
+    const fileState = () =>
+      buildConversationState({
+        revision: '7',
+        currentState: 'ONBOARDING_FILE',
+        statePayload: {
+          fileList: [
+            {
+              id: 'provider-file-1',
+              name: 'Gastos 2026',
+              mimeType: 'application/vnd.google-apps.spreadsheet',
+              modifiedAt: '2026-09-17T10:00:00.000Z',
+            },
+          ],
+        },
+      });
+
+    it('dispatches one typed handoff and does not run the lexical file handler', async () => {
+      const deps = buildMockDeps();
+      const conversationState = fileState();
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'option_selection',
+        decision: { action: 'select_option', userReference: 'el de gastos' },
+        expected: { revision: '7', currentState: 'ONBOARDING_FILE', expiry: 'unexpired' },
+        snapshot: {
+          revision: '7',
+          state: 'ONBOARDING_FILE',
+          substep: null,
+          options: [{ position: 1, label: 'Gastos 2026' }],
+        },
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'el de gastos' }), deps);
+
+      expect(mockObserveSemanticRoutingExecute).toHaveBeenCalledOnce();
+      expect(mockDispatchOptionSelectionExecute).toHaveBeenCalledOnce();
+      expect(mockDispatchOptionSelectionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationState,
+          decision: { action: 'select_option', userReference: 'el de gastos' },
+        }),
+      );
+      expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+      expect(mockRecordOptionDispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'option_selection' }),
+        { status: 'selected', target: 'file' },
+      );
+    });
+
+    it('sends bounded option guidance and performs no deterministic handoff when unresolved', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(fileState());
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'option_selection',
+        decision: { action: 'select_option', userReference: 'gastos' },
+        expected: { revision: '7', currentState: 'ONBOARDING_FILE', expiry: 'unexpired' },
+        snapshot: {
+          revision: '7',
+          state: 'ONBOARDING_FILE',
+          substep: null,
+          options: [{ position: 1, label: 'Gastos 2026' }],
+        },
+      });
+      mockDispatchOptionSelectionExecute.mockResolvedValue({
+        status: 'clarification_required',
+        reason: 'ambiguous_reference',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'gastos' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        onboardingCopies.ambiguousFileReference(),
+      );
+      expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('enabled semantic sheet selection', () => {
+    const sheetState = () =>
+      buildConversationState({
+        revision: '8',
+        currentState: 'ONBOARDING_SHEET',
+        statePayload: {
+          selectedFileId: 'provider-file-1',
+          selectedFileName: 'Gastos 2026',
+          provider: 'google',
+          sheetList: [{ name: 'Movimientos', index: 0 }],
+        },
+      });
+
+    it('dispatches one typed sheet handoff without running the lexical sheet handler', async () => {
+      const deps = buildMockDeps();
+      const conversationState = sheetState();
+      mockGetConversationStateExecute.mockResolvedValue(conversationState);
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'option_selection',
+        decision: { action: 'select_option', userReference: 'la de movimientos' },
+        expected: { revision: '8', currentState: 'ONBOARDING_SHEET', expiry: 'unexpired' },
+        snapshot: {
+          revision: '8',
+          state: 'ONBOARDING_SHEET',
+          substep: null,
+          options: [{ position: 1, label: 'Movimientos' }],
+        },
+      });
+      mockDispatchOptionSelectionExecute.mockResolvedValue({
+        status: 'selected',
+        target: 'sheet',
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'la de movimientos' }), deps);
+
+      expect(mockDispatchOptionSelectionExecute).toHaveBeenCalledOnce();
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      expect(mockRecordOptionDispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'option_selection' }),
+        { status: 'selected', target: 'sheet' },
+      );
+    });
+
+    it.each([
+      ['ambiguous_reference', onboardingCopies.ambiguousSheetReference()],
+      ['not_found', onboardingCopies.sheetReferenceNotFound()],
+      ['stale_context', onboardingCopies.staleSheetReference()],
+    ] as const)(
+      'sends bounded %s sheet guidance without a lexical effect',
+      async (reason, copy) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(sheetState());
+        mockObserveSemanticRoutingExecute.mockResolvedValue({
+          status: 'option_selection',
+          decision: { action: 'select_option', userReference: 'movimientos' },
+          expected: { revision: '8', currentState: 'ONBOARDING_SHEET', expiry: 'unexpired' },
+          snapshot: {
+            revision: '8',
+            state: 'ONBOARDING_SHEET',
+            substep: null,
+            options: [{ position: 1, label: 'Movimientos' }],
+          },
+        });
+        mockDispatchOptionSelectionExecute.mockResolvedValue({
+          status: 'clarification_required',
+          reason,
+        });
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'movimientos' }), deps);
+
+        expect(mockSendMessage).toHaveBeenCalledWith('123456789', copy);
+        expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      },
+    );
+  });
+
   describe('EXPENSE_UNDO_CONFIRMING state', () => {
     it('deletes only after affirmative confirmation and returns to IDLE', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({
           currentState: 'EXPENSE_UNDO_CONFIRMING',
-          statePayload: { pendingExpenseId: 'expense-1' },
+          statePayload: {
+            pendingExpenseId: 'expense-1',
+            actionBinding: {
+              operationId: 'abcdefghijklmnopqrstuv',
+              revision: 1,
+              presentedAt: '2026-09-12T10:00:00.000Z',
+            },
+          },
+          expiresAt: new Date(Date.now() + 60_000),
         }),
       );
 
@@ -883,12 +2005,56 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         action: 'confirm',
         pendingExpenseId: 'expense-1',
-      });
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'IDLE',
+        authorization: {
+          receivedAt: baseJobData.receivedAt,
+          sourceMessageId: baseJobData.externalMessageId,
+        },
       });
       expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.undoDeleted('Café', 4.5, 'EUR'),
+      );
+    });
+
+    it('re-presents a legacy undo offer and does not consume the triggering confirmation', async () => {
+      const deps = buildMockDeps();
+      const expiresAt = new Date(Date.now() + 60_000);
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_UNDO_CONFIRMING',
+          statePayload: { pendingExpenseId: 'expense-1' },
+          expiresAt,
+        }),
+      );
+      mockUndoLastExpenseExecute.mockResolvedValue({
+        status: 'confirmation_required',
+        expense: {
+          id: 'expense-1',
+          concepto: 'Café',
+          monto: 4.5,
+          moneda: 'EUR',
+          savedAt: new Date('2026-09-12T10:00:00.000Z'),
+        },
+      });
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
+
+      expect(mockUndoLastExpenseExecute).toHaveBeenCalledOnce();
+      expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        action: 'request',
+        provenance: 'deterministic_command',
+      });
+      expect(mockTransitionStateExecute).toHaveBeenCalledTimes(2);
+      expect(mockTransitionStateExecute).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          userId: 'user-123',
+          targetState: 'EXPENSE_UNDO_CONFIRMING',
+        }),
+      );
+      expect(mockTransitionStateExecute.mock.calls[0]?.[0].expiresAt).toBeInstanceOf(Date);
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
         '123456789',
         expenseCopies.undoDeleted('Café', 4.5, 'EUR'),
       );
@@ -909,6 +2075,7 @@ describe('processMessageJob', () => {
       expect(mockTransitionStateExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'IDLE',
+        payload: null,
       });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.undoCancelled());
     });
@@ -939,6 +2106,7 @@ describe('processMessageJob', () => {
       expect(mockUndoLastExpenseExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       });
       expect(mockTransitionStateExecute.mock.invocationCallOrder[0]!).toBeLessThan(
@@ -1041,6 +2209,8 @@ describe('processMessageJob', () => {
         payload: hierarchyPayload,
         chatId: '123456789',
         channel: 'telegram',
+        receivedAt: baseJobData.receivedAt,
+        sourceMessageId: baseJobData.externalMessageId,
       });
       expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
@@ -1071,6 +2241,8 @@ describe('processMessageJob', () => {
         payload: buildReviewStatePayload(),
         chatId: '123456789',
         channel: 'telegram',
+        receivedAt: baseJobData.receivedAt,
+        sourceMessageId: baseJobData.externalMessageId,
       });
     });
 
@@ -1434,9 +2606,14 @@ describe('processMessageJob', () => {
       expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'confirm',
-        payload: hierarchyPayload,
         chatId: '123456789',
         channel: 'telegram',
+        authorization: {
+          kind: 'callback',
+          callbackData: { action: 'confirm' },
+          receivedAt: baseJobData.receivedAt,
+          sourceMessageId: baseJobData.externalMessageId,
+        },
       });
     });
 
@@ -1457,10 +2634,15 @@ describe('processMessageJob', () => {
       expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'cancel',
-        payload: buildReviewStatePayload(),
         chatId: '123456789',
         cancellationSource: 'callback',
         channel: 'telegram',
+        authorization: {
+          kind: 'callback',
+          callbackData: { action: 'cancel' },
+          receivedAt: baseJobData.receivedAt,
+          sourceMessageId: baseJobData.externalMessageId,
+        },
       });
     });
 
@@ -1481,9 +2663,14 @@ describe('processMessageJob', () => {
       expect(mockResolveExpenseSummaryActionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         action: 'correct',
-        payload: buildReviewStatePayload(),
         chatId: '123456789',
         channel: 'telegram',
+        authorization: {
+          kind: 'callback',
+          callbackData: { action: 'correct' },
+          receivedAt: baseJobData.receivedAt,
+          sourceMessageId: baseJobData.externalMessageId,
+        },
       });
     });
   });
@@ -3365,6 +4552,7 @@ describe('processMessageJob', () => {
       expect(mockRecoverCorruptedStateExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         observedState: 'UNKNOWN_STATE',
+        observedRevision: '0',
       });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recovered from bad state.');
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
@@ -3382,6 +4570,7 @@ describe('processMessageJob', () => {
       expect(mockRecoverCorruptedStateExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         observedState: 'EXPENSE_SAVING',
+        observedRevision: '0',
       });
       expect(mockTransitionStateExecute).toHaveBeenCalledWith({
         userId: 'user-123',
@@ -3771,6 +4960,11 @@ describe('processMessageJob', () => {
       failureCode: 'NETWORK_ERROR',
       firstAttemptAt: '2026-08-05T10:00:00.000Z',
       attemptCount: 1,
+      actionBinding: {
+        operationId: 'abcdefghijklmnopqrstuv',
+        revision: 1,
+        presentedAt: '2026-09-12T10:00:00.000Z',
+      },
     };
 
     it('delegates reintentar without re-running NLP', async () => {
@@ -3786,10 +4980,44 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'reintentar' }), deps);
 
       expect(mockRetryExpenseSaveExecute).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'user-123', chatId: '123456789', statePayload: payload }),
+        expect.objectContaining({
+          userId: 'user-123',
+          chatId: '123456789',
+          authorization: {
+            receivedAt: baseJobData.receivedAt,
+            sourceMessageId: baseJobData.externalMessageId,
+          },
+        }),
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
       expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+    });
+
+    it('re-presents a legacy retry offer without consuming the triggering command', async () => {
+      const deps = buildMockDeps();
+      const expiresAt = new Date(Date.now() + 60_000);
+      const { actionBinding: _actionBinding, ...legacyPayload } = payload;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: legacyPayload,
+          expiresAt,
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'reintentar' }), deps);
+
+      expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).toHaveBeenCalledTimes(2);
+      expect(mockTransitionStateExecute).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          userId: 'user-123',
+          targetState: 'EXPENSE_SAVING_RETRY',
+          expiresAt,
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saveNetworkFailure());
     });
 
     it('delegates reconfigurar to the reconfiguration use case', async () => {
@@ -3811,6 +5039,25 @@ describe('processMessageJob', () => {
       });
     });
 
+    it.each(['reintentar!', 'por favor reintentar', '"reintentar"', 'reintentar ahora'])(
+      'does not authorize a retry from non-exact command %s',
+      async (rawMessage) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute.mockResolvedValue(
+          buildConversationState({
+            currentState: 'EXPENSE_SAVING_RETRY',
+            statePayload: payload,
+            expiresAt: new Date(Date.now() + 60_000),
+          }),
+        );
+
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+
+        expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      },
+    );
+
     it('clears expired retry state without invoking a resolution use case', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
@@ -3827,6 +5074,11 @@ describe('processMessageJob', () => {
         userId: 'user-123',
         targetState: 'IDLE',
         payload: null,
+        expected: {
+          revision: '0',
+          currentState: 'EXPENSE_SAVING_RETRY',
+          expiry: 'expired',
+        },
       });
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saveRetryExpired());
       expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();

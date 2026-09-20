@@ -354,6 +354,8 @@ describe('HandleSheetSelection', () => {
         targetState: 'ONBOARDING_SHEET',
         payload: {
           selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          provider: 'google',
           sheetList: expect.any(Array) as SheetInfo[],
           step: 'idk',
         },
@@ -1020,6 +1022,81 @@ describe('HandleSheetSelection', () => {
 
       expect(mockUpsertConfig).toHaveBeenCalledTimes(1);
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+    });
+  });
+
+  describe('typed displayed-sheet selection', () => {
+    it.each([undefined, 'idk'] as const)(
+      'selects the application-owned position with the captured precondition in %s',
+      async (step) => {
+        const assertExecutionIsValid = vi.fn();
+        const deps = buildMockDeps({
+          transitionState: {
+            execute: mockTransitionExecute,
+            assertExecutionIsValid,
+          } as unknown as TransitionConversationState,
+        });
+        const useCase = new HandleSheetSelection(deps);
+        const expected = {
+          revision: '9',
+          currentState: 'ONBOARDING_SHEET',
+          expiry: 'unexpired' as const,
+        };
+
+        const result = await useCase.selectDisplayedSheet({
+          userId: 'user-123',
+          externalId: '987654321',
+          channel: 'telegram',
+          statePayload: {
+            ...mockFilePayload,
+            sheetList: mockSheets,
+            ...(step === undefined ? {} : { step }),
+          },
+          position: 2,
+          expected,
+        });
+
+        expect(assertExecutionIsValid).toHaveBeenCalledWith('user-123');
+        expect(mockUpsertConfig).toHaveBeenCalledOnce();
+        expect(mockUpsertConfig).toHaveBeenCalledWith(
+          expect.objectContaining({
+            fileId: 'file-123',
+            fileName: 'Mi Planilla',
+            sheetName: 'Resumen',
+          }),
+        );
+        expect(mockTransitionExecute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            targetState: 'ONBOARDING_VALIDATING_ACCESS',
+            expected,
+          }),
+        );
+        expect(mockValidateAccess).toHaveBeenCalledOnce();
+        expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+      },
+    );
+
+    it('rejects an unavailable position without persistence, transition, or probe', async () => {
+      const deps = buildMockDeps();
+      const useCase = new HandleSheetSelection(deps);
+
+      const result = await useCase.selectDisplayedSheet({
+        userId: 'user-123',
+        externalId: '987654321',
+        channel: 'telegram',
+        statePayload: { ...mockFilePayload, sheetList: mockSheets },
+        position: 99,
+        expected: {
+          revision: '9',
+          currentState: 'ONBOARDING_SHEET',
+          expiry: 'unexpired',
+        },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockValidateAccess).not.toHaveBeenCalled();
     });
   });
 });

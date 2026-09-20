@@ -151,12 +151,16 @@ function buildDeps(
   const transitionMock: ReturnType<typeof vi.fn<TransitionConversationState['execute']>> =
     overrides.transition ??
     vi.fn<TransitionConversationState['execute']>().mockResolvedValue({
-      userId: 'user-123',
-      currentState: 'EXPENSE_REVIEW',
-      statePayload: null,
-      expiresAt: null,
-      enteredAt: new Date(),
-      updatedAt: new Date(),
+      status: 'updated',
+      state: {
+        userId: 'user-123',
+        revision: '1',
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: null,
+        expiresAt: null,
+        enteredAt: new Date(),
+        updatedAt: new Date(),
+      },
     });
 
   const llm = {
@@ -211,6 +215,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'no, fueron 15',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('corrected');
@@ -249,6 +254,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'en realidad fueron dólares',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('corrected');
@@ -261,6 +267,21 @@ describe('CorrectExpenseUseCase', () => {
       state.payload.extracted,
       expect.any(Object),
     );
+  });
+
+  it('preserves queued-batch progress across a successful correction', async () => {
+    const { useCase } = buildDeps();
+
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'no, fueron 15',
+      state: buildCorrectionState(buildReviewPayload({ queueRegisteredCount: 2 })),
+      channel: 'telegram',
+      intentMode: 'infer',
+    });
+
+    expect(result.status).toBe('corrected');
+    expect(getPayload(result).queueRegisteredCount).toBe(2);
   });
 
   it('updates category through the classifier', async () => {
@@ -289,6 +310,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'ponlo en transporte',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('corrected');
@@ -329,6 +351,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'fue ayer',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('corrected');
@@ -366,6 +389,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'no, fueron 15 y es transporte',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('corrected');
@@ -395,6 +419,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'uh-huh',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('not_interpretable');
@@ -426,9 +451,35 @@ describe('CorrectExpenseUseCase', () => {
         rawMessage: 'Taxi 12 EUR',
         state,
         channel: 'telegram',
+        intentMode: 'infer',
       }),
     ).resolves.toEqual({ status: 'new_expense' });
 
+    expect(transitionMock).not.toHaveBeenCalled();
+  });
+
+  it('does not redirect a validated correction when field extraction says new expense', async () => {
+    const { useCase, transitionMock } = buildDeps({
+      interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+        intent: 'new_expense',
+        changedFields: [],
+        monto: null,
+        moneda: null,
+        categoriaRaw: null,
+        subcategoriaRaw: null,
+        fechaRaw: null,
+      }),
+    });
+
+    await expect(
+      useCase.execute({
+        userId: 'user-123',
+        rawMessage: 'sí, pero cambia el importe a 25',
+        state: buildCorrectionState(),
+        channel: 'telegram',
+        intentMode: 'validated_correction',
+      }),
+    ).resolves.toEqual({ status: 'not_interpretable' });
     expect(transitionMock).not.toHaveBeenCalled();
   });
 
@@ -470,6 +521,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'es Transporte, subcategoría Peajes',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('corrected');
@@ -540,6 +592,7 @@ describe('CorrectExpenseUseCase', () => {
         rawMessage: 'fueron 99, Transporte, Restaurante',
         state,
         channel: 'telegram',
+        intentMode: 'infer',
       }),
     ).resolves.toEqual({
       status: 'invalid_subcategory',
@@ -584,6 +637,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'la subcategoría es Restaurante',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('corrected');
@@ -619,6 +673,7 @@ describe('CorrectExpenseUseCase', () => {
         rawMessage: 'la subcategoría es Restaurante',
         state,
         channel: 'telegram',
+        intentMode: 'infer',
       }),
     ).resolves.toEqual({
       status: 'invalid_subcategory',
@@ -660,6 +715,7 @@ describe('CorrectExpenseUseCase', () => {
         rawMessage: 'la subcategoría es Común',
         state,
         channel: 'telegram',
+        intentMode: 'infer',
       }),
     ).resolves.toEqual({
       status: 'invalid_subcategory',
@@ -707,6 +763,7 @@ describe('CorrectExpenseUseCase', () => {
         rawMessage: 'Otros, Varios',
         state,
         channel: 'telegram',
+        intentMode: 'infer',
       }),
     ).resolves.toEqual({
       status: 'invalid_subcategory',
@@ -753,6 +810,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'la categoría es Comida',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(getPayload(result)).toEqual(
@@ -802,6 +860,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'la categoría es Transporte',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(getPayload(result)).toEqual(
@@ -838,6 +897,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'fueron un millón',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('high_amount_confirmation');
@@ -864,6 +924,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'no, fueron 15',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(result.status).toBe('cycle_limit');
@@ -890,6 +951,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'no, fueron 15',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(interpretCorrectionMock).toHaveBeenCalledWith(
@@ -918,6 +980,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'no, fueron 15',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(interpretCorrectionMock).toHaveBeenCalledWith(
@@ -944,6 +1007,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'no, fueron 15',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(interpretCorrectionMock).toHaveBeenCalledWith(
@@ -964,6 +1028,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'no, fueron 15',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     expect(interpretCorrectionMock).toHaveBeenCalledWith(
@@ -987,6 +1052,7 @@ describe('CorrectExpenseUseCase', () => {
       rawMessage: 'no, fueron 15',
       state,
       channel: 'telegram',
+      intentMode: 'infer',
     });
 
     const transitionCall = transitionMock.mock.calls[0];

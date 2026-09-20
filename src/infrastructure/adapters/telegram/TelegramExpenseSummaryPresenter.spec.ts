@@ -9,6 +9,12 @@ import type { ExpenseSummary } from '../../../application/dtos/expense-summary.d
 import type { MessagingOutputPort } from '../../../application/ports/output/messaging.port';
 import type { InlineKeyboardOutputPort } from '../../../application/ports/output/inline-keyboard.port';
 
+const REVIEW_BINDING = {
+  operationId: 'abcdefghijklmnopqrstuv',
+  revision: 35,
+  presentedAt: null,
+} as const;
+
 function buildSummary(overrides: Partial<ExpenseSummary> = {}): ExpenseSummary {
   return {
     concept: 'Café con leche 100 EUR',
@@ -63,7 +69,7 @@ describe('TelegramExpenseSummaryPresenter', () => {
   });
 
   it('presents the summary with all five fields and inline buttons', async () => {
-    await presenter.presentSummary(buildSummary());
+    await presenter.presentSummary(buildSummary(), REVIEW_BINDING);
 
     expect(inlineKeyboard.sendMessageWithInlineKeyboard).toHaveBeenCalledTimes(1);
     const [chatId, text, buttons] = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]!;
@@ -76,25 +82,25 @@ describe('TelegramExpenseSummaryPresenter', () => {
 
     expect(buttons).toHaveLength(3);
     expect(buttons[0]).toEqual([
-      { text: 'Confirmar', callbackData: JSON.stringify({ action: 'confirm' }) },
+      { text: 'Confirmar', callbackData: 'er1:c:abcdefghijklmnopqrstuv:z' },
     ]);
     expect(buttons[1]).toEqual([
-      { text: 'Corregir', callbackData: JSON.stringify({ action: 'correct' }) },
+      { text: 'Corregir', callbackData: 'er1:e:abcdefghijklmnopqrstuv:z' },
     ]);
     expect(buttons[2]).toEqual([
-      { text: 'Cancelar', callbackData: JSON.stringify({ action: 'cancel' }) },
+      { text: 'Cancelar', callbackData: 'er1:x:abcdefghijklmnopqrstuv:z' },
     ]);
   });
 
   it('marks ambiguous category with the correct marker', async () => {
-    await presenter.presentSummary(buildSummary({ categoryStatus: 'ambiguous' }));
+    await presenter.presentSummary(buildSummary({ categoryStatus: 'ambiguous' }), REVIEW_BINDING);
 
     const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
     expect(text).toContain('Comida (¿correcto?)');
   });
 
   it('marks fallback category with the correct marker', async () => {
-    await presenter.presentSummary(buildSummary({ categoryStatus: 'fallback' }));
+    await presenter.presentSummary(buildSummary({ categoryStatus: 'fallback' }), REVIEW_BINDING);
 
     const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
     expect(text).toContain('Comida (sugerida)');
@@ -108,6 +114,7 @@ describe('TelegramExpenseSummaryPresenter', () => {
         subcategoryStatus: 'confirmed',
         subcategoryEnabled: true,
       }),
+      REVIEW_BINDING,
     );
 
     const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
@@ -115,7 +122,7 @@ describe('TelegramExpenseSummaryPresenter', () => {
   });
 
   it('renders an explicit empty subcategory when hierarchy support is enabled', async () => {
-    await presenter.presentSummary(buildSummary({ subcategoryEnabled: true }));
+    await presenter.presentSummary(buildSummary({ subcategoryEnabled: true }), REVIEW_BINDING);
 
     const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
     expect(text).toContain('• Subcategoría: ❓ Sin subcategoría');
@@ -152,6 +159,7 @@ describe('TelegramExpenseSummaryPresenter', () => {
           subcategoryConfidence: confidence,
           subcategoryEnabled: true,
         }),
+        REVIEW_BINDING,
       );
 
       const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
@@ -161,7 +169,7 @@ describe('TelegramExpenseSummaryPresenter', () => {
   );
 
   it('preserves the exact category-only output when hierarchy support is disabled', async () => {
-    await presenter.presentSummary(buildSummary());
+    await presenter.presentSummary(buildSummary(), REVIEW_BINDING);
 
     const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
     expect(text).toBe(
@@ -180,6 +188,7 @@ describe('TelegramExpenseSummaryPresenter', () => {
   it('shows the high-amount warning and explicit confirmation prompt', async () => {
     await presenter.presentSummary(
       buildSummary({ isHighAmount: true, requiresExplicitConfirmation: true }),
+      REVIEW_BINDING,
     );
 
     const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
@@ -188,7 +197,7 @@ describe('TelegramExpenseSummaryPresenter', () => {
   });
 
   it('labels the date as Hoy when it is today', async () => {
-    await presenter.presentSummary(buildSummary({ date: 'today' }));
+    await presenter.presentSummary(buildSummary({ date: 'today' }), REVIEW_BINDING);
 
     const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
     expect(text).toContain('• Fecha: Hoy');
@@ -215,10 +224,13 @@ describe('TelegramExpenseSummaryPresenter', () => {
   });
 
   it('sends the high-amount confirmation prompt via plain text', async () => {
-    await presenter.requestHighAmountConfirmation(buildSummary({ isHighAmount: true }));
+    await presenter.requestHighAmountConfirmation(
+      buildSummary({ isHighAmount: true }),
+      REVIEW_BINDING,
+    );
 
-    expect(messaging.sendMessage).toHaveBeenCalledTimes(1);
-    const text = messaging.sendMessage.mock.calls[0]![1];
+    expect(inlineKeyboard.sendMessageWithInlineKeyboard).toHaveBeenCalledTimes(1);
+    const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
     expect(text).toContain('⚠️ *Monto inusualmente alto*');
     expect(text).toContain('Resumen del gasto');
   });

@@ -10,19 +10,20 @@ import { ProcessedMessageKey } from '../../../domain/value-objects/ProcessedMess
 import type { ResolveUserIdentityUseCase } from '../user/ResolveUserIdentity';
 import type { ProcessMessageJobData } from '../../ports/ProcessMessageJob';
 import type { HandleUnsupportedMessage } from './HandleUnsupportedMessage';
-import type { ClassifyFreeTextExpenseIntent } from './ClassifyFreeTextExpenseIntent';
 import type { SendExpenseGuidance } from './SendExpenseGuidance';
 import type { GetConversationState } from './GetConversationState';
-import { isCancelIntent, isUndoIntent } from '../../utils/intents';
+import type { SemanticRoutingPolicy } from '../../services/semantic-router/runtime-policy';
+import type { DeterministicRoutingPolicy } from '../../services/semantic-router/deterministic-routing';
 
 export interface RouteIncomingMessageDeps {
   messageQueue: Queue<ProcessMessageJobData>;
   resolveIdentity: ResolveUserIdentityUseCase;
   processedMessageRepository: IProcessedMessageRepository;
   handleUnsupportedMessage: HandleUnsupportedMessage;
-  classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent;
+  deterministicRoutingPolicy: DeterministicRoutingPolicy;
   sendGuidance: SendExpenseGuidance;
   getConversationState: GetConversationState;
+  semanticRoutingPolicy: SemanticRoutingPolicy;
 }
 
 export class RouteIncomingMessage {
@@ -71,17 +72,26 @@ export class RouteIncomingMessage {
       externalId: payload.chatId,
     });
 
-    const conversationState = await this.deps.getConversationState.execute({ userId });
+    const admittedForObservation = this.deps.semanticRoutingPolicy.admitsForObservation(userId);
+    const conversationState = admittedForObservation
+      ? null
+      : await this.deps.getConversationState.execute({ userId });
     const currentState = conversationState?.currentState ?? 'IDLE';
 
     // When the user is in the middle of an active flow (onboarding, review,
     // clarification, etc.), every text message must reach the thick worker so
     // the FSM can interpret it in context. Only in truly idle/receiving states
     // do we classify intent and send guidance for non-financial text.
-    if (currentState === 'IDLE' || currentState === 'EXPENSE_RECEIVING') {
-      const intent = this.deps.classifyFreeTextExpenseIntent.execute(text);
-
-      if (intent.kind === 'non-financial' && !isCancelIntent(text) && !isUndoIntent(text)) {
+    if (
+      !admittedForObservation &&
+      (currentState === 'IDLE' || currentState === 'EXPENSE_RECEIVING')
+    ) {
+      const decision = this.deps.deterministicRoutingPolicy.decide({
+        state: currentState,
+        rawMessage: text,
+        hasCallback: false,
+      });
+      if (decision.kind === 'expense_guidance') {
         await this.deps.sendGuidance.execute(payload.chatId);
         return;
       }
@@ -95,7 +105,7 @@ export class RouteIncomingMessage {
       channel: payload.channel,
       externalId: payload.chatId,
       externalMessageId: payload.externalMessageId!,
-      receivedAt: new Date().toISOString(),
+      receivedAt: payload.timestamp.toISOString(),
     });
 
     await this.deps.processedMessageRepository.markAsProcessed(processedKey);
@@ -107,6 +117,12 @@ export class RouteIncomingMessage {
       // Defensive: CALLBACK payloads should always have data, but if not,
       // treat as unsupported rather than throwing.
       await this.deps.handleUnsupportedMessage.execute(payload.chatId);
+      return;
+    }
+    if (
+      payload.channel === 'telegram' &&
+      (payload.userId === undefined || payload.userId !== payload.chatId)
+    ) {
       return;
     }
 
@@ -129,7 +145,7 @@ export class RouteIncomingMessage {
       channel: payload.channel,
       externalId: payload.chatId,
       externalMessageId: payload.externalMessageId!,
-      receivedAt: new Date().toISOString(),
+      receivedAt: payload.timestamp.toISOString(),
       callbackData,
     });
 

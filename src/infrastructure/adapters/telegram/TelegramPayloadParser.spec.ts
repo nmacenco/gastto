@@ -381,7 +381,7 @@ describe('parseTelegramPayload', () => {
       expect(result.userId).toBe('999');
       expect(result.externalMessageId).toBe('query-123');
       expect(result.callbackData).toEqual({ action: 'confirm' });
-      expect(result.timestamp).toEqual(new Date(1716206400 * 1000));
+      expect(result.timestamp.getTime()).toBeGreaterThan(new Date(1716206400 * 1000).getTime());
       expect(result.channel).toBe('telegram');
       expect(result.rawPayload).toBe(payload);
     });

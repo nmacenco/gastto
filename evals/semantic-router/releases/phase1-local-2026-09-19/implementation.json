@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "semantic-implementation-evidence-v1",
+  "sourceVersion": "7e9df3bee9c64b8b1d6b7f10c50b159a17e9e6eb9a0de975e44651b2c98080be",
+  "candidate": {
+    "provider": "openai",
+    "model": "gpt-4o-mini-2024-07-18",
+    "promptVersion": "semantic-openai-v3",
+    "contractVersion": "semantic-contract-v2",
+    "policyVersion": "semantic-policy-v3",
+    "datasetVersion": "semantic-corpus-v6",
+    "labelVersion": "semantic-labels-v6"
+  },
+  "status": "passed",
+  "recordedAt": "2026-09-19T21:49:03.000Z",
+  "suites": [
+    { "name": "complete_vitest", "status": "passed", "scenarios": 170, "tests": 2268 },
+    { "name": "semantic_postgres_redis", "status": "passed", "scenarios": 41, "tests": 41 },
+    { "name": "release_evaluator", "status": "passed", "scenarios": 26, "tests": 26 }
+  ],
+  "criticalFalseAuthorizationCount": 0,
+  "unauthorizedEffectCount": 0
+}

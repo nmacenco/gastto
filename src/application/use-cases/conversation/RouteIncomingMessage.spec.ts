@@ -8,6 +8,7 @@ import { RouteIncomingMessage } from './RouteIncomingMessage';
 import type { NormalizedPayload } from '../../../domain/ports/messaging';
 import type { ProcessMessageJobData } from '../../ports/ProcessMessageJob';
 import type { RouteIncomingMessageDeps } from './RouteIncomingMessage';
+import { CurrentDeterministicRoutingPolicy } from '../../services/semantic-router/deterministic-routing';
 
 const mockAdd = vi.fn();
 const mockResolveExecute = vi.fn();
@@ -17,6 +18,7 @@ const mockSendGuidanceExecute = vi.fn();
 const mockGetConversationStateExecute = vi.fn();
 const mockProcessedExists = vi.fn();
 const mockProcessedMarkAsProcessed = vi.fn();
+const mockAdmitsForObservation = vi.fn();
 
 function buildMockDeps() {
   return {
@@ -25,9 +27,9 @@ function buildMockDeps() {
     handleUnsupportedMessage: {
       execute: mockUnsupportedExecute,
     },
-    classifyFreeTextExpenseIntent: {
+    deterministicRoutingPolicy: new CurrentDeterministicRoutingPolicy({
       execute: mockClassifyExecute,
-    },
+    }),
     sendGuidance: {
       execute: mockSendGuidanceExecute,
     },
@@ -35,6 +37,10 @@ function buildMockDeps() {
     processedMessageRepository: {
       exists: mockProcessedExists,
       markAsProcessed: mockProcessedMarkAsProcessed,
+    },
+    semanticRoutingPolicy: {
+      admitsForObservation: mockAdmitsForObservation,
+      resolve: vi.fn(),
     },
   };
 }
@@ -69,6 +75,7 @@ describe('RouteIncomingMessage', () => {
     });
     mockProcessedExists.mockResolvedValue(false);
     mockProcessedMarkAsProcessed.mockResolvedValue(undefined);
+    mockAdmitsForObservation.mockReturnValue(false);
   });
 
   describe('TEXT messages', () => {
@@ -151,6 +158,25 @@ describe('RouteIncomingMessage', () => {
       expect(mockAdd).not.toHaveBeenCalled();
     });
 
+    it('enqueues cohort free text without using an ingress state snapshot as authority', async () => {
+      mockAdmitsForObservation.mockReturnValue(true);
+      mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
+      const router = new RouteIncomingMessage(
+        buildMockDeps() as unknown as RouteIncomingMessageDeps,
+      );
+
+      await router.execute(buildTextPayload({ text: 'Pago aprobado por el banco' }));
+
+      expect(mockGetConversationStateExecute).not.toHaveBeenCalled();
+      expect(mockClassifyExecute).not.toHaveBeenCalled();
+      expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
+      expect(mockAdd).toHaveBeenCalledWith(
+        'process-message',
+        expect.objectContaining({ rawMessage: 'Pago aprobado por el banco' }),
+      );
+      expect(mockProcessedMarkAsProcessed).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps empezar non-financial in an ordinary IDLE conversation', async () => {
       mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
       const router = new RouteIncomingMessage(
@@ -219,7 +245,7 @@ describe('RouteIncomingMessage', () => {
 
         await router.execute(buildTextPayload({ text }));
 
-        expect(mockClassifyExecute).toHaveBeenCalledWith(text);
+        expect(mockClassifyExecute).not.toHaveBeenCalled();
         expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
         expect(mockAdd).toHaveBeenCalledWith(
           'process-message',
@@ -333,7 +359,7 @@ describe('RouteIncomingMessage', () => {
       const payload: NormalizedPayload = {
         messageType: 'UNSUPPORTED',
         chatId: '123456789',
-        userId: '999',
+        userId: '123456789',
         timestamp: new Date('2026-05-20T12:00:00Z'),
         channel: 'telegram',
       };
@@ -355,7 +381,7 @@ describe('RouteIncomingMessage', () => {
       const payload: NormalizedPayload = {
         messageType: 'CALLBACK',
         chatId: '123456789',
-        userId: '999',
+        userId: '123456789',
         callbackData: { action: 'confirm' },
         timestamp: new Date('2026-05-20T12:00:00Z'),
         channel: 'telegram',
@@ -408,7 +434,7 @@ describe('RouteIncomingMessage', () => {
       const payload: NormalizedPayload = {
         messageType: 'CALLBACK',
         chatId: '123456789',
-        userId: '999',
+        userId: '123456789',
         callbackData: { action: 'cancel' },
         timestamp: new Date('2026-05-20T12:00:00Z'),
         channel: 'telegram',
@@ -421,6 +447,25 @@ describe('RouteIncomingMessage', () => {
       expect(mockResolveExecute).not.toHaveBeenCalled();
       expect(mockAdd).not.toHaveBeenCalled();
       expect(mockProcessedMarkAsProcessed).not.toHaveBeenCalled();
+    });
+
+    it('rejects a callback forged by a different Telegram identity', async () => {
+      const deps = buildMockDeps();
+      const router = new RouteIncomingMessage(deps as unknown as RouteIncomingMessageDeps);
+
+      await router.execute({
+        messageType: 'CALLBACK',
+        chatId: '123456789',
+        userId: 'attacker-id',
+        callbackData: { action: 'confirm' },
+        timestamp: new Date('2026-05-20T12:00:00Z'),
+        channel: 'telegram',
+        externalMessageId: 'query-forged',
+      });
+
+      expect(mockProcessedExists).not.toHaveBeenCalled();
+      expect(mockResolveExecute).not.toHaveBeenCalled();
+      expect(mockAdd).not.toHaveBeenCalled();
     });
   });
 });

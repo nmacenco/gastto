@@ -37,6 +37,15 @@ import { LLMColumnInferenceAdapter } from '../infrastructure/adapters/sheets/LLM
 import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
 import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
+import OpenAI from 'openai';
+import { OpenAISemanticRouterAdapter } from '../infrastructure/adapters/llm/OpenAISemanticRouterAdapter';
+import type { SemanticRouterPort } from '../domain/ports/SemanticRouterPort';
+import { Sha256SemanticRoutingPolicy } from '../application/services/semantic-router/runtime-policy';
+import { CurrentDeterministicRoutingPolicy } from '../application/services/semantic-router/deterministic-routing';
+import { ProjectSemanticRouterInput } from '../application/services/semantic-router/ProjectSemanticRouterInput';
+import { ValidateConversationSnapshot } from '../application/services/semantic-router/ValidateConversationSnapshot';
+import { ObserveSemanticRouting } from '../application/services/semantic-router/ObserveSemanticRouting';
+import { PinoSemanticRoutingTelemetry } from '../infrastructure/observability/PinoSemanticRoutingTelemetry';
 import { RuleBasedColumnMappingCorrectionParser } from '../application/services/ColumnMappingCorrectionParser';
 import {
   OAuthAccessTokenService,
@@ -49,6 +58,10 @@ import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProces
 
 // Application
 import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
+import { DispatchControlSemanticAction } from '../application/use-cases/expense/DispatchControlSemanticAction';
+import { PresentUndoConfirmation } from '../application/use-cases/expense/PresentUndoConfirmation';
+import { CompleteExpenseClarification } from '../application/use-cases/expense/CompleteExpenseClarification';
 import { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
 import { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
@@ -66,6 +79,8 @@ import { HandleOAuthCallback } from '../application/use-cases/spreadsheet/Handle
 import { SendOAuthReminder } from '../application/use-cases/spreadsheet/SendOAuthReminder';
 import { CancelCloudConnection } from '../application/use-cases/spreadsheet/CancelCloudConnection';
 import { HandleSpreadsheetFileSelection } from '../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
+import { DispatchOptionSelection } from '../application/use-cases/spreadsheet/DispatchOptionSelection';
+import { ResolveOptionReference } from '../application/services/semantic-router/ResolveOptionReference';
 import { HandleSheetSelection } from '../application/use-cases/spreadsheet/HandleSheetSelection';
 import { ValidateSpreadsheetAccess } from '../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import { StartSpreadsheetReconfigurationUseCase } from '../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
@@ -116,6 +131,24 @@ function createLLMPort(env: Env): LLMPort {
   );
 }
 
+function createRuntimeSemanticRouter(env: Env): SemanticRouterPort | null {
+  if (!env.OPENAI_API_KEY?.trim()) return null;
+  const client = new OpenAI({
+    apiKey: env.OPENAI_API_KEY,
+    baseURL: 'https://api.openai.com/v1',
+    maxRetries: 0,
+    timeout: env.SEMANTIC_ROUTER_TIMEOUT_MS,
+  });
+  return new OpenAISemanticRouterAdapter(
+    (body, requestOptions) => client.chat.completions.create(body, requestOptions),
+    {
+      model: env.SEMANTIC_ROUTER_MODEL,
+      timeoutMs: env.SEMANTIC_ROUTER_TIMEOUT_MS,
+      maxOutputTokens: env.SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS,
+    },
+  );
+}
+
 function buildTelegramFeature(
   env: Env,
   infra: BuildDependenciesInfra,
@@ -124,6 +157,10 @@ function buildTelegramFeature(
     resolveIdentity: ResolveUserIdentityUseCase;
     getConversationState: GetConversationState;
     conversationRepo: DrizzleConversationStateRepository;
+    transitionState: TransitionConversationState;
+    userProcessingLock: RedisUserProcessingLock;
+    semanticRoutingPolicy: Sha256SemanticRoutingPolicy;
+    deterministicRoutingPolicy: CurrentDeterministicRoutingPolicy;
   },
 ): TelegramFeature | null {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -131,7 +168,13 @@ function buildTelegramFeature(
   }
 
   const adapter = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN, infra.rootLogger);
-  const handleStartCommand = new HandleStartCommand(adapter, core.conversationRepo);
+  const handleStartCommand = new HandleStartCommand(
+    adapter,
+    core.conversationRepo,
+    core.transitionState,
+    core.userProcessingLock,
+    infra.rootLogger,
+  );
   const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(adapter);
   const handleUnsupportedMessage = new HandleUnsupportedMessage(adapter);
   const classifyFreeTextExpenseIntent = new ClassifyFreeTextExpenseIntent();
@@ -142,10 +185,11 @@ function buildTelegramFeature(
     messageQueue: core.messageQueue,
     resolveIdentity: core.resolveIdentity,
     handleUnsupportedMessage,
-    classifyFreeTextExpenseIntent,
+    deterministicRoutingPolicy: core.deterministicRoutingPolicy,
     sendGuidance: sendExpenseGuidance,
     getConversationState: core.getConversationState,
     processedMessageRepository,
+    semanticRoutingPolicy: core.semanticRoutingPolicy,
   });
 
   return {
@@ -207,6 +251,8 @@ function buildGoogleOAuthFeature(
     reminderQueue: core.reminderQueue,
     transitionState: core.transitionState,
     messagingPort,
+    userProcessingLock: new RedisUserProcessingLock(infra.redis),
+    logger: infra.rootLogger,
   });
 
   const cancelCloudConnection = new CancelCloudConnection({
@@ -282,6 +328,8 @@ function buildGoogleOAuthFeature(
     messagingPort,
     tokenEncryption: core.tokenEncryption,
     handleSpreadsheetFileSelection,
+    conversationRepo: core.conversationRepo,
+    userProcessingLock: new RedisUserProcessingLock(infra.redis),
   });
 
   const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
@@ -418,6 +466,35 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   const getConversationState = new GetConversationState(conversationRepo);
   const transitionState = new TransitionConversationState(conversationRepo);
   const recoverCorruptedState = new RecoverCorruptedState(conversationRepo, operationLogRepo);
+  const semanticRoutingPolicy = new Sha256SemanticRoutingPolicy({
+    stateModes: env.SEMANTIC_ROUTER_STATE_MODES,
+    cohortPercent: env.SEMANTIC_ROUTER_COHORT_PERCENT,
+    shadowSamplePercent: env.SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT,
+    cohortSeed: env.SEMANTIC_ROUTER_COHORT_SEED,
+  });
+  const deterministicRoutingPolicy = new CurrentDeterministicRoutingPolicy(
+    new ClassifyFreeTextExpenseIntent(),
+  );
+  const semanticRouter = createRuntimeSemanticRouter(env);
+  const semanticSnapshotValidator = new ValidateConversationSnapshot(
+    conversationRepo,
+    (userId) => transitionState.currentState(userId) !== null,
+  );
+  const observeSemanticRouting = new ObserveSemanticRouting({
+    policy: semanticRoutingPolicy,
+    projector: new ProjectSemanticRouterInput(),
+    router: semanticRouter,
+    snapshotValidator: semanticSnapshotValidator,
+    telemetry: new PinoSemanticRoutingTelemetry(infra.rootLogger),
+    optionSelectionAvailable: Boolean(
+      env.GOOGLE_CLIENT_ID &&
+      env.GOOGLE_CLIENT_SECRET &&
+      env.GOOGLE_REDIRECT_URI &&
+      env.TELEGRAM_BOT_TOKEN &&
+      env.TELEGRAM_WEBHOOK_SECRET,
+    ),
+    controlActionAvailable: true,
+  });
 
   // process-message jobs run side-effectful FSM handlers that send
   // user-facing messages. Retrying them re-runs those side effects and
@@ -507,7 +584,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     columnMappingRepo,
     userCategoryRepo,
     categoryVocabularyRepo,
-    conversationRepo,
+    transitionState,
     operationLogRepo,
     userProfileRepo,
     categoryClassifier,
@@ -515,9 +592,11 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
   );
   const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
+  const completeExpenseClarification = new CompleteExpenseClarification(registerExpense);
 
   const generateExpenseSummary = new GenerateExpenseSummaryUseCase(
     expenseRecordRepo,
+    transitionState,
     env.HIGH_AMOUNT_THRESHOLD_MULTIPLIER,
   );
   const undoLastExpense = new UndoLastExpenseUseCase(
@@ -526,6 +605,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     spreadsheetConfigRepo,
     operationLogRepo,
     oauthAccessTokenService,
+    transitionState,
   );
   const correctExpense = new CorrectExpenseUseCase(
     {
@@ -538,12 +618,24 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     },
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
   );
+  const dispatchExpenseSemanticAction = new DispatchExpenseSemanticAction({
+    snapshotValidator: semanticSnapshotValidator,
+    transitionState,
+    registerExpense,
+    completeClarification: completeExpenseClarification,
+    correctExpense,
+    queuePendingExpense,
+  });
 
   const telegram = buildTelegramFeature(env, infra, {
     messageQueue,
     resolveIdentity,
     getConversationState,
     conversationRepo,
+    transitionState,
+    userProcessingLock,
+    semanticRoutingPolicy,
+    deterministicRoutingPolicy,
   });
 
   const googleOAuth = buildGoogleOAuthFeature(env, infra, {
@@ -564,6 +656,14 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     oauthAdapter: googleOAuthAdapter,
     oauthAccessTokenService,
   });
+  const dispatchOptionSelection = googleOAuth
+    ? new DispatchOptionSelection({
+        snapshotValidator: semanticSnapshotValidator,
+        resolver: new ResolveOptionReference(),
+        fileSelection: googleOAuth.handleSpreadsheetFileSelection,
+        sheetSelection: googleOAuth.handleSheetSelection,
+      })
+    : null;
 
   const messagingPort = telegram?.adapter ?? {
     sendMessage: () =>
@@ -582,6 +682,17 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     transitionState,
     messagingPort,
     advancePendingExpense,
+  });
+  const presentUndoConfirmation = new PresentUndoConfirmation({
+    transitionState,
+    messagingPort,
+  });
+  const dispatchControlSemanticAction = new DispatchControlSemanticAction({
+    snapshotValidator: semanticSnapshotValidator,
+    cancelExpenseRegistration,
+    undoLastExpense,
+    presentUndoConfirmation,
+    startSpreadsheetReconfiguration: googleOAuth?.startSpreadsheetReconfiguration ?? null,
   });
   const retryExpenseSave = new RetryExpenseSaveUseCase({
     registerExpense,
@@ -624,6 +735,14 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     getConversationState,
     transitionState,
     recoverCorruptedState,
+    semanticRoutingPolicy,
+    deterministicRoutingPolicy,
+    semanticRouter,
+    observeSemanticRouting,
+    dispatchExpenseSemanticAction,
+    dispatchControlSemanticAction,
+    dispatchOptionSelection,
+    completeExpenseClarification,
     messageQueue,
     incomingMessageQueue,
     reminderQueue,
@@ -646,6 +765,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     cancelExpenseRegistration,
     resolveExpenseReviewReply,
     undoLastExpense,
+    presentUndoConfirmation,
     retryExpenseSave,
     expenseSummaryPresenterFactory,
     telegram,

@@ -7,14 +7,24 @@ import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
+import type { DispatchExpenseSemanticAction } from '../../application/use-cases/expense/DispatchExpenseSemanticAction';
+import type { DispatchControlSemanticAction } from '../../application/use-cases/expense/DispatchControlSemanticAction';
+import type { PresentUndoConfirmation } from '../../application/use-cases/expense/PresentUndoConfirmation';
+import type { CompleteExpenseClarification } from '../../application/use-cases/expense/CompleteExpenseClarification';
 import type { CorrectExpenseUseCase } from '../../application/use-cases/expense/CorrectExpenseUseCase';
 import type { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
-import type { ResolveExpenseSummaryActionUseCase } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
+import type {
+  ResolveExpenseSummaryActionOutcome,
+  ResolveExpenseSummaryActionUseCase,
+} from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { CancelExpenseRegistrationUseCase } from '../../application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import type { UndoLastExpenseUseCase } from '../../application/use-cases/expense/UndoLastExpense';
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { QueuePendingExpense } from '../../application/use-cases/expense/QueuePendingExpense';
 import type { ClassifyFreeTextExpenseIntent } from '../../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
+import type { SendExpenseGuidance } from '../../application/use-cases/conversation/SendExpenseGuidance';
+import type { ObserveSemanticRouting } from '../../application/services/semantic-router/ObserveSemanticRouting';
+import type { DeterministicRoutingPolicy } from '../../application/services/semantic-router/deterministic-routing';
 import type {
   ResolveExpenseReviewReplyOutcome,
   ResolveExpenseReviewReplyUseCase,
@@ -24,7 +34,10 @@ import type { IUserProfilePort } from '../../domain/ports/IUserProfilePort';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
 import type { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
 import type { IUserProcessingLock } from '../../application/ports/UserProcessingLock';
-import type { ConversationState } from '../../domain/entities/ConversationState';
+import {
+  getFinancialExecutionClaim,
+  type ConversationState,
+} from '../../domain/entities/ConversationState';
 import type { MessagingOutputPort } from '../../application/ports/output/messaging.port';
 import type { ExpenseSummaryPresenter } from '../../application/ports/output/expense-summary.presenter';
 import {
@@ -49,6 +62,7 @@ import type { MappingCorrection } from '../../domain/value-objects/ColumnMapping
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
+import type { DispatchOptionSelection } from '../../application/use-cases/spreadsheet/DispatchOptionSelection';
 import type { HandleSheetSelection } from '../../application/use-cases/spreadsheet/HandleSheetSelection';
 import type { ValidateSpreadsheetAccess } from '../../application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
 import type { InferColumnMapping } from '../../application/use-cases/spreadsheet/InferColumnMapping';
@@ -59,6 +73,7 @@ import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
+import { StaleConversationStateError } from '../../domain/errors/StaleConversationStateError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import {
@@ -76,13 +91,15 @@ import {
 import { ExpenseClarificationState } from '../../domain/value-objects/expense-clarification-state';
 import { ExpenseCorrectionState } from '../../domain/value-objects/expense-correction-state';
 import { parseExpenseSaveRetryPayload } from '../../domain/value-objects/expense-save-retry-payload';
+import { parseExpenseUndoPayload } from '../../domain/value-objects/expense-undo-payload';
 import { isExpenseLikeIntent } from '../../domain/value-objects/FreeTextIntent';
+import { advanceExpenseReviewBinding } from '../../domain/value-objects/expense-review-binding';
 
 // Lock TTL must exceed the longest possible job duration (LLM + side effects).
 // The worker's lockDuration is 2 min, so 3 min provides a generous safety margin
 // without renewal complexity.
 const USER_LOCK_TTL_MS = 180_000;
-const UNDO_CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1000;
+const USER_LOCK_RENEW_MS = 30_000;
 
 export interface MessageWorkerDeps {
   redis: Redis;
@@ -91,6 +108,13 @@ export interface MessageWorkerDeps {
   registerExpense: RegisterExpenseUseCase | null;
   queuePendingExpense: QueuePendingExpense;
   classifyFreeTextExpenseIntent: ClassifyFreeTextExpenseIntent;
+  deterministicRoutingPolicy: DeterministicRoutingPolicy;
+  observeSemanticRouting: ObserveSemanticRouting;
+  dispatchExpenseSemanticAction: DispatchExpenseSemanticAction;
+  dispatchControlSemanticAction?: DispatchControlSemanticAction | null;
+  dispatchOptionSelection?: DispatchOptionSelection | null;
+  completeExpenseClarification: CompleteExpenseClarification;
+  sendGuidance: SendExpenseGuidance;
   correctExpense: CorrectExpenseUseCase | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
@@ -98,6 +122,7 @@ export interface MessageWorkerDeps {
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase | null;
   retryExpenseSave?: RetryExpenseSaveUseCase | null;
   undoLastExpense?: UndoLastExpenseUseCase | null | undefined;
+  presentUndoConfirmation?: PresentUndoConfirmation | null;
   getConversationState: GetConversationState;
   transitionState: TransitionConversationState;
   expenseSummaryPresenterFactory?: (
@@ -152,19 +177,243 @@ export async function processMessageJob(
     throw new UserAlreadyProcessingError(userId);
   }
 
+  let renewalInFlight = false;
+  const renewalTimer = setInterval(() => {
+    if (renewalInFlight) return;
+    renewalInFlight = true;
+    void opts.userProcessingLock
+      .renew(userId, lockToken, USER_LOCK_TTL_MS)
+      .then((renewed) => {
+        if (!renewed) {
+          opts.transitionState.invalidateExecution(userId);
+          opts.logger.error({
+            msg: 'Lost per-user processing lock during renewal',
+            endpoint: 'processMessageJob',
+            code: 'LOCK_RENEW_LOST',
+            userId,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        opts.transitionState.invalidateExecution(userId);
+        opts.logger.error({
+          msg: 'Failed to renew per-user processing lock',
+          endpoint: 'processMessageJob',
+          code: 'LOCK_RENEW_FAILED',
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        renewalInFlight = false;
+      });
+  }, USER_LOCK_RENEW_MS);
+  renewalTimer.unref();
+
   try {
     const messaging = opts.messagingAdapters[channel];
 
     const conversationState = await opts.getConversationState.execute({ userId });
     const currentState = conversationState?.currentState ?? 'IDLE';
+    const deterministicDecision = opts.deterministicRoutingPolicy.decide({
+      state: currentState,
+      rawMessage: data.rawMessage,
+      hasCallback: data.callbackData !== undefined,
+    });
 
     // Route according to FSM state. Known business errors are already turned
     // into user-facing messages by each use case; this try/catch only catches
     // unexpected throws so BullMQ does not retry side-effectful handlers and
     // re-send the same messages on every attempt (ADR-005).
     try {
-      await routeByState(currentState, data, conversationState, opts, messaging);
+      const route = async () => {
+        let semanticTurn: Awaited<ReturnType<ObserveSemanticRouting['execute']>> | undefined;
+        if (conversationState) {
+          try {
+            semanticTurn = await opts.observeSemanticRouting.execute({
+              userId,
+              externalMessageId: data.externalMessageId,
+              rawMessage: data.rawMessage,
+              conversationState,
+              deterministicDecision,
+            });
+          } catch {
+            opts.logger.error({
+              msg: 'Semantic shadow observation failed unexpectedly',
+              endpoint: 'processMessageJob',
+              code: 'SEMANTIC_OBSERVATION_FAILED',
+            });
+          }
+        }
+        opts.transitionState.assertExecutionIsValid(userId);
+        if (semanticTurn?.status === 'clarification') {
+          await messaging.sendMessage(
+            externalId,
+            conversationState
+              ? semanticExpenseGuidance(conversationState, semanticTurn.reason)
+              : expenseCopies.semanticExpenseGuidance(
+                  semanticTurn.reason === 'ambiguous_reference' ||
+                    semanticTurn.reason === 'not_found'
+                    ? 'unsupported_action'
+                    : semanticTurn.reason,
+                ),
+          );
+          return;
+        }
+        if (semanticTurn?.status === 'expense_action' && conversationState !== null) {
+          let outcome: Awaited<ReturnType<DispatchExpenseSemanticAction['execute']>>;
+          try {
+            outcome = await opts.dispatchExpenseSemanticAction.execute({
+              userId,
+              externalId,
+              externalMessageId: data.externalMessageId,
+              receivedAt: data.receivedAt,
+              channel,
+              rawMessage: data.rawMessage,
+              conversationState,
+              expected: semanticTurn.expected,
+              decision: semanticTurn.decision,
+            });
+          } catch (error) {
+            opts.observeSemanticRouting.recordExpenseDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'dispatch_failed',
+            });
+            throw error;
+          }
+          opts.observeSemanticRouting.recordExpenseDispatch?.(semanticTurn, outcome);
+          opts.transitionState.assertExecutionIsValid(userId);
+          if (
+            semanticTurn.decision.action === 'register_expense' &&
+            conversationState.currentState === 'EXPENSE_CLARIFYING' &&
+            outcome.status !== 'clarification_required'
+          ) {
+            await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
+          }
+          if (outcome.status === 'missing_data') {
+            await messaging.sendMessage(
+              externalId,
+              outcome.field === 'monto'
+                ? expenseCopies.clarificationAmount()
+                : expenseCopies.clarificationCurrency(),
+            );
+          } else if (outcome.status === 'review_required') {
+            if (outcome.payload.awaitingZeroConfirmation === true) {
+              await presentZeroAmountConfirmation(
+                userId,
+                outcome.payload,
+                messaging,
+                externalId,
+                opts,
+              );
+            } else {
+              await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
+            }
+          } else if (outcome.status === 'queue_full') {
+            await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
+          } else if (outcome.status === 'clarification_required') {
+            await messaging.sendMessage(
+              externalId,
+              semanticExpenseGuidance(conversationState, outcome.reason),
+            );
+          }
+          return;
+        }
+        if (semanticTurn?.status === 'control_action' && conversationState !== null) {
+          if (!opts.dispatchControlSemanticAction) {
+            opts.observeSemanticRouting.recordControlDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'unsupported_action',
+            });
+            await messaging.sendMessage(
+              externalId,
+              expenseCopies.semanticControlGuidance('unsupported_action'),
+            );
+            return;
+          }
+          let outcome: Awaited<ReturnType<DispatchControlSemanticAction['execute']>>;
+          try {
+            outcome = await opts.dispatchControlSemanticAction.execute({
+              userId,
+              externalId,
+              channel,
+              conversationState,
+              expected: semanticTurn.expected,
+              decision: semanticTurn.decision,
+              provenance: semanticTurn.provenance,
+            });
+          } catch (error) {
+            opts.observeSemanticRouting.recordControlDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'dispatch_failed',
+            });
+            throw error;
+          }
+          opts.observeSemanticRouting.recordControlDispatch?.(semanticTurn, outcome);
+          opts.transitionState.assertExecutionIsValid(userId);
+          if (outcome.status === 'undo_unavailable') {
+            await messaging.sendMessage(externalId, expenseCopies.undoNotFound());
+          } else if (outcome.status === 'explicit_command_required') {
+            await messaging.sendMessage(externalId, expenseCopies.saveRetryRecoveryChoice());
+          } else if (outcome.status === 'clarification_required') {
+            await messaging.sendMessage(
+              externalId,
+              expenseCopies.semanticControlGuidance(outcome.reason),
+            );
+          }
+          return;
+        }
+        if (semanticTurn?.status === 'option_selection' && conversationState !== null) {
+          if (opts.dispatchOptionSelection === null || opts.dispatchOptionSelection === undefined) {
+            opts.observeSemanticRouting.recordOptionDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'unsupported_action',
+            });
+            await messaging.sendMessage(
+              externalId,
+              semanticExpenseGuidance(conversationState, 'not_found'),
+            );
+            return;
+          }
+          let outcome: Awaited<ReturnType<DispatchOptionSelection['execute']>>;
+          try {
+            outcome = await opts.dispatchOptionSelection.execute({
+              userId,
+              externalId,
+              channel,
+              conversationState,
+              expected: semanticTurn.expected,
+              snapshot: semanticTurn.snapshot,
+              decision: semanticTurn.decision,
+            });
+          } catch (error) {
+            opts.observeSemanticRouting.recordOptionDispatch?.(semanticTurn, {
+              status: 'clarification_required',
+              reason: 'dispatch_failed',
+            });
+            throw error;
+          }
+          opts.observeSemanticRouting.recordOptionDispatch?.(semanticTurn, outcome);
+          opts.transitionState.assertExecutionIsValid(userId);
+          if (outcome.status === 'clarification_required') {
+            await messaging.sendMessage(
+              externalId,
+              semanticExpenseGuidance(conversationState, outcome.reason),
+            );
+          }
+          return;
+        }
+        return deterministicDecision.kind === 'expense_guidance'
+          ? opts.sendGuidance.execute(externalId)
+          : routeByState(currentState, data, conversationState, opts, messaging);
+      };
+      if (conversationState) {
+        await opts.transitionState.runWithState(conversationState, route);
+      } else {
+        await opts.transitionState.runForUser(userId, route);
+      }
     } catch (err) {
+      if (err instanceof StaleConversationStateError) return;
       opts.logger.error({
         msg: 'process-message handler threw unexpectedly',
         endpoint: 'processMessageJob',
@@ -186,6 +435,7 @@ export async function processMessageJob(
       }
     }
   } finally {
+    clearInterval(renewalTimer);
     try {
       await opts.userProcessingLock.release(userId, lockToken);
     } catch (releaseErr) {
@@ -209,6 +459,21 @@ async function routeByState(
 ): Promise<void> {
   const { userId, rawMessage, channel, externalId } = jobData;
 
+  // A persisted financial claim is the durable authority after an append/delete
+  // starts. No later message, callback, timeout-like command, or reconfiguration
+  // may replace it while its outcome is unresolved.
+  if (getFinancialExecutionClaim(conversationState?.statePayload ?? null) !== null) {
+    await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+    return;
+  }
+
+  // Typed review callbacks are never global commands. Outside the exact
+  // review state they must not cancel, reset, or otherwise mutate a flow.
+  if (jobData.callbackData !== undefined && currentState !== 'EXPENSE_REVIEW') {
+    await messaging.sendMessage(externalId, expenseCopies.noActiveReview());
+    return;
+  }
+
   // The immediate-undo token is valid for precisely the next inbound message.
   // Clear it before any other routing path, including global cancellation.
   const isImmediateUndoCommand = currentState === 'IDLE' && isUndoIntent(rawMessage);
@@ -220,12 +485,7 @@ async function routeByState(
     await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
   }
 
-  const cancellationSource =
-    jobData.callbackData?.action === 'cancel'
-      ? 'callback'
-      : isCancelIntent(rawMessage)
-        ? 'text'
-        : null;
+  const cancellationSource = isCancelIntent(rawMessage) ? 'text' : null;
   const normalizedReviewPayload = tryNormalizeExpenseReviewPayload(conversationState?.statePayload);
   if (
     currentState === 'EXPENSE_REVIEW' &&
@@ -245,6 +505,7 @@ async function routeByState(
       const result = await opts.undoLastExpense.execute({
         userId,
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: immediateUndoExpenseId,
       });
       await sendUndoOutcome(result, messaging, externalId);
@@ -307,26 +568,23 @@ async function routeByState(
         const result = await opts.undoLastExpense.execute({
           userId,
           action: 'request',
+          provenance: 'deterministic_command',
           ...(typeof immediateUndoExpenseId === 'string'
             ? { immediateExpenseId: immediateUndoExpenseId }
             : {}),
         });
         if (result.status === 'confirmation_required' && result.expense) {
-          await opts.transitionState.execute({
+          const current = opts.transitionState.currentState(userId);
+          if (!current || !opts.presentUndoConfirmation) {
+            await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
+            break;
+          }
+          await opts.presentUndoConfirmation.execute({
             userId,
-            targetState: 'EXPENSE_UNDO_CONFIRMING',
-            payload: { pendingExpenseId: result.expense.id },
-            expiresAt: new Date(Date.now() + UNDO_CONFIRMATION_TIMEOUT_MS),
+            chatId: externalId,
+            expense: result.expense,
+            expected: opts.transitionState.precondition(current, 'unexpired'),
           });
-          await messaging.sendMessage(
-            externalId,
-            expenseCopies.undoConfirmationRequired(
-              result.expense.concepto,
-              result.expense.monto,
-              result.expense.moneda,
-              result.expense.savedAt,
-            ),
-          );
         } else {
           await sendUndoOutcome(result, messaging, externalId);
         }
@@ -352,7 +610,7 @@ async function routeByState(
         await messaging.sendMessage(externalId, question);
       } else if (result.status === 'needs_zero_confirmation') {
         // Zero-amount confirmation path: state already transitioned by use case
-        await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
+        await presentZeroAmountConfirmation(userId, result.payload, messaging, externalId, opts);
       } else {
         // Format and send summary for review (E1-US-06)
         await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
@@ -367,13 +625,7 @@ async function routeByState(
     }
 
     case 'EXPENSE_SAVING_RETRY': {
-      await handleExpenseSavingRetry(
-        jobData,
-        conversationState?.statePayload ?? null,
-        conversationState?.expiresAt ?? null,
-        opts,
-        messaging,
-      );
+      await handleExpenseSavingRetry(jobData, conversationState, opts, messaging);
       break;
     }
 
@@ -394,16 +646,37 @@ async function routeByState(
     }
 
     case 'EXPENSE_UNDO_CONFIRMING': {
-      const pendingExpenseId = conversationState?.statePayload?.pendingExpenseId;
-      if (typeof pendingExpenseId !== 'string' || !opts.undoLastExpense) {
+      const undoPayload = parseExpenseUndoPayload(conversationState?.statePayload);
+      if (!undoPayload || !opts.undoLastExpense || conversationState === null) {
         await opts.transitionState.execute({ userId, targetState: 'IDLE' });
         await messaging.sendMessage(externalId, expenseCopies.undoNotFound());
         break;
       }
 
       if (isCancelIntent(rawMessage)) {
-        await opts.transitionState.execute({ userId, targetState: 'IDLE' });
+        await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
         await messaging.sendMessage(externalId, expenseCopies.undoCancelled());
+        break;
+      }
+
+      if (conversationState.expiresAt === null) {
+        await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+        await messaging.sendMessage(externalId, expenseCopies.undoNotFound());
+        break;
+      }
+      if (conversationState.expiresAt.getTime() <= Date.now()) {
+        await opts.transitionState.execute({
+          userId,
+          targetState: 'IDLE',
+          payload: null,
+          expected: opts.transitionState.precondition(conversationState, 'expired'),
+        });
+        await messaging.sendMessage(externalId, expenseCopies.undoExpired());
+        break;
+      }
+
+      if (!undoPayload.actionBinding || undoPayload.actionBinding.presentedAt === null) {
+        await representUndoConfirmation(userId, externalId, conversationState, opts, messaging);
         break;
       }
 
@@ -415,9 +688,12 @@ async function routeByState(
       const result = await opts.undoLastExpense.execute({
         userId,
         action: 'confirm',
-        pendingExpenseId,
+        pendingExpenseId: undoPayload.pendingExpenseId,
+        authorization: {
+          receivedAt: jobData.receivedAt,
+          sourceMessageId: jobData.externalMessageId,
+        },
       });
-      await opts.transitionState.execute({ userId, targetState: 'IDLE' });
       await sendUndoOutcome(result, messaging, externalId);
       break;
     }
@@ -574,6 +850,7 @@ async function routeByState(
       const recovery = await opts.recoverCorruptedState.execute({
         userId,
         observedState: currentState,
+        observedRevision: conversationState?.revision ?? '0',
       });
       if (recovery.recovered) {
         await messaging.sendMessage(externalId, recovery.message);
@@ -611,18 +888,24 @@ function shouldQueueAdditionalExpense(
 
 async function handleExpenseSavingRetry(
   jobData: ProcessMessageJobData,
-  statePayload: Record<string, unknown> | null,
-  expiresAt: Date | null,
+  conversationState: ConversationState | null,
   opts: MessageWorkerDeps,
   messaging: MessagingOutputPort,
 ): Promise<void> {
   const { userId, rawMessage, externalId, channel } = jobData;
-  if (
-    parseExpenseSaveRetryPayload(statePayload) === null ||
-    expiresAt === null ||
-    expiresAt.getTime() <= Date.now()
-  ) {
+  const retryPayload = parseExpenseSaveRetryPayload(conversationState?.statePayload);
+  if (retryPayload === null || conversationState === null || conversationState.expiresAt === null) {
     await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+    await messaging.sendMessage(externalId, expenseCopies.saveRetryExpired());
+    return;
+  }
+  if (conversationState.expiresAt.getTime() <= Date.now()) {
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'IDLE',
+      payload: null,
+      expected: opts.transitionState.precondition(conversationState, 'expired'),
+    });
     await messaging.sendMessage(externalId, expenseCopies.saveRetryExpired());
     return;
   }
@@ -633,12 +916,30 @@ async function handleExpenseSavingRetry(
       await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
       return;
     }
-    await opts.retryExpenseSave.execute({
+    if (!retryPayload.actionBinding || retryPayload.actionBinding.presentedAt === null) {
+      await representRetryAuthorization(
+        userId,
+        externalId,
+        conversationState,
+        retryPayload,
+        opts,
+        messaging,
+      );
+      return;
+    }
+    const outcome = await opts.retryExpenseSave.execute({
       userId,
       chatId: externalId,
-      statePayload,
-      expiresAt,
+      authorization: {
+        receivedAt: jobData.receivedAt,
+        sourceMessageId: jobData.externalMessageId,
+      },
     });
+    if (outcome.status === 'operation_in_progress') {
+      await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+    } else if (outcome.status !== 'handled') {
+      await messaging.sendMessage(externalId, expenseCopies.staleFinancialAction());
+    }
     return;
   }
 
@@ -652,6 +953,68 @@ async function handleExpenseSavingRetry(
   }
 
   await messaging.sendMessage(externalId, expenseCopies.saveNetworkFailure());
+}
+
+async function representRetryAuthorization(
+  userId: string,
+  chatId: string,
+  state: ConversationState,
+  retryPayload: NonNullable<ReturnType<typeof parseExpenseSaveRetryPayload>>,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  const actionBinding = advanceExpenseReviewBinding(retryPayload.actionBinding);
+  const payload = { ...retryPayload, actionBinding };
+  await opts.transitionState.execute({
+    userId,
+    targetState: 'EXPENSE_SAVING_RETRY',
+    payload,
+    expiresAt: state.expiresAt,
+  });
+  const delivery = await messaging.sendMessage(chatId, expenseCopies.saveNetworkFailure());
+  if (delivery.status === 'success') {
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'EXPENSE_SAVING_RETRY',
+      payload: {
+        ...payload,
+        actionBinding: { ...actionBinding, presentedAt: new Date().toISOString() },
+      },
+      expiresAt: state.expiresAt,
+    });
+  }
+}
+
+async function representUndoConfirmation(
+  userId: string,
+  chatId: string,
+  state: ConversationState,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+): Promise<void> {
+  if (!opts.presentUndoConfirmation) {
+    await messaging.sendMessage(chatId, expenseCopies.expenseRegistrationUnavailable());
+    return;
+  }
+  const result = await opts.undoLastExpense!.execute({
+    userId,
+    action: 'request',
+    provenance: 'deterministic_command',
+  });
+  if (result.status !== 'confirmation_required' || !result.expense) {
+    await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+    await sendUndoOutcome(result, messaging, chatId);
+    return;
+  }
+  await opts.presentUndoConfirmation.execute({
+    userId,
+    chatId,
+    expense: result.expense,
+    expected: opts.transitionState.precondition(state, 'unexpired'),
+    ...(parseExpenseUndoPayload(state.statePayload)?.actionBinding === undefined
+      ? {}
+      : { previousBinding: parseExpenseUndoPayload(state.statePayload)!.actionBinding }),
+  });
 }
 
 async function sendUndoOutcome(
@@ -677,6 +1040,17 @@ async function sendUndoOutcome(
       return;
     case 'deletion_failed':
       await messaging.sendMessage(chatId, expenseCopies.undoDeletionFailed());
+      return;
+    case 'operation_in_progress':
+      await messaging.sendMessage(chatId, expenseCopies.financialOutcomeUnknown());
+      return;
+    case 'expired':
+      await messaging.sendMessage(chatId, expenseCopies.undoExpired());
+      return;
+    case 'stale':
+    case 'unbound':
+    case 'invalid':
+      await messaging.sendMessage(chatId, expenseCopies.staleFinancialAction());
       return;
     case 'confirmation_required':
       await messaging.sendMessage(chatId, expenseCopies.undoNotFound());
@@ -737,6 +1111,7 @@ async function presentExpenseSummary(
   messaging: MessagingOutputPort,
   externalId: string,
   opts: MessageWorkerDeps,
+  forceNewBinding: boolean = false,
 ): Promise<void> {
   if (!opts.generateExpenseSummary || !opts.expenseSummaryPresenterFactory) {
     await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
@@ -744,7 +1119,40 @@ async function presentExpenseSummary(
   }
 
   const presenter = opts.expenseSummaryPresenterFactory(messaging, externalId);
-  await opts.generateExpenseSummary.execute({ userId, payload, presenter });
+  await opts.generateExpenseSummary.execute({
+    userId,
+    payload,
+    presenter,
+    ...(forceNewBinding ? { forceNewBinding: true } : {}),
+  });
+}
+
+async function presentZeroAmountConfirmation(
+  userId: string,
+  payload: ExpenseReviewPayload,
+  messaging: MessagingOutputPort,
+  externalId: string,
+  opts: MessageWorkerDeps,
+): Promise<void> {
+  await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
+  const state = opts.transitionState.currentState(userId);
+  const normalized = tryNormalizeExpenseReviewPayload(state?.statePayload ?? payload);
+  if (
+    state?.currentState !== 'EXPENSE_REVIEW' ||
+    normalized?.reviewBinding === null ||
+    normalized?.reviewBinding === undefined
+  ) {
+    return;
+  }
+  await opts.transitionState.execute({
+    userId,
+    targetState: 'EXPENSE_REVIEW',
+    payload: {
+      ...normalized,
+      reviewBinding: { ...normalized.reviewBinding, presentedAt: new Date().toISOString() },
+    },
+    expiresAt: state.expiresAt,
+  });
 }
 
 async function handleOnboardingMapping(
@@ -1069,21 +1477,29 @@ async function handleExpenseReview(
         endpoint: 'handleExpenseReview',
         code: 'INVALID_REVIEW_PAYLOAD',
         userId,
-        action: callbackData.action,
+        action: 'action' in callbackData ? callbackData.action : 'invalid',
       });
       await opts.transitionState.execute({ userId, targetState: 'IDLE' });
       await messaging.sendMessage(externalId, expenseCopies.fallbackError());
       return;
     }
 
-    await opts.resolveExpenseSummaryAction.execute({
+    const outcome = await opts.resolveExpenseSummaryAction.execute({
       userId,
-      action: callbackData.action,
-      payload: reviewPayload,
+      ...('action' in callbackData ? { action: callbackData.action } : {}),
       chatId: externalId,
       channel: jobData.channel,
-      ...(callbackData.action === 'cancel' ? { cancellationSource: 'callback' as const } : {}),
+      ...('action' in callbackData && callbackData.action === 'cancel'
+        ? { cancellationSource: 'callback' as const }
+        : {}),
+      authorization: {
+        kind: 'callback',
+        callbackData,
+        receivedAt: jobData.receivedAt,
+        sourceMessageId: jobData.externalMessageId,
+      },
     });
+    await renderExpenseReviewReplyOutcome(outcome, userId, messaging, externalId, opts);
     return;
   }
 
@@ -1119,6 +1535,8 @@ async function handleExpenseReview(
     payload: reviewPayload,
     chatId: externalId,
     channel: jobData.channel,
+    receivedAt: jobData.receivedAt,
+    sourceMessageId: jobData.externalMessageId,
   });
   await renderExpenseReviewReplyOutcome(outcome, userId, messaging, externalId, opts);
 }
@@ -1157,6 +1575,7 @@ async function handleExpenseCorrection(
     rawMessage,
     state: correctionState,
     channel,
+    intentMode: 'infer',
   });
 
   if (outcome.status === 'new_expense') {
@@ -1171,7 +1590,10 @@ async function handleExpenseCorrection(
 }
 
 async function renderExpenseReviewReplyOutcome(
-  outcome: ResolveExpenseReviewReplyOutcome | Awaited<ReturnType<CorrectExpenseUseCase['execute']>>,
+  outcome:
+    | ResolveExpenseReviewReplyOutcome
+    | ResolveExpenseSummaryActionOutcome
+    | Awaited<ReturnType<CorrectExpenseUseCase['execute']>>,
   userId: string,
   messaging: MessagingOutputPort,
   externalId: string,
@@ -1179,8 +1601,49 @@ async function renderExpenseReviewReplyOutcome(
 ): Promise<void> {
   switch (outcome.status) {
     case 'action_handled':
+    case 'handled':
     case 'expense_queued':
       return;
+    case 'review_required':
+      await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
+      return;
+    case 'operation_in_progress':
+      await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+      return;
+    case 'expired': {
+      const state = opts.transitionState.currentState(userId);
+      const payload = tryNormalizeExpenseReviewPayload(state?.statePayload);
+      if (state?.currentState !== 'EXPENSE_REVIEW' || payload === null) {
+        await messaging.sendMessage(externalId, expenseCopies.noActiveReview());
+        return;
+      }
+      const rebound = {
+        ...payload,
+        reminderSent: true,
+        reviewBinding: advanceExpenseReviewBinding(payload.reviewBinding),
+      };
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'EXPENSE_REVIEW',
+        payload: rebound,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        expected: opts.transitionState.precondition(state, 'expired'),
+      });
+      await messaging.sendMessage(externalId, expenseCopies.expiredReview());
+      await presentExpenseSummary(userId, rebound, messaging, externalId, opts);
+      return;
+    }
+    case 'stale':
+    case 'unbound':
+    case 'invalid': {
+      await messaging.sendMessage(externalId, expenseCopies.staleReview());
+      const state = opts.transitionState.currentState(userId);
+      const payload = tryNormalizeExpenseReviewPayload(state?.statePayload);
+      if (state?.currentState === 'EXPENSE_REVIEW' && payload !== null) {
+        await presentExpenseSummary(userId, payload, messaging, externalId, opts, true);
+      }
+      return;
+    }
     case 'queue_full':
       await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
       return;
@@ -1266,7 +1729,7 @@ async function handleClarification(
           : expenseCopies.clarificationCurrency();
       await messaging.sendMessage(externalId, question);
     } else if (result.status === 'needs_zero_confirmation') {
-      await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
+      await presentZeroAmountConfirmation(userId, result.payload, messaging, externalId, opts);
     } else {
       await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
     }
@@ -1293,16 +1756,11 @@ async function handleClarification(
     return;
   }
 
-  // Retries interpretation with the user's clarification incorporated into the original message.
-  const enrichedMessage = `${state.rawMessage} ${rawMessage}`.trim();
-
-  const result = await opts.registerExpense.interpret({
+  const result = await opts.completeExpenseClarification.execute({
     userId,
-    rawMessage: enrichedMessage,
+    rawReply: rawMessage,
     channel,
-    ...(state.queueRegisteredCount === undefined
-      ? {}
-      : { queueRegisteredCount: state.queueRegisteredCount }),
+    statePayload,
   });
 
   if (result.status === 'needs_clarification') {
@@ -1312,8 +1770,44 @@ async function handleClarification(
         : expenseCopies.clarificationCurrency();
     await messaging.sendMessage(externalId, question);
   } else if (result.status === 'needs_zero_confirmation') {
-    await messaging.sendMessage(externalId, expenseCopies.zeroAmountConfirmation());
+    await presentZeroAmountConfirmation(userId, result.payload, messaging, externalId, opts);
   } else {
     await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
   }
+}
+
+function semanticExpenseGuidance(
+  conversationState: ConversationState,
+  reason:
+    | Parameters<typeof expenseCopies.semanticExpenseGuidance>[0]
+    | 'ambiguous_reference'
+    | 'not_found'
+    | 'stale_context',
+): string {
+  if (conversationState.currentState === 'ONBOARDING_FILE') {
+    if (reason === 'ambiguous_reference') return onboardingCopies.ambiguousFileReference();
+    if (reason === 'stale_context') return onboardingCopies.staleFileReference();
+    return onboardingCopies.fileReferenceNotFound();
+  }
+  if (conversationState.currentState === 'ONBOARDING_SHEET') {
+    if (reason === 'ambiguous_reference') return onboardingCopies.ambiguousSheetReference();
+    if (reason === 'stale_context') return onboardingCopies.staleSheetReference();
+    return onboardingCopies.sheetReferenceNotFound();
+  }
+  const expenseReason =
+    reason === 'ambiguous_reference' || reason === 'not_found' ? 'unsupported_action' : reason;
+  if (conversationState.currentState === 'EXPENSE_CLARIFYING') {
+    try {
+      const state = ExpenseClarificationState.fromPayload(conversationState.statePayload);
+      return state.missingField === 'monto'
+        ? expenseCopies.clarificationAmount()
+        : expenseCopies.clarificationCurrency();
+    } catch {
+      return expenseCopies.semanticExpenseGuidance(expenseReason);
+    }
+  }
+  if (conversationState.currentState === 'EXPENSE_REVIEW') {
+    return expenseCopies.ambiguousResponse();
+  }
+  return expenseCopies.semanticExpenseGuidance(expenseReason);
 }

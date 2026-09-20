@@ -18,7 +18,6 @@ import type {
   IColumnMappingRepository,
   IUserCategoryRepository,
   ICategoryVocabularyRepository,
-  IConversationStateRepository,
   IOperationLogRepository,
 } from '../../../domain/ports/repositories';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
@@ -32,6 +31,8 @@ import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
 import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
+import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import type { TransitionConversationStateInput } from '../conversation/TransitionConversationState';
 
 const mockUserProfileGetDefaultCurrency = vi.fn();
 const mockClassifierExecute = vi.fn();
@@ -40,6 +41,8 @@ const mockSpreadsheetConfigFindByUserId = vi.fn();
 const mockCategoryFindActiveBySpreadsheetId = vi.fn();
 const mockVocabularyFindBySpreadsheetId = vi.fn();
 const mockConversationTransition = vi.fn();
+const mockFinalizeClaim = vi.fn();
+const mockAssertCanStartFinancialEffect = vi.fn();
 const mockExpenseRecordCreate = vi.fn();
 const mockOperationLogCreate = vi.fn();
 const mockAppendRow = vi.fn();
@@ -123,11 +126,29 @@ function buildMockDependencies() {
       save: vi.fn(),
     } as unknown as ICategoryVocabularyRepository,
     conversationRepo: {
-      findByUserId: vi.fn(),
-      create: vi.fn(),
-      transition: mockConversationTransition,
-      findExpired: vi.fn(),
-    } as unknown as IConversationStateRepository,
+      execute: vi.fn((input: TransitionConversationStateInput) => {
+        mockConversationTransition(
+          input.userId,
+          input.targetState,
+          input.payload ?? null,
+          input.expiresAt ?? null,
+        );
+        return Promise.resolve({
+          status: 'updated' as const,
+          state: {
+            userId: input.userId,
+            revision: '1',
+            currentState: input.targetState,
+            statePayload: input.payload ?? null,
+            enteredAt: new Date(),
+            expiresAt: input.expiresAt ?? null,
+            updatedAt: new Date(),
+          },
+        });
+      }),
+      assertCanStartFinancialEffect: mockAssertCanStartFinancialEffect,
+      finalizeClaim: mockFinalizeClaim,
+    } as unknown as TransitionConversationState,
     logRepo: {
       create: mockOperationLogCreate,
     } as unknown as IOperationLogRepository,
@@ -377,7 +398,7 @@ describe('RegisterExpenseUseCase', () => {
         mockFindBySpreadsheetId.mockResolvedValue(mappings);
         const { useCase } = buildUseCase();
 
-        await useCase.save('user-123', review, '');
+        await useCase.save('user-123', review, '', 'claim-1');
 
         expect(mockAppendRow).toHaveBeenCalledWith('file-1', 'Hoja 1', row);
         expect(mockExpenseRecordCreate).toHaveBeenCalledWith(expect.objectContaining(hierarchy));
@@ -388,7 +409,7 @@ describe('RegisterExpenseUseCase', () => {
       mockExpenseRecordCreate.mockResolvedValue({ id: 'expense-1' });
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '')).resolves.toEqual({
+      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toEqual({
         sheetName: 'Hoja 1',
         rowIndex: 2,
         expenseId: 'expense-1',
@@ -401,20 +422,44 @@ describe('RegisterExpenseUseCase', () => {
         mockOperationLogCreate.mock.invocationCallOrder[0]!,
       );
       expect(mockOperationLogCreate.mock.invocationCallOrder[0]!).toBeLessThan(
-        mockConversationTransition.mock.invocationCallOrder[0]!,
+        mockFinalizeClaim.mock.invocationCallOrder[0]!,
       );
-      expect(mockConversationTransition).toHaveBeenCalledWith(
-        'user-123',
-        'IDLE',
-        { immediateUndoExpenseId: 'expense-1' },
-        null,
+      expect(mockFinalizeClaim).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: { immediateUndoExpenseId: 'expense-1' },
+        expiresAt: null,
+        claimId: 'claim-1',
+      });
+    });
+
+    it('checks the persistent claim before appending', async () => {
+      const { useCase } = buildUseCase();
+
+      await useCase.save('user-123', payload, '', 'claim-1');
+
+      expect(mockAssertCanStartFinancialEffect).toHaveBeenCalledWith('user-123', 'claim-1');
+      expect(mockAssertCanStartFinancialEffect.mock.invocationCallOrder[0]).toBeLessThan(
+        mockAppendRow.mock.invocationCallOrder[0]!,
       );
+    });
+
+    it('reports unknown outcome when local persistence fails after append', async () => {
+      mockExpenseRecordCreate.mockRejectedValue(new Error('database unavailable'));
+      const { useCase } = buildUseCase();
+
+      await expect(useCase.save('user-123', payload, '', 'claim-1')).rejects.toMatchObject({
+        code: 'UNKNOWN',
+        outcomeUnknown: true,
+      });
+      expect(mockAppendRow).toHaveBeenCalledOnce();
+      expect(mockFinalizeClaim).not.toHaveBeenCalled();
     });
 
     it('uses the access-token service to append and persists the confirmed location', async () => {
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '')).resolves.toEqual({
+      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toEqual({
         sheetName: 'Hoja 1',
         rowIndex: 2,
       });
@@ -444,7 +489,7 @@ describe('RegisterExpenseUseCase', () => {
       });
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '')).resolves.toEqual({
+      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toEqual({
         sheetName: 'Hoja 1',
         rowIndex: 2,
       });
@@ -453,13 +498,14 @@ describe('RegisterExpenseUseCase', () => {
       expect(mockAppendRow).toHaveBeenCalledTimes(1);
       expect(mockLLMExtractExpense).not.toHaveBeenCalled();
       expect(mockForceRefreshAccessToken).not.toHaveBeenCalled();
-      expect(mockConversationTransition).toHaveBeenCalledTimes(1);
-      expect(mockConversationTransition).toHaveBeenCalledWith(
-        'user-123',
-        'IDLE',
-        { immediateUndoExpenseId: undefined },
-        null,
-      );
+      expect(mockFinalizeClaim).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeClaim).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: { immediateUndoExpenseId: undefined },
+        expiresAt: null,
+        claimId: 'claim-1',
+      });
       expect(mockConversationTransition).not.toHaveBeenCalledWith(
         'user-123',
         'ONBOARDING_START',
@@ -472,7 +518,9 @@ describe('RegisterExpenseUseCase', () => {
       mockAppendRow.mockResolvedValue({ sheet: 'Hoja 1' });
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '')).resolves.toEqual({ sheetName: 'Hoja 1' });
+      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toEqual({
+        sheetName: 'Hoja 1',
+      });
 
       expect(mockExpenseRecordCreate).toHaveBeenCalledWith(
         expect.objectContaining({ sheetName: 'Hoja 1', rowIndex: null }),
@@ -521,7 +569,7 @@ describe('RegisterExpenseUseCase', () => {
         configure();
         const { useCase } = buildUseCase();
 
-        await expect(useCase.save('user-123', payload, '')).rejects.toBeInstanceOf(
+        await expect(useCase.save('user-123', payload, '', 'claim-1')).rejects.toBeInstanceOf(
           SpreadsheetError,
         );
 
@@ -538,7 +586,7 @@ describe('RegisterExpenseUseCase', () => {
         .mockResolvedValueOnce({ sheet: 'Hoja 1', row: 2 });
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '')).resolves.toMatchObject({
+      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toMatchObject({
         sheetName: 'Hoja 1',
         rowIndex: 2,
       });
@@ -560,7 +608,7 @@ describe('RegisterExpenseUseCase', () => {
       mockFindBySpreadsheetId.mockResolvedValue([]);
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '')).rejects.toMatchObject({
+      await expect(useCase.save('user-123', payload, '', 'claim-1')).rejects.toMatchObject({
         code: 'STRUCTURE_ERROR',
         retryable: false,
       });
@@ -878,6 +926,43 @@ describe('RegisterExpenseUseCase', () => {
         resolvedCategoryId: null,
         categoryStatus: 'none',
       });
+    });
+
+    it.each([
+      'Fecha: 11 sept 2026, 21:09\nComercio: Mercadona\nImporte: 16,55\u00a0€\nTarjeta: CREDITO SANTANDER\nNombre: Mercadona\nTransacción: Mercadona',
+      'Fecha: 11 sept 2026, 21:09\r\nComercio: Mercadona\r\nImporte: 16,55 €\r\nTarjeta: CREDITO SANTANDER\r\nNombre: Mercadona\r\nTransacción: Mercadona',
+      'importe: 16,55 €\ncomercio: mercadona\nfecha: 11 sept 2026, 21:09\ntarjeta: credito santander',
+    ])('preserves and reviews a canonical Mercadona notification variant', async (rawMessage) => {
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({
+          monto: 16.55,
+          moneda: 'EUR',
+          categoriaRaw: 'Mercadona',
+          fechaRaw: '2026-09-11',
+          medioPago: 'CREDITO SANTANDER',
+        }),
+      );
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage }));
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
+      expect(mockLLMExtractExpense).toHaveBeenCalledWith(rawMessage, expect.any(Object));
+      expect(result.payload).toMatchObject({
+        rawMessage,
+        resolvedDate: '2026-09-11',
+        extracted: {
+          monto: 16.55,
+          moneda: 'EUR',
+          categoriaRaw: 'Mercadona',
+          fechaRaw: '2026-09-11',
+          medioPago: 'CREDITO SANTANDER',
+        },
+      });
+      expect(result.payload.resolvedDate).not.toContain('T');
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
     });
 
     it('propagates a confirmed classification as categoryStatus confirmed', async () => {

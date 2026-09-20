@@ -14,6 +14,10 @@ import type { Redis } from 'ioredis';
 import type { Queue, Job } from 'bullmq';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import type {
+  ConversationState,
+  ConversationStateExpiryPrecondition,
+} from '../../../domain/entities/ConversationState';
 
 const mockBuildAuthUrl = vi.fn();
 const mockGetValidAccessToken = vi.fn();
@@ -40,7 +44,17 @@ function buildMockDeps(overrides: Partial<SendOAuthReminderDeps> = {}): SendOAut
       findByUserId: mockConversationFind,
     } as unknown as SendOAuthReminderDeps['conversationRepo'],
     reminderQueue: { add: mockQueueAdd } as unknown as Queue,
-    transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
+    transitionState: {
+      execute: mockTransitionExecute,
+      precondition: (
+        state: ConversationState,
+        expiry: ConversationStateExpiryPrecondition = 'any',
+      ) => ({
+        revision: state.revision,
+        currentState: state.currentState,
+        expiry,
+      }),
+    } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
     generateState: () => 'fresh-state-789',
     ...overrides,
@@ -66,11 +80,24 @@ beforeEach(() => {
   mockQueueAdd.mockResolvedValue({ id: 'job-789' } as Job);
   mockConversationFind.mockResolvedValue({
     userId: 'user-123',
+    revision: '0',
     currentState: 'ONBOARDING_DRIVE',
     statePayload: null,
     enteredAt: new Date(),
     expiresAt: null,
     updatedAt: new Date(),
+  });
+  mockTransitionExecute.mockResolvedValue({
+    status: 'updated',
+    state: {
+      userId: 'user-123',
+      revision: '1',
+      currentState: 'ONBOARDING_DRIVE',
+      statePayload: { provider: 'google', state: 'fresh-state-789' },
+      enteredAt: new Date(),
+      expiresAt: null,
+      updatedAt: new Date(),
+    },
   });
 });
 
@@ -104,12 +131,14 @@ describe('SendOAuthReminder', () => {
           externalId: '987654321',
           channel: 'telegram',
           reminderJobId: 'job-789',
+          revision: '1',
         }),
       );
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_DRIVE',
         payload: { provider: 'google', state: 'fresh-state-789' },
+        expected: { revision: '0', currentState: 'ONBOARDING_DRIVE', expiry: 'any' },
       });
       expect(mockSendMessage).toHaveBeenCalledWith(
         '987654321',

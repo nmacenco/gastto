@@ -77,3 +77,43 @@ const mockLogger = {} as unknown as Logger;
 ```
 
 Verify logger calls in worker/use case tests by asserting on the mock's method calls.
+
+## Semantic routing observations
+
+Runtime shadow processing emits one schema-validated
+`semantic_router_observation` for each state-bearing processing attempt. The event
+contains only mode, state/substep, deterministic decision kind, proposed action,
+policy outcome, provider/model, prompt/contract/policy versions, bounded latency,
+and a stable error code. It excludes raw text, full state payloads, option and
+operation identifiers, revisions, credentials, provider bodies, hidden reasoning,
+and raw user or external-message identifiers.
+
+The allowed outcomes distinguish shadow agreement, `allowed_enabled`, forbidden
+actions, router failure, invalid/stale context, deterministic bypass,
+sampling/disabled state, and the fail-closed `enabled_capability_unavailable`
+guard. Enabled events are finalized after typed dispatch: safe business outcomes use
+`allowed_enabled`, rejected/stale/unsupported outcomes use `dispatch_rejected`, and
+contained dispatcher exceptions use `dispatch_failed`. Exactly one event is emitted
+for a finalized turn. File/sheet selection authorization is therefore separate from
+downstream file access, config persistence, sheet access validation, and eager probes;
+telemetry still excludes option labels, provider file/sheet identifiers, snapshot
+revisions, and user identifiers. A malformed provider result is reduced to
+`INVALID_OUTPUT` before metadata access. If the telemetry sink
+throws, the adapter attempts a metadata-only `SEMANTIC_TELEMETRY_FAILED` error
+record and never propagates the failure into deterministic or enabled processing.
+
+`semantic-evaluation-v4` separately reports control action agreement, control ambiguity
+handling, deterministic-policy rejection, and proposal-level false-authorization counts.
+The effect-free evaluator leaves unauthorized-effect and call-count fields unavailable;
+worker and PostgreSQL/Redis suites verify those runtime properties. Successful cancellation,
+undo-presentation, request-only retry, and bounded reconfiguration handoffs finalize as
+`allowed_enabled`; stale,
+malformed, unsupported, or unbound outcomes finalize as `dispatch_rejected`, and contained
+dispatcher exceptions finalize as `dispatch_failed`. Exactly one observation is emitted and
+it contains no control provenance, source ID, expense ID, binding, revision, user ID, or raw text.
+
+## Semantic release observations
+
+`semantic-rollout-observation-v1` is a separate strict aggregate contract for release acceptance. Its event kinds cover one eligible task start, terminal completion/cancellation/timeout/failure/unknown outcome, router/extraction/correction usage, and observed critical authorization or unauthorized effects. It carries only release/deployment versions, environment, mode, aggregate cohort, state/substep, capability, bounded outcome code, model versions, latency, and token counts. Unknown fields are rejected, so identity, message, option label, amount, operation ID, revision, provider body, credential, and hidden-reasoning fields cannot enter the event.
+
+`RecordSemanticRolloutObservation` validates this allowlist before calling the telemetry port, and `PinoSemanticRoutingTelemetry.recordRollout` validates it again at the infrastructure boundary. Sink failures are contained and never change routing or business behavior. Router, extraction, and correction usage remain distinct; incomplete usage makes full expense cost unavailable. Phase 1 defines and tests the contract but does not claim production collection: runtime release metadata and authorized observation windows are supplied only by a later rollout stage.

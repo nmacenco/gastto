@@ -17,6 +17,9 @@ import type { IConversationStateRepository } from '../../../domain/ports/reposit
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import type { OAuthAccessTokenProvider } from '../../services/OAuthAccessTokenService';
+import type { IUserProcessingLock } from '../../ports/UserProcessingLock';
+import { startUserProcessingLeaseRenewal } from '../../services/UserProcessingLease';
+import type { Logger } from 'pino';
 
 export interface SendOAuthReminderInput {
   userId: string;
@@ -40,12 +43,46 @@ export interface SendOAuthReminderDeps {
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
   generateState?: () => string;
+  userProcessingLock?: IUserProcessingLock;
+  logger?: Logger;
 }
 
 export class SendOAuthReminder {
   constructor(private readonly deps: SendOAuthReminderDeps) {}
 
   async execute(input: SendOAuthReminderInput): Promise<SendOAuthReminderOutput> {
+    if (!this.deps.userProcessingLock) return this.executeOwned(input);
+    const token = await this.deps.userProcessingLock.acquire(input.userId, 180_000);
+    if (!token) return { message: '', nextState: 'ONBOARDING_DRIVE' };
+    const stopRenewal = startUserProcessingLeaseRenewal({
+      userId: input.userId,
+      token,
+      lock: this.deps.userProcessingLock,
+      transitionState: this.deps.transitionState,
+      ...(this.deps.logger === undefined ? {} : { logger: this.deps.logger }),
+      endpoint: 'SendOAuthReminder',
+    });
+    try {
+      return await this.deps.transitionState.runForUser(input.userId, () =>
+        this.executeOwned(input),
+      );
+    } finally {
+      stopRenewal();
+      try {
+        await this.deps.userProcessingLock.release(input.userId, token);
+      } catch (releaseError) {
+        this.deps.logger?.error({
+          msg: 'Failed to release per-user processing lock',
+          endpoint: 'SendOAuthReminder',
+          code: 'LOCK_RELEASE_FAILED',
+          userId: input.userId,
+          error: releaseError instanceof Error ? releaseError.message : String(releaseError),
+        });
+      }
+    }
+  }
+
+  private async executeOwned(input: SendOAuthReminderInput): Promise<SendOAuthReminderOutput> {
     const { userId, externalId, channel, provider, redirectUri } = input;
 
     try {
@@ -72,17 +109,26 @@ export class SendOAuthReminder {
 
     const reminderJobId = reminderJob.id ?? `fallback-${Date.now()}`;
 
-    await this.deps.redis.setex(
-      `oauth:state:${state}`,
-      15 * 60, // 15 minutes
-      JSON.stringify({ userId, provider, externalId, channel, reminderJobId }),
-    );
-
-    await this.deps.transitionState.execute({
+    const transition = await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_DRIVE',
       payload: { provider, state },
+      expected: this.deps.transitionState.precondition(currentState, 'any'),
     });
+    if (transition.status !== 'updated') return { message: '', nextState: 'ONBOARDING_DRIVE' };
+
+    await this.deps.redis.setex(
+      `oauth:state:${state}`,
+      15 * 60,
+      JSON.stringify({
+        userId,
+        provider,
+        externalId,
+        channel,
+        reminderJobId,
+        revision: transition.state.revision,
+      }),
+    );
 
     const message = onboardingCopies.reminderMessage(authUrl);
     await this.deps.messagingPort.sendMessage(externalId, message);

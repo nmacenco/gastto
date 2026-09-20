@@ -5,6 +5,7 @@ import type {
   ISpreadsheetConfigRepository,
 } from '../../../domain/ports/repositories';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 
 const findLatest = vi.fn();
 const softDeleteWithAudit = vi.fn();
@@ -14,6 +15,9 @@ const getValidAccessToken = vi.fn();
 const forceRefreshAccessToken = vi.fn();
 const deleteRow = vi.fn();
 const createPort = vi.fn();
+const transition = vi.fn();
+const finalizeClaim = vi.fn();
+const currentState = vi.fn();
 
 function buildUseCase() {
   return new UndoLastExpenseUseCase(
@@ -22,6 +26,12 @@ function buildUseCase() {
     { findByUserId: findConfig } as unknown as ISpreadsheetConfigRepository,
     { create: logCreate },
     { getValidAccessToken, forceRefreshAccessToken },
+    {
+      execute: transition,
+      currentState,
+      assertCanStartFinancialEffect: vi.fn(),
+      finalizeClaim,
+    } as unknown as TransitionConversationState,
   );
 }
 
@@ -54,9 +64,90 @@ beforeEach(() => {
   createPort.mockReturnValue({ deleteRow });
   deleteRow.mockResolvedValue(undefined);
   softDeleteWithAudit.mockResolvedValue(undefined);
+  transition.mockResolvedValue({ status: 'updated' });
+  finalizeClaim.mockResolvedValue({ status: 'updated' });
+  currentState.mockReturnValue({ currentState: 'IDLE', statePayload: null, expiresAt: null });
 });
 
 describe('UndoLastExpenseUseCase', () => {
+  it('rejects an expired delayed confirmation before claiming or deleting', async () => {
+    currentState.mockReturnValue({
+      currentState: 'EXPENSE_UNDO_CONFIRMING',
+      statePayload: {
+        pendingExpenseId: 'expense-1',
+        actionBinding: {
+          operationId: 'abcdefghijklmnopqrstuv',
+          revision: 1,
+          presentedAt: '2026-09-12T10:00:00.000Z',
+        },
+      },
+      expiresAt: new Date(Date.now() - 1),
+    });
+
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'confirm',
+        pendingExpenseId: 'expense-1',
+        authorization: {
+          receivedAt: '2026-09-13T10:00:00.000Z',
+          sourceMessageId: 'message-1',
+        },
+      }),
+    ).resolves.toEqual({ status: 'expired' });
+    expect(transition).not.toHaveBeenCalled();
+    expect(deleteRow).not.toHaveBeenCalled();
+  });
+
+  it('rejects a replaced latest record after consuming delayed authorization', async () => {
+    currentState.mockReturnValue({
+      currentState: 'EXPENSE_UNDO_CONFIRMING',
+      statePayload: {
+        pendingExpenseId: 'expense-1',
+        actionBinding: {
+          operationId: 'abcdefghijklmnopqrstuv',
+          revision: 1,
+          presentedAt: '2026-09-12T10:00:00.000Z',
+        },
+      },
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    findLatest
+      .mockResolvedValueOnce({
+        id: 'expense-1',
+        concepto: 'Café',
+        monto: 4.5,
+        moneda: 'EUR',
+        sheetName: 'Gastos',
+        rowIndex: 8,
+        savedAt: new Date('2026-08-02T10:00:00Z'),
+      })
+      .mockResolvedValueOnce({
+        id: 'expense-2',
+        concepto: 'Taxi',
+        monto: 12,
+        moneda: 'EUR',
+        sheetName: 'Gastos',
+        rowIndex: 9,
+        savedAt: new Date('2026-09-13T10:00:00Z'),
+      });
+
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'confirm',
+        pendingExpenseId: 'expense-1',
+        authorization: {
+          receivedAt: '2026-09-13T10:00:00.000Z',
+          sourceMessageId: 'message-1',
+        },
+      }),
+    ).resolves.toEqual({ status: 'not_found' });
+    expect(deleteRow).not.toHaveBeenCalled();
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
+    expect(finalizeClaim).toHaveBeenCalledWith(expect.objectContaining({ payload: null }));
+  });
+
   it.each([
     ['renamed vocabulary', 'category-food', 'subcategory-cafe'],
     ['moved subcategory', 'category-food', 'subcategory-cafe'],
@@ -83,6 +174,7 @@ describe('UndoLastExpenseUseCase', () => {
         buildUseCase().execute({
           userId: 'user-1',
           action: 'request',
+          provenance: 'deterministic_command',
           immediateExpenseId: 'expense-1',
         }),
       ).resolves.toMatchObject({ status: 'deleted' });
@@ -101,6 +193,7 @@ describe('UndoLastExpenseUseCase', () => {
     const result = await buildUseCase().execute({
       userId: 'user-1',
       action: 'request',
+      provenance: 'deterministic_command',
       immediateExpenseId: 'expense-1',
     });
 
@@ -130,6 +223,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toEqual({ status: 'deletion_failed', errorType: 'AUTH_ERROR' });
@@ -141,6 +235,45 @@ describe('UndoLastExpenseUseCase', () => {
       { phase: 'undo' },
       'AUTH_ERROR',
     );
+    expect(finalizeClaim).toHaveBeenLastCalledWith(expect.objectContaining({ payload: null }));
+  });
+
+  it('retains an unresolved claim when row deletion may have reached Sheets', async () => {
+    deleteRow.mockRejectedValue(
+      new SpreadsheetError('Connection closed after deletion request', {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+        outcomeUnknown: true,
+      }),
+    );
+
+    await buildUseCase().execute({
+      userId: 'user-1',
+      action: 'request',
+      provenance: 'deterministic_command',
+      immediateExpenseId: 'expense-1',
+    });
+
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
+    expect(JSON.stringify(finalizeClaim.mock.lastCall?.[0])).toContain(
+      '"status":"outcome_unknown"',
+    );
+  });
+
+  it('retains an unresolved claim when local finalization fails after remote deletion', async () => {
+    softDeleteWithAudit.mockRejectedValue(new Error('database unavailable'));
+
+    await buildUseCase().execute({
+      userId: 'user-1',
+      action: 'request',
+      provenance: 'deterministic_command',
+      immediateExpenseId: 'expense-1',
+    });
+
+    expect(deleteRow).toHaveBeenCalledOnce();
+    expect(JSON.stringify(finalizeClaim.mock.lastCall?.[0])).toContain(
+      '"status":"outcome_unknown"',
+    );
   });
 
   it('classifies an unexpected spreadsheet failure as a network error without local deletion', async () => {
@@ -150,6 +283,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toEqual({ status: 'deletion_failed', errorType: 'NETWORK_ERROR' });
@@ -170,6 +304,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toEqual({ status: 'deletion_failed', errorType: 'STRUCTURE_ERROR' });
@@ -182,7 +317,11 @@ describe('UndoLastExpenseUseCase', () => {
 
   it('returns confirmation_required without creating a spreadsheet port when immediate undo is unavailable', async () => {
     await expect(
-      buildUseCase().execute({ userId: 'user-1', action: 'request' }),
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        provenance: 'deterministic_command',
+      }),
     ).resolves.toMatchObject({ status: 'confirmation_required', expense: { id: 'expense-1' } });
     expect(createPort).not.toHaveBeenCalled();
     expect(deleteRow).not.toHaveBeenCalled();
@@ -194,6 +333,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'already-deleted-expense',
       }),
     ).resolves.toMatchObject({ status: 'confirmation_required', expense: { id: 'expense-1' } });
@@ -215,6 +355,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toMatchObject({ status: 'deleted' });
@@ -233,6 +374,7 @@ describe('UndoLastExpenseUseCase', () => {
       buildUseCase().execute({
         userId: 'user-1',
         action: 'request',
+        provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
     ).resolves.toMatchObject({ status: 'deleted' });
@@ -242,5 +384,19 @@ describe('UndoLastExpenseUseCase', () => {
     expect(createPort).toHaveBeenNthCalledWith(2, 'refreshed-access-token');
     expect(deleteRow).toHaveBeenCalledTimes(2);
     expect(softDeleteWithAudit).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires confirmation for semantic requests even when immediate eligibility is known', async () => {
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        provenance: 'semantic_request',
+      }),
+    ).resolves.toMatchObject({ status: 'confirmation_required', expense: { id: 'expense-1' } });
+
+    expect(transition).not.toHaveBeenCalled();
+    expect(deleteRow).not.toHaveBeenCalled();
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
   });
 });

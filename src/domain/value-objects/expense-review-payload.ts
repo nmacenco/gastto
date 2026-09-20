@@ -7,6 +7,7 @@
 import type { CategoryConfidence, ExtractedExpense } from '../entities/ExpenseRecord';
 import type { Currency } from '../entities/User';
 import { DomainValidationError } from '../errors/DomainValidationError';
+import { normalizeExpenseReviewBinding, type ExpenseReviewBinding } from './expense-review-binding';
 
 export interface ExpenseReviewPayload {
   extracted: ExtractedExpense;
@@ -30,6 +31,8 @@ export interface ExpenseReviewPayload {
   /** Number of expenses already saved in the current queued batch. */
   queueRegisteredCount?: number;
   immediateUndoExpenseId?: string;
+  /** Null only for legacy reviews that must be persisted and re-presented before authorization. */
+  reviewBinding?: ExpenseReviewBinding | null;
 }
 
 export type ExpenseReviewCategoryStatus = ExpenseReviewPayload['categoryStatus'];
@@ -48,6 +51,7 @@ export type NormalizedExpenseReviewPayload = ExpenseReviewPayload & {
   resolvedSubcategoryId: string | null;
   subcategoryStatus: ExpenseReviewCategoryStatus;
   subcategoryEnabled: boolean;
+  reviewBinding?: ExpenseReviewBinding | null;
 };
 
 export function normalizeExtractedExpensePayload(value: unknown): ExtractedExpense {
@@ -108,6 +112,10 @@ export function normalizeExpenseReviewPayload(value: unknown): NormalizedExpense
     value.subcategoryStatus === undefined ? 'none' : value.subcategoryStatus;
   const subcategoryEnabled =
     value.subcategoryEnabled === undefined ? false : value.subcategoryEnabled;
+  const reviewBinding =
+    value.reviewBinding === undefined || value.reviewBinding === null
+      ? null
+      : normalizeExpenseReviewBinding(value.reviewBinding);
 
   if (typeof value.rawMessage !== 'string' || value.rawMessage.trim().length === 0) {
     throw new DomainValidationError('expense review rawMessage must be a non-empty string');
@@ -193,6 +201,7 @@ export function normalizeExpenseReviewPayload(value: unknown): NormalizedExpense
     resolvedSubcategoryId,
     subcategoryStatus: subcategoryStatus as ExpenseReviewCategoryStatus,
     subcategoryEnabled,
+    ...(value.reviewBinding === undefined ? {} : { reviewBinding }),
     ...(value.awaitingZeroConfirmation === undefined
       ? {}
       : { awaitingZeroConfirmation: value.awaitingZeroConfirmation as boolean }),
