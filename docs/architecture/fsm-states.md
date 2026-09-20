@@ -206,6 +206,10 @@ Every `ONBOARDING_*` state has an explicit transition to `IDLE`. Generic onboard
 
 `EXPENSE_SAVING_RETRY` accepts semantic proposals only as revision-bound requests. `request_save_retry` leaves the state, expiry, binding, queue, and retained expense unchanged and asks for the exact deterministic `reintentar` command. `request_reconfiguration` may transition only the captured unexpired, claim-free retry revision through the existing Google recovery path to `ONBOARDING_VALIDATING_ACCESS`; it never replays the retained expense. Switching semantic routing to `shadow` or `off` requires no payload rewrite or migration.
 
+### Release outcome taxonomy
+
+Release measurement does not add an FSM state or transition. Expense eligibility starts at the same application-owned admission boundary for deterministic and candidate cohorts. Clarification, correction, queue advancement, and retry continue the original task; they do not create a second denominator entry. Save is the only completed-expense terminal. Cancellation, timeout, failure, and unknown outcome are distinct non-completed terminals. Displayed-option selection and control actions are measured under separate capabilities, so neither can count as a completed expense.
+
 > **Never add conditional conversational flow logic outside the FSM.**
 
 All branching based on "what the user said" or "what step we are in" must be expressed as a state transition inside the FSM. If you find yourself writing an `if` in a service that checks `user.status === 'onboarding'` or `if (message.includes('cancelar'))`, that logic belongs inside the FSM transition table, not in the service layer.

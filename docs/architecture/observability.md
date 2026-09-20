@@ -111,3 +111,9 @@ undo-presentation, request-only retry, and bounded reconfiguration handoffs fina
 malformed, unsupported, or unbound outcomes finalize as `dispatch_rejected`, and contained
 dispatcher exceptions finalize as `dispatch_failed`. Exactly one observation is emitted and
 it contains no control provenance, source ID, expense ID, binding, revision, user ID, or raw text.
+
+## Semantic release observations
+
+`semantic-rollout-observation-v1` is a separate strict aggregate contract for release acceptance. Its event kinds cover one eligible task start, terminal completion/cancellation/timeout/failure/unknown outcome, router/extraction/correction usage, and observed critical authorization or unauthorized effects. It carries only release/deployment versions, environment, mode, aggregate cohort, state/substep, capability, bounded outcome code, model versions, latency, and token counts. Unknown fields are rejected, so identity, message, option label, amount, operation ID, revision, provider body, credential, and hidden-reasoning fields cannot enter the event.
+
+`RecordSemanticRolloutObservation` validates this allowlist before calling the telemetry port, and `PinoSemanticRoutingTelemetry.recordRollout` validates it again at the infrastructure boundary. Sink failures are contained and never change routing or business behavior. Router, extraction, and correction usage remain distinct; incomplete usage makes full expense cost unavailable. Phase 1 defines and tests the contract but does not claim production collection: runtime release metadata and authorized observation windows are supplied only by a later rollout stage.

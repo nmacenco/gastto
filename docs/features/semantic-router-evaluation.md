@@ -55,6 +55,16 @@ The input ceiling is 8,000 message characters, 20,000 serialized input character
 - [ADR-023](../adr/ADR-023-constrained-llm-semantic-router.md).
 - [Fixture instructions](../../evals/semantic-router/README.md).
 
+## Release acceptance evidence
+
+`pnpm eval:semantic-router:release` is an offline-only, fail-closed release evaluator. It requires explicit `--thresholds`, `--manifest`, and new `--output` paths plus an argument for every artifact listed in the manifest. It verifies raw SHA-256 checksums, strict schemas, the exact provider/model/prompt/contract/policy/dataset/label tuple, source and deployment compatibility, evidence class, sample sufficiency, and requested-stage gates. It does not import dotenv, application bootstrap, provider clients, database, Redis, queues, or messaging adapters.
+
+The report preserves numerators, denominators, sample counts, null measurements, and descriptive Wilson intervals. Missing thresholds, approvals, samples, usage, prices, latency, task outcomes, or evidence stay `blocked_missing_evidence`; they are never converted to zero. A breached gate is `failed`. Any observed critical false authorization or unauthorized effect forces `rollback`. `approved_for_next_stage` applies only to the manifest's requested stage.
+
+The Phase 1 bundle is `evals/semantic-router/releases/phase1-local-2026-09-19/`. Its complete run covered 170 files and 2,268 tests: 2,239 passed and 29 unrelated/optional tests were skipped; all 41 semantic PostgreSQL/Redis scenarios passed. Frozen fixture replay remains 224/224 development and 53/53 held-out, explicitly classified as `protocol_fixture_replay`, not model accuracy. The generated acceptance report is `hold`: implementation and both offline evidence classes pass, while numeric owner-approved thresholds, pricing, independent label review, live held-out evidence, shadow evidence, enabled task completion/full expense cost, and rollback evidence remain pending. No provider call or routing activation occurred.
+
+Artifact formats and accounting rules are documented in [release evidence instructions](../../evals/semantic-router/releases/README.md). The repository ships a valid pending-threshold artifact, not fabricated budgets or approver identities. An approved threshold artifact must define the same complete scope set for accuracy, ambiguity, unnecessary clarification, and router latency, and must include pricing for the exact candidate model.
+
 ## Phase 2: explicit live evaluation
 
 The evaluator now supports `--mode live --provider openai` with all of `--model`,

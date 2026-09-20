@@ -51,7 +51,7 @@ Master checkboxes track planning requirements: checking one means the child plan
 | 4     | `semantic_router_expense_flows`       | Phases 1 through 3           | [Created](../2026_09_15-semantic_router_expense_flows/2026_09_15-semantic_router_expense_flows-plan.md)             | [Deliveries 1–3 verified](../2026_09_15-semantic_router_expense_flows/2026_09_15-semantic_router_expense_flows-plan.md); 26 PostgreSQL/Redis scenarios, 2,088 passing tests, v3 offline splits 187/187 and 33/33; live evidence and activation pending      |
 | 5     | `semantic_router_option_selection`    | Phases 1 through 4           | [Created](../2026_09_16-semantic_router_option_selection/2026_09_16-semantic_router_option_selection-plan.md)       | [Deliveries 1–3 verified](../2026_09_16-semantic_router_option_selection/2026_09_16-semantic_router_option_selection-plan.md); 8 PostgreSQL/Redis scenarios, 2,156 passing tests, v5 offline splits 196/196 and 41/41; live evidence and activation pending |
 | 6     | `semantic_router_control_flows`       | Phases 1 through 5           | [Created](../2026_09_18-semantic_router_control_flows/2026_09_18-semantic_router_control_flows-plan.md)              | [Deliveries 1–3 verified](../2026_09_18-semantic_router_control_flows/2026_09_18-semantic_router_control_flows-plan.md); 7 PostgreSQL/Redis control scenarios, 2,216 passing tests, v6 offline splits 224/224 and 53/53; live evidence and activation pending |
-| 7     | `semantic_router_rollout`             | Phases 1 through 6           | Pending                                                                                                             | Pending                                                                                                                                                                                                                                                     |
+| 7     | `semantic_router_rollout`             | Phases 1 through 6           | [Phase 1 implemented](../2026_09_19-semantic_router_rollout/2026_09_19-semantic_router_rollout-plan.md)             | Offline release tooling and integrated implementation evidence complete; report is `hold`. Approved thresholds, independent label review, live candidate, shadow, external activation, and rollback evidence remain pending                                   |
 
 ### Shared implementation gates
 
@@ -242,22 +242,26 @@ Plan integrated acceptance evidence and staged activation across delivered capab
 
 **Closure evidence:** Recorded baseline and held-out results, zero critical-suite false authorizations, approved and met numeric budgets, controlled-rollout completion evidence, and a verified rollback procedure. Pending external rollout evidence remains visibly pending.
 
+Child plan: [Evaluation and gradual rollout](../2026_09_19-semantic_router_rollout/2026_09_19-semantic_router_rollout-plan.md). Created on 2026-09-19 after revalidating the implemented contracts and recorded verification evidence from Phases 1 through 6. The plan uses three vertical deliveries, separates offline implementation evidence from explicitly approved provider evaluation and external activation, and leaves every live, shadow, cohort, and production result pending until it is actually collected.
+
+Phase 1 implementation evidence was added on 2026-09-19. The strict offline release evaluator, checksum-pinned bundle, aggregate-safe observation contract, and integrated acceptance tests are implemented. The local bundle records the complete suite and both frozen fixture splits, while its acceptance decision remains `hold` because numeric owner approvals, pricing, independent label review, live held-out, shadow, controlled-rollout, cost/task-completion, and rollback evidence are not yet supplied. This implementation made no provider call, deployment, flag change, or cohort activation.
+
 #### To-do actions
 
-- [ ] Create and link the normal plan with separate implementation verification, real-provider evaluation, and external activation steps; plan approval alone does not deploy or activate the feature.
-- [ ] Consolidate full conversation scenarios spanning recognition, clarification, correction, selection, explicit save, queued expenses, cancellation, delayed undo, retry, and timeout/restart behavior.
-- [ ] Require meaningful unit, integration, worker, and end-to-end assertions, including no local expense or success confirmation on failed append and no deletion on invalid authorization.
-- [ ] Record dataset split/version, provider/model, prompt/contract/policy versions, scenario counts, uncertainty, and per-state quality metrics. Re-evaluate when any of those decision components changes.
-- [ ] Establish numeric action-accuracy, ambiguity, unnecessary-clarification, schema-failure, p95 latency, and cost-per-completed-expense budgets before candidate evaluation, with Product Owner and Tech Lead acceptance as required by ADR-023.
-- [ ] Require zero false authorizations and unauthorized effects in the critical suite. Do not substitute average classification accuracy for this gate.
-- [ ] Validate shadow coverage, then measure task completion in a controlled limited rollout; shadow agreement alone does not establish actual completion improvement.
-- [ ] Define staged state/cohort activation, observation windows and sample requirements, accountable owners, rollback on false authorization or release-budget breach, and behavior for in-flight jobs and active reviews.
-- [ ] Exercise rollback without a data migration and preserve deterministic explicit commands and original messages. Account for compatibility of any Phase 2 additive persistence changes.
-- [ ] Complete canonical feature/configuration/FSM documentation and indexes, attach validation evidence, and update applicable user-story acceptance criteria only when implemented and verified.
-- [ ] Update the master tracking table with child-plan links and implementation evidence; distinguish delivered capabilities from pending production activation.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Create and link the normal plan with separate implementation verification, real-provider evaluation, and external activation steps; plan approval alone does not deploy or activate the feature.
+- [x] Consolidate full conversation scenarios spanning recognition, clarification, correction, selection, explicit save, queued expenses, cancellation, delayed undo, retry, and timeout/restart behavior.
+- [x] Require meaningful unit, integration, worker, and end-to-end assertions, including no local expense or success confirmation on failed append and no deletion on invalid authorization.
+- [x] Record dataset split/version, provider/model, prompt/contract/policy versions, scenario counts, uncertainty, and per-state quality metrics. Re-evaluate when any of those decision components changes.
+- [x] Establish numeric action-accuracy, ambiguity, unnecessary-clarification, schema-failure, p95 latency, and cost-per-completed-expense budgets before candidate evaluation, with Product Owner and Tech Lead acceptance as required by ADR-023.
+- [x] Require zero false authorizations and unauthorized effects in the critical suite. Do not substitute average classification accuracy for this gate.
+- [x] Validate shadow coverage, then measure task completion in a controlled limited rollout; shadow agreement alone does not establish actual completion improvement.
+- [x] Define staged state/cohort activation, observation windows and sample requirements, accountable owners, rollback on false authorization or release-budget breach, and behavior for in-flight jobs and active reviews.
+- [x] Exercise rollback without a data migration and preserve deterministic explicit commands and original messages. Account for compatibility of any Phase 2 additive persistence changes.
+- [x] Complete canonical feature/configuration/FSM documentation and indexes, attach validation evidence, and update applicable user-story acceptance criteria only when implemented and verified.
+- [x] Update the master tracking table with child-plan links and implementation evidence; distinguish delivered capabilities from pending production activation.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Create the Phase 7 evaluation and gradual-rollout plan after reviewing the verified Phase 6 control-flow evidence.
+Review the Phase 7 evaluation and gradual-rollout plan, then implement its first delivery only when explicitly requested.

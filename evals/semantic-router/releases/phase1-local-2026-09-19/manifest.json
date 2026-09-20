@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "semantic-release-evidence-manifest-v1",
+  "releaseId": "phase1-local-2026-09-19",
+  "sourceVersion": "7e9df3bee9c64b8b1d6b7f10c50b159a17e9e6eb9a0de975e44651b2c98080be",
+  "requestedStage": "shadow",
+  "candidate": {
+    "provider": "openai",
+    "model": "gpt-4o-mini-2024-07-18",
+    "promptVersion": "semantic-openai-v3",
+    "contractVersion": "semantic-contract-v2",
+    "policyVersion": "semantic-policy-v3",
+    "datasetVersion": "semantic-corpus-v6",
+    "labelVersion": "semantic-labels-v6"
+  },
+  "artifacts": [
+    {
+      "kind": "implementation",
+      "file": "implementation.json",
+      "sha256": "c51751a8f1e133f52ea2ff5b85534a83fa4ca350ac7655f672e40357a55c007a"
+    },
+    {
+      "kind": "offline_development",
+      "file": "offline-development.json",
+      "sha256": "0c8ed1a3c82cd570d2d4a7087adca99c4df679862a777a247b99399d98e87d0d"
+    },
+    {
+      "kind": "offline_held_out",
+      "file": "offline-held-out.json",
+      "sha256": "88432ea019ba5e264d1aad614a67bbc021c08e4c17c457129a9e43505acade7c"
+    }
+  ]
+}

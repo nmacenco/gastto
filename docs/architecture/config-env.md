@@ -9,6 +9,8 @@ tags: ['architecture', 'config', 'env']
 
 This document describes the configuration and environment setup for this project.
 
+The release-evidence command accepts configuration only through explicit JSON file arguments. It intentionally has no environment-variable fallback, does not load `.env`, and cannot activate semantic routing. Runtime state modes, cohort percentages, sampling, model, timeout, and output-token cap remain the existing explicit server configuration and must be recorded separately in an approved rollout record.
+
 ## Environment variables
 
 | Variable                                       | Scope  | Required | Description                                                                                                               |

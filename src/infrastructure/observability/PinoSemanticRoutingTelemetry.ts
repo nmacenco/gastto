@@ -5,8 +5,15 @@ import type {
   SemanticRoutingTelemetryPort,
 } from '../../application/services/semantic-router/ObserveSemanticRouting';
 import { SemanticRoutingObservationSchema } from '../../application/services/semantic-router/ObserveSemanticRouting';
+import type { SemanticRolloutTelemetryPort } from '../../application/services/semantic-router/rollout-telemetry';
+import {
+  SemanticRolloutObservationSchema,
+  type SemanticRolloutObservation,
+} from '../../application/use-cases/evaluation/release-contracts';
 
-export class PinoSemanticRoutingTelemetry implements SemanticRoutingTelemetryPort {
+export class PinoSemanticRoutingTelemetry
+  implements SemanticRoutingTelemetryPort, SemanticRolloutTelemetryPort
+{
   constructor(private readonly logger: Logger) {}
 
   record(observation: SemanticRoutingObservation): void {
@@ -23,6 +30,24 @@ export class PinoSemanticRoutingTelemetry implements SemanticRoutingTelemetryPor
         });
       } catch {
         // Observability failure must remain non-fatal to deterministic processing.
+      }
+    }
+  }
+
+  recordRollout(observation: SemanticRolloutObservation): void {
+    const parsed = SemanticRolloutObservationSchema.safeParse(observation);
+    if (!parsed.success) return;
+    try {
+      this.logger.info({ event: 'semantic_rollout_observation', ...parsed.data });
+    } catch {
+      try {
+        this.logger.error({
+          msg: 'Failed to record semantic rollout telemetry',
+          endpoint: 'PinoSemanticRoutingTelemetry.recordRollout',
+          code: 'SEMANTIC_ROLLOUT_TELEMETRY_FAILED',
+        });
+      } catch {
+        // Release observability cannot change application behavior.
       }
     }
   }

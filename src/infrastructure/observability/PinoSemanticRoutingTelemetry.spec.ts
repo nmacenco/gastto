@@ -86,4 +86,36 @@ describe('PinoSemanticRoutingTelemetry', () => {
     });
     expect(JSON.stringify(error.mock.calls)).not.toContain('private data');
   });
+
+  it('records strict aggregate rollout events without identity-bearing fields', () => {
+    const info = vi.fn();
+    const adapter = new PinoSemanticRoutingTelemetry({ info } as never);
+    const observation = {
+      schemaVersion: 'semantic-rollout-observation-v1' as const,
+      evidenceKind: 'task_completed' as const,
+      occurredAt: '2026-09-19T12:00:00.000Z',
+      releaseId: 'candidate-1',
+      deploymentVersion: 'deployment-v1',
+      environment: 'staging' as const,
+      mode: 'enabled' as const,
+      cohort: 'candidate' as const,
+      state: 'EXPENSE_REVIEW',
+      substep: null,
+      capability: 'expense' as const,
+      outcomeCode: 'saved',
+      provider: null,
+      model: null,
+      promptVersion: null,
+      contractVersion: 'semantic-contract-v2',
+      policyVersion: 'semantic-policy-v3',
+      latencyMs: null,
+      inputTokens: null,
+      outputTokens: null,
+    };
+
+    adapter.recordRollout(observation);
+    expect(info).toHaveBeenCalledWith({ event: 'semantic_rollout_observation', ...observation });
+    adapter.recordRollout({ ...observation, userId: 'private' } as never);
+    expect(info).toHaveBeenCalledTimes(1);
+  });
 });
