@@ -15,7 +15,11 @@ import {
 } from '../../application/ports/IncomingMessageJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import type { NormalizedPayload } from '../../domain/ports/messaging';
-import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
+import {
+  BULLMQ_WORKER_DRAIN_DELAY_SECONDS,
+  registerBullMqErrorListener,
+  sanitizeRedisErrorMessage,
+} from './bullMqRuntime';
 
 export async function processIncomingMessageJob(
   job: Job<IncomingMessageJobData>,
@@ -71,12 +75,23 @@ export function createIncomingMessageWorker(opts: {
 
   // Structured error logging so the worker does not crash on processor errors
   worker.on('failed', (job, err) => {
+    const attemptsMade = job?.attemptsMade;
+    const maxAttempts = job?.opts.attempts;
+    const retryScheduled =
+      attemptsMade !== undefined && maxAttempts !== undefined && attemptsMade < maxAttempts;
+
     opts.logger.error({
-      msg: 'Incoming message worker failed permanently',
+      msg: retryScheduled
+        ? 'Incoming message worker failed; retry scheduled'
+        : 'Incoming message worker failed permanently',
       jobId: job?.id,
       queue: 'incoming-message',
       code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
       ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
+      ...(attemptsMade === undefined ? {} : { attemptsMade }),
+      ...(maxAttempts === undefined ? {} : { maxAttempts }),
+      errorType: err.constructor.name,
+      error: sanitizeRedisErrorMessage(err.message),
     });
   });
 

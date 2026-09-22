@@ -207,7 +207,7 @@ describe('createIncomingMessageWorker', () => {
     expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
-  it('logs structured error on worker failed events', () => {
+  it('logs retryable worker failures with the attempt and sanitized cause', () => {
     const mockLogger = buildMockLogger();
 
     const worker = createIncomingMessageWorker({
@@ -216,8 +216,13 @@ describe('createIncomingMessageWorker', () => {
       logger: mockLogger,
     });
 
-    const mockJob = { id: 'job-99', data: { messageType: 'TEXT' } } as Job<IncomingMessageJobData>;
-    const error = new Error('Queue connection lost');
+    const mockJob = {
+      id: 'job-99',
+      attemptsMade: 1,
+      opts: { attempts: 3 },
+      data: { messageType: 'TEXT' },
+    } as Job<IncomingMessageJobData>;
+    const error = new Error('redis://user:password@example.test:6379 connection lost');
 
     // Simulate BullMQ emitting the 'failed' event
     (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
@@ -228,10 +233,49 @@ describe('createIncomingMessageWorker', () => {
 
     expect(mockLoggerError).toHaveBeenCalledTimes(1);
     expect(mockLoggerError).toHaveBeenCalledWith({
-      msg: 'Incoming message worker failed permanently',
+      msg: 'Incoming message worker failed; retry scheduled',
       jobId: 'job-99',
       queue: 'incoming-message',
       code: 'JOB_FAILED',
+      attemptsMade: 1,
+      maxAttempts: 3,
+      errorType: 'Error',
+      error: '[REDACTED] connection lost',
+    });
+  });
+
+  it('logs the final worker failure with the attempt and cause', () => {
+    const mockLogger = buildMockLogger();
+
+    const worker = createIncomingMessageWorker({
+      redis: buildMockRedis(),
+      routeIncomingMessage: buildMockRouteIncomingMessage(),
+      logger: mockLogger,
+    });
+
+    const mockJob = {
+      id: 'job-100',
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+      data: { messageType: 'TEXT' },
+    } as Job<IncomingMessageJobData>;
+    const error = new Error('Routing failed');
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'failed',
+      mockJob,
+      error,
+    );
+
+    expect(mockLoggerError).toHaveBeenCalledWith({
+      msg: 'Incoming message worker failed permanently',
+      jobId: 'job-100',
+      queue: 'incoming-message',
+      code: 'JOB_FAILED',
+      attemptsMade: 3,
+      maxAttempts: 3,
+      errorType: 'Error',
+      error: 'Routing failed',
     });
   });
 
