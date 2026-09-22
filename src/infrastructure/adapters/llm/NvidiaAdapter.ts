@@ -35,10 +35,11 @@ type NvidiaChatResponse = {
 export class NvidiaAdapter implements LLMPort {
   private readonly apiKey: string;
   private readonly invokeUrl = 'https://integrate.api.nvidia.com/v1/chat/completions';
-  private readonly model = 'minimaxai/minimax-m3';
+  private readonly model: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, model = 'z-ai/glm-5.3-flash') {
     this.apiKey = apiKey;
+    this.model = model;
   }
 
   async extractExpense(userMessage: string, userContext: UserContext): Promise<ExtractedExpense> {

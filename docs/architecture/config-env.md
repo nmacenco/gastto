@@ -1,6 +1,6 @@
 ---
 title: 'Configuration & Environment'
-last_updated: '2026-09-12'
+last_updated: '2026-09-22'
 source_of_truth: ['src/config/env.schema.ts']
 tags: ['architecture', 'config', 'env']
 ---
@@ -23,6 +23,7 @@ The release-evidence command accepts configuration only through explicit JSON fi
 | `OPENAI_API_KEY`                               | Server | No       | OpenAI API key. Optional; at least one LLM provider key is required.                                                      |
 | `ANTHROPIC_API_KEY`                            | Server | No       | Anthropic API key. Optional.                                                                                              |
 | `NVIDIA_API_KEY`                               | Server | No       | NVIDIA API key for the `integrate.api.nvidia.com` OpenAI-compatible endpoint. Optional.                                   |
+| `NVIDIA_MODEL`                                 | Server | No       | NVIDIA-only extraction/chat model ID. Defaults to `z-ai/glm-5.3-flash`; accepts a 1-128 character ID using letters, numbers, `.`, `_`, `-`, and `/`. |
 | `TELEGRAM_WEBHOOK_SECRET`                      | Server | No       | Secret token for Telegram webhook origin validation. Required once webhook is wired.                                      |
 | `TELEGRAM_BOT_TOKEN`                           | Server | No       | Telegram Bot API token. Required once the bot sends messages.                                                             |
 | `SENTRY_DSN`                                   | Server | No       | Sentry error tracking DSN. Optional.                                                                                      |
@@ -38,6 +39,12 @@ The release-evidence command accepts configuration only through explicit JSON fi
 | `SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS`            | Server | No       | Structured router output cap from 64 through 4,096. Defaults to `256`.                                                    |
 
 **Security note**: All secrets are server-side only. No env var is exposed to the client.
+
+`NVIDIA_MODEL` is provider-specific and is read only when `NVIDIA_API_KEY` is
+configured and NVIDIA has the highest provider-selection precedence. It does not
+change the NVIDIA API key, endpoint, request contract, prompts, response parsing,
+or provider precedence. Direct `NvidiaAdapter` construction also defaults to
+`z-ai/glm-5.3-flash` when no model is supplied.
 
 ## Environment files
 
@@ -107,6 +114,24 @@ flyctl secrets set --app <fly-app> REDIS_URL=<tls-uri>
 Prefer the Fly dashboard or another workflow that does not retain the URI in shell
 history. Fly does not expose a secret's value after it is set, so retain the
 previous provider URI in an approved password manager for rollback.
+
+### NVIDIA model override
+
+Set the model independently on each Fly app. These commands change only the
+model setting; do not include `NVIDIA_API_KEY` in deployment documentation,
+shell history, logs, screenshots, or commits.
+
+```bash
+flyctl secrets set --app gastto NVIDIA_MODEL=z-ai/glm-5.3-flash
+flyctl secrets set --app gastto-develop NVIDIA_MODEL=z-ai/glm-5.3-flash
+```
+
+Use a validated provider model ID when rotating the model. Keep the existing
+`NVIDIA_API_KEY` and the application endpoint
+`https://integrate.api.nvidia.com/v1/chat/completions` unchanged. Apply and
+verify each app separately; rollback is another `flyctl secrets set` using the
+last known-good model ID. Never print secret values when checking deployment
+configuration.
 
 ## Framework / build config
 

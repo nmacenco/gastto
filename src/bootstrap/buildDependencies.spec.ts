@@ -35,6 +35,7 @@ const baseEnv: Env = {
   EXPENSE_REVIEW_TIMEOUT_MINUTES: 10,
   EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: 10,
   OPENAI_API_KEY: 'sk-test-openai',
+  NVIDIA_MODEL: 'z-ai/glm-5.3-flash',
   SEMANTIC_ROUTER_STATE_MODES: {},
   SEMANTIC_ROUTER_COHORT_PERCENT: 0,
   SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: 0,
@@ -228,6 +229,21 @@ describe('buildDependencies', () => {
 
     expect(deps.llmPort).toBeInstanceOf(NvidiaAdapter);
     expect(deps.semanticRouter).toBeNull();
+  });
+
+  it('passes the configured NVIDIA model to the adapter', () => {
+    const deps = buildDependencies(
+      {
+        ...baseEnv,
+        OPENAI_API_KEY: undefined,
+        ANTHROPIC_API_KEY: undefined,
+        NVIDIA_API_KEY: 'nvidia-key',
+        NVIDIA_MODEL: 'z-ai/custom-model',
+      },
+      buildInfra(),
+    );
+
+    expect((deps.llmPort as unknown as { model: string }).model).toBe('z-ai/custom-model');
   });
 
   it('composes the OpenAI semantic router independently from NVIDIA extraction precedence', () => {

@@ -118,7 +118,7 @@ export interface BuildDependenciesInfra {
 
 function createLLMPort(env: Env): LLMPort {
   if (env.NVIDIA_API_KEY !== undefined && env.NVIDIA_API_KEY.length > 0) {
-    return new NvidiaAdapter(env.NVIDIA_API_KEY);
+    return new NvidiaAdapter(env.NVIDIA_API_KEY, env.NVIDIA_MODEL);
   }
   if (env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0) {
     return new ClaudeAdapter(env.ANTHROPIC_API_KEY);
