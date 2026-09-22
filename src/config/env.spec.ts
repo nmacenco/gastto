@@ -31,6 +31,7 @@ describe('envSchema', () => {
       expect(result.data.SEMANTIC_ROUTER_STATE_MODES).toEqual({});
       expect(result.data.SEMANTIC_ROUTER_COHORT_PERCENT).toBe(0);
       expect(result.data.SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT).toBe(0);
+      expect(result.data.NVIDIA_MODEL).toBe('z-ai/glm-5.3-flash');
     }
   });
 
@@ -71,7 +72,11 @@ describe('envSchema', () => {
     { SEMANTIC_ROUTER_MODEL: 'gpt-4o-mini' },
     { SEMANTIC_ROUTER_TIMEOUT_MS: '30000' },
     { SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: '63' },
-  ])('rejects invalid semantic router setting %#', (override) => {
+    { NVIDIA_MODEL: '' },
+    { NVIDIA_MODEL: 'model with spaces' },
+    { NVIDIA_MODEL: 'model:with:invalid:characters' },
+    { NVIDIA_MODEL: `${'a'.repeat(128)}!` },
+  ])('rejects invalid environment setting %#', (override) => {
     expect(envSchema.safeParse({ ...validEnv, ...override }).success).toBe(false);
   });
 
@@ -163,8 +168,21 @@ describe('envSchema', () => {
     if (result.success) {
       expect(result.data.ANTHROPIC_API_KEY).toBe('sk-test-anthropic');
       expect(result.data.NVIDIA_API_KEY).toBe('nvidia-test-key');
+      expect(result.data.NVIDIA_MODEL).toBe('z-ai/glm-5.3-flash');
       expect(result.data.SENTRY_DSN).toBe('https://sentry.example.com');
       expect(result.data.TELEGRAM_BOT_TOKEN).toBe('test-bot-token');
+    }
+  });
+
+  it('accepts a custom NVIDIA model identifier', () => {
+    const result = envSchema.safeParse({
+      ...validEnv,
+      NVIDIA_MODEL: 'z-ai/custom-model.v2',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.NVIDIA_MODEL).toBe('z-ai/custom-model.v2');
     }
   });
 

@@ -75,6 +75,12 @@ export const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   NVIDIA_API_KEY: z.string().optional(),
+  NVIDIA_MODEL: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?$/)
+    .default('z-ai/glm-5.3-flash'),
 
   // Semantic routing is off unless states, cohort and sampling are explicitly enabled.
   SEMANTIC_ROUTER_STATE_MODES: semanticRouterStateModesSchema,

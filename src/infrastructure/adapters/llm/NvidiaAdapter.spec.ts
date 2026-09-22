@@ -109,7 +109,7 @@ describe('NvidiaAdapter', () => {
       });
 
       const body = JSON.parse(init.body as string) as NvidiaRequestBody;
-      expect(body.model).toBe('minimaxai/minimax-m3');
+      expect(body.model).toBe('z-ai/glm-5.3-flash');
       expect(body.temperature).toBe(0);
       expect(body.stream).toBe(false);
       expect(body.messages).toHaveLength(2);
@@ -274,7 +274,7 @@ describe('NvidiaAdapter', () => {
           ),
       });
 
-      const adapter = new NvidiaAdapter(API_KEY);
+      const adapter = new NvidiaAdapter(API_KEY, 'z-ai/glm-5.3-flash-test');
       const result = await adapter.interpretCorrection(
         'no, fueron 15',
         currentExtracted,
@@ -298,6 +298,7 @@ describe('NvidiaAdapter', () => {
       expect(body.messages[0]?.content).not.toContain('Monto: 12 EUR');
       expect(body.messages[1]?.content).toContain('<untrusted-data>');
       expect(body.messages[1]?.content).toContain('"monto": 12');
+      expect(body.model).toBe('z-ai/glm-5.3-flash-test');
       expect(body.temperature).toBe(0);
     });
 
