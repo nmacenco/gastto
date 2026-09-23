@@ -1088,14 +1088,30 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
     resourceKind: 'worker',
   });
 
-  // Dead letter: jobs que agotan reintentos → log estructurado (ADR-005)
+  // BullMQ emits `failed` for every failed attempt, including attempts that
+  // will be retried. Non-lock errors are permanent even with attempts left.
   worker.on('failed', (job, err) => {
+    const attemptsMade = job?.attemptsMade;
+    const maxAttempts = job?.opts.attempts;
+    const retryScheduled =
+      err.name === 'UserAlreadyProcessingError' &&
+      job?.finishedOn === undefined &&
+      attemptsMade !== undefined &&
+      maxAttempts !== undefined &&
+      attemptsMade < maxAttempts;
+
     opts.logger.error({
-      msg: 'Job failed permanently',
+      msg: retryScheduled
+        ? 'process-message job failed; retry scheduled'
+        : 'process-message job failed permanently',
       jobId: job?.id,
+      endpoint: 'processMessageJob',
       queue: 'process-message',
       code: err instanceof InvalidJobPayloadError ? err.code : 'JOB_FAILED',
       ...(err instanceof InvalidJobPayloadError ? { validationPaths: err.paths } : {}),
+      ...(attemptsMade === undefined ? {} : { attemptsMade }),
+      ...(maxAttempts === undefined ? {} : { maxAttempts }),
+      errorType: err.constructor.name,
       error: err.message,
     });
   });
