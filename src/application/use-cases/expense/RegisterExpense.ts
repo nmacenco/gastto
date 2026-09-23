@@ -4,6 +4,12 @@
 // Executed by BullMQ worker, NOT by Fastify handler (ADR-005).
 
 import type { LLMPort, UserContext, SpreadsheetPortFactory } from '../../../domain/ports/services';
+import type { Logger } from 'pino';
+import { LLMExtractionError } from '../../../domain/errors/LLMExtractionError';
+import {
+  RecoverExpenseExtraction,
+  RecoveredExpenseExtractionError,
+} from './RecoverExpenseExtraction';
 import type {
   IExpenseRecordRepository,
   ISpreadsheetConfigRepository,
@@ -45,6 +51,7 @@ export interface RegisterExpenseInput {
   channel: 'telegram' | 'whatsapp';
   queueRegisteredCount?: number;
   immediateUndoExpenseId?: string;
+  correlationId?: string;
 }
 
 export class RegisterExpenseUseCase {
@@ -64,6 +71,7 @@ export class RegisterExpenseUseCase {
     private readonly classifier: ICategoryClassifier,
     private readonly oauthAccessTokenService: OAuthAccessTokenProvider,
     private readonly reviewTimeoutMinutes: number = 10,
+    private readonly logger?: Logger,
   ) {}
 
   // Fase 1: interpreta el mensaje y transiciona a EXPENSE_REVIEW
@@ -83,6 +91,8 @@ export class RegisterExpenseUseCase {
       });
     }
 
+    const contextStarted = Date.now();
+    this.logger?.info({ event: 'expense_context_loading', correlationId: input.correlationId });
     // Fetch user's default currency through the dedicated domain port
     const defaultCurrency = await this.userProfilePort.getDefaultCurrency(input.userId);
 
@@ -119,8 +129,45 @@ export class RegisterExpenseUseCase {
       channel: input.channel,
     };
 
-    // Calls the LLM (OpenAIAdapter or ClaudeAdapter based on configuration)
-    const extracted = await this.llm.extractExpense(input.rawMessage, userContext);
+    this.logger?.info({
+      event: 'expense_context_loaded',
+      correlationId: input.correlationId,
+      durationMs: Date.now() - contextStarted,
+    });
+    const observed = this.transitionState.currentState?.(input.userId);
+    const signal = this.transitionState.signal?.(input.userId);
+    let extracted: ExtractedExpense;
+    try {
+      extracted = await this.llm.extractExpense(
+        input.rawMessage,
+        userContext,
+        ...(signal || input.correlationId
+          ? [
+              {
+                ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+                ...(signal ? { signal } : {}),
+              },
+            ]
+          : []),
+      );
+      if (signal?.aborted) throw new StaleConversationStateError({ status: 'stale' });
+    } catch (error) {
+      if (signal?.aborted) throw new StaleConversationStateError({ status: 'stale' });
+      const initialAttempt =
+        activeState?.currentState === 'IDLE' || activeState?.currentState === 'EXPENSE_RECEIVING';
+      if (
+        error instanceof LLMExtractionError &&
+        error.code !== 'LLM_CANCELLED' &&
+        initialAttempt &&
+        observed?.currentState === 'EXPENSE_RECEIVING' &&
+        input.queueRegisteredCount === undefined
+      ) {
+        const recovery = await new RecoverExpenseExtraction(this.transitionState).execute(observed);
+        if (recovery === 'stale') throw new StaleConversationStateError({ status: 'stale' });
+        throw new RecoveredExpenseExtractionError(error.code);
+      }
+      throw error;
+    }
 
     // Deterministic fallback when LLM misses amount or currency (E1-US-03)
     let resolvedExtracted = extracted;

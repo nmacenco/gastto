@@ -851,11 +851,13 @@ describe('processMessageJob', () => {
       expect(mockCancelExpenseRegistrationExecute).toHaveBeenCalledWith(
         expect.objectContaining({ currentState: 'EXPENSE_CLARIFYING' }),
       );
-      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
-        userId: 'user-123',
-        rawMessage: 'Taxi',
-        channel: 'telegram',
-      });
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'Taxi',
+          channel: 'telegram',
+        }),
+      );
     });
     it('sends clarification question when expense is missing monto', async () => {
       const deps = buildMockDeps();
@@ -870,11 +872,13 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob(baseJobData), deps);
 
       expect(mockGetConversationStateExecute).toHaveBeenCalledWith({ userId: 'user-123' });
-      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
-        userId: 'user-123',
-        rawMessage: 'Cafe 850',
-        channel: 'telegram',
-      });
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'Cafe 850',
+          channel: 'telegram',
+        }),
+      );
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationAmount(),
@@ -1044,11 +1048,13 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob(baseJobData), deps);
 
-      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
-        userId: 'user-123',
-        rawMessage: 'Cafe 850',
-        channel: 'telegram',
-      });
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'Cafe 850',
+          channel: 'telegram',
+        }),
+      );
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.zeroAmountConfirmation(),
@@ -1067,11 +1073,13 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob(baseJobData), deps);
 
-      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
-        userId: 'user-123',
-        rawMessage: 'Cafe 850',
-        channel: 'telegram',
-      });
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'Cafe 850',
+          channel: 'telegram',
+        }),
+      );
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationCurrency(),
@@ -2990,11 +2998,13 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: '850 pesos' }), deps);
 
-      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
-        userId: 'user-123',
-        rawMessage: 'Cafe 850 pesos',
-        channel: 'telegram',
-      });
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'Cafe 850 pesos',
+          channel: 'telegram',
+        }),
+      );
       const sentText = mockSendMessage.mock.calls[0]![1] as string;
       expect(sentText).toContain('Resumen del gasto');
       expect(sentText).toContain('Subcategoría: Cafetería (¿correcto?)');
@@ -3111,11 +3121,13 @@ describe('processMessageJob', () => {
         '123456789',
         expenseCopies.clarificationInterrupted(),
       );
-      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
-        userId: 'user-123',
-        rawMessage: 'Pagué 30 euros por el café',
-        channel: 'telegram',
-      });
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'Pagué 30 euros por el café',
+          channel: 'telegram',
+        }),
+      );
       const sentText = mockSendMessage.mock.calls[
         mockSendMessage.mock.calls.length - 1
       ]![1] as string;
@@ -3177,11 +3189,13 @@ describe('processMessageJob', () => {
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: '850 pesos' }), deps);
 
-      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
-        userId: 'user-123',
-        rawMessage: 'Cafe 850 pesos',
-        channel: 'telegram',
-      });
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'Cafe 850 pesos',
+          channel: 'telegram',
+        }),
+      );
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationCurrency(),
@@ -4262,11 +4276,13 @@ describe('processMessageJob', () => {
           payload: null,
           expiresAt: null,
         });
-        expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
-          userId: 'user-123',
-          rawMessage: 'cafe 12 euros',
-          channel: 'telegram',
-        });
+        expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'user-123',
+            rawMessage: 'cafe 12 euros',
+            channel: 'telegram',
+          }),
+        );
         expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
         expect(mockModifyCategoryVocabularyExecute).not.toHaveBeenCalled();
         expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
@@ -4767,11 +4783,13 @@ describe('processMessageJob', () => {
         deps,
       );
 
-      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith({
-        userId: 'user-123',
-        rawMessage: 'Pagué 30 por el café',
-        channel: 'telegram',
-      });
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rawMessage: 'Pagué 30 por el café',
+          channel: 'telegram',
+        }),
+      );
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationCurrency(),

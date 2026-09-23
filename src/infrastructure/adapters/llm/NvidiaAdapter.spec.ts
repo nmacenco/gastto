@@ -162,7 +162,7 @@ describe('NvidiaAdapter', () => {
 
       const adapter = new NvidiaAdapter(API_KEY);
       await expect(adapter.extractExpense('test', userContext)).rejects.toThrow(
-        'NVIDIA API error 401: invalid x-api-key',
+        'LLM_PROVIDER_ERROR',
       );
     });
 
@@ -175,7 +175,7 @@ describe('NvidiaAdapter', () => {
 
       const adapter = new NvidiaAdapter(API_KEY);
       await expect(adapter.extractExpense('test', userContext)).rejects.toThrow(
-        'LLM returned empty response',
+        'LLM_EMPTY_RESPONSE',
       );
     });
 
@@ -187,7 +187,7 @@ describe('NvidiaAdapter', () => {
       });
 
       const adapter = new NvidiaAdapter(API_KEY);
-      await expect(adapter.extractExpense('test', userContext)).rejects.toThrow(SyntaxError);
+      await expect(adapter.extractExpense('test', userContext)).rejects.toThrow('LLM_INVALID_JSON');
     });
 
     it('throws when the response JSON does not match the schema', async () => {

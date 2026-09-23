@@ -42,9 +42,18 @@ export interface ExpenseCorrectionSuggestion {
   fechaRaw: string | null;
 }
 
+export interface ExtractionExecutionOptions {
+  correlationId?: string;
+  signal?: AbortSignal;
+}
+
 export interface LLMPort {
   // Extrae entidades financieras de un mensaje en lenguaje natural
-  extractExpense(userMessage: string, userContext: UserContext): Promise<ExtractedExpense>;
+  extractExpense(
+    userMessage: string,
+    userContext: UserContext,
+    options?: ExtractionExecutionOptions,
+  ): Promise<ExtractedExpense>;
 
   // Interpreta una corrección relativa al resumen que se acaba de mostrar
   interpretCorrection(

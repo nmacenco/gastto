@@ -1,3 +1,5 @@
+import { LLMExtractionError } from '../../src/domain/errors/LLMExtractionError';
+import { expenseCopies } from '../../src/application/copies/expense.copies';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -377,6 +379,65 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
       },
     } satisfies ExpenseFlowHarness;
   }
+
+  it.each([
+    ['IDLE', 'LLM_EMPTY_RESPONSE'],
+    ['EXPENSE_RECEIVING', 'LLM_EMPTY_RESPONSE'],
+    ['IDLE', 'LLM_TIMEOUT'],
+    ['EXPENSE_RECEIVING', 'LLM_TIMEOUT'],
+  ] as const)(
+    'recovers failed extraction from %s (%s) and saves a resent expense exactly once',
+    async (initialState, failureCode) => {
+      const harness = await buildHarness('off');
+      if (initialState === 'EXPENSE_RECEIVING') {
+        await harness.deps.transitionState.runForUser(harness.userId, () =>
+          harness.deps.transitionState.execute({
+            userId: harness.userId,
+            targetState: 'EXPENSE_RECEIVING',
+            payload: { raw_message: 'previous attempt' },
+          }),
+        );
+      }
+      harness.extractExpense.mockRejectedValueOnce(new LLMExtractionError(failureCode));
+      await deliverWebhookAndProcess(harness, 'almuerzo 200 euros', 92001);
+      expect(await harness.stateRepo.findByUserId(harness.userId)).toMatchObject({
+        currentState: 'IDLE',
+        statePayload: null,
+        expiresAt: null,
+      });
+      expect(
+        harness.messages.filter(
+          (text) =>
+            text ===
+            (failureCode === 'LLM_TIMEOUT'
+              ? expenseCopies.extractionTimeout()
+              : expenseCopies.extractionFailed()),
+        ),
+      ).toHaveLength(1);
+      expect(harness.appendRow).not.toHaveBeenCalled();
+      expect(await harness.expenseRepo.findLatestByUserId(harness.userId)).toBeNull();
+      harness.extractExpense.mockResolvedValueOnce({
+        ...extractedFor('Taxi 25 euros'),
+        monto: 200,
+        categoriaRaw: 'Almuerzo',
+      });
+      await deliverWebhookAndProcess(harness, 'almuerzo 200 euros', 92002);
+      expect(await harness.stateRepo.findByUserId(harness.userId)).toMatchObject({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: { extracted: { monto: 200, moneda: 'EUR' } },
+      });
+      expect(harness.appendRow).not.toHaveBeenCalled();
+      const confirm = job(harness, 'sí', 'confirm-recovered', futureTimestamp());
+      await processMessageJob(confirm, harness.deps);
+      await processMessageJob(confirm, harness.deps);
+      expect(harness.appendRow).toHaveBeenCalledOnce();
+      expect(await harness.expenseRepo.findLatestByUserId(harness.userId)).toMatchObject({
+        monto: 200,
+        moneda: 'EUR',
+      });
+      expect(harness.routerDecide).not.toHaveBeenCalled();
+    },
+  );
 
   it('runs the canonical webhook conversation and saves the exact expense only after bound confirmation', async () => {
     const harness = await buildHarness();

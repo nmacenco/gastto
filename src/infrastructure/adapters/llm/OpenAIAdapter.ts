@@ -6,17 +6,15 @@
 import OpenAI from 'openai';
 import type {
   LLMPort,
+  ExtractionExecutionOptions,
   UserContext,
   ConversationContext,
   ExpenseCorrectionSuggestion,
 } from '../../../domain/ports/services';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import { serializeUntrustedData, UNTRUSTED_DATA_GUARD } from './untrustedData';
-import {
-  buildExtractionSystemPrompt,
-  ExtractedExpenseSchema,
-  toExtractedExpense,
-} from './expenseExtraction';
+import { buildExtractionSystemPrompt } from './expenseExtraction';
+import { runExtraction, type ExtractionSettings } from './extractionRuntime';
 import {
   buildCorrectionSystemPrompt,
   ExpenseCorrectionSuggestionSchema,
@@ -26,37 +24,48 @@ import {
 export class OpenAIAdapter implements LLMPort {
   private readonly client: OpenAI;
 
-  constructor(apiKey: string) {
+  constructor(
+    apiKey: string,
+    private readonly extractionSettings: ExtractionSettings = {},
+  ) {
     this.client = new OpenAI({ apiKey });
   }
 
-  async extractExpense(userMessage: string, userContext: UserContext): Promise<ExtractedExpense> {
-    const completion = await this.client.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0, // maximum determinism for structured extraction
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: buildExtractionSystemPrompt() },
+  async extractExpense(
+    userMessage: string,
+    userContext: UserContext,
+    options?: ExtractionExecutionOptions,
+  ): Promise<ExtractedExpense> {
+    return runExtraction('openai', 'gpt-4o', this.extractionSettings, options, async (signal) => {
+      const completion = await this.client.chat.completions.create(
         {
-          role: 'user',
-          content: serializeUntrustedData({
-            userMessage,
-            defaultCurrency: userContext.defaultCurrency,
-            categories: userContext.categories,
-            categoryHierarchy: userContext.categoryHierarchy,
-            subcategoryEnabled: userContext.subcategoryEnabled,
-          }),
+          model: 'gpt-4o',
+          temperature: 0, // maximum determinism for structured extraction
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: buildExtractionSystemPrompt() },
+            {
+              role: 'user',
+              content: serializeUntrustedData({
+                userMessage,
+                defaultCurrency: userContext.defaultCurrency,
+                categories: userContext.categories,
+                categoryHierarchy: userContext.categoryHierarchy,
+                subcategoryEnabled: userContext.subcategoryEnabled,
+              }),
+            },
+          ],
         },
-      ],
+        { signal, maxRetries: 0, timeout: this.extractionSettings.timeoutMs ?? 30_000 },
+      );
+
+      return {
+        content: completion.choices?.[0]?.message?.content,
+        finishReason: completion.choices?.[0]?.finish_reason,
+        inputTokens: completion.usage?.prompt_tokens,
+        outputTokens: completion.usage?.completion_tokens,
+      };
     });
-
-    const raw = completion.choices[0]?.message?.content;
-    if (!raw) throw new Error('LLM returned empty response');
-
-    const parsed: unknown = JSON.parse(raw);
-    const validated = ExtractedExpenseSchema.parse(parsed);
-
-    return toExtractedExpense(validated);
   }
 
   async interpretCorrection(
