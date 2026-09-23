@@ -127,6 +127,22 @@ describe('buildDependencies', () => {
     expect(queueNames).toContain('oauth-reminder');
   });
 
+  it('configures twelve attempts with the lock-only custom backoff', () => {
+    buildDependencies(baseEnv, buildInfra());
+
+    const processMessageCall = vi
+      .mocked(Queue)
+      .mock.calls.find(([name]) => name === 'process-message');
+    const options = processMessageCall?.[1] as
+      | { defaultJobOptions?: { attempts?: number; backoff?: { type?: string } } }
+      | undefined;
+
+    expect(options?.defaultJobOptions).toMatchObject({
+      attempts: 12,
+      backoff: { type: 'custom' },
+    });
+  });
+
   it('registers one sanitized error listener on every queue without optional features', () => {
     const loggerError = vi.fn();
     const logger = { error: loggerError } as unknown as Logger;

@@ -500,14 +500,16 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   // user-facing messages. Retrying them re-runs those side effects and
   // can duplicate outbound messages (see ADR-015). The worker wraps the
   // handler in a try/catch and surfaces a single fallback message, so
-  // non-lock errors must NOT be retried.
+  // non-lock errors must NOT be retried. Twelve attempts provide 42.5 seconds
+  // of accumulated backoff for contention during spreadsheet inference.
+  // This is a bounded mitigation, not a deadline for the active handler.
   // A custom backoff strategy (registered on the Worker) returns -1 for
   // every error except UserAlreadyProcessingError, ensuring only lock
   // contention triggers a retry with exponential backoff.
   const messageQueue = new Queue<ProcessMessageJobData>('process-message', {
     connection: infra.redis,
     defaultJobOptions: {
-      attempts: 5,
+      attempts: 12,
       backoff: { type: 'custom' },
       removeOnComplete: 100,
       removeOnFail: 500,

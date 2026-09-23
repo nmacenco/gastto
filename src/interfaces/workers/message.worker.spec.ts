@@ -5145,4 +5145,72 @@ describe('createMessageWorker', () => {
       error: 'Connection lost',
     });
   });
+
+  it.each([
+    { error: new UserAlreadyProcessingError('user-123'), attemptsMade: 2, retry: true },
+    { error: new UserAlreadyProcessingError('user-123'), attemptsMade: 12, retry: false },
+    {
+      error: new Error('Messaging identity does not match job user'),
+      attemptsMade: 1,
+      retry: false,
+    },
+    {
+      error: new InvalidJobPayloadError('process-message', ['userId']),
+      attemptsMade: 1,
+      retry: false,
+    },
+    { error: new Error('Redis unavailable'), attemptsMade: 1, retry: false },
+    {
+      error: new UserAlreadyProcessingError('user-123'),
+      attemptsMade: 2,
+      finishedOn: 123,
+      retry: false,
+    },
+  ])(
+    'classifies failed attempt $attemptsMade ($error.name, retry=$retry)',
+    ({ error, attemptsMade, retry, ...metadata }) => {
+      const worker = createMessageWorker(buildMockDeps());
+      const failedJob = {
+        id: 'job-1',
+        attemptsMade,
+        ...metadata,
+        opts: { attempts: 12 },
+      };
+
+      (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+        'failed',
+        failedJob,
+        error,
+      );
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          msg: retry
+            ? 'process-message job failed; retry scheduled'
+            : 'process-message job failed permanently',
+          attemptsMade,
+          maxAttempts: 12,
+          errorType: error.constructor.name,
+        }),
+      );
+    },
+  );
+
+  it('retries only contention with bounded exponential delays', () => {
+    createMessageWorker(buildMockDeps());
+    const strategy = vi.mocked(Worker).mock.calls[0]?.[2]?.settings?.backoffStrategy;
+    expect(strategy).toBeTypeOf('function');
+    const job = buildJob(baseJobData);
+    expect(
+      Array.from({ length: 11 }, (_, i) =>
+        strategy!(i + 1, 'custom', new UserAlreadyProcessingError('user-123'), job),
+      ),
+    ).toEqual([500, 1000, 2000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]);
+    expect(
+      strategy!(1, 'custom', new Error('Messaging identity does not match job user'), job),
+    ).toBe(-1);
+    expect(
+      strategy!(1, 'custom', new InvalidJobPayloadError('process-message', ['userId']), job),
+    ).toBe(-1);
+  });
 });

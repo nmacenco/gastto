@@ -30,6 +30,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-022](./ADR-022-linked-subcategory-hierarchy.md)                    | Store Linked Subcategories with Stable References and Snapshots          | Accepted |
 | [ADR-023](./ADR-023-constrained-llm-semantic-router.md)                 | Introduce a Constrained LLM Semantic Router for Conversational Decisions | Accepted |
 | [ADR-024](./ADR-024-guard-conversation-writes-and-financial-effects.md) | Guard Conversation Writes, Presented Actions, and Financial Effects      | Accepted |
+| [ADR-025](./ADR-025-process-message-lock-contention.md)                | Extend process-message lock-contention retries                         | Accepted |
 
 ## Template
 
