@@ -31,6 +31,7 @@ describe('envSchema', () => {
       expect(result.data.SEMANTIC_ROUTER_STATE_MODES).toEqual({});
       expect(result.data.SEMANTIC_ROUTER_COHORT_PERCENT).toBe(0);
       expect(result.data.SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT).toBe(0);
+      expect(result.data.LLM_EXTRACTION_TIMEOUT_MS).toBe(30000);
       expect(result.data.NVIDIA_MODEL).toBe('z-ai/glm-5.3-flash');
     }
   });
@@ -72,6 +73,10 @@ describe('envSchema', () => {
     { SEMANTIC_ROUTER_MODEL: 'gpt-4o-mini' },
     { SEMANTIC_ROUTER_TIMEOUT_MS: '30000' },
     { SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: '63' },
+    { LLM_EXTRACTION_TIMEOUT_MS: '999' },
+    { LLM_EXTRACTION_TIMEOUT_MS: '60001' },
+    { LLM_EXTRACTION_TIMEOUT_MS: 'NaN' },
+    { LLM_EXTRACTION_TIMEOUT_MS: '1000.5' },
     { NVIDIA_MODEL: '' },
     { NVIDIA_MODEL: 'model with spaces' },
     { NVIDIA_MODEL: 'model:with:invalid:characters' },

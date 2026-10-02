@@ -7,6 +7,7 @@ import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
+import { RecoveredExpenseExtractionError } from '../../application/use-cases/expense/RecoverExpenseExtraction';
 import type { DispatchExpenseSemanticAction } from '../../application/use-cases/expense/DispatchExpenseSemanticAction';
 import type { DispatchControlSemanticAction } from '../../application/use-cases/expense/DispatchControlSemanticAction';
 import type { PresentUndoConfirmation } from '../../application/use-cases/expense/PresentUndoConfirmation';
@@ -414,6 +415,31 @@ export async function processMessageJob(
       }
     } catch (err) {
       if (err instanceof StaleConversationStateError) return;
+      if (err instanceof RecoveredExpenseExtractionError) {
+        opts.logger.error({
+          msg: 'Initial expense extraction failed; state recovered',
+          endpoint: 'processMessageJob',
+          code: err.code,
+          userId,
+          correlationId: `${channel}:${data.externalMessageId}`,
+        });
+        try {
+          await messaging.sendMessage(
+            externalId,
+            err.code === 'LLM_TIMEOUT'
+              ? expenseCopies.extractionTimeout()
+              : expenseCopies.extractionFailed(),
+          );
+        } catch {
+          opts.logger.error({
+            msg: 'Failed to send extraction recovery message',
+            endpoint: 'processMessageJob',
+            code: 'FALLBACK_SEND_FAILED',
+            userId,
+          });
+        }
+        return;
+      }
       opts.logger.error({
         msg: 'process-message handler threw unexpectedly',
         endpoint: 'processMessageJob',
@@ -600,6 +626,7 @@ async function routeByState(
         userId,
         rawMessage,
         channel,
+        correlationId: `${channel}:${jobData.externalMessageId}`,
       });
 
       if (result.status === 'needs_clarification') {
@@ -613,7 +640,13 @@ async function routeByState(
         await presentZeroAmountConfirmation(userId, result.payload, messaging, externalId, opts);
       } else {
         // Format and send summary for review (E1-US-06)
+        const presentationStarted = Date.now();
         await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
+        opts.logger.info?.({
+          event: 'expense_summary_presented',
+          correlationId: `${channel}:${jobData.externalMessageId}`,
+          durationMs: Date.now() - presentationStarted,
+        });
       }
       break;
     }

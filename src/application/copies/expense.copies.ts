@@ -54,7 +54,11 @@ export const expenseCopies = {
   expenseQueueClosingSummary: (registeredCount: number) =>
     `¡Listo! Registré ${registeredCount} gasto${registeredCount === 1 ? '' : 's'}. Ya no tenés gastos pendientes.`,
   ambiguousResponse: () => '¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?',
-  fallbackError: () => 'Parece que algo falló. Vamos a empezar de nuevo.',
+  fallbackError: () => 'Parece que algo falló. Intentá de nuevo en unos momentos.',
+  extractionTimeout: () =>
+    'La interpretación tardó demasiado. No guardé este gasto. Volvé a enviarlo para intentar de nuevo',
+  extractionFailed: () =>
+    'No pude interpretar este gasto. No lo guardé. Volvé a enviarlo para intentar de nuevo',
   expenseRegistrationUnavailable: () =>
     'El registro de gastos no está disponible en este momento. Volvé a intentarlo más tarde.',
   semanticExpenseGuidance: (

@@ -13,36 +13,37 @@ The release-evidence command accepts configuration only through explicit JSON fi
 
 ## Environment variables
 
-| Variable                                       | Scope  | Required | Description                                                                                                               |
-| ---------------------------------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------- | ------ | --------------------------------------------- |
-| `NODE_ENV`                                     | Server | No       | Runtime environment: `development`, `production`, or `test`. Defaults to `development`.                                   |
-| `PORT`                                         | Server | No       | HTTP server port. Defaults to `3000`.                                                                                     |
-| `LOG_LEVEL`                                    | Server | No       | Pino log level. Defaults to `info`.                                                                                       |
-| `DATABASE_URL`                                 | Server | No       | PostgreSQL connection string. Required once persistence is wired.                                                         |
-| `REDIS_URL`                                    | Server | No       | Provider-independent Redis-compatible broker URI for BullMQ and caches. Hosted environments require TLS via `rediss://`.  |
-| `OPENAI_API_KEY`                               | Server | No       | OpenAI API key. Optional; at least one LLM provider key is required.                                                      |
-| `ANTHROPIC_API_KEY`                            | Server | No       | Anthropic API key. Optional.                                                                                              |
-| `NVIDIA_API_KEY`                               | Server | No       | NVIDIA API key for the `integrate.api.nvidia.com` OpenAI-compatible endpoint. Optional.                                   |
-| `NVIDIA_MODEL`                                 | Server | No       | NVIDIA-only extraction/chat model ID. Defaults to `z-ai/glm-5.3-flash`; accepts a 1-128 character ID using letters, numbers, `.`, `_`, `-`, and `/`. |
-| `TELEGRAM_WEBHOOK_SECRET`                      | Server | No       | Secret token for Telegram webhook origin validation. Required once webhook is wired.                                      |
-| `TELEGRAM_BOT_TOKEN`                           | Server | No       | Telegram Bot API token. Required once the bot sends messages.                                                             |
-| `SENTRY_DSN`                                   | Server | No       | Sentry error tracking DSN. Optional.                                                                                      |
-| `CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD` | Server | No       | Minimum confidence for keyword-based category classification (E1-US-04). Range: [0, 1]. Default: `0.6`.                   |
-| `ENCRYPTION_KEY`                               | Server | No       | AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars). Currently commented out in schema. |
-| `SEMANTIC_ROUTER_STATE_MODES`                  | Server | No       | Strict comma-separated `FSM_STATE=off                                                                                     | shadow | enabled` map. Empty means every state is off. |
-| `SEMANTIC_ROUTER_COHORT_PERCENT`               | Server | No       | Stable user-cohort percentage from 0 through 100. Defaults to `0`.                                                        |
-| `SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT`        | Server | No       | Stable per-message sampling percentage from 0 through 100. Defaults to `0`.                                               |
-| `SEMANTIC_ROUTER_COHORT_SEED`                  | Server | No       | Bounded non-secret identifier used for stable hashing. Never use a credential.                                            |
-| `SEMANTIC_ROUTER_PROVIDER`                     | Server | No       | Runtime router provider. Only the validated `openai` snapshot is currently supported.                                     |
-| `SEMANTIC_ROUTER_MODEL`                        | Server | No       | Explicit supported runtime model snapshot; aliases are rejected.                                                          |
-| `SEMANTIC_ROUTER_TIMEOUT_MS`                   | Server | No       | Router deadline from 1 through 29,000 ms, below the 30-second lock-renewal interval. Defaults to `10000`.                 |
-| `SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS`            | Server | No       | Structured router output cap from 64 through 4,096. Defaults to `256`.                                                    |
+| Variable                                       | Scope  | Required | Description                                                                                                                                                    |
+| ---------------------------------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | --------------------------------------------- |
+| `NODE_ENV`                                     | Server | No       | Runtime environment: `development`, `production`, or `test`. Defaults to `development`.                                                                        |
+| `PORT`                                         | Server | No       | HTTP server port. Defaults to `3000`.                                                                                                                          |
+| `LOG_LEVEL`                                    | Server | No       | Pino log level. Defaults to `info`.                                                                                                                            |
+| `DATABASE_URL`                                 | Server | No       | PostgreSQL connection string. Required once persistence is wired.                                                                                              |
+| `REDIS_URL`                                    | Server | No       | Provider-independent Redis-compatible broker URI for BullMQ and caches. Hosted environments require TLS via `rediss://`.                                       |
+| `OPENAI_API_KEY`                               | Server | No       | OpenAI API key. Optional; at least one LLM provider key is required.                                                                                           |
+| `ANTHROPIC_API_KEY`                            | Server | No       | Anthropic API key. Optional.                                                                                                                                   |
+| `NVIDIA_API_KEY`                               | Server | No       | NVIDIA API key for the `integrate.api.nvidia.com` OpenAI-compatible endpoint. Optional.                                                                        |
+| `LLM_EXTRACTION_TIMEOUT_MS`                    | Server | No       | Extraction-only provider deadline in milliseconds, integer 1000–60000, default 30000. Includes response-body consumption; SDK extraction retries are disabled. |
+| `NVIDIA_MODEL`                                 | Server | No       | NVIDIA-only extraction/chat model ID. Defaults to `z-ai/glm-5.3-flash`; accepts a 1-128 character ID using letters, numbers, `.`, `_`, `-`, and `/`.           |
+| `TELEGRAM_WEBHOOK_SECRET`                      | Server | No       | Secret token for Telegram webhook origin validation. Required once webhook is wired.                                                                           |
+| `TELEGRAM_BOT_TOKEN`                           | Server | No       | Telegram Bot API token. Required once the bot sends messages.                                                                                                  |
+| `SENTRY_DSN`                                   | Server | No       | Sentry error tracking DSN. Optional.                                                                                                                           |
+| `CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD` | Server | No       | Minimum confidence for keyword-based category classification (E1-US-04). Range: [0, 1]. Default: `0.6`.                                                        |
+| `ENCRYPTION_KEY`                               | Server | No       | AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars). Currently commented out in schema.                                      |
+| `SEMANTIC_ROUTER_STATE_MODES`                  | Server | No       | Strict comma-separated `FSM_STATE=off                                                                                                                          | shadow | enabled` map. Empty means every state is off. |
+| `SEMANTIC_ROUTER_COHORT_PERCENT`               | Server | No       | Stable user-cohort percentage from 0 through 100. Defaults to `0`.                                                                                             |
+| `SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT`        | Server | No       | Stable per-message sampling percentage from 0 through 100. Defaults to `0`.                                                                                    |
+| `SEMANTIC_ROUTER_COHORT_SEED`                  | Server | No       | Bounded non-secret identifier used for stable hashing. Never use a credential.                                                                                 |
+| `SEMANTIC_ROUTER_PROVIDER`                     | Server | No       | Runtime router provider. Only the validated `openai` snapshot is currently supported.                                                                          |
+| `SEMANTIC_ROUTER_MODEL`                        | Server | No       | Explicit supported runtime model snapshot; aliases are rejected.                                                                                               |
+| `SEMANTIC_ROUTER_TIMEOUT_MS`                   | Server | No       | Router deadline from 1 through 29,000 ms, below the 30-second lock-renewal interval. Defaults to `10000`.                                                      |
+| `SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS`            | Server | No       | Structured router output cap from 64 through 4,096. Defaults to `256`.                                                                                         |
 
 **Security note**: All secrets are server-side only. No env var is exposed to the client.
 
 `NVIDIA_MODEL` is provider-specific and is read only when `NVIDIA_API_KEY` is
 configured and NVIDIA has the highest provider-selection precedence. It does not
-change the NVIDIA API key, endpoint, request contract, prompts, response parsing,
+change the NVIDIA API key, endpoint, prompts, response parsing,
 or provider precedence. Direct `NvidiaAdapter` construction also defaults to
 `z-ai/glm-5.3-flash` when no model is supplied.
 
@@ -191,3 +192,9 @@ required. PostgreSQL/Redis integration exercises `enabled → shadow → off` wi
 already queued work and active review, retry, and undo-confirming payloads;
 deterministic commands, source text, bindings, expiry, pending expenses, and financial
 claims remain compatible.
+
+### Extraction deadline and GLM request profile
+
+`LLM_EXTRACTION_TIMEOUT_MS` applies to NVIDIA, OpenAI, and Claude `extractExpense` calls. It does not change the separate semantic-router timeout, correction/chat calls, queue wait, database queries, or message-delivery retries. Requests use an abort signal and SDK extraction calls explicitly disable automatic retries.
+
+For the exact model `z-ai/glm-5.3-flash`, NVIDIA extraction sends `reasoning_effort: low` and `max_tokens: 4096`. Other model IDs keep the prior 512-token extraction budget and receive no GLM-specific reasoning option. This is an explicit exception to model-only substitution: see [ADR-026](../adr/2026-09-23-bound-expense-extraction.md). Validate any overridden model against its provider contract and observe final-response metadata before changing its budget.

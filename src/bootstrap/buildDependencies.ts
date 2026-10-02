@@ -116,15 +116,16 @@ export interface BuildDependenciesInfra {
   rootLogger: Logger;
 }
 
-function createLLMPort(env: Env): LLMPort {
+function createLLMPort(env: Env, logger: BuildDependenciesInfra['rootLogger']): LLMPort {
+  const settings = { timeoutMs: env.LLM_EXTRACTION_TIMEOUT_MS, logger };
   if (env.NVIDIA_API_KEY !== undefined && env.NVIDIA_API_KEY.length > 0) {
-    return new NvidiaAdapter(env.NVIDIA_API_KEY, env.NVIDIA_MODEL);
+    return new NvidiaAdapter(env.NVIDIA_API_KEY, env.NVIDIA_MODEL, settings);
   }
   if (env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0) {
-    return new ClaudeAdapter(env.ANTHROPIC_API_KEY);
+    return new ClaudeAdapter(env.ANTHROPIC_API_KEY, settings);
   }
   if (env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
-    return new OpenAIAdapter(env.OPENAI_API_KEY);
+    return new OpenAIAdapter(env.OPENAI_API_KEY, settings);
   }
   throw new Error(
     'At least one LLM provider API key must be configured: NVIDIA_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY.',
@@ -551,7 +552,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     resourceKind: 'queue',
   });
 
-  const llmPort = createLLMPort(env);
+  const llmPort = createLLMPort(env, infra.rootLogger);
   const llmHeaderDetectionAdapter = new LLMHeaderDetectionAdapter(llmPort, infra.rootLogger);
   const llmColumnInferenceAdapter = new LLMColumnInferenceAdapter(llmPort, infra.rootLogger);
 
@@ -592,6 +593,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     categoryClassifier,
     oauthAccessTokenService,
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
+    infra.rootLogger,
   );
   const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
   const completeExpenseClarification = new CompleteExpenseClarification(registerExpense);

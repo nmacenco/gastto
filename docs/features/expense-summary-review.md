@@ -39,6 +39,19 @@ After the user describes an expense in natural language, the system interprets t
 - The messaging adapter contract remains stable: `MessagingOutputPort` handles plain text, while a narrow `InlineKeyboardOutputPort` is used for inline keyboards.
 - Legacy text-based confirm/cancel intents are still supported as a fallback. Global cancellation commands also work from clarification and correction states.
 
+## Initial extraction failures
+
+Before a review is built, all provider extraction requests have a configurable 30-second default deadline with real transport cancellation. Empty/blank responses, truncated output, invalid JSON/schema, provider failures, timeout, and cancellation have separate safe diagnostic codes. Only validated final response content enters the expense workflow. The exact NVIDIA `z-ai/glm-5.3-flash` extraction profile uses low reasoning with a 4096-token cap; real-provider verification remains tracked in the implementation plan.
+
+A failed initial attempt from `IDLE` or `EXPENSE_RECEIVING` resets only its owned receiving revision to `IDLE`, clearing its failed payload and expiry before notifying the user. Queued-batch interpretation, clarification, and correction do not use this reset. No expense record or spreadsheet row is written on this path. The user can resend the expense and must still confirm its review before saving.
+
+Public failure copies after successful recovery:
+
+- Timeout: “La interpretación tardó demasiado. No guardé este gasto. Volvé a enviarlo para intentar de nuevo”.
+- Invalid output/provider failure: “No pude interpretar este gasto. No lo guardé. Volvé a enviarlo para intentar de nuevo”.
+
+A stale revision or invalidated lease cannot reset another attempt or send a false recovery message. Persistence failures propagate to the generic handler. Generic fallback copy is “Parece que algo falló. Intentá de nuevo en unos momentos.” and makes no state-reset promise.
+
 ## API / Interface
 
 - No HTTP endpoints are added in this feature. The summary is delivered through the messaging channel (Telegram in Phase 1).
@@ -81,3 +94,9 @@ After the user describes an expense in natural language, the system interprets t
 - The "Correct" action uses an inline button and transitions to `EXPENSE_CORRECTING`; the natural-language correction flow is documented in [`expense-correction.md`](./expense-correction.md).
 - The presenter exposes `showTimeoutWarning`, `notifyCancellation`, and `requestHighAmountConfirmation` methods used by `HandleExpiredSessions` and high-amount flows.
 - This review phase does not write subcategories to spreadsheets or persist them on expense records. Those operations remain deferred to the persistence and release subplan.
+
+### Extraction regression coverage
+
+- `extractionRuntime.spec.ts`: all three provider boundaries, typed failures, safe metadata, deadlines, SDK retry settings, ownership cancellation, late completion, response-body abort, and model-specific request behavior.
+- `RecoverExpenseExtraction.spec.ts`: exact revision recovery, stale ownership, persistence failure, newer drafts, and unresolved financial claims.
+- `semantic-router-expense-flows.integration.spec.ts`: real PostgreSQL/Redis, routing off, failed initial extraction from idle/receiving, resend, review, explicit confirmation, and exactly one write after duplicate confirmation.
