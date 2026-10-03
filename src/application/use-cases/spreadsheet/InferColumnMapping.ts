@@ -7,7 +7,9 @@
 import type {
   ISpreadsheetConfigRepository,
   IColumnMappingRepository,
+  IMappingCorrectionStateRepository,
 } from '../../../domain/ports/repositories';
+import { randomUUID } from 'node:crypto';
 import type {
   ColumnInferencePort,
   ColumnInferenceResult,
@@ -44,6 +46,7 @@ export interface InferColumnMappingDeps {
   oauthAccessTokenService: OAuthAccessTokenProvider;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   columnMappingRepository: IColumnMappingRepository;
+  correctionStateRepository: IMappingCorrectionStateRepository;
   columnInferencePort: ColumnInferencePort;
   llmColumnInferencePort: ColumnInferencePort;
   headerDetectionPort: HeaderDetectionPort;
@@ -172,17 +175,6 @@ export class InferColumnMapping {
       result = this.mergeResults(result, llmResult);
     }
 
-    await this.deps.columnMappingRepository.upsertMany(
-      result.mappings.map((m) => ({
-        spreadsheetId: config.id,
-        GasttoField: m.gasttoField,
-        columnIndex: m.columnIndex,
-        columnHeader: m.columnHeader,
-        inferred: true,
-        confirmedAt: null,
-      })),
-    );
-
     const looksLikePartialTitleRow =
       headerRowIndex === 1 && result.mappings.length <= 1 && preview.rows.length > 1;
 
@@ -204,6 +196,18 @@ export class InferColumnMapping {
       return { nextState: 'ONBOARDING_MAPPING', message, payload };
     }
 
+    await this.deps.columnMappingRepository.replaceBySpreadsheetId(
+      config.id,
+      result.mappings.map((mapping) => ({
+        GasttoField: mapping.gasttoField,
+        columnIndex: mapping.columnIndex,
+        columnHeader: mapping.columnHeader,
+        inferred: true,
+        confirmedAt: null,
+      })),
+    );
+    await this.deps.correctionStateRepository.clear(userId);
+
     const hasLowConfidence = result.mappings.some((m) => m.confidence === 'baja');
     const message =
       result.unmappedFields.length > 0
@@ -214,12 +218,16 @@ export class InferColumnMapping {
           ? onboardingCopies.mappingProposalLowConfidence(result.mappings, result.unmappedFields)
           : onboardingCopies.mappingProposalHighConfidence(result.mappings, result.unmappedFields);
 
-    await this.deps.messagingPort.sendMessage(externalId, message);
-
     const { step: _step, ...restState } = statePayload ?? {};
+    const proposalId = randomUUID();
     const payload: Record<string, unknown> = {
       ...restState,
-      mappings: result.mappings,
+      provider: config.provider,
+      fileId: config.fileId,
+      sheetName: config.sheetName,
+      spreadsheetId: config.id,
+      proposalId,
+      mappings: result.mappings.map((mapping) => ({ ...mapping, inferred: true })),
       unmappedFields: result.unmappedFields,
       headerRowIndex,
     };
@@ -229,6 +237,8 @@ export class InferColumnMapping {
       targetState: 'ONBOARDING_MAPPING',
       payload,
     });
+
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     return { nextState: 'ONBOARDING_MAPPING', message, payload };
   }

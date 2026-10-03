@@ -122,4 +122,31 @@ describe('ColumnMappingCorrectionState', () => {
     expect(state.corrections).toHaveLength(0);
     expect(corrected.status).toBe('correcting');
   });
+
+  it('gives an explicitly assigned field exclusive ownership of a column', () => {
+    const state = ColumnMappingCorrectionState.create([
+      buildMapping({ GasttoField: 'moneda', columnIndex: 0, columnHeader: '' }),
+      buildMapping({ GasttoField: 'fecha', columnIndex: 1, columnHeader: 'Fecha' }),
+    ]).applyCorrection({ field: 'medio_pago', columnIndex: 0, columnHeader: '' });
+
+    expect(state.getCurrentMapping()).toEqual([
+      expect.objectContaining({ GasttoField: 'fecha', columnIndex: 1 }),
+      expect.objectContaining({ GasttoField: 'medio_pago', columnIndex: 0 }),
+    ]);
+    expect(state.unmappedFields).toEqual(['moneda']);
+  });
+
+  it('does not resurrect a displaced field after repeating or moving the correction', () => {
+    const state = ColumnMappingCorrectionState.create([
+      buildMapping({ GasttoField: 'moneda', columnIndex: 0, columnHeader: '' }),
+    ])
+      .applyCorrection({ field: 'medio_pago', columnIndex: 0, columnHeader: '' })
+      .applyCorrection({ field: 'medio_pago', columnIndex: 0, columnHeader: '' })
+      .applyCorrection({ field: 'medio_pago', columnIndex: 6, columnHeader: '' });
+
+    expect(state.getCurrentMapping()).toEqual([
+      expect.objectContaining({ GasttoField: 'medio_pago', columnIndex: 6 }),
+    ]);
+    expect(state.unmappedFields).toEqual(['moneda']);
+  });
 });

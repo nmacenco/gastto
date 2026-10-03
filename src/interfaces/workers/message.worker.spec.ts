@@ -3812,7 +3812,7 @@ describe('processMessageJob', () => {
         expect(mockCorrectColumnMappingExecute).not.toHaveBeenCalled();
       });
 
-      it('sends resume prompt when a saved correction snapshot exists but FSM has no proposal', async () => {
+      it('discards a snapshot when the FSM has no authoritative proposal', async () => {
         const basePayload = {
           selectedFileId: 'f1',
           selectedFileName: 'file1',
@@ -3839,6 +3839,11 @@ describe('processMessageJob', () => {
             },
           ],
           status: 'correcting' as const,
+          proposalId: 'proposal-1',
+          spreadsheetId: 'config-1',
+          provider: 'google' as const,
+          fileId: 'file-1',
+          sheetName: 'Gastos',
         };
         mockLoadCorrectionState.mockResolvedValue(snapshot);
         mockGetConversationStateExecute.mockResolvedValue(
@@ -3852,21 +3857,13 @@ describe('processMessageJob', () => {
         await processMessageJob(buildJob(baseJobData), deps);
 
         expect(mockLoadCorrectionState).toHaveBeenCalledWith('user-123');
-        expect(mockSendMessage).toHaveBeenCalledWith(
-          '123456789',
-          onboardingCopies.mappingResumePrompt([
-            { gasttoField: 'fecha', columnIndex: 2, columnHeader: 'Fecha real' },
-          ]),
+        expect(mockClearCorrectionState).toHaveBeenCalledWith('user-123');
+        expect(mockInferColumnMappingExecute).toHaveBeenCalledWith(
+          expect.objectContaining({ userId: 'user-123', statePayload: basePayload }),
         );
-        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-          userId: 'user-123',
-          targetState: 'ONBOARDING_MAPPING',
-          payload: { ...basePayload, step: 'resume' },
-        });
-        expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
       });
 
-      it('loads snapshot and displays updated mapping when user confirms resume prompt', async () => {
+      it('regenerates the proposal when a legacy resume payload has no mappings', async () => {
         const snapshot = {
           originalMapping: [
             {
@@ -3887,12 +3884,22 @@ describe('processMessageJob', () => {
             },
           ],
           status: 'correcting' as const,
+          proposalId: 'proposal-1',
+          spreadsheetId: 'config-1',
+          provider: 'google' as const,
+          fileId: 'file-1',
+          sheetName: 'Gastos',
         };
         mockLoadCorrectionState.mockResolvedValue(snapshot);
         mockGetConversationStateExecute.mockResolvedValue(
           buildConversationState({
             currentState: 'ONBOARDING_MAPPING',
-            statePayload: { step: 'resume' },
+            statePayload: {
+              step: 'resume',
+              proposalId: 'proposal-1',
+              fileId: 'file-1',
+              sheetName: 'Gastos',
+            },
           }),
         );
 
@@ -3900,22 +3907,10 @@ describe('processMessageJob', () => {
         await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
 
         expect(mockLoadCorrectionState).toHaveBeenCalledWith('user-123');
-        expect(mockSendMessage).toHaveBeenCalledWith(
-          '123456789',
-          onboardingCopies.mappingUpdatedConfirmation(
-            [{ gasttoField: 'fecha', columnIndex: 2, columnHeader: 'Fecha real' }],
-            [],
-          ),
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockInferColumnMappingExecute).toHaveBeenCalledWith(
+          expect.objectContaining({ userId: 'user-123' }),
         );
-        expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-          userId: 'user-123',
-          targetState: 'ONBOARDING_MAPPING',
-          payload: {
-            step: 'resume',
-            mappings: [{ gasttoField: 'fecha', columnIndex: 2, columnHeader: 'Fecha real' }],
-            unmappedFields: [],
-          },
-        });
       });
 
       it('clears snapshot and falls back to inference when user declines resume prompt', async () => {

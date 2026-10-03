@@ -134,6 +134,8 @@ Maps canonical Gastto fields to real spreadsheet column indices.
 
 Migration `0008_add_subcategory_mapping_field.sql` additively replaces only `chk_gastto_field` so it admits optional `subcategoria`; existing category-only mappings remain valid. The migration was generated with Drizzle's custom-migration scaffold because the pinned Drizzle Kit version does not diff PostgreSQL `CHECK` expressions, and its snapshot and journal entry remain part of the generated migration history.
 
+Inference and confirmation write this table as a complete spreadsheet-scoped set through `replaceBySpreadsheetId`. The repository validates duplicate fields and columns before opening a transaction, then deletes and inserts within that transaction. This permits column exchanges without intermediate unique-index conflicts, removes obsolete rows from earlier proposals, isolates other spreadsheets, and preserves the prior set if insertion fails.
+
 ### user_categories
 
 Per-spreadsheet category vocabulary used for semantic mapping.

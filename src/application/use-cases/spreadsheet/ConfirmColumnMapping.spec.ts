@@ -19,9 +19,9 @@ import { onboardingCopies } from '../../copies/onboarding.copies';
 
 const mockFindByUserId = vi.fn();
 const mockFindBySpreadsheetId = vi.fn();
-const mockConfirmBySpreadsheetId = vi.fn();
 const mockUpdateCorrected = vi.fn();
 const mockUpsertMany = vi.fn();
+const mockReplaceBySpreadsheetId = vi.fn();
 const mockLoadCorrectionState = vi.fn();
 const mockClearCorrectionState = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
@@ -33,9 +33,9 @@ function buildMockDeps(
   return {
     columnMappingRepository: {
       findBySpreadsheetId: mockFindBySpreadsheetId,
-      confirmBySpreadsheetId: mockConfirmBySpreadsheetId,
       updateCorrected: mockUpdateCorrected,
       upsertMany: mockUpsertMany,
+      replaceBySpreadsheetId: mockReplaceBySpreadsheetId,
     } as unknown as IColumnMappingRepository,
     correctionStateRepository: {
       load: mockLoadCorrectionState,
@@ -61,6 +61,22 @@ const baseInput: ConfirmColumnMappingInput = {
     fileId: 'file-123',
     sheetName: 'Gastos',
     headerRowIndex: 2,
+    proposalId: 'proposal-1',
+    spreadsheetId: 'config-1',
+    mappings: [
+      {
+        gasttoField: 'fecha',
+        columnIndex: 0,
+        columnHeader: 'Fecha',
+        inferred: true,
+      },
+      {
+        gasttoField: 'monto',
+        columnIndex: 1,
+        columnHeader: 'Monto',
+        inferred: false,
+      },
+    ],
   },
 };
 
@@ -101,8 +117,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockFindByUserId.mockResolvedValue(mockConfig);
   mockFindBySpreadsheetId.mockResolvedValue(mockMappings);
-  mockConfirmBySpreadsheetId.mockResolvedValue(undefined);
   mockUpsertMany.mockResolvedValue(undefined);
+  mockReplaceBySpreadsheetId.mockResolvedValue(undefined);
   mockLoadCorrectionState.mockResolvedValue(null);
   mockClearCorrectionState.mockResolvedValue(undefined);
   mockTransitionExecute.mockResolvedValue({
@@ -122,7 +138,20 @@ describe('ConfirmColumnMapping', () => {
 
     const result = await useCase.execute(baseInput);
 
-    expect(mockConfirmBySpreadsheetId).toHaveBeenCalledWith('config-1');
+    expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith('config-1', [
+      expect.objectContaining({
+        GasttoField: 'fecha',
+        columnIndex: 0,
+        inferred: true,
+        confirmedAt: expect.any(Date) as Date,
+      }),
+      expect.objectContaining({
+        GasttoField: 'monto',
+        columnIndex: 1,
+        inferred: false,
+        confirmedAt: expect.any(Date) as Date,
+      }),
+    ]);
     expect(mockClearCorrectionState).toHaveBeenCalledWith('user-123');
     expect(mockTransitionExecute).toHaveBeenCalledWith({
       userId: 'user-123',
@@ -161,7 +190,7 @@ describe('ConfirmColumnMapping', () => {
     });
   });
 
-  it('persists accumulated corrections, including newly mapped fields, before confirming', async () => {
+  it('persists the active proposal instead of hidden repository mappings', async () => {
     mockLoadCorrectionState.mockResolvedValue({
       originalMapping: mockMappings,
       corrections: [
@@ -174,26 +203,16 @@ describe('ConfirmColumnMapping', () => {
     const useCase = new ConfirmColumnMapping(buildMockDeps());
     await useCase.execute(baseInput);
 
-    expect(mockUpsertMany).toHaveBeenCalledWith([
-      {
-        spreadsheetId: 'config-1',
-        GasttoField: 'fecha',
-        columnIndex: 3,
-        columnHeader: 'Día',
-        inferred: false,
-        confirmedAt: null,
-      },
-      {
-        spreadsheetId: 'config-1',
-        GasttoField: 'categoria',
-        columnIndex: 2,
-        columnHeader: '',
-        inferred: false,
-        confirmedAt: null,
-      },
-    ]);
-    expect(mockUpsertMany.mock.invocationCallOrder[0]).toBeLessThan(
-      mockConfirmBySpreadsheetId.mock.invocationCallOrder[0]!,
+    expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith(
+      'config-1',
+      expect.arrayContaining([
+        expect.objectContaining({ GasttoField: 'fecha', columnIndex: 0 }),
+        expect.objectContaining({ GasttoField: 'monto', columnIndex: 1 }),
+      ]),
+    );
+    expect(mockReplaceBySpreadsheetId).not.toHaveBeenCalledWith(
+      'config-1',
+      expect.arrayContaining([expect.objectContaining({ GasttoField: 'categoria' })]),
     );
   });
 
@@ -204,7 +223,7 @@ describe('ConfirmColumnMapping', () => {
 
     const result = await useCase.execute(baseInput);
 
-    expect(mockConfirmBySpreadsheetId).not.toHaveBeenCalled();
+    expect(mockReplaceBySpreadsheetId).not.toHaveBeenCalled();
     expect(mockTransitionExecute).toHaveBeenCalledWith({
       userId: 'user-123',
       targetState: 'ONBOARDING_START',
@@ -215,23 +234,25 @@ describe('ConfirmColumnMapping', () => {
   });
 
   it('stays in ONBOARDING_MAPPING when no mappings exist', async () => {
-    mockFindBySpreadsheetId.mockResolvedValue([]);
     const deps = buildMockDeps();
     const useCase = new ConfirmColumnMapping(deps);
 
-    const result = await useCase.execute(baseInput);
+    const result = await useCase.execute({
+      ...baseInput,
+      statePayload: { ...baseInput.statePayload, mappings: [] },
+    });
 
-    expect(mockConfirmBySpreadsheetId).not.toHaveBeenCalled();
+    expect(mockReplaceBySpreadsheetId).not.toHaveBeenCalled();
     expect(mockTransitionExecute).not.toHaveBeenCalled();
     expect(mockSendMessage).toHaveBeenCalledWith(
       '987654321',
-      onboardingCopies.noMappingToConfirm(),
+      onboardingCopies.mappingProposalRecoveryPrompt(),
     );
     expect(result.nextState).toBe('ONBOARDING_MAPPING');
   });
 
-  it('does not send confirmation message when confirmBySpreadsheetId fails', async () => {
-    mockConfirmBySpreadsheetId.mockRejectedValue(new Error('DB error'));
+  it('does not send confirmation message when replacement fails', async () => {
+    mockReplaceBySpreadsheetId.mockRejectedValue(new Error('DB error'));
     const deps = buildMockDeps();
     const useCase = new ConfirmColumnMapping(deps);
 
@@ -248,11 +269,7 @@ describe('ConfirmColumnMapping', () => {
 
     await expect(useCase.execute(baseInput)).rejects.toThrow('Invalid transition');
 
-    expect(mockConfirmBySpreadsheetId).toHaveBeenCalledWith('config-1');
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '987654321',
-      onboardingCopies.mappingConfirmedNextStep(),
-    );
+    expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith('config-1', expect.any(Array));
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 });
