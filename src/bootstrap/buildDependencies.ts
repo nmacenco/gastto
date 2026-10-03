@@ -270,11 +270,13 @@ function buildGoogleOAuthFeature(
   const categoryHierarchyReaderFactory = new SpreadsheetCategoryHierarchyReaderFactory(
     sheetsAdapterFactory,
   );
+  const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
 
   const inferColumnMapping = new InferColumnMapping({
     oauthAccessTokenService: core.oauthAccessTokenService,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     columnMappingRepository: core.columnMappingRepo,
+    correctionStateRepository: mappingCorrectionStateRepository,
     columnInferencePort: core.ruleBasedColumnInferenceAdapter,
     llmColumnInferencePort: core.llmColumnInferenceAdapter,
     headerDetectionPort: core.ruleBasedHeaderDetectionAdapter,
@@ -332,8 +334,6 @@ function buildGoogleOAuthFeature(
     conversationRepo: core.conversationRepo,
     userProcessingLock: new RedisUserProcessingLock(infra.redis),
   });
-
-  const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
 
   const confirmColumnMapping = new ConfirmColumnMapping({
     columnMappingRepository: core.columnMappingRepo,

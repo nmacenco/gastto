@@ -19,7 +19,6 @@ import type { FsmState } from '../../../domain/entities/ConversationState';
 import {
   SUPPORTED_GASTTO_FIELDS,
   type ColumnMapping,
-  type GasttoField,
   type SpreadsheetConfig,
 } from '../../../domain/entities/SpreadsheetConfig';
 import { ColumnMappingCorrectionState } from '../../../domain/value-objects/ColumnMappingCorrectionState';
@@ -29,6 +28,10 @@ import {
 } from '../../services/ColumnMappingCorrectionParser';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { isRejectMappingIntent } from '../../utils/intents';
+import {
+  readActiveColumnMappingProposal,
+  toProposalPayloadMapping,
+} from '../../services/ActiveColumnMappingProposal';
 import type { HeaderDetectionPort } from '../../../domain/ports/headerDetection';
 import type { ColumnInferencePort } from '../../../domain/ports/columnInference';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
@@ -152,20 +155,30 @@ function resolveColumnRef(
   return null;
 }
 
-function buildSnapshot(state: ColumnMappingCorrectionState): MappingCorrectionStateSnapshot {
+function buildSnapshot(
+  state: ColumnMappingCorrectionState,
+  proposalId: string,
+  config: SpreadsheetConfig,
+): MappingCorrectionStateSnapshot {
   return {
     originalMapping: [...state.originalMapping],
     corrections: [...state.corrections],
+    unmappedFields: [...state.unmappedFields],
     status: state.status,
+    proposalId,
+    spreadsheetId: config.id,
+    provider: config.provider,
+    fileId: config.fileId,
+    sheetName: config.sheetName,
   };
 }
 
 function restoreSnapshot(snapshot: MappingCorrectionStateSnapshot): ColumnMappingCorrectionState {
-  let state = ColumnMappingCorrectionState.create(snapshot.originalMapping);
-  for (const correction of snapshot.corrections) {
-    state = state.applyCorrection(correction);
-  }
-  return state;
+  return ColumnMappingCorrectionState.restore(
+    snapshot.originalMapping,
+    snapshot.corrections,
+    snapshot.unmappedFields,
+  );
 }
 
 function toDisplayMapping(
@@ -189,8 +202,8 @@ export class CorrectColumnMapping {
       return this.handleReconnect(externalId, userId);
     }
 
-    const originalMappings = await this.deps.columnMappingRepository.findBySpreadsheetId(config.id);
-    if (originalMappings.length === 0) {
+    const proposal = readActiveColumnMappingProposal(input.statePayload, config);
+    if (!proposal) {
       const message = onboardingCopies.noMappingToConfirm();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { kind: 'no-proposed-mapping', nextState: 'ONBOARDING_MAPPING', message };
@@ -238,9 +251,17 @@ export class CorrectColumnMapping {
     }
 
     const snapshot = await this.deps.correctionStateRepository.load(userId);
-    const correctionState = snapshot
+    const compatibleSnapshot = this.isCompatibleSnapshot(snapshot, proposal.proposalId, config);
+    const correctionState = compatibleSnapshot
       ? restoreSnapshot(snapshot)
-      : ColumnMappingCorrectionState.create(originalMappings);
+      : ColumnMappingCorrectionState.create(proposal.mappings);
+
+    const displacedField = correctionState
+      .getCurrentMapping()
+      .find(
+        (mapping) =>
+          mapping.columnIndex === matchedColumn.index && mapping.GasttoField !== parseResult.field,
+      )?.GasttoField;
 
     const updatedState = correctionState.applyCorrection({
       field: parseResult.field,
@@ -250,35 +271,38 @@ export class CorrectColumnMapping {
 
     await this.deps.correctionStateRepository.save(
       userId,
-      buildSnapshot(updatedState),
+      buildSnapshot(updatedState, proposal.proposalId, config),
       this.deps.stateTtlSeconds,
     );
 
     const currentMappings = updatedState.getCurrentMapping();
     const mappedFields = new Set(currentMappings.map((mapping) => mapping.GasttoField));
-    const unmappedFields = this.resolveUnmappedFields(input.statePayload).filter(
-      (field) => !mappedFields.has(field),
-    );
+    const unmappedFields = SUPPORTED_GASTTO_FIELDS.filter((field) => !mappedFields.has(field));
 
     const message = onboardingCopies.mappingUpdatedConfirmation(
       currentMappings.map(toDisplayMapping),
       unmappedFields,
+      displacedField ? [displacedField] : [],
     );
-    await this.deps.messagingPort.sendMessage(externalId, message);
 
     await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_MAPPING',
       payload: {
+        ...input.statePayload,
         provider: config.provider,
         fileId: config.fileId,
         sheetName: config.sheetName,
-        mappings: currentMappings.map(toDisplayMapping),
+        proposalId: proposal.proposalId,
+        spreadsheetId: config.id,
+        mappings: currentMappings.map(toProposalPayloadMapping),
         unmappedFields,
         headerRowIndex,
       },
       expiresAt: this.computeExpiresAt(),
     });
+
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     return { kind: 'updated', nextState: 'ONBOARDING_MAPPING', message };
   }
@@ -301,7 +325,21 @@ export class CorrectColumnMapping {
       throw error;
     }
 
-    await this.deps.correctionStateRepository.clear(userId);
+    const proposal = readActiveColumnMappingProposal(input.statePayload, config);
+    if (proposal) {
+      const snapshot = await this.deps.correctionStateRepository.load(userId);
+      if (!this.isCompatibleSnapshot(snapshot, proposal.proposalId, config)) {
+        await this.deps.correctionStateRepository.save(
+          userId,
+          buildSnapshot(
+            ColumnMappingCorrectionState.create(proposal.mappings),
+            proposal.proposalId,
+            config,
+          ),
+          this.deps.stateTtlSeconds,
+        );
+      }
+    }
 
     const message = onboardingCopies.mappingRejectionPrompt(availableColumns);
     await this.deps.messagingPort.sendMessage(externalId, message);
@@ -340,13 +378,18 @@ export class CorrectColumnMapping {
     return typeof value === 'number' && value >= 1 ? value : undefined;
   }
 
-  private resolveUnmappedFields(statePayload: Record<string, unknown> | null): GasttoField[] {
-    const value = statePayload?.unmappedFields;
-    if (!Array.isArray(value)) return [];
-
-    return value.filter(
-      (field): field is GasttoField =>
-        typeof field === 'string' && SUPPORTED_GASTTO_FIELDS.includes(field as GasttoField),
+  private isCompatibleSnapshot(
+    snapshot: MappingCorrectionStateSnapshot | null,
+    proposalId: string,
+    config: SpreadsheetConfig,
+  ): snapshot is MappingCorrectionStateSnapshot {
+    return (
+      snapshot !== null &&
+      snapshot.proposalId === proposalId &&
+      snapshot.spreadsheetId === config.id &&
+      snapshot.provider === config.provider &&
+      snapshot.fileId === config.fileId &&
+      snapshot.sheetName === config.sheetName
     );
   }
 

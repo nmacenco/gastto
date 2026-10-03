@@ -15,6 +15,7 @@ import type { ExpenseRecord } from '../entities/ExpenseRecord';
 import type {
   SpreadsheetConfig,
   ColumnMapping,
+  GasttoField,
   UserCategory,
   UserSubcategory,
   OAuthToken,
@@ -124,6 +125,10 @@ export interface ISpreadsheetConfigRepository {
 export interface IColumnMappingRepository {
   findBySpreadsheetId(spreadsheetId: string): Promise<ColumnMapping[]>;
   upsertMany(mappings: Omit<ColumnMapping, 'id'>[]): Promise<void>;
+  replaceBySpreadsheetId(
+    spreadsheetId: string,
+    mappings: Omit<ColumnMapping, 'id' | 'spreadsheetId'>[],
+  ): Promise<void>;
   confirm(id: string): Promise<void>;
 
   // Marks every mapping for a spreadsheet as confirmed (e.g. user said "yes"/"ok")
@@ -138,7 +143,13 @@ export interface IColumnMappingRepository {
 export interface MappingCorrectionStateSnapshot {
   originalMapping: ColumnMapping[];
   corrections: MappingCorrection[];
+  unmappedFields?: GasttoField[];
   status: MappingCorrectionStatus;
+  proposalId?: string;
+  spreadsheetId?: string;
+  provider?: SpreadsheetConfig['provider'];
+  fileId?: string;
+  sheetName?: string;
 }
 
 export interface IMappingCorrectionStateRepository {

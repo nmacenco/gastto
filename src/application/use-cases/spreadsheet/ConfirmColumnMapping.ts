@@ -12,6 +12,7 @@ import type { TransitionConversationState } from '../conversation/TransitionConv
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { readActiveColumnMappingProposal } from '../../services/ActiveColumnMappingProposal';
 
 export interface ConfirmColumnMappingInput {
   userId: string;
@@ -45,32 +46,25 @@ export class ConfirmColumnMapping {
       return this.handleReconnect(externalId, userId);
     }
 
-    const mappings = await this.deps.columnMappingRepository.findBySpreadsheetId(config.id);
-    if (mappings.length === 0) {
-      const message = onboardingCopies.noMappingToConfirm();
+    const proposal = readActiveColumnMappingProposal(input.statePayload, config);
+    if (!proposal) {
+      const message = onboardingCopies.mappingProposalRecoveryPrompt();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_MAPPING', message };
     }
 
-    const correctionSnapshot = await this.deps.correctionStateRepository.load(userId);
-    if (correctionSnapshot && correctionSnapshot.corrections.length > 0) {
-      await this.deps.columnMappingRepository.upsertMany(
-        correctionSnapshot.corrections.map((correction) => ({
-          spreadsheetId: config.id,
-          GasttoField: correction.field,
-          columnIndex: correction.columnIndex,
-          columnHeader: correction.columnHeader,
-          inferred: false,
-          confirmedAt: null,
-        })),
-      );
-    }
-
-    await this.deps.columnMappingRepository.confirmBySpreadsheetId(config.id);
+    const confirmedAt = new Date();
+    await this.deps.columnMappingRepository.replaceBySpreadsheetId(
+      config.id,
+      proposal.mappings.map((mapping) => ({
+        GasttoField: mapping.GasttoField,
+        columnIndex: mapping.columnIndex,
+        columnHeader: mapping.columnHeader,
+        inferred: mapping.inferred,
+        confirmedAt,
+      })),
+    );
     await this.deps.correctionStateRepository.clear(userId);
-
-    const message = onboardingCopies.mappingConfirmedNextStep();
-    await this.deps.messagingPort.sendMessage(externalId, message);
 
     const payload: Record<string, unknown> = {
       provider: config.provider,
@@ -91,6 +85,9 @@ export class ConfirmColumnMapping {
       targetState: 'ONBOARDING_CATEGORIES',
       payload,
     });
+
+    const message = onboardingCopies.mappingConfirmedNextStep();
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     return { nextState: 'ONBOARDING_CATEGORIES', message, payload };
   }

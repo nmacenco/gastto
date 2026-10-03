@@ -177,6 +177,7 @@ export const onboardingCopies = {
   mappingUpdatedConfirmation: (
     mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
     unmappedFields: GasttoField[],
+    displacedFields: GasttoField[] = [],
   ) => {
     const lines = mappings.map(
       (m) =>
@@ -187,8 +188,15 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     if (unmappedFields.length > 0) {
       message += `\n\n${formatUnmappedFields(unmappedFields)}`;
     }
+    if (displacedFields.length > 0) {
+      const labels = displacedFields.map((field) => GASTTO_FIELD_LABELS[field]).join(', ');
+      message += `\n\nLa columna indicada queda reservada para el nuevo campo. ${labels} queda sin asignar.`;
+    }
     return message;
   },
+
+  mappingProposalRecoveryPrompt: () =>
+    'No pude validar el mapeo que estabas revisando. Voy a generar una propuesta nueva antes de guardarlo.',
 
   invalidColumnPrompt: (
     columnRef: string,

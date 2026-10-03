@@ -58,7 +58,11 @@ import type {
   IExpenseRecordRepository,
 } from '../../domain/ports/repositories';
 import { ColumnMappingCorrectionState } from '../../domain/value-objects/ColumnMappingCorrectionState';
-import type { ColumnMapping } from '../../domain/entities/SpreadsheetConfig';
+import {
+  SUPPORTED_GASTTO_FIELDS,
+  type ColumnMapping,
+  type GasttoField,
+} from '../../domain/entities/SpreadsheetConfig';
 import type { MappingCorrection } from '../../domain/value-objects/ColumnMappingCorrectionState';
 import type { InitiateCloudConnection } from '../../application/use-cases/spreadsheet/InitiateCloudConnection';
 import type { CancelCloudConnection } from '../../application/use-cases/spreadsheet/CancelCloudConnection';
@@ -1246,20 +1250,12 @@ async function handleOnboardingMapping(
     return;
   }
 
-  // No proposal in the FSM payload: check for a saved correction snapshot.
+  // A Redis snapshot without its authoritative FSM proposal cannot be resumed safely.
   const repo = opts.mappingCorrectionStateRepository;
   if (repo) {
     const snapshot = await repo.load(userId);
     if (snapshot) {
-      const currentMappings = restoreCorrectionSnapshot(snapshot).getCurrentMapping();
-      const prompt = onboardingCopies.mappingResumePrompt(currentMappings.map(toDisplayMapping));
-      await messaging.sendMessage(externalId, prompt);
-      await opts.transitionState.execute({
-        userId,
-        targetState: 'ONBOARDING_MAPPING',
-        payload: { ...statePayload, step: 'resume' },
-      });
-      return;
+      await repo.clear(userId);
     }
   }
 
@@ -1372,7 +1368,16 @@ async function handleResumeResponse(
   }
 
   const snapshot = await repo.load(userId);
-  if (!snapshot) {
+  const proposalId = statePayload?.proposalId;
+  const snapshotMatchesProposal =
+    snapshot !== null &&
+    Array.isArray(statePayload?.mappings) &&
+    statePayload.mappings.length > 0 &&
+    typeof proposalId === 'string' &&
+    snapshot.proposalId === proposalId &&
+    snapshot.fileId === statePayload?.fileId &&
+    snapshot.sheetName === statePayload?.sheetName;
+  if (!snapshotMatchesProposal) {
     // Snapshot expired while the prompt was shown: fall back to inference.
     if (opts.inferColumnMapping) {
       await opts.inferColumnMapping.execute({
@@ -1388,9 +1393,11 @@ async function handleResumeResponse(
   }
 
   const currentMappings = restoreCorrectionSnapshot(snapshot).getCurrentMapping();
+  const mappedFields = new Set(currentMappings.map((mapping) => mapping.GasttoField));
+  const unmappedFields = SUPPORTED_GASTTO_FIELDS.filter((field) => !mappedFields.has(field));
   const message = onboardingCopies.mappingUpdatedConfirmation(
     currentMappings.map(toDisplayMapping),
-    [],
+    unmappedFields,
   );
   await messaging.sendMessage(externalId, message);
   await opts.transitionState.execute({
@@ -1399,7 +1406,7 @@ async function handleResumeResponse(
     payload: {
       ...statePayload,
       mappings: currentMappings.map(toDisplayMapping),
-      unmappedFields: [],
+      unmappedFields,
     },
   });
 }
@@ -1486,21 +1493,23 @@ async function enterOnboardingCategories(
 function restoreCorrectionSnapshot(snapshot: {
   originalMapping: readonly ColumnMapping[];
   corrections: readonly MappingCorrection[];
+  unmappedFields?: readonly GasttoField[];
 }): ColumnMappingCorrectionState {
-  let state = ColumnMappingCorrectionState.create(snapshot.originalMapping);
-  for (const correction of snapshot.corrections) {
-    state = state.applyCorrection(correction);
-  }
-  return state;
+  return ColumnMappingCorrectionState.restore(
+    snapshot.originalMapping,
+    snapshot.corrections,
+    snapshot.unmappedFields,
+  );
 }
 
 function toDisplayMapping(
-  mapping: Pick<ColumnMapping, 'GasttoField' | 'columnIndex' | 'columnHeader'>,
+  mapping: Pick<ColumnMapping, 'GasttoField' | 'columnIndex' | 'columnHeader' | 'inferred'>,
 ) {
   return {
     gasttoField: mapping.GasttoField,
     columnIndex: mapping.columnIndex,
     columnHeader: mapping.columnHeader,
+    inferred: mapping.inferred,
   };
 }
 

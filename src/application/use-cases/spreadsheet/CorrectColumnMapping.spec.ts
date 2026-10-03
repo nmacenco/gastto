@@ -23,7 +23,6 @@ import type {
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { ColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
 import { RuleBasedColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
-import { ColumnMappingCorrectionState } from '../../../domain/value-objects/ColumnMappingCorrectionState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import type { ColumnMapping, SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
@@ -215,38 +214,23 @@ describe('CorrectColumnMapping', () => {
       columnHeader: 'Medio de pago',
     });
 
-    const currentMapping = ColumnMappingCorrectionState.create(mockMappings)
-      .applyCorrection({ field: 'categoria', columnIndex: 4, columnHeader: 'Medio de pago' })
-      .getCurrentMapping();
     expect(mockSendMessage).toHaveBeenCalledWith(
       '987654321',
-      onboardingCopies.mappingUpdatedConfirmation(
-        currentMapping.map((m) => ({
-          gasttoField: m.GasttoField,
-          columnIndex: m.columnIndex,
-          columnHeader: m.columnHeader,
-        })),
-        [],
-      ),
+      expect.stringContaining('Actualicé el mapeo'),
     );
 
-    expect(mockTransitionExecute).toHaveBeenCalledWith({
-      userId: 'user-123',
-      targetState: 'ONBOARDING_MAPPING',
-      payload: {
-        provider: 'google',
-        fileId: 'file-123',
-        sheetName: 'Gastos',
-        mappings: currentMapping.map((m) => ({
-          gasttoField: m.GasttoField,
-          columnIndex: m.columnIndex,
-          columnHeader: m.columnHeader,
-        })),
-        unmappedFields: [],
-        headerRowIndex: 1,
-      },
-      expiresAt: expect.any(Date) as Date,
-    });
+    expect(mockTransitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_MAPPING',
+        payload: expect.objectContaining({
+          proposalId: 'legacy:config-1:file-123:Gastos',
+          mappings: expect.arrayContaining([
+            expect.objectContaining({ gasttoField: 'categoria', columnIndex: 4 }),
+          ]) as unknown[],
+        }) as Record<string, unknown>,
+      }),
+    );
   });
 
   it('accumulates corrections for different fields', async () => {
@@ -254,6 +238,11 @@ describe('CorrectColumnMapping', () => {
       originalMapping: mockMappings,
       corrections: [{ field: 'monto', columnIndex: 3, columnHeader: 'Descripción' }],
       status: 'correcting',
+      proposalId: 'legacy:config-1:file-123:Gastos',
+      spreadsheetId: 'config-1',
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Gastos',
     };
     mockLoadCorrectionState.mockResolvedValue(previousSnapshot);
 
@@ -279,6 +268,11 @@ describe('CorrectColumnMapping', () => {
       originalMapping: mockMappings,
       corrections: [{ field: 'categoria', columnIndex: 3, columnHeader: 'Descripción' }],
       status: 'correcting',
+      proposalId: 'legacy:config-1:file-123:Gastos',
+      spreadsheetId: 'config-1',
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Gastos',
     };
     mockLoadCorrectionState.mockResolvedValue(previousSnapshot);
 
@@ -321,6 +315,14 @@ describe('CorrectColumnMapping', () => {
       rawMessage: 'Categoría columna C',
       statePayload: {
         ...baseInput.statePayload,
+        mappings: [
+          {
+            gasttoField: 'medio_pago',
+            columnIndex: 0,
+            columnHeader: '',
+            inferred: true,
+          },
+        ],
         unmappedFields: ['monto', 'moneda', 'categoria', 'fecha', 'concepto'],
       },
     });
@@ -336,7 +338,7 @@ describe('CorrectColumnMapping', () => {
           mappings: expect.arrayContaining([
             expect.objectContaining({ gasttoField: 'categoria', columnIndex: 2 }),
           ]) as unknown[],
-          unmappedFields: ['monto', 'moneda', 'fecha', 'concepto'],
+          unmappedFields: ['monto', 'moneda', 'fecha', 'concepto', 'subcategoria'],
         }) as Record<string, unknown>,
       }),
     );
@@ -369,7 +371,9 @@ describe('CorrectColumnMapping', () => {
     );
     expect(mockTransitionExecute).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({ unmappedFields: [] }) as Record<string, unknown>,
+        payload: expect.objectContaining({
+          unmappedFields: ['moneda', 'concepto', 'medio_pago'],
+        }) as Record<string, unknown>,
       }),
     );
     expect(mockSendMessage).toHaveBeenCalledWith(
@@ -479,7 +483,12 @@ describe('CorrectColumnMapping', () => {
       accessToken: 'access-token',
       headerRowIndex: 1,
     });
-    expect(mockClearCorrectionState).toHaveBeenCalledWith('user-123');
+    expect(mockClearCorrectionState).not.toHaveBeenCalled();
+    expect(mockSaveCorrectionState).toHaveBeenCalledWith(
+      'user-123',
+      expect.objectContaining({ proposalId: 'legacy:config-1:file-123:Gastos' }),
+      1800,
+    );
     expect(mockSendMessage).toHaveBeenCalledWith(
       '987654321',
       onboardingCopies.mappingRejectionPrompt(availableColumns),
@@ -593,12 +602,13 @@ describe('CorrectColumnMapping', () => {
   });
 
   it('stays in ONBOARDING_MAPPING when no proposed mappings exist', async () => {
-    mockFindBySpreadsheetId.mockResolvedValue([]);
-
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
 
-    const result = await useCase.execute(baseInput);
+    const result = await useCase.execute({
+      ...baseInput,
+      statePayload: { ...baseInput.statePayload, mappings: [] },
+    });
 
     expect(result.kind).toBe('no-proposed-mapping');
     expect(result.nextState).toBe('ONBOARDING_MAPPING');
@@ -686,7 +696,7 @@ describe('CorrectColumnMapping', () => {
     expect(mockTransitionExecute).not.toHaveBeenCalled();
   });
 
-  it('sends updated mapping message even when transition state fails', async () => {
+  it('does not send an updated mapping message when transition state fails', async () => {
     mockTransitionExecute.mockRejectedValue(new Error('Invalid transition'));
 
     const deps = buildMockDeps();
@@ -694,8 +704,7 @@ describe('CorrectColumnMapping', () => {
 
     await expect(useCase.execute(baseInput)).rejects.toThrow('Invalid transition');
 
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    expect(mockSendMessage).toHaveBeenCalledWith('987654321', expect.stringContaining('Actualicé'));
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   it('resolves column references by numeric index and header name', async () => {
@@ -759,5 +768,85 @@ describe('CorrectColumnMapping', () => {
       columnIndex: 1,
       columnHeader: 'Monto',
     });
+  });
+
+  it('assigns payment method to empty column A without resurrecting stale currency', async () => {
+    mockFindBySpreadsheetId.mockResolvedValue([
+      buildMockMapping({ GasttoField: 'moneda', columnIndex: 0, columnHeader: '' }),
+    ]);
+    mockLoadCorrectionState.mockResolvedValue({
+      originalMapping: [
+        buildMockMapping({ GasttoField: 'moneda', columnIndex: 0, columnHeader: '' }),
+      ],
+      corrections: [],
+      status: 'proposed',
+      proposalId: 'proposal-from-another-sheet',
+      spreadsheetId: 'config-1',
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Other',
+    });
+    mockListAvailableColumns.mockResolvedValue(
+      [
+        '',
+        'Fecha',
+        'Categoría',
+        'Subcategoria',
+        'Importe',
+        'Descripción',
+        '',
+        'Fecha',
+        'Categoría',
+        'Subcategoria',
+        'Importe',
+        'Descripción',
+      ].map((columnHeader, index) => ({ index, columnHeader })),
+    );
+    const mappings = [
+      ['fecha', 1, 'Fecha'],
+      ['categoria', 2, 'Categoría'],
+      ['subcategoria', 3, 'Subcategoria'],
+      ['monto', 4, 'Importe'],
+      ['concepto', 5, 'Descripción'],
+    ].map(([gasttoField, columnIndex, columnHeader]) => ({
+      gasttoField,
+      columnIndex,
+      columnHeader,
+      inferred: true,
+    }));
+
+    const result = await new CorrectColumnMapping(
+      buildMockDeps({ correctionParser: new RuleBasedColumnMappingCorrectionParser() }),
+    ).execute({
+      ...baseInput,
+      rawMessage: 'medio de pago columna A',
+      statePayload: {
+        ...baseInput.statePayload,
+        fileId: 'file-123',
+        sheetName: 'Gastos',
+        proposalId: 'proposal-t6',
+        mappings,
+        unmappedFields: ['moneda', 'medio_pago'],
+      },
+    });
+
+    expect(result.kind).toBe('updated');
+    const transitionCall = mockTransitionExecute.mock.calls[0] as unknown[];
+    const transitionedPayload = (transitionCall[0] as { payload: unknown }).payload as {
+      mappings: Array<{ gasttoField: string; columnIndex: number }>;
+      unmappedFields: string[];
+    };
+    expect(transitionedPayload.mappings).toContainEqual(
+      expect.objectContaining({ gasttoField: 'medio_pago', columnIndex: 0 }),
+    );
+    expect(transitionedPayload.mappings.some((mapping) => mapping.gasttoField === 'moneda')).toBe(
+      false,
+    );
+    expect(transitionedPayload.unmappedFields).toContain('moneda');
+    const savedSnapshot = mockSaveCorrectionState.mock
+      .calls[0]![1] as MappingCorrectionStateSnapshot;
+    expect(savedSnapshot.originalMapping.some((mapping) => mapping.GasttoField === 'moneda')).toBe(
+      false,
+    );
   });
 });

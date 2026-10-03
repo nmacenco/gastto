@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Confirm or Correct Column Mapping feature lets the user review the column mapping proposed by Gastto and either accept it with a single confirmation or correct it one field per message using natural language. Corrections can replace an inferred mapping or add a field that the original proposal left unmapped, including optional `subcategoria`. They are accumulated in a transient Redis-backed state with a 30-minute TTL, so the user can resume an abandoned correction session. Messages containing several fields are rejected without applying a partial correction. Once the mapping is accepted, the accumulated corrections are persisted and the FSM advances to `ONBOARDING_CATEGORIES`.
+The Confirm or Correct Column Mapping feature lets the user review the column mapping proposed by Gastto and either accept it with a single confirmation or correct it one field per message using natural language. The active proposal in the persisted FSM is authoritative. Redis caches only corrections bound to the same proposal and spreadsheet context. An explicit assignment gives the selected field exclusive ownership of its column and leaves any displaced field unmapped. Once accepted, the exact complete mapping shown to the user replaces the stored set atomically and the FSM advances to `ONBOARDING_CATEGORIES`.
 
 This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Confirm or correct column mapping`](../user-stories/01-mvp/01-Vinculación%20de%20planilla%20%C2%B7%20Release%201%20MVP/HU-4.06-confirm-or-correct-column-mapping/HU-4.06%20%E2%80%94%20Confirm%20or%20correct%20column%20mapping.md).
 
@@ -12,14 +12,14 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
   - Single confirmation ("yes", "ok", "correct") that finalizes the mapping and advances to `ONBOARDING_CATEGORIES`.
   - Natural-language correction parsing for per-field mapping changes.
   - Explicit one-field-per-message guidance and rejection of multi-field messages without changing correction state.
-  - LLM re-inference when the user rejects the whole proposal without giving a specific correction (e.g., "no", "incorrecto", "wrong").
+  - Guided manual correction when the user rejects the whole proposal without giving a specific correction (e.g., "no", "incorrecto", "wrong").
   - Column validation against the actual spreadsheet headers.
   - Accumulation of multiple corrections and re-display of the updated mapping after each one.
   - Assignment of previously unmapped Gastto fields to valid spreadsheet columns.
   - Category and subcategory correction as distinct fields, with subcategory remaining optional.
   - Persistence of accumulated corrections when the user confirms the final mapping.
   - Redis-backed transient correction state with configurable TTL (default 30 minutes).
-  - Resume behavior after abandonment via the persisted correction state.
+  - Recovery after Redis expiry from the authoritative proposal persisted in the FSM.
   - Error handling for missing config, missing mappings, missing or expired tokens, invalid columns, unparseable messages, and missing preview during re-inference.
 
 - **Out of scope:**
@@ -40,20 +40,21 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 
 1. The conversation is in `ONBOARDING_MAPPING` with the proposed `mappings` in the state payload.
 2. The message worker detects a confirmation intent and delegates to `ConfirmColumnMapping.execute()`.
-3. The use case loads the `SpreadsheetConfig`, finds the proposed `ColumnMapping` records, and marks them as confirmed via `IColumnMappingRepository.confirmBySpreadsheetId()`.
-4. A confirmation message is sent and the FSM transitions to `ONBOARDING_CATEGORIES`. A validated 1-based `headerRowIndex` from the mapping payload is preserved in that new payload.
-5. In the same worker execution, the orchestrator invokes `DetectCategories` with the new state payload. It derives `dataStartRow = headerRowIndex + 1` to skip the detected header, so the category confirmation prompt is sent without waiting for another user message or treating a header as a category.
+3. The use case validates proposal identity, spreadsheet context, mappings, unique fields, and unique columns from the FSM payload.
+4. The complete reviewed set atomically replaces stored mappings through `IColumnMappingRepository.replaceBySpreadsheetId()`, removing obsolete hidden rows and applying one confirmation timestamp.
+5. A confirmation message is sent and the FSM transitions to `ONBOARDING_CATEGORIES`. A validated 1-based `headerRowIndex` from the mapping payload is preserved in that new payload.
+6. In the same worker execution, the orchestrator invokes `DetectCategories` with the new state payload. It derives `dataStartRow = headerRowIndex + 1` to skip the detected header.
 
 ### Scenario 2: User corrects one field in natural language
 
 1. The conversation is in `ONBOARDING_MAPPING` with the proposed `mappings` in the state payload.
 2. The message worker detects a correction intent and delegates to `CorrectColumnMapping.execute()`.
-3. The use case loads the `SpreadsheetConfig` and proposed mappings.
+3. The use case loads the `SpreadsheetConfig` and validates the active proposal from the FSM payload. Repository rows are not merged into the displayed proposal.
 4. `ColumnMappingCorrectionParser.parse(rawMessage)` extracts the target `GasttoField` and a column reference.
 5. The OAuth token is retrieved, decrypted, and `ISpreadsheetColumnPort.listAvailableColumns()` returns the available columns.
 6. The column reference is resolved against letters, numbers, or header names.
-7. If the column exists, the correction is applied through `ColumnMappingCorrectionState`, the updated snapshot is saved to Redis via `IMappingCorrectionStateRepository.save()`, and the updated mapping is sent back for re-confirmation. A field absent from the original proposal is added to the displayed mapping and removed from `unmappedFields`.
-8. The FSM self-transitions to `ONBOARDING_MAPPING` with the updated `mappings` and `unmappedFields` payload.
+7. If the column exists, the correction is applied through `ColumnMappingCorrectionState`. The assigned field becomes the only owner of the column; any displaced field becomes unmapped.
+8. A proposal-bound snapshot is saved to Redis, then the FSM self-transitions with the complete effective mapping and recalculated `unmappedFields`. The updated message is sent only after conversational persistence succeeds.
 
 `subcategoria`, `subcategory`, and their Spanish/Portuguese variants select the optional subcategory field. Assigning it removes only `subcategoria` from `unmappedFields` and displays the mapping with its distinct label and icon.
 
@@ -62,9 +63,9 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.06 — Co
 1. The user corrects a first field as in Scenario 2.
 2. The user sends each additional field correction in a separate message.
 3. The correction snapshot is loaded from Redis on the next correction.
-4. Each new correction is accumulated; corrections for the same field replace the previous one.
+4. Each new correction is accumulated; corrections for the same field replace the previous one without resurrecting fields displaced earlier.
 5. After each correction the full updated mapping is displayed again for confirmation.
-6. When the user confirms, `ConfirmColumnMapping` upserts every accumulated correction with `inferred: false`, confirms all spreadsheet mappings, and clears the transient correction snapshot.
+6. When the user confirms, `ConfirmColumnMapping` atomically replaces the stored set with the effective proposal and clears the transient correction snapshot.
 
 ### Scenario 3a: User sends several fields in one message
 
@@ -87,7 +88,7 @@ This rule also applies when one message mentions both category and subcategory: 
 
 1. The user starts one or more corrections; each save refreshes the Redis TTL.
 2. After 30 minutes of inactivity the Redis key expires automatically.
-3. On resume, `IMappingCorrectionStateRepository.load()` returns `null`; the use case rebuilds the state from the proposed mappings and the flow continues from the original proposal.
+3. On the next correction, the use case rebuilds from the authoritative proposal in the FSM payload and writes a new cache snapshot. If the active proposal is missing or invalid, inference generates a proposal that the user must review again.
 
 ### Scenario 6: User rejects the proposal without a specific correction
 
@@ -97,9 +98,9 @@ This rule also applies when one message mentions both category and subcategory: 
 4. `ColumnMappingCorrectionParser` cannot parse a specific field/column correction.
 5. `CorrectColumnMapping` detects the rejection intent, retrieves the OAuth token, and reads `headerRowIndex` from the current FSM payload.
 6. `ISpreadsheetColumnPort.listAvailableColumns()` is called with `headerRowIndex` so the headers shown come from the same row that was used for the proposal. If no `headerRowIndex` is present, row 1 is used.
-7. Any existing transient correction state is cleared via `IMappingCorrectionStateRepository.clear(userId)` so the user starts fresh.
-8. `onboardingCopies.mappingRejectionPrompt(availableColumns)` is sent, listing the available columns, all seven supported Gastto fields including optional Subcategory, and inviting the user to specify field-to-column assignments in natural language (e.g., "la categoría está en la columna E"). Empty headers are shown as `(vacía)` and very long headers are truncated.
-9. The FSM self-transitions to `ONBOARDING_MAPPING` keeping the existing `statePayload` (including `headerRowIndex`) unchanged so the next correction message is processed normally.
+7. The current effective proposal and compatible transient correction snapshot are retained.
+8. `onboardingCopies.mappingRejectionPrompt(availableColumns)` is sent, listing the available columns, all seven supported Gastto fields including optional Subcategory, and inviting the user to continue one field at a time. Empty headers are shown as `(vacía)` and very long headers are truncated.
+9. The FSM self-transitions to `ONBOARDING_MAPPING` keeping the active proposal and `headerRowIndex` unchanged.
 
 ## Adapters
 
@@ -240,7 +241,13 @@ interface IMappingCorrectionStateRepository {
 interface MappingCorrectionStateSnapshot {
   originalMapping: ColumnMapping[];
   corrections: MappingCorrection[];
+  unmappedFields?: GasttoField[];
   status: MappingCorrectionStatus;
+  proposalId?: string;
+  spreadsheetId?: string;
+  provider?: SpreadsheetProvider;
+  fileId?: string;
+  sheetName?: string;
 }
 ```
 
@@ -271,8 +278,9 @@ interface MappingCorrectionStateSnapshot {
 | Several fields in one correction message     | `multipleMappingCorrectionsPrompt` sent; no correction is applied and the FSM stays in `ONBOARDING_MAPPING`. |
 | Invalid column reference                     | `invalidColumnPrompt` sent with available columns; stays in `ONBOARDING_MAPPING`.                            |
 | Redis save failure                           | Error propagated; no confirmation message sent; no state transition.                                         |
-| Transition failure after valid correction    | Updated mapping message already sent; error propagated.                                                      |
-| Persisting corrections on confirmation fails | The mapping is not confirmed and the confirmation message is not sent.                                       |
+| Transition failure after valid correction    | Updated mapping message is not sent; error propagated so the user never confirms unseen state.              |
+| Invalid or mismatched active proposal        | Recovery prompt sent; stays in `ONBOARDING_MAPPING`; unseen repository rows are never confirmed.             |
+| Complete replacement on confirmation fails   | Transaction rolls back; no confirmation message or category transition occurs.                              |
 
 ## QA Checklist
 
@@ -296,7 +304,7 @@ interface MappingCorrectionStateSnapshot {
 - [x] Invalid column reference returns available columns without persisting state.
 - [x] Parse failure leaves state unchanged and returns a helpful copy.
 - [x] Multi-field messages leave state unchanged and request one correction per message.
-- [x] Rejection intent clears correction state and lists available columns (from the detected header row) and Gastto fields for manual correction.
+- [x] Rejection intent retains the active proposal and compatible corrections while listing columns and Gastto fields for continued manual correction.
 - [x] Missing spreadsheet config triggers reconnect flow.
 - [x] Missing proposed mappings returns appropriate message without transition.
 - [x] Missing or expired token triggers reconnect flow.

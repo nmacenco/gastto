@@ -6,18 +6,19 @@ The initial full test run passed 168 suites and 2303 tests; four suites containi
 
 The adapter fixtures are synthetic. No production provider response was available to establish the historical reason for empty output. Do not describe successful mocks as verification of the real provider.
 
-## Development verification still required
+## User acceptance and closure: 2026-10-03
 
-1. Deploy the pushed branch through the normal development workflow and record the deployed commit.
-2. Send `almuerzo 200 euros` to the development Telegram bot using a designated test spreadsheet.
-3. Match `llm_extraction_started` and `llm_extraction_completed` by correlation ID. Record only provider, model, duration, outcome, code, HTTP status, finish reason, and numeric usage. Do not capture user messages, raw provider bodies, API keys, or reasoning text.
-4. Confirm that a valid 200 EUR review appears before any spreadsheet write. Confirm once and verify exactly one row. Do not repeat a real financial confirmation merely to probe idempotency.
-5. If extraction fails, verify a dedicated recovery message and a successful resend. For `LLM_OUTPUT_TRUNCATED`, investigate the recorded termination/usage rather than interpreting reasoning as the final answer. For `LLM_TIMEOUT`, assess model/provider latency before changing the configured deadline.
-6. Attach sanitized diagnostic metadata and the test result to this record, then close the three live-evidence tasks left unchecked in the plan.
+The user reported that the registration problem is resolved and expenses are being recorded. They then explicitly asked to finish the current plan before analyzing the additional findings. This is user-reported live acceptance, not an agent-observed provider run.
+
+The plan is closed for the expense-registration failure. No deployed commit, provider/model metadata, raw response, exact live row count, or live timeout/recovery trace was supplied. The agent did not deploy or make a live provider call. Capturing telemetry and an actual failure fixture is deferred at closure; the historical cause of empty output is still unverified. Existing automated evidence covers confirmation, duplicate protection, and timeout recovery.
+
+## Separate follow-up
+
+The user reported that categories and subcategories are not recorded correctly, plus other unspecified findings. This is explicitly outside this plan's closure and awaits a separate analysis. No classification fix is claimed, and no investigation was started as part of this documentation update.
 
 ## Sources for model compatibility
 
 - [NVIDIA GLM-5.3-Flash](https://docs.api.nvidia.com/nim/reference/z-ai-glm-5-3-flash): documented reasoning effort and separate final content.
 - [NVIDIA inference contract](https://docs.api.nvidia.com/nim/reference/z-ai-glm-5-3-flash-infer): generation limit semantics.
 
-The 4096-token cap is a bounded engineering choice to provide room for reasoning and final structured output. It requires real-provider validation and does not guarantee success within 30 seconds.
+The 4096-token cap is a bounded engineering choice to provide room for reasoning and final structured output. User acceptance confirms restored registration but does not establish an optimal token budget or guarantee success within 30 seconds.

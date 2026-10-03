@@ -20,7 +20,8 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
   - No-header detection when row 1 values look like data (numeric/date/currency).
   - Content-type validation on sample rows to boost or reduce confidence.
   - Reporting of unmapped Gastto fields.
-  - Persistence of inferred mappings in `column_mappings`.
+  - Atomic replacement of the spreadsheet's inferred mapping set in `column_mappings`, removing obsolete rows from earlier proposals.
+  - Proposal identity and spreadsheet context in the FSM payload, with stale Redis correction snapshots invalidated.
   - User-facing proposal messages with emoji indicators and uncertainty hints.
   - Error handling for token problems, missing config, and missing preview.
 
@@ -49,9 +50,9 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 7. Exact or synonym matches produce mappings with `confidence: 'alta'`.
 8. Content-type validation on sample rows confirms the expected type (date, number, currency) and keeps confidence high.
 9. Because all mapped legacy fields have `confidence: 'alta'` and no legacy field is unmapped, the LLM inference fallback is skipped. An absent optional `subcategoria` does not invoke the LLM.
-10. Mappings are persisted via `IColumnMappingRepository.upsertMany()` with `inferred: true` and `confirmedAt: null`.
+10. Mappings replace the spreadsheet's prior set atomically via `IColumnMappingRepository.replaceBySpreadsheetId()`, with `inferred: true` and `confirmedAt: null`. A partial title-row or no-header result is never persisted as a proposal.
 11. A proposal message is built with distinct emoji indicators (including 🏷️ for category and 🔖 for subcategory) and column letters, ending with "Is this correct?".
-12. The message is sent via `MessagingOutputPort` and the FSM self-transitions to `ONBOARDING_MAPPING` with `mappings` and `unmappedFields` in the payload.
+12. The correction cache is invalidated, the message is sent via `MessagingOutputPort`, and the FSM self-transitions to `ONBOARDING_MAPPING` with `proposalId`, spreadsheet identity, `mappings`, and `unmappedFields` in the payload.
 
 ### Scenario 2: Ambiguous headers - low-confidence mapping
 
@@ -224,6 +225,10 @@ interface ColumnInferenceMapping {
 interface IColumnMappingRepository {
   findBySpreadsheetId(spreadsheetId: string): Promise<ColumnMapping[]>;
   upsertMany(mappings: Omit<ColumnMapping, 'id'>[]): Promise<void>;
+  replaceBySpreadsheetId(
+    spreadsheetId: string,
+    mappings: Omit<ColumnMapping, 'id' | 'spreadsheetId'>[],
+  ): Promise<void>;
   confirm(id: string): Promise<void>;
 }
 ```
@@ -251,7 +256,7 @@ interface IColumnMappingRepository {
 | Missing or empty preview in state payload     | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
 | Microsoft (`onedrive`) provider               | `comingSoon('OneDrive')` message sent; stays in `ONBOARDING_MAPPING`.    |
 | Inference adapter failure                     | Error propagated; no mappings persisted; no state transition is written. |
-| `columnMappingRepository.upsertMany` failure  | Error propagated; no message sent; state payload is not updated.         |
+| `columnMappingRepository.replaceBySpreadsheetId` failure | Transaction rolls back; no message is sent and the state payload is not updated. |
 | Malformed or invalid LLM mapping output       | Safe empty inference result; no mappings are persisted from that output. |
 
 ## QA Checklist
@@ -271,8 +276,8 @@ interface IColumnMappingRepository {
 ### DrizzleColumnMappingRepository
 
 - [x] `findBySpreadsheetId` returns mapped `ColumnMapping[]` with correct field types.
-- [x] `upsertMany` inserts new mappings in a single query.
-- [x] `upsertMany` updates existing mappings on conflict.
+- [x] `replaceBySpreadsheetId` validates unique fields and columns, removes obsolete mappings, and inserts the complete replacement within one transaction.
+- [x] Replacement is scoped to one spreadsheet and rolls back when insertion fails.
 - [x] `confirm(id)` sets `confirmedAt` to current timestamp.
 - [x] `confirm(id)` throws when mapping does not exist.
 

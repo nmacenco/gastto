@@ -211,6 +211,70 @@ describe('DrizzleColumnMappingRepository', () => {
     });
   });
 
+  describe('replaceBySpreadsheetId', () => {
+    it('deletes and inserts the complete replacement inside one transaction', async () => {
+      const where = vi.fn().mockResolvedValue(undefined);
+      const values = vi.fn().mockResolvedValue(undefined);
+      const tx = {
+        delete: vi.fn().mockReturnValue({ where }),
+        insert: vi.fn().mockReturnValue({ values }),
+      };
+      const transaction = vi.fn(async (callback: (value: typeof tx) => Promise<void>) =>
+        callback(tx),
+      );
+      const repo = new DrizzleColumnMappingRepository({
+        transaction,
+      } as unknown as PostgresJsDatabase<typeof schema>);
+
+      await repo.replaceBySpreadsheetId('config-123', [
+        {
+          GasttoField: 'medio_pago',
+          columnIndex: 0,
+          columnHeader: '',
+          inferred: false,
+          confirmedAt: null,
+        },
+      ]);
+
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(tx.delete).toHaveBeenCalledWith(schema.columnMappings);
+      expect(values).toHaveBeenCalledWith([
+        expect.objectContaining({
+          spreadsheetId: 'config-123',
+          gasttoField: 'medio_pago',
+          columnIndex: 0,
+        }),
+      ]);
+    });
+
+    it('rejects duplicate columns before starting a transaction', async () => {
+      const transaction = vi.fn();
+      const repo = new DrizzleColumnMappingRepository({
+        transaction,
+      } as unknown as PostgresJsDatabase<typeof schema>);
+
+      await expect(
+        repo.replaceBySpreadsheetId('config-123', [
+          {
+            GasttoField: 'moneda',
+            columnIndex: 0,
+            columnHeader: '',
+            inferred: true,
+            confirmedAt: null,
+          },
+          {
+            GasttoField: 'medio_pago',
+            columnIndex: 0,
+            columnHeader: '',
+            inferred: false,
+            confirmedAt: null,
+          },
+        ]),
+      ).rejects.toThrow('Duplicate spreadsheet column');
+      expect(transaction).not.toHaveBeenCalled();
+    });
+  });
+
   describe('confirmBySpreadsheetId', () => {
     it('sets confirmedAt for all mappings of the spreadsheet', async () => {
       const updateMock = vi.fn().mockReturnValue({

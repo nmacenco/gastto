@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "03a12b8f4de4ac1114489bc8b4a466e463a0caac",
-    "indexed_at": "2026-09-23T06:41:37Z",
+    "commit": "4ddacf58f943184f59d60c25f5b6724d91de11e5",
+    "indexed_at": "2026-10-03T08:50:41Z",
     "project": "home-nicolasmacenco-NICO-gastto",
-    "nodes": 9607,
-    "edges": 23199,
-    "original_size": 30408704,
-    "compressed_size": 3923130,
+    "nodes": 9725,
+    "edges": 23676,
+    "original_size": 30736384,
+    "compressed_size": 3989900,
     "compression_level": 3
 }

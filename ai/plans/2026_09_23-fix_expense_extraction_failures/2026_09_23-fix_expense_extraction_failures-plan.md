@@ -1,5 +1,7 @@
 # Fix expense extraction failures
 
+**Status: Closed by user acceptance on 2026-10-03.**
+
 ## Goal
 
 Make initial expense extraction return a valid review or a truthful, recoverable failure within a bounded provider deadline. Diagnose and correct empty LLM output without losing conversation ownership, fabricating expense data, or writing a spreadsheet before explicit confirmation.
@@ -13,7 +15,7 @@ The user approved the three-phase proposal on 2026-09-23, including the proposed
 - The supplied logs show `semantic_router_observation` at 17:57:20.262 with `state: EXPENSE_RECEIVING`, `mode: off`, and `deterministicDecision: fsm_handler`. At 17:59:40.936, processing fails with `LLM returned empty response`, approximately 141 seconds later, then sends the generic fallback.
 - Observation occurs after per-user lock acquisition. The recent contention-retry change in commit `c75a197` does not address this downstream failure.
 - The error text exists in both NVIDIA and OpenAI adapters. Provider identity, response termination reason, and the cause of empty content are not established by the supplied logs. Elapsed handler time is not proof of provider-only latency.
-- NVIDIA extraction currently uses `max_tokens: 512`, reads only `choices[0].message.content`, and has no explicit application request deadline. Token exhaustion is a hypothesis to verify, not an established diagnosis.
+- At incident analysis time, NVIDIA extraction used `max_tokens: 512`, reads only `choices[0].message.content`, and had no explicit application request deadline. Token exhaustion is a hypothesis to verify, not an established diagnosis.
 - Initial interpretation enters `EXPENSE_RECEIVING` before extraction. The worker's generic error catch sends “Vamos a empezar de nuevo” without resetting that state. That catch is outside the `runWithState` execution context, so an unconditional reset there would not be a safe fix.
 - Non-financial guidance can be sent from ingress while the state is `EXPENSE_RECEIVING`; receiving a reply to “hola” does not establish completion of an expense job.
 
@@ -101,13 +103,13 @@ Use captured diagnostic evidence to fix the concrete empty-output cause and veri
 
 #### To-do actions
 
-- [ ] Obtain sanitized telemetry from the deployed development version and identify provider, model, termination reason, duration, and usage. Coordinate deployment under the repository's normal authorization process; do not read secrets or silently invoke paid live calls.
+- Deferred at closure: capture deployment telemetry identifying provider, model, termination reason, duration, and usage. No such capture was provided; the user accepted closure after confirming that expense registration works. The historical provider cause remains unverified.
 - [x] If truncation is demonstrated, validate a suitable generation budget/model setting. If content shape or provider errors are responsible, correct that handling instead. Verify model-specific options against official documentation before implementation.
 - [x] Never parse reasoning text as the expense, invent missing fields, silently save a fallback expense, or add unbounded retries. Keep the configured deadline effective after request changes.
-- [ ] Add the captured failure fixture and demonstrate both its classification and the corrected success response. If live evidence remains unavailable, record the unresolved cause and leave provider remediation acceptance open.
+- Deferred at closure: a captured provider failure fixture remains unavailable. Automated fixtures are synthetic. User acceptance closes the registration incident, not the historical root-cause investigation.
 - [x] Exercise webhook through worker, real application logic, state persistence, and mocked external provider/sheets/messaging boundaries: `almuerzo 200 euros` produces a 200 EUR review, explicit confirmation writes once, and duplicate confirmation does not write again. Also exercise extraction failure followed by a successful resend.
 - [x] Verify the initial-expense path with semantic routing off, matching the incident, and run relevant existing semantic/clarification/correction regression coverage for shared adapter changes.
-- [ ] In development, verify the same journey with the real configured provider and a designated test spreadsheet. Record deployed revision, sanitized telemetry, review delivery, one confirmed row, and timeout recovery; do not treat mocked tests as live validation.
+- [x] Record user validation of restored expense registration and explicit acceptance of plan closure on 2026-10-03. The user reported that registration works. They did not supply a deployed revision, provider telemetry, or detailed live confirmation/timeout evidence; those checks are not claimed as performed.
 - [x] Update canonical feature docs/indexes and the ADR/index with the demonstrated cause and final behavior. Record any outstanding live validation explicitly. Update linked user-story acceptance tasks only when actually fulfilled.
 - [x] Run `pnpm test` and resolve failures; record the automated and live validation results separately.
 - [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
@@ -115,11 +117,11 @@ Use captured diagnostic evidence to fix the concrete empty-output cause and veri
 
 ## Next step
 
-After deploying the branch to development, capture sanitized provider telemetry and verify the real-provider expense/confirmation journey to close the remaining Phase 3 evidence tasks.
+This plan is closed; investigate the separately reported category/subcategory assignment problem only when the user requests that follow-up.
 
-## Execution evidence and remaining validation
+## Execution evidence and closure
 
-Phases 1 and 2 are implemented. Phase 3 includes a documented GLM request compatibility correction and automated end-to-end regression coverage; live incident diagnosis and validation remain open.
+Phases 1 and 2 are implemented. Phase 3 includes the GLM request compatibility correction, automated end-to-end regression coverage, and user confirmation that expense registration works. The user explicitly requested closing this plan before investigating the additional findings. Closure is based on that acceptance; the original telemetry capture and captured failure fixture are deferred, not completed.
 
 - Added `LLM_CANCELLED` to distinguish ownership cancellation from timeout, avoiding a false provider-failure recovery.
 - Recovery is implemented in `RecoverExpenseExtraction`, called inside `RegisterExpenseUseCase` before leaving the owned state context; the worker presents a dedicated message only after committed recovery.
@@ -127,7 +129,8 @@ Phases 1 and 2 are implemented. Phase 3 includes a documented GLM request compat
 - Official NVIDIA documentation confirms GLM-5.3-Flash defaults to maximum reasoning and separates reasoning from final output. The exact-model request now uses `reasoning_effort: low` and a finite 4096-token cap. This is a compatibility correction based on the documented model behavior, not a claim that the production incident's cause was observed. The 30-second deadline remains effective.
 - Regression fixtures are synthetic and explicitly test reasoning-only/truncated output, empty output, malformed data, cancellation, and a successful final answer. They are not captured production responses.
 - Real PostgreSQL/Redis integration tests exercise routing off, failures from both `IDLE` and `EXPENSE_RECEIVING`, recovery, resend, review, and exactly one confirmed write. Network/SDK responses and spreadsheet/messaging boundaries are simulated.
-- No live provider request or deployment was performed. No production data or credentials were read. The user's provider/model clarification remains optional; the new telemetry will identify them on the next development attempt.
+- The agent did not perform a live provider request or deployment and did not read production data or credentials. On 2026-10-03, the user reported successful registration during their own testing. Provider identity and the exact historical reason for empty output remain unverified.
+- The user also reported incorrect categories/subcategories and other unspecified findings. These are a separate follow-up; this closure does not certify classification correctness or include its investigation.
 - No matching incident user-story task was supplied; no unrelated backlog acceptance criteria were marked complete.
 
-See [validation record](./validation.md) for final checks and development verification instructions.
+See [validation record](./validation.md) for automated evidence, user acceptance, and the limits of the available live evidence.

@@ -20,6 +20,8 @@ const mockGetValidAccessToken = vi.fn();
 const mockForceRefreshAccessToken = vi.fn();
 const mockFindByUserId = vi.fn();
 const mockUpsertMany = vi.fn();
+const mockReplaceBySpreadsheetId = vi.fn();
+const mockClearCorrectionState = vi.fn();
 const mockInfer = vi.fn();
 const mockLLMInfer = vi.fn();
 const mockDetectHeaderRow = vi.fn();
@@ -36,7 +38,11 @@ function buildMockDeps(overrides: Partial<InferColumnMappingDeps> = {}): InferCo
     } as unknown as InferColumnMappingDeps['spreadsheetConfigRepository'],
     columnMappingRepository: {
       upsertMany: mockUpsertMany,
+      replaceBySpreadsheetId: mockReplaceBySpreadsheetId,
     } as unknown as InferColumnMappingDeps['columnMappingRepository'],
+    correctionStateRepository: {
+      clear: mockClearCorrectionState,
+    } as unknown as InferColumnMappingDeps['correctionStateRepository'],
     columnInferencePort: {
       infer: mockInfer,
     },
@@ -97,6 +103,8 @@ const mockStatePayload = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockReplaceBySpreadsheetId.mockResolvedValue(undefined);
+  mockClearCorrectionState.mockResolvedValue(undefined);
   mockGetValidAccessToken.mockResolvedValue({
     accessToken: 'decrypted-access-token',
     expiresAt: new Date(Date.now() + 3600_000),
@@ -146,9 +154,8 @@ describe('InferColumnMapping', () => {
           ['02/01/2026', '200.75', 'Transporte'],
         ],
       );
-      expect(mockUpsertMany).toHaveBeenCalledWith([
+      expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith('config-1', [
         {
-          spreadsheetId: 'config-1',
           GasttoField: 'fecha',
           columnIndex: 0,
           columnHeader: 'Fecha',
@@ -156,7 +163,6 @@ describe('InferColumnMapping', () => {
           confirmedAt: null,
         },
         {
-          spreadsheetId: 'config-1',
           GasttoField: 'monto',
           columnIndex: 1,
           columnHeader: 'Monto',
@@ -164,7 +170,6 @@ describe('InferColumnMapping', () => {
           confirmedAt: null,
         },
         {
-          spreadsheetId: 'config-1',
           GasttoField: 'categoria',
           columnIndex: 2,
           columnHeader: 'Categoria',
@@ -188,29 +193,19 @@ describe('InferColumnMapping', () => {
           [],
         ),
       );
-      expect(mockTransitionExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'ONBOARDING_MAPPING',
-        payload: {
-          selectedFileId: 'file-123',
-          selectedFileName: 'Mi Planilla',
-          selectedSheetName: 'Gastos',
-          provider: 'google',
-          preview: mockPreview,
-          mappings: [
-            { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
-            { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
-            {
-              gasttoField: 'categoria',
-              columnIndex: 2,
-              columnHeader: 'Categoria',
-              confidence: 'alta',
-            },
-          ],
-          unmappedFields: [],
-          headerRowIndex: 1,
-        },
-      });
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          targetState: 'ONBOARDING_MAPPING',
+          payload: expect.objectContaining({
+            proposalId: expect.any(String) as string,
+            spreadsheetId: 'config-1',
+            fileId: 'file-123',
+            sheetName: 'Gastos',
+            headerRowIndex: 1,
+          }) as Record<string, unknown>,
+        }),
+      );
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
     });
   });
@@ -428,7 +423,8 @@ describe('InferColumnMapping', () => {
         statePayload: mockStatePayload,
       });
 
-      expect(mockUpsertMany).toHaveBeenCalledWith(
+      expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith(
+        'config-1',
         expect.arrayContaining([
           expect.objectContaining({ GasttoField: 'subcategoria', columnIndex: 2 }),
         ]),
@@ -478,7 +474,8 @@ describe('InferColumnMapping', () => {
           ['02/01/2026', '200.75', 'Transporte'],
         ],
       );
-      expect(mockUpsertMany).toHaveBeenCalledWith(
+      expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith(
+        'config-1',
         expect.arrayContaining([
           expect.objectContaining({ GasttoField: 'fecha', columnIndex: 0 }),
           expect.objectContaining({ GasttoField: 'monto', columnIndex: 1 }),
@@ -516,7 +513,7 @@ describe('InferColumnMapping', () => {
       });
 
       expect(mockLLMInfer).toHaveBeenCalled();
-      expect(mockUpsertMany).toHaveBeenCalledWith([
+      expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith('config-1', [
         expect.objectContaining({ GasttoField: 'fecha', columnIndex: 0 }),
         expect.objectContaining({ GasttoField: 'monto', columnIndex: 1 }),
       ]);
@@ -559,18 +556,18 @@ describe('InferColumnMapping', () => {
         statePayload: mockStatePayload,
       });
 
-      const upsertCall = mockUpsertMany.mock.calls[0]![0] as Array<{
+      const replacement = mockReplaceBySpreadsheetId.mock.calls[0]![1] as Array<{
         GasttoField: string;
         columnIndex: number;
       }>;
-      expect(upsertCall).toEqual(
+      expect(replacement).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ GasttoField: 'fecha', columnIndex: 0 }),
           expect.objectContaining({ GasttoField: 'monto', columnIndex: 1 }),
           expect.objectContaining({ GasttoField: 'categoria', columnIndex: 2 }),
         ]),
       );
-      expect(upsertCall).toHaveLength(3);
+      expect(replacement).toHaveLength(3);
     });
 
     it('falls back to LLM inference when rule-based detects no header', async () => {
