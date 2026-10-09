@@ -20,7 +20,10 @@ export interface ExtractionResponse {
 export interface ExtractionMetadata {
   httpStatus?: number;
   requestBytes?: number;
-  phase?: 'awaiting_headers' | 'reading_body' | 'processing_response';
+  phase?: 'awaiting_headers' | 'reading_body' | 'streaming_body' | 'processing_response';
+  firstEventMs?: number;
+  streamEvents?: number;
+  reasoningEvents?: number;
 }
 
 /** Explicit allowlist: provider strings and exceptions can contain private data. */
