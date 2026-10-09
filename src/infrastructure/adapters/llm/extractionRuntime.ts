@@ -19,6 +19,8 @@ export interface ExtractionResponse {
 
 export interface ExtractionMetadata {
   httpStatus?: number;
+  requestBytes?: number;
+  phase?: 'awaiting_headers' | 'reading_body' | 'processing_response';
 }
 
 /** Explicit allowlist: provider strings and exceptions can contain private data. */
@@ -82,7 +84,7 @@ export async function runExtraction(
     onAbort = () => reject(abortError());
     controller.signal.addEventListener('abort', onAbort, { once: true });
   });
-  settings.logger?.info({ ...base, event: 'llm_extraction_started' });
+  settings.logger?.info({ ...base, event: 'llm_extraction_started', timeoutMs });
   try {
     if (controller.signal.aborted) throw abortError();
     // Race bounds non-cooperative transports too; the same signal aborts real I/O.
@@ -109,6 +111,7 @@ export async function runExtraction(
       ...responseMetadata,
       event: 'llm_extraction_completed',
       durationMs: Date.now() - started,
+      timeoutMs,
       outcome: 'success',
     });
     return toExtractedExpense(validated.data);
@@ -138,6 +141,7 @@ export async function runExtraction(
       msg: 'Expense extraction failed',
       endpoint: 'extractExpense',
       durationMs: Date.now() - started,
+      timeoutMs,
       outcome: 'failure',
       code: failure.code,
     });

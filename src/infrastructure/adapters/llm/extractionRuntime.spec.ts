@@ -87,6 +87,7 @@ for (const provider of ['nvidia', 'openai', 'anthropic']) {
           inputTokens: 12,
           outputTokens: 34,
           outcome: 'success',
+          timeoutMs: 1000,
         }),
       );
       expect(h.error).not.toHaveBeenCalled();
@@ -146,6 +147,15 @@ for (const provider of ['nvidia', 'openai', 'anthropic']) {
       const checked = expect(pending).rejects.toMatchObject({ code: 'LLM_TIMEOUT' });
       await vi.advanceTimersByTimeAsync(1000);
       await checked;
+      if (provider === 'nvidia') {
+        expect(h.error).toHaveBeenCalledWith(
+          expect.objectContaining({
+            phase: 'awaiting_headers',
+            requestBytes: expect.any(Number) as number,
+            timeoutMs: 1000,
+          }),
+        );
+      }
       const options = h.request.mock.calls[0]?.[1] as { signal: AbortSignal };
       expect(options.signal.aborted).toBe(true);
       resolveRequest({});
@@ -181,6 +191,9 @@ it('aborts NVIDIA while consuming the body and never reads an HTTP error body', 
   await vi.advanceTimersByTimeAsync(1000);
   await checked;
   expect((h.request.mock.calls[0]?.[1] as RequestInit).signal?.aborted).toBe(true);
+  expect(h.error).toHaveBeenCalledWith(
+    expect.objectContaining({ phase: 'reading_body', httpStatus: 200 }),
+  );
   const readBody = vi.fn();
   h.request.mockResolvedValueOnce({ ok: false, status: 401, text: readBody });
   await expect(h.adapter.extractExpense('almuerzo 200 euros', context)).rejects.toMatchObject({
