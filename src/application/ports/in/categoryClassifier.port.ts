@@ -14,6 +14,7 @@ export interface ClassifyExpenseCategoryInput {
   readonly llmConfidence: CategoryConfidence;
   readonly llmSubcategory: string | null;
   readonly llmSubcategoryConfidence: CategoryConfidence;
+  readonly categoryCorrection?: boolean;
 }
 
 export interface ICategoryClassifier {

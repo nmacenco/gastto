@@ -75,6 +75,67 @@ beforeEach(() => {
 });
 
 describe('ClassifyExpenseCategory', () => {
+  const daily = { id: 'daily', name: 'Gastos diarios', normalizedName: 'gastos diarios' };
+  const general = { id: 'general', name: 'Gastos', normalizedName: 'gastos' };
+
+  it('keeps an exact custom provider suggestion with low confidence', async () => {
+    const result = await buildUseCase(
+      [daily.name],
+      new CategoryVocabulary('spreadsheet-123', [daily]),
+    ).execute(
+      input({ rawMessage: 'Mercadona 52 euros', llmCategory: daily.name, llmConfidence: 'baja' }),
+    );
+
+    expect(result.category).toEqual({
+      id: daily.id,
+      name: daily.name,
+      status: 'ambiguous',
+      confidence: 'baja',
+    });
+    expect(findCategoryFallback).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'corregir categoria: no es gastos diarios',
+    'corregir categoria: gastos diarios o gastos',
+    'cambiar gastos diarios por otra',
+  ])('does not recover a correction target from a mere mention: %s', async (rawMessage) => {
+    const result = await buildUseCase(
+      [general.name, daily.name],
+      new CategoryVocabulary('spreadsheet-123', [general, daily]),
+    ).execute(input({ rawMessage, categoryCorrection: true }));
+
+    expect(result.category.status).toBe('none');
+    expect(findCategoryFallback).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    'resolves overlapping names (correction=%s)',
+    async (categoryCorrection) => {
+      const result = await buildUseCase(
+        [general.name, daily.name],
+        new CategoryVocabulary('spreadsheet-123', [general, daily]),
+      ).execute(input({ rawMessage: 'corregir categoria: gastos diarios', categoryCorrection }));
+
+      expect(result.category).toMatchObject({ id: daily.id, status: 'confirmed' });
+    },
+  );
+
+  it.each(['no es comida', 'Comida o Transporte'])(
+    'does not guess from negative or alternative mentions: %s',
+    async (rawMessage) => {
+      const categories = [
+        { id: 'food', name: 'Comida', normalizedName: 'comida' },
+        { id: 'transport', name: 'Transporte', normalizedName: 'transporte' },
+      ];
+      const result = await buildUseCase(
+        categories.map((category) => category.name),
+        new CategoryVocabulary('spreadsheet-123', categories),
+      ).execute(input({ rawMessage }));
+      expect(result.category.status).toBe('none');
+    },
+  );
+
   it('returns stable IDs for exact high-confidence parent and child suggestions', async () => {
     const result = await buildUseCase().execute(
       input({
@@ -136,6 +197,47 @@ describe('ClassifyExpenseCategory', () => {
       name: 'Food',
       status: 'fallback',
       confidence: 'baja',
+    });
+  });
+
+  it('resolves an explicitly corrected multi-word active category from the raw message', async () => {
+    const dailyExpenses = {
+      id: 'category-daily-expenses',
+      name: 'Gastos diarios',
+      normalizedName: 'gastos diarios',
+    };
+    const result = await buildUseCase(
+      ['Gastos diarios'],
+      new CategoryVocabulary('spreadsheet-123', [dailyExpenses]),
+    ).execute(input({ rawMessage: 'corregir categoria: gastos diarios' }));
+
+    expect(result.category).toEqual({
+      id: dailyExpenses.id,
+      name: dailyExpenses.name,
+      status: 'confirmed',
+      confidence: 'alta',
+    });
+    expect(findCategoryFallback).not.toHaveBeenCalled();
+  });
+
+  it('offers every active category to fallback mapping', async () => {
+    const dailyExpenses = {
+      id: 'category-daily-expenses',
+      name: 'Gastos diarios',
+      normalizedName: 'gastos diarios',
+    };
+    findCategoryFallback.mockResolvedValue(dailyExpenses.name);
+
+    const result = await buildUseCase(
+      ['Gastos diarios'],
+      new CategoryVocabulary('spreadsheet-123', [dailyExpenses]),
+    ).execute(input({ rawMessage: 'cafe 850 euros' }));
+
+    expect(findCategoryFallback).toHaveBeenCalledWith('food', ['Gastos diarios']);
+    expect(result.category).toMatchObject({
+      id: dailyExpenses.id,
+      name: dailyExpenses.name,
+      status: 'fallback',
     });
   });
 

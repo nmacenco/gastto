@@ -66,6 +66,7 @@ interface CorrectionHierarchyContext {
 
 type ApplySuggestionOutcome =
   | { status: 'applied'; payload: ExpenseReviewPayload }
+  | Extract<CorrectExpenseOutcome, { status: 'not_interpretable' }>
   | Extract<CorrectExpenseOutcome, { status: 'invalid_subcategory' }>;
 
 export class CorrectExpenseUseCase {
@@ -101,7 +102,7 @@ export class CorrectExpenseUseCase {
     }
 
     const applied = await this.applySuggestion(input, state.payload, suggestion, hierarchy);
-    if (applied.status === 'invalid_subcategory') return applied;
+    if (applied.status !== 'applied') return applied;
     const updatedPayload = applied.payload;
 
     const nextState = state.next(updatedPayload);
@@ -213,6 +214,7 @@ export class CorrectExpenseUseCase {
         llmConfidence: 'alta',
         llmSubcategory: subcategoryWasCorrected ? attemptedSubcategory : null,
         llmSubcategoryConfidence: subcategoryWasCorrected ? 'alta' : 'nula',
+        categoryCorrection: categoryWasCorrected,
       });
 
       const selectedParentId = classification.category.id;
@@ -242,11 +244,15 @@ export class CorrectExpenseUseCase {
         );
       }
 
+      if (categoryWasCorrected && (selectedParentId === null || selectedParentName === null)) {
+        return { status: 'not_interpretable' };
+      }
+
       resolvedCategory = selectedParentName;
       resolvedCategoryId = selectedParentId;
       categoryStatus = classification.category.status;
-      if (categoryWasCorrected && suggestion.categoriaRaw !== null) {
-        extracted = { ...extracted, categoriaRaw: suggestion.categoriaRaw };
+      if (categoryWasCorrected) {
+        extracted = { ...extracted, categoriaRaw: selectedParentName };
       }
 
       if (subcategoryWasCorrected) {

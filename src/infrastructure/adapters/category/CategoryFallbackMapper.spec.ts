@@ -14,6 +14,9 @@ async function findClosest(
 }
 
 describe('CategoryFallbackMapper', () => {
+  it('does not invent a semantic association with a custom category', async () => {
+    expect(await findClosest('food', ['Gastos diarios'])).toBeNull();
+  });
   it('returns an exact canonical display-name match preserving original casing', async () => {
     const result = await findClosest('food', ['Comida', 'Transporte']);
     expect(result).toBe('Comida');

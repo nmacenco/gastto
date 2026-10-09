@@ -20,7 +20,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow with retained-source semantic completion, safe replacement, and queued-batch continuity.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Bounded initial extraction with safe recovery and recorded registration acceptance, plus structured interpreted-expense summary with persisted presentation identity and version-bound confirm / correct / cancel actions.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Exact text/callback and revision-bound natural cancellation that cannot cancel a replacement draft.
-- [`expense-correction.md`](./expense-correction.md) — Contextual and validated-semantic correction with atomic hierarchy validation and review-revision invalidation of old buttons.
+- [`expense-correction.md`](./expense-correction.md) — Contextual and validated-semantic correction with whole-target active-category recovery, rejection of unresolved negations/alternatives, atomic hierarchy validation, and review-revision invalidation of old buttons.
 - [`expense-confirmation.md`](./expense-confirmation.md) — Exact whole-message save/retry authorization, request-only natural retry, bounded reconfiguration, guarded claims, and stale/expired rejection.
 - [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo with exact-target claims, explicit-only immediate eligibility, and bound delayed confirmation for inferred requests.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
