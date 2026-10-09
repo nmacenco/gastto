@@ -33,6 +33,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-025](./ADR-025-process-message-lock-contention.md)                 | Extend process-message lock-contention retries                           | Accepted |
 
 | [ADR-026](./2026-09-23-bound-expense-extraction.md) | Bound expense extraction and recover owned initial attempts | Accepted |
+| [ADR-027](./2026-10-09-stream-nvidia-expense-extraction.md) | Stream NVIDIA GLM expense extraction | Accepted |
 
 ## Template
 

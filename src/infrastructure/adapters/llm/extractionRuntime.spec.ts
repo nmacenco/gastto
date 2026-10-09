@@ -215,13 +215,27 @@ it('handles absent response structure and does not invent usage values', async (
 
 it('uses a bounded low-reasoning extraction request only for the documented GLM model', async () => {
   const h = setup('nvidia');
+  h.request.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: valid }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+          ),
+        );
+        controller.close();
+      },
+    }),
+  });
   await new NvidiaAdapter('test-only').extractExpense('almuerzo 200 euros', context);
   const first = h.request.mock.calls[0]?.[1] as RequestInit;
   expect(JSON.parse(first.body as string)).toMatchObject({
     model: 'z-ai/glm-5.3-flash',
     reasoning_effort: 'low',
     max_tokens: 4096,
-    stream: false,
+    stream: true,
   });
   await new NvidiaAdapter('test-only', 'other/model').extractExpense('almuerzo 200 euros', context);
   const second = JSON.parse((h.request.mock.calls[1]?.[1] as RequestInit).body as string) as Record<
@@ -229,7 +243,43 @@ it('uses a bounded low-reasoning extraction request only for the documented GLM 
     unknown
   >;
   expect(second['max_tokens']).toBe(512);
+  expect(second['stream']).toBe(false);
   expect(second).not.toHaveProperty('reasoning_effort');
+});
+
+it('times out a GLM stream after headers while retaining safe progress counters', async () => {
+  vi.useFakeTimers();
+  const h = setup('nvidia');
+  h.request.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'private' } }] })}\n\n`,
+          ),
+        );
+      },
+    }),
+  });
+  const pending = new NvidiaAdapter('test-only', 'z-ai/glm-5.3-flash', {
+    timeoutMs: 1000,
+    logger: { info: h.info, error: h.error } as unknown as Logger,
+  }).extractExpense('almuerzo 200 euros', context);
+  const checked = expect(pending).rejects.toMatchObject({ code: 'LLM_TIMEOUT' });
+  await vi.advanceTimersByTimeAsync(1000);
+  await checked;
+  expect(h.error).toHaveBeenCalledWith(
+    expect.objectContaining({
+      phase: 'streaming_body',
+      httpStatus: 200,
+      streamEvents: 1,
+      reasoningEvents: 1,
+      code: 'LLM_TIMEOUT',
+    }),
+  );
+  expect(JSON.stringify(h.error.mock.calls)).not.toContain('private');
 });
 
 it('never interprets reasoning-only provider output as an expense', async () => {

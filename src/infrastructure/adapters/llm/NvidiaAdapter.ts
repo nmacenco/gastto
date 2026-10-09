@@ -14,6 +14,7 @@ import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import { serializeUntrustedData, UNTRUSTED_DATA_GUARD } from './untrustedData';
 import { buildExtractionSystemPrompt } from './expenseExtraction';
 import { runExtraction, type ExtractionSettings } from './extractionRuntime';
+import { readNvidiaStream } from './nvidiaStream';
 import {
   buildCorrectionSystemPrompt,
   ExpenseCorrectionSuggestionSchema,
@@ -57,6 +58,7 @@ export class NvidiaAdapter implements LLMPort {
       this.extractionSettings,
       options,
       async (signal, metadata) => {
+        const streaming = this.model === 'z-ai/glm-5.3-flash';
         const body = JSON.stringify({
           model: this.model,
           temperature: 0,
@@ -64,7 +66,7 @@ export class NvidiaAdapter implements LLMPort {
           ...(this.model === 'z-ai/glm-5.3-flash'
             ? { reasoning_effort: 'low', max_tokens: 4096 }
             : { max_tokens: 512 }),
-          stream: false,
+          stream: streaming,
           messages: [
             { role: 'system', content: buildExtractionSystemPrompt() },
             {
@@ -81,20 +83,25 @@ export class NvidiaAdapter implements LLMPort {
         });
         metadata.requestBytes = Buffer.byteLength(body);
         metadata.phase = 'awaiting_headers';
+        const requestStarted = Date.now();
         const response = await fetch(this.invokeUrl, {
           method: 'POST',
           signal,
           headers: {
             Authorization: `Bearer ${this.apiKey}`,
-            Accept: 'application/json',
+            Accept: streaming ? 'text/event-stream' : 'application/json',
             'Content-Type': 'application/json',
           },
           body,
         });
 
         metadata.httpStatus = response.status;
-        metadata.phase = 'reading_body';
         if (!response.ok) throw new Error('Provider HTTP error');
+        if (streaming) {
+          metadata.phase = 'streaming_body';
+          return readNvidiaStream(response, metadata, requestStarted);
+        }
+        metadata.phase = 'reading_body';
         const data: unknown = await response.json();
         metadata.phase = 'processing_response';
         const parsed = data as NvidiaChatResponse | null;
