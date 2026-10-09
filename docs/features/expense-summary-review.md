@@ -7,6 +7,10 @@ After the user describes an expense in natural language, the system interprets t
 ## Behavior (Implemented)
 
 - The summary always includes the five minimum fields: concept, amount, currency, category, and date.
+- Initial extraction infers category and optional subcategory from the expense concept or merchant against the user's configured vocabulary; it is not limited to category names written literally by the user. When configured vocabulary exists, provider suggestions must use its exact names or remain unclassified.
+- Category classification recognizes an explicitly mentioned active category (including multi-word names), uses the LLM category as additional keyword evidence, and gives fallback mapping the complete active category list rather than only canonical-looking labels.
+- Exact active LLM suggestions with low confidence are retained as ambiguous selections, including custom names such as `Gastos diarios`. Without a usable provider suggestion, negations and multiple alternative category mentions remain unclassified; contained names prefer the longer phrase unless the shorter name is also mentioned separately.
+- Category fallback uses textual similarity, not semantic inference: `food` does not automatically map to `Gastos diarios`. Merchant-to-custom-category inference still depends on the provider; the prompt contract alone does not verify live provider quality.
 - Hierarchy-enabled reviews add a subcategory row between category and date. A selected child shows its resolved name; a valid category without a matching child shows `❓ Sin subcategoría` and remains confirmable.
 - Hierarchy support is enabled when registration found a confirmed `subcategoria` mapping or at least one active configured child. Category-only users do not receive the extra row.
 - Category and subcategory confidence/status values remain independent. Ambiguous or low-confidence child selections show `(¿correcto?)`, fallback children show `(sugerida)`, and confirmed high-confidence children have no suffix.
@@ -42,6 +46,8 @@ After the user describes an expense in natural language, the system interprets t
 ## Initial extraction failures
 
 Before a review is built, all provider extraction requests have a configurable 30-second default deadline with real transport cancellation. Empty/blank responses, truncated output, invalid JSON/schema, provider failures, timeout, and cancellation have separate safe diagnostic codes. Only validated final response content enters the expense workflow. The exact NVIDIA `z-ai/glm-5.3-flash` extraction profile uses low reasoning with a 4096-token cap; user-reported registration acceptance and the limits of live evidence are recorded in the [validation record](../../ai/plans/2026_09_23-fix_expense_extraction_failures/validation.md).
+
+Extraction completion logs include the configured deadline. NVIDIA extraction also records the request size in bytes and the phase reached (`awaiting_headers`, `reading_body`, or `processing_response`) without logging the prompt or provider response. A timeout in `awaiting_headers` means no HTTP response headers reached the adapter before its deadline; it does not distinguish provider generation time from network delay.
 
 A failed initial attempt from `IDLE` or `EXPENSE_RECEIVING` resets only its owned receiving revision to `IDLE`, clearing its failed payload and expiry before notifying the user. Queued-batch interpretation, clarification, and correction do not use this reset. No expense record or spreadsheet row is written on this path. The user can resend the expense and must still confirm its review before saving.
 

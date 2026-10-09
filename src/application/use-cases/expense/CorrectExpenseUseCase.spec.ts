@@ -22,6 +22,8 @@ import {
   SubcategoryClassificationSelection,
 } from '../../../domain/value-objects/ClassificationResult';
 import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
+import { ClassifyExpenseCategory } from './ClassifyExpenseCategory';
+import { CategoryKeywordVocabulary } from '../../../domain/value-objects/CategoryKeywordVocabulary';
 
 function buildExtractedExpense(overrides: Partial<ExtractedExpense> = {}): ExtractedExpense {
   return {
@@ -63,6 +65,7 @@ function getPayload(outcome: CorrectExpenseOutcome): ExpenseReviewPayload {
 
 function buildDeps(
   overrides: {
+    realClassifier?: ICategoryClassifier;
     interpretCorrection?: ReturnType<typeof vi.fn<LLMPort['interpretCorrection']>>;
     classifier?: ReturnType<typeof vi.fn<ICategoryClassifier['execute']>>;
     findAverageAmountByUserId?: ReturnType<
@@ -184,7 +187,7 @@ function buildDeps(
     useCase: new CorrectExpenseUseCase(
       {
         llm,
-        classifier,
+        classifier: overrides.realClassifier ?? classifier,
         expenseRepo,
         spreadsheetConfigRepo,
         categoryVocabularyRepo,
@@ -202,6 +205,75 @@ function buildDeps(
 }
 
 describe('CorrectExpenseUseCase', () => {
+  it.each([
+    ['corregir categoria: gastos diarios', 'corrected'],
+    ['corregir categoria: no es gastos diarios', 'not_interpretable'],
+    ['corregir categoria: gastos diarios o gastos', 'not_interpretable'],
+  ])(
+    'resolves missing provider targets with the real classifier: %s',
+    async (rawMessage, status) => {
+      const categories = [
+        { id: 'general', name: 'Gastos', normalizedName: 'gastos' },
+        { id: 'daily', name: 'Gastos diarios', normalizedName: 'gastos diarios' },
+      ];
+      const vocabulary = new CategoryVocabulary('sheet-1', categories);
+      const findCategoryVocabulary = vi
+        .fn<ICategoryVocabularyRepository['findBySpreadsheetId']>()
+        .mockResolvedValue(vocabulary);
+      const fallback = vi.fn().mockResolvedValue(null);
+      const classifier = new ClassifyExpenseCategory(
+        {
+          findByUserId: () =>
+            Promise.resolve(
+              CategoryKeywordVocabulary.createBase().withUserCategories(
+                categories.map((category) => category.name),
+              ),
+            ),
+        },
+        { findBySpreadsheetId: findCategoryVocabulary, save: vi.fn() },
+        { findClosest: fallback },
+        { findClosest: () => null },
+        0.6,
+      );
+      const { useCase, transitionMock } = buildDeps({
+        realClassifier: classifier,
+        findCategoryVocabulary,
+        interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+          intent: 'correction',
+          changedFields: ['categoria'],
+          categoriaRaw: null,
+          subcategoriaRaw: null,
+          monto: null,
+          moneda: null,
+          fechaRaw: null,
+        }),
+      });
+      const state = buildCorrectionState();
+      const before = structuredClone(state.toPayload());
+      const result = await useCase.execute({
+        userId: 'user-123',
+        rawMessage,
+        state,
+        channel: 'telegram',
+        intentMode: 'infer',
+      });
+
+      expect(result.status).toBe(status);
+      expect(state.toPayload()).toEqual(before);
+      expect(fallback).not.toHaveBeenCalled();
+      if (status === 'corrected') {
+        expect(getPayload(result)).toMatchObject({
+          resolvedCategoryId: 'daily',
+          resolvedCategory: 'Gastos diarios',
+          extracted: { categoriaRaw: 'Gastos diarios' },
+        });
+        expect(transitionMock).toHaveBeenCalledOnce();
+      } else {
+        expect(transitionMock).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -330,6 +402,34 @@ describe('CorrectExpenseUseCase', () => {
     expect(transitionMock).toHaveBeenCalledWith(
       expect.objectContaining({ targetState: 'EXPENSE_REVIEW' }),
     );
+  });
+
+  it('does not present an unresolved category correction as successful', async () => {
+    const { useCase, transitionMock } = buildDeps({
+      interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+        intent: 'correction',
+        changedFields: ['categoria'],
+        monto: null,
+        moneda: null,
+        categoriaRaw: null,
+        subcategoriaRaw: null,
+        fechaRaw: null,
+      }),
+      classifier: vi
+        .fn<ICategoryClassifier['execute']>()
+        .mockResolvedValue(HierarchicalClassificationResult.none()),
+    });
+
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'corregir categoria: desconocida',
+      state: buildCorrectionState(),
+      channel: 'telegram',
+      intentMode: 'infer',
+    });
+
+    expect(result).toEqual({ status: 'not_interpretable' });
+    expect(transitionMock).not.toHaveBeenCalled();
   });
 
   it('updates date to previous day when the user says "ayer"', async () => {

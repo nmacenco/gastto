@@ -57,6 +57,30 @@ export class NvidiaAdapter implements LLMPort {
       this.extractionSettings,
       options,
       async (signal, metadata) => {
+        const body = JSON.stringify({
+          model: this.model,
+          temperature: 0,
+          top_p: 0.95,
+          ...(this.model === 'z-ai/glm-5.3-flash'
+            ? { reasoning_effort: 'low', max_tokens: 4096 }
+            : { max_tokens: 512 }),
+          stream: false,
+          messages: [
+            { role: 'system', content: buildExtractionSystemPrompt() },
+            {
+              role: 'user',
+              content: serializeUntrustedData({
+                userMessage,
+                defaultCurrency: userContext.defaultCurrency,
+                categories: userContext.categories,
+                categoryHierarchy: userContext.categoryHierarchy,
+                subcategoryEnabled: userContext.subcategoryEnabled,
+              }),
+            },
+          ],
+        });
+        metadata.requestBytes = Buffer.byteLength(body);
+        metadata.phase = 'awaiting_headers';
         const response = await fetch(this.invokeUrl, {
           method: 'POST',
           signal,
@@ -65,36 +89,14 @@ export class NvidiaAdapter implements LLMPort {
             Accept: 'application/json',
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            model: this.model,
-            temperature: 0, // maximum determinism for structured extraction
-            top_p: 0.95,
-            // This model defaults to maximum reasoning; reserve output for the
-            // final JSON as well as reasoning. Other model contracts stay intact.
-            // https://docs.api.nvidia.com/nim/reference/z-ai-glm-5-3-flash
-            ...(this.model === 'z-ai/glm-5.3-flash'
-              ? { reasoning_effort: 'low', max_tokens: 4096 }
-              : { max_tokens: 512 }),
-            stream: false,
-            messages: [
-              { role: 'system', content: buildExtractionSystemPrompt() },
-              {
-                role: 'user',
-                content: serializeUntrustedData({
-                  userMessage,
-                  defaultCurrency: userContext.defaultCurrency,
-                  categories: userContext.categories,
-                  categoryHierarchy: userContext.categoryHierarchy,
-                  subcategoryEnabled: userContext.subcategoryEnabled,
-                }),
-              },
-            ],
-          }),
+          body,
         });
 
         metadata.httpStatus = response.status;
+        metadata.phase = 'reading_body';
         if (!response.ok) throw new Error('Provider HTTP error');
         const data: unknown = await response.json();
+        metadata.phase = 'processing_response';
         const parsed = data as NvidiaChatResponse | null;
         return {
           content: parsed?.choices?.[0]?.message?.content,

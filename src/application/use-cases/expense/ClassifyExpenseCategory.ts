@@ -79,7 +79,19 @@ export class ClassifyExpenseCategory implements ICategoryClassifier {
     vocabulary: Awaited<ReturnType<ICategoryKeywordVocabularyRepository['findByUserId']>>,
     activeCategories: readonly Category[],
   ): Promise<CategoryCandidate | null> {
-    const userCategories = vocabulary.getUserCategories();
+    const activeCategoryNames = activeCategories.map((category) => category.name);
+    // Without a provider target, correction recovery accepts only a complete
+    // literal assignment. Mentions, negations and alternatives need interpretation.
+    if (input.categoryCorrection && input.llmCategory === null) {
+      const target = normalize(input.rawMessage).replace(
+        /^(?:(?:corregir|cambiar|corrige|cambia) )?categoria(?: es| a)? /,
+        '',
+      );
+      const exact = activeCategories.filter((category) => normalize(category.name) === target);
+      return exact.length === 1
+        ? { name: exact[0]!.name, status: 'confirmed', confidence: 'alta' }
+        : null;
+    }
     if (input.llmCategory !== null && input.llmConfidence === 'alta') {
       const exact = activeCategories.find(
         (category) => normalize(category.name) === normalize(input.llmCategory!),
@@ -87,7 +99,44 @@ export class ClassifyExpenseCategory implements ICategoryClassifier {
       if (exact) return { name: exact.name, status: 'confirmed', confidence: 'alta' };
     }
 
-    const { scores, totalTokens } = vocabulary.findAllMatches(input.rawMessage);
+    const normalizedMessage = ` ${normalize(input.rawMessage)} `;
+    // Do not turn a negated mention into positive keyword evidence. The LLM
+    // remains responsible for interpreting more complex natural language.
+    const hasNegation = /\b(no|ni|sin)\b/.test(normalizedMessage);
+    const phraseMatches = activeCategories.filter((category) =>
+      normalizedMessage.includes(` ${normalize(category.name)} `),
+    );
+    const explicitMatches = phraseMatches.filter(
+      (category) =>
+        !phraseMatches.some(
+          (other) =>
+            other.id !== category.id &&
+            normalize(other.name) !== normalize(category.name) &&
+            ` ${normalize(other.name)} `.includes(` ${normalize(category.name)} `) &&
+            !normalizedMessage
+              .replaceAll(` ${normalize(other.name)} `, ' ')
+              .includes(` ${normalize(category.name)} `),
+        ),
+    );
+    if (!hasNegation && explicitMatches.length === 1) {
+      return {
+        name: explicitMatches[0]!.name,
+        status: 'confirmed',
+        confidence: 'alta',
+      };
+    }
+
+    if (input.llmCategory !== null && input.llmConfidence === 'baja') {
+      const exact = activeCategories.find(
+        (category) => normalize(category.name) === normalize(input.llmCategory!),
+      );
+      if (exact) return { name: exact.name, status: 'ambiguous', confidence: 'baja' };
+    }
+    if (hasNegation || explicitMatches.length > 1) return null;
+
+    const classificationEvidence =
+      input.llmCategory === null ? input.rawMessage : `${input.rawMessage} ${input.llmCategory}`;
+    const { scores, totalTokens } = vocabulary.findAllMatches(classificationEvidence);
     const sorted = [...scores.entries()]
       .filter(([, score]) => score > 0)
       .sort((left, right) => right[1] - left[1]);
@@ -98,7 +147,7 @@ export class ClassifyExpenseCategory implements ICategoryClassifier {
     const userCategoryName = vocabulary.getUserCategoryNames(topCanonical)[0] ?? null;
     const resolvedName =
       userCategoryName ??
-      (await this.categoryFallbackMapper.findClosest(topCanonical, userCategories));
+      (await this.categoryFallbackMapper.findClosest(topCanonical, activeCategoryNames));
     if (resolvedName === null) return null;
     if (userCategoryName === null) {
       return { name: resolvedName, status: 'fallback', confidence: 'baja' };
