@@ -13,6 +13,8 @@ import type { DrizzleDatabase } from './types';
 import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
 import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
+import { GroqAdapter } from '../infrastructure/adapters/llm/GroqAdapter';
+import { ExtractionFallbackLLMPort } from '../infrastructure/adapters/llm/ExtractionFallbackLLMPort';
 import { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
 import { SubcategoryFallbackMatcher } from '../infrastructure/adapters/category/SubcategoryFallbackMatcher';
@@ -35,8 +37,11 @@ const baseEnv: Env = {
   EXPENSE_REVIEW_TIMEOUT_MINUTES: 10,
   EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: 10,
   OPENAI_API_KEY: 'sk-test-openai',
+  LLM_PROVIDER: 'auto',
+  LLM_FALLBACK_PROVIDER: 'auto',
   LLM_EXTRACTION_TIMEOUT_MS: 30_000,
   NVIDIA_MODEL: 'z-ai/glm-5.3-flash',
+  GROQ_MODEL: 'openai/gpt-oss-20b',
   SEMANTIC_ROUTER_STATE_MODES: {},
   SEMANTIC_ROUTER_COHORT_PERCENT: 0,
   SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: 0,
@@ -146,7 +151,7 @@ describe('buildDependencies', () => {
 
   it('registers one sanitized error listener on every queue without optional features', () => {
     const loggerError = vi.fn();
-    const logger = { error: loggerError } as unknown as Logger;
+    const logger = { error: loggerError, info: vi.fn() } as unknown as Logger;
     const env: Env = {
       ...baseEnv,
       TELEGRAM_BOT_TOKEN: '',
@@ -269,7 +274,7 @@ describe('buildDependencies', () => {
       buildInfra(),
     );
 
-    expect(deps.llmPort).toBeInstanceOf(NvidiaAdapter);
+    expect(deps.llmPort).toBeInstanceOf(ExtractionFallbackLLMPort);
     expect(deps.semanticRouter).toBeInstanceOf(OpenAISemanticRouterAdapter);
   });
 
@@ -297,6 +302,86 @@ describe('buildDependencies', () => {
     const deps = buildDependencies(env, buildInfra());
 
     expect(deps.llmPort).toBeInstanceOf(OpenAIAdapter);
+  });
+
+  it('selects explicit Groq primary with its own key and model', () => {
+    const deps = buildDependencies(
+      {
+        ...baseEnv,
+        LLM_PROVIDER: 'groq',
+        LLM_FALLBACK_PROVIDER: 'none',
+        OPENAI_API_KEY: undefined,
+        GROQ_API_KEY: 'groq-key',
+        GROQ_MODEL: 'openai/gpt-oss-120b',
+      },
+      buildInfra(),
+    );
+    expect(deps.llmPort).toBeInstanceOf(GroqAdapter);
+    expect((deps.llmPort as unknown as { model: string }).model).toBe('openai/gpt-oss-120b');
+  });
+
+  it('uses Groq only as an explicitly selected fallback', () => {
+    const deps = buildDependencies(
+      { ...baseEnv, GROQ_API_KEY: 'groq-key', LLM_FALLBACK_PROVIDER: 'groq' },
+      buildInfra(),
+    );
+    expect(deps.llmPort).toBeInstanceOf(ExtractionFallbackLLMPort);
+    expect((deps.llmPort as unknown as { fallback: unknown }).fallback).toBeInstanceOf(GroqAdapter);
+    expect((deps.llmPort as unknown as { primary: unknown }).primary).toBeInstanceOf(OpenAIAdapter);
+  });
+
+  it('keeps Groq out of auto provider selection in Phase 1', () => {
+    const deps = buildDependencies(
+      { ...baseEnv, GROQ_API_KEY: 'groq-key', NVIDIA_API_KEY: 'nvidia-key' },
+      buildInfra(),
+    );
+    expect(deps.llmPort).toBeInstanceOf(ExtractionFallbackLLMPort);
+    expect((deps.llmPort as unknown as { primary: unknown }).primary).toBeInstanceOf(NvidiaAdapter);
+    expect((deps.llmPort as unknown as { fallback: unknown }).fallback).toBeInstanceOf(
+      OpenAIAdapter,
+    );
+  });
+
+  it('selects an explicit provider even when NVIDIA is configured', () => {
+    const keys = {
+      ...baseEnv,
+      NVIDIA_API_KEY: 'nvidia-key',
+      ANTHROPIC_API_KEY: 'anthropic-key',
+      LLM_FALLBACK_PROVIDER: 'none' as const,
+    };
+    expect(
+      buildDependencies({ ...keys, LLM_PROVIDER: 'openai' }, buildInfra()).llmPort,
+    ).toBeInstanceOf(OpenAIAdapter);
+    expect(
+      buildDependencies({ ...keys, LLM_PROVIDER: 'anthropic' }, buildInfra()).llmPort,
+    ).toBeInstanceOf(ClaudeAdapter);
+  });
+
+  it('rejects an explicit provider whose API key is absent', () => {
+    expect(() =>
+      buildDependencies(
+        { ...baseEnv, LLM_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: undefined },
+        buildInfra(),
+      ),
+    ).toThrow('LLM_PROVIDER=anthropic requires ANTHROPIC_API_KEY');
+  });
+
+  it('requires a distinct configured key for an explicit extraction fallback', () => {
+    expect(() =>
+      buildDependencies({ ...baseEnv, LLM_FALLBACK_PROVIDER: 'anthropic' }, buildInfra()),
+    ).toThrow('LLM_FALLBACK_PROVIDER=anthropic requires ANTHROPIC_API_KEY');
+    expect(() =>
+      buildDependencies({ ...baseEnv, LLM_FALLBACK_PROVIDER: 'openai' }, buildInfra()),
+    ).toThrow('LLM_FALLBACK_PROVIDER must differ from LLM_PROVIDER');
+    expect(() =>
+      buildDependencies({ ...baseEnv, LLM_FALLBACK_PROVIDER: 'groq' }, buildInfra()),
+    ).toThrow('LLM_FALLBACK_PROVIDER=groq requires GROQ_API_KEY');
+    expect(() =>
+      buildDependencies(
+        { ...baseEnv, LLM_PROVIDER: 'groq', LLM_FALLBACK_PROVIDER: 'groq', GROQ_API_KEY: 'key' },
+        buildInfra(),
+      ),
+    ).toThrow('LLM_FALLBACK_PROVIDER must differ from LLM_PROVIDER');
   });
 
   it('throws when no LLM provider is configured', () => {

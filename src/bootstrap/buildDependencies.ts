@@ -37,6 +37,11 @@ import { LLMColumnInferenceAdapter } from '../infrastructure/adapters/sheets/LLM
 import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
 import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
+import { GroqAdapter } from '../infrastructure/adapters/llm/GroqAdapter';
+import {
+  ExtractionFallbackLLMPort,
+  type ExtractionProvider,
+} from '../infrastructure/adapters/llm/ExtractionFallbackLLMPort';
 import OpenAI from 'openai';
 import { OpenAISemanticRouterAdapter } from '../infrastructure/adapters/llm/OpenAISemanticRouterAdapter';
 import type { SemanticRouterPort } from '../domain/ports/SemanticRouterPort';
@@ -118,17 +123,69 @@ export interface BuildDependenciesInfra {
 
 function createLLMPort(env: Env, logger: BuildDependenciesInfra['rootLogger']): LLMPort {
   const settings = { timeoutMs: env.LLM_EXTRACTION_TIMEOUT_MS, logger };
-  if (env.NVIDIA_API_KEY !== undefined && env.NVIDIA_API_KEY.length > 0) {
-    return new NvidiaAdapter(env.NVIDIA_API_KEY, env.NVIDIA_MODEL, settings);
+  const keys = {
+    nvidia: env.NVIDIA_API_KEY,
+    anthropic: env.ANTHROPIC_API_KEY,
+    openai: env.OPENAI_API_KEY,
+    groq: env.GROQ_API_KEY,
+  };
+  const primaryProvider =
+    env.LLM_PROVIDER === 'auto'
+      ? ((['nvidia', 'anthropic', 'openai'] as const).find((provider) => keys[provider]?.trim()) ??
+        null)
+      : env.LLM_PROVIDER;
+  if (!primaryProvider) {
+    throw new Error(
+      'At least one LLM provider API key must be configured: NVIDIA_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, or GROQ_API_KEY.',
+    );
   }
-  if (env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0) {
-    return new ClaudeAdapter(env.ANTHROPIC_API_KEY, settings);
+  const createAdapter = (provider: ExtractionProvider): LLMPort => {
+    const apiKey = keys[provider];
+    if (!apiKey?.trim()) {
+      throw new Error(`LLM_PROVIDER=${provider} requires ${provider.toUpperCase()}_API_KEY`);
+    }
+    switch (provider) {
+      case 'nvidia':
+        return new NvidiaAdapter(apiKey, env.NVIDIA_MODEL, settings);
+      case 'anthropic':
+        return new ClaudeAdapter(apiKey, settings);
+      case 'openai':
+        return new OpenAIAdapter(apiKey, settings);
+      case 'groq':
+        return new GroqAdapter(apiKey, env.GROQ_MODEL, settings);
+    }
+  };
+  const primary = createAdapter(primaryProvider);
+  const fallbackProvider =
+    env.LLM_FALLBACK_PROVIDER === 'auto'
+      ? ((['openai', 'anthropic', 'nvidia'] as const).find(
+          (provider) => provider !== primaryProvider && keys[provider]?.trim(),
+        ) ?? null)
+      : env.LLM_FALLBACK_PROVIDER === 'none'
+        ? null
+        : env.LLM_FALLBACK_PROVIDER;
+  if (fallbackProvider === primaryProvider) {
+    throw new Error('LLM_FALLBACK_PROVIDER must differ from LLM_PROVIDER');
   }
-  if (env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
-    return new OpenAIAdapter(env.OPENAI_API_KEY, settings);
+  if (fallbackProvider && !keys[fallbackProvider]?.trim()) {
+    throw new Error(
+      `LLM_FALLBACK_PROVIDER=${fallbackProvider} requires ${fallbackProvider.toUpperCase()}_API_KEY`,
+    );
   }
-  throw new Error(
-    'At least one LLM provider API key must be configured: NVIDIA_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY.',
+  logger.info({
+    event: 'llm_provider_selection',
+    provider: primaryProvider,
+    fallbackProvider: fallbackProvider ?? 'none',
+    extractionTimeoutMs: env.LLM_EXTRACTION_TIMEOUT_MS,
+  });
+  if (!fallbackProvider) return primary;
+  return new ExtractionFallbackLLMPort(
+    primary,
+    createAdapter(fallbackProvider),
+    primaryProvider,
+    fallbackProvider,
+    env.LLM_EXTRACTION_TIMEOUT_MS,
+    logger,
   );
 }
 

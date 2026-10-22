@@ -26,6 +26,23 @@ The production app (`gastto`) is assumed to already exist.
 
 ## Secrets
 
+If the configured extraction provider repeatedly times out before HTTP headers,
+`LLM_FALLBACK_PROVIDER=auto` can try one different provider when that app has a
+second API key. The combined extraction deadline remains bounded. Use
+`LLM_FALLBACK_PROVIDER=none` to disable it or explicitly select the backup. An
+operator can instead set `LLM_PROVIDER` to another configured primary provider;
+`auto` retains NVIDIA-first precedence. Verify an expense review and correction
+in development before promotion. A fallback does not enable semantic routing or
+replay a failed expense. Keep former settings for rollback; do not print API keys.
+
+Groq is opt-in in Phase 1. Set `GROQ_API_KEY` through Fly secrets, then select
+`LLM_FALLBACK_PROVIDER=groq` for extraction backup or `LLM_PROVIDER=groq` for
+the shared LLM port. `GROQ_MODEL` defaults to `openai/gpt-oss-20b`. Do not put
+the Groq credential in `OPENAI_API_KEY`: the services have separate endpoints
+and credentials. Adding only `GROQ_API_KEY` does not alter `auto` selection.
+Development Fly network and multi-expense validation are still pending; do not
+promote Groq into automatic selection until that evidence is recorded.
+
 All environment-specific configuration (sensitive and non-sensitive) lives in Fly.io secrets per app. The only values stored in GitHub are the Fly.io API tokens required by GitHub Actions to trigger deploys.
 
 ### Required secrets per environment
@@ -40,6 +57,7 @@ Set the following secrets on **each** app. Values should differ between producti
 | `TELEGRAM_WEBHOOK_SECRET` | Random string used to validate Telegram webhook origin                            |
 | `OPENAI_API_KEY`          | OpenAI API key for LLM extraction                                                 |
 | `ANTHROPIC_API_KEY`       | Anthropic API key (optional)                                                      |
+| `GROQ_API_KEY`            | Groq API key (optional; needed only when explicitly selected)                     |
 | `SENTRY_DSN`              | Sentry DSN for error tracking (optional)                                          |
 | `ENCRYPTION_KEY`          | AES-256-GCM key for OAuth token encryption (64 hex chars)                         |
 

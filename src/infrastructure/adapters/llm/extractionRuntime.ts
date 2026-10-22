@@ -53,13 +53,13 @@ function safeResponseMetadata(response: ExtractionResponse): Record<string, unkn
 }
 
 export async function runExtraction(
-  provider: 'nvidia' | 'openai' | 'anthropic',
+  provider: 'nvidia' | 'openai' | 'anthropic' | 'groq',
   model: string,
   settings: ExtractionSettings,
   options: ExtractionExecutionOptions | undefined,
   request: (signal: AbortSignal, metadata: ExtractionMetadata) => Promise<ExtractionResponse>,
 ) {
-  const timeoutMs = settings.timeoutMs ?? 30_000;
+  const timeoutMs = options?.timeoutMs ?? settings.timeoutMs ?? 30_000;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     throw new Error('Invalid extraction timeout');
   }

@@ -45,6 +45,26 @@ After the user describes an expense in natural language, the system interprets t
 
 ## Initial extraction failures
 
+The shared LLM provider can be selected with `LLM_PROVIDER`. `auto` preserves the
+existing NVIDIA, Anthropic, OpenAI priority; an explicit choice requires that
+provider's key. `LLM_FALLBACK_PROVIDER=auto` uses one different configured provider
+for initial expense extraction after a typed provider, timeout, or invalid-output
+failure. The first attempt receives half the configured extraction deadline and
+the backup receives the remaining time. Caller cancellation never starts the
+backup. `none` disables it, and one configured key alone provides no fallback.
+Both attempts reuse the original message and correlation ID. No failed attempt
+can save a record; review and explicit confirmation remain required. Correction
+and other shared LLM operations use the primary provider only.
+
+Groq is available by explicit `LLM_PROVIDER=groq` or
+`LLM_FALLBACK_PROVIDER=groq` with its own `GROQ_API_KEY` and optional
+`GROQ_MODEL` (default `openai/gpt-oss-20b`). The primary setting also directs
+correction and response generation to Groq; the fallback setting applies only
+to initial extraction. Both `auto` priorities remain unchanged until Fly
+connectivity and representative expense quality are validated. Groq JSON object
+mode does not replace the local strict expense schema or the explicit review
+and save confirmation.
+
 Before a review is built, all provider extraction requests have a configurable 30-second default deadline with real transport cancellation. Empty/blank responses, truncated output, invalid JSON/schema, provider failures, timeout, and cancellation have separate safe diagnostic codes. Only validated final response content enters the expense workflow. The exact NVIDIA `z-ai/glm-5.3-flash` extraction profile uses low reasoning with a 4096-token cap; user-reported registration acceptance and the limits of live evidence are recorded in the [validation record](../../ai/plans/2026_09_23-fix_expense_extraction_failures/validation.md).
 
 Extraction completion logs include the configured deadline. NVIDIA extraction also records the request size in bytes and the phase reached (`awaiting_headers`, `reading_body`, `streaming_body`, or `processing_response`) without logging the prompt or provider response. A timeout in `awaiting_headers` means no HTTP response headers reached the adapter before its deadline; it does not distinguish provider generation time from network delay.
@@ -105,6 +125,6 @@ A stale revision or invalidated lease cannot reset another attempt or send a fal
 
 ### Extraction regression coverage
 
-- `extractionRuntime.spec.ts`: all three provider boundaries, typed failures, safe metadata, deadlines, SDK retry settings, ownership cancellation, late completion, response-body abort, and model-specific request behavior.
+- `extractionRuntime.spec.ts` and `GroqAdapter.spec.ts`: provider boundaries, typed failures, safe metadata, deadlines, SDK retry settings, ownership cancellation, late completion, response-body abort, and model-specific request behavior.
 - `RecoverExpenseExtraction.spec.ts`: exact revision recovery, stale ownership, persistence failure, newer drafts, and unresolved financial claims.
 - `semantic-router-expense-flows.integration.spec.ts`: real PostgreSQL/Redis, routing off, failed initial extraction from idle/receiving, resend, review, explicit confirmation, and exactly one write after duplicate confirmation.

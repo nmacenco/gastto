@@ -75,6 +75,11 @@ export const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   NVIDIA_API_KEY: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
+  LLM_PROVIDER: z.enum(['auto', 'nvidia', 'anthropic', 'openai', 'groq']).default('auto'),
+  LLM_FALLBACK_PROVIDER: z
+    .enum(['auto', 'none', 'nvidia', 'anthropic', 'openai', 'groq'])
+    .default('auto'),
   LLM_EXTRACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(30_000),
   NVIDIA_MODEL: z
     .string()
@@ -82,6 +87,12 @@ export const envSchema = z.object({
     .max(128)
     .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?$/)
     .default('z-ai/glm-5.3-flash'),
+  GROQ_MODEL: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?$/)
+    .default('openai/gpt-oss-20b'),
 
   // Semantic routing is off unless states, cohort and sampling are explicitly enabled.
   SEMANTIC_ROUTER_STATE_MODES: semanticRouterStateModesSchema,
