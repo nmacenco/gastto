@@ -390,6 +390,8 @@ function buildGoogleOAuthFeature(
     handleSpreadsheetFileSelection,
     conversationRepo: core.conversationRepo,
     userProcessingLock: new RedisUserProcessingLock(infra.redis),
+    spreadsheetConfigRepository: core.spreadsheetConfigRepo,
+    columnMappingRepository: core.columnMappingRepo,
   });
 
   const confirmColumnMapping = new ConfirmColumnMapping({

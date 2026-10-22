@@ -33,7 +33,7 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 5. For **OneDrive**: returns a "coming soon" message; state remains `ONBOARDING_START`.
 6. For **invalid input**: returns a re-prompt; state remains `ONBOARDING_START`.
 
-Reconnection paths for terminal authorization loss transition back to `ONBOARDING_START` with `promptShown: true`, so the user receives the standard re-prompt instead of the welcome message. Normal access-token expiration is refreshed silently and does not restart onboarding.
+Reconnection paths for terminal authorization loss transition back to `ONBOARDING_START` with `promptShown: true` and `reauthorizationOnly: true`, so the user receives the standard re-prompt instead of the welcome message. Normal access-token expiration is refreshed silently and does not restart onboarding. The reconnect flag is carried through `ONBOARDING_DRIVE`. After a successful Google callback, an existing Google configuration with a selected file, sheet, and confirmed column mappings returns directly to `IDLE` and asks the user to resend the expense. It does not relist files or overwrite the saved configuration. If that configuration is incomplete, normal file selection continues.
 
 ### Callback (`HandleOAuthCallback`)
 
@@ -81,8 +81,8 @@ The reminder owns the per-user lease, commits a guarded nonce/revision self-tran
 
 ## Redis Key Patterns
 
-| Key                   | Value                                                            | TTL            |
-| --------------------- | ---------------------------------------------------------------- | -------------- |
+| Key                   | Value                                                                      | TTL            |
+| --------------------- | -------------------------------------------------------------------------- | -------------- |
 | `oauth:state:{state}` | JSON: `{ userId, provider, externalId, channel, reminderJobId, revision }` | 15 min (900 s) |
 
 ## BullMQ Reminder Queue

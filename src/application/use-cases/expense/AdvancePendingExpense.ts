@@ -19,6 +19,7 @@ export interface AdvancePendingExpenseInput {
 
 export type AdvancePendingExpenseOutcome =
   | { status: 'advanced'; pendingCount: 1 | 2 }
+  | { status: 'authorization_required' }
   | { status: 'empty' };
 
 export interface AdvancePendingExpenseDeps {
@@ -57,6 +58,15 @@ export class AdvancePendingExpense {
         ? {}
         : { immediateUndoExpenseId: input.immediateUndoExpenseId }),
     });
+
+    if (interpretation.status === 'authorization_required') {
+      await this.deps.expenseQueueRepository.clearByUserId(input.userId);
+      await this.deps.messagingPort.sendMessage(
+        input.chatId,
+        expenseCopies.queuedAuthorizationFailure(),
+      );
+      return { status: 'authorization_required' };
+    }
 
     if (interpretation.status === 'needs_clarification') {
       await this.deps.messagingPort.sendMessage(

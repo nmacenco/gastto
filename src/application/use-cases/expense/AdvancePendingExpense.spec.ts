@@ -6,6 +6,7 @@ import type { GenerateExpenseSummaryUseCase } from './GenerateExpenseSummaryUseC
 import { expenseCopies } from '../../copies/expense.copies';
 
 const dequeueFirst = vi.fn();
+const clearByUserId = vi.fn();
 const findByUserId = vi.fn();
 const countByUserId = vi.fn();
 const interpret = vi.fn();
@@ -39,6 +40,7 @@ function buildUseCase() {
   return new AdvancePendingExpense({
     expenseQueueRepository: {
       dequeueFirst,
+      clearByUserId,
       findByUserId,
       countByUserId,
     } as unknown as IExpenseQueueRepository,
@@ -146,5 +148,23 @@ describe('AdvancePendingExpense', () => {
     expect(countByUserId).not.toHaveBeenCalled();
     expect(interpret).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('clears queued expenses when authorization is lost before interpretation', async () => {
+    interpret.mockResolvedValue({ status: 'authorization_required' });
+
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        chatId: 'chat-1',
+        channel: 'telegram',
+        reason: 'confirmed',
+        completedCount: 1,
+      }),
+    ).resolves.toEqual({ status: 'authorization_required' });
+
+    expect(clearByUserId).toHaveBeenCalledWith('user-1');
+    expect(sendMessage).toHaveBeenCalledWith('chat-1', expenseCopies.queuedAuthorizationFailure());
+    expect(generateSummary).not.toHaveBeenCalled();
   });
 });

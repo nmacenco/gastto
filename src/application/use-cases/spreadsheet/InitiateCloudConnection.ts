@@ -18,6 +18,7 @@ export interface InitiateCloudConnectionInput {
   rawMessage: string;
   externalId: string;
   channel: 'telegram' | 'whatsapp';
+  reauthorizationOnly?: boolean;
 }
 
 export interface InitiateCloudConnectionOutput {
@@ -89,7 +90,11 @@ export class InitiateCloudConnection {
     const transition = await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_DRIVE',
-      payload: { provider: 'google', state },
+      payload: {
+        provider: 'google',
+        state,
+        ...(input.reauthorizationOnly ? { reauthorizationOnly: true } : {}),
+      },
     });
     if (transition.status !== 'updated')
       throw new Error('OAuth state transition was not committed');

@@ -12,6 +12,8 @@ import {
 import type {
   IConversationStateRepository,
   IOAuthTokenRepository,
+  ISpreadsheetConfigRepository,
+  IColumnMappingRepository,
 } from '../../../domain/ports/repositories';
 import type { Logger } from 'pino';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
@@ -38,6 +40,8 @@ const mockHandleSpreadsheetFileSelectionExecute = vi.fn().mockResolvedValue({
   nextState: 'ONBOARDING_FILE',
   message: '',
 });
+const mockFindSpreadsheetConfig = vi.fn();
+const mockFindColumnMappings = vi.fn();
 
 function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): HandleOAuthCallbackDeps {
   return {
@@ -76,6 +80,12 @@ function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): Handle
       renew: vi.fn().mockResolvedValue(true),
       release: vi.fn().mockResolvedValue(undefined),
     },
+    spreadsheetConfigRepository: {
+      findByUserId: mockFindSpreadsheetConfig,
+    } as unknown as ISpreadsheetConfigRepository,
+    columnMappingRepository: {
+      findBySpreadsheetId: mockFindColumnMappings,
+    } as unknown as IColumnMappingRepository,
     ...overrides,
   };
 }
@@ -103,6 +113,8 @@ beforeEach(() => {
     nextState: 'ONBOARDING_FILE',
     message: '',
   });
+  mockFindSpreadsheetConfig.mockReset().mockResolvedValue(null);
+  mockFindColumnMappings.mockReset().mockResolvedValue([]);
   mockEncrypt.mockReset();
   mockEncrypt
     .mockReturnValueOnce({ ciphertext: Buffer.from('access-enc'), iv: Buffer.from('access-iv') })
@@ -111,6 +123,86 @@ beforeEach(() => {
 
 describe('HandleOAuthCallback', () => {
   describe('valid callback', () => {
+    it('restores a completed spreadsheet configuration after reauthorization', async () => {
+      mockRedisGet.mockResolvedValue(baseRedisPayload);
+      mockExchangeCode.mockResolvedValue({
+        accessToken: 'access-123',
+        refreshToken: 'refresh-456',
+        expiresAt: new Date('2026-12-31T23:59:59Z'),
+        scope: [],
+      });
+      mockTokenUpsert.mockResolvedValue({ id: 'token-789' });
+      mockQueueRemove.mockResolvedValue(1);
+      mockFindSpreadsheetConfig.mockResolvedValue({
+        id: 'config-1',
+        provider: 'google',
+        fileId: 'file-1',
+        sheetName: 'Gastos',
+      });
+      mockFindColumnMappings.mockResolvedValue([{ confirmedAt: new Date() }]);
+      const conversationRepo = {
+        findByUserId: vi.fn().mockResolvedValue({
+          userId: 'user-123',
+          revision: '7',
+          currentState: 'ONBOARDING_DRIVE',
+          statePayload: {
+            provider: 'google',
+            state: 'test-state-456',
+            reauthorizationOnly: true,
+          },
+        }),
+      } as unknown as IConversationStateRepository;
+
+      const result = await new HandleOAuthCallback(buildMockDeps({ conversationRepo })).execute(
+        baseInput,
+      );
+
+      expect(result).toMatchObject({ success: true, nextState: 'IDLE' });
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-123', targetState: 'IDLE', payload: null }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.googleReconnectedSuccess(),
+      );
+      expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+    });
+
+    it('continues file selection when the previous column mapping is incomplete', async () => {
+      mockRedisGet.mockResolvedValue(baseRedisPayload);
+      mockExchangeCode.mockResolvedValue({
+        accessToken: 'access-123',
+        refreshToken: 'refresh-456',
+        expiresAt: new Date('2026-12-31T23:59:59Z'),
+        scope: [],
+      });
+      mockFindSpreadsheetConfig.mockResolvedValue({
+        id: 'config-1',
+        provider: 'google',
+        fileId: 'file-1',
+        sheetName: 'Gastos',
+      });
+      const conversationRepo = {
+        findByUserId: vi.fn().mockResolvedValue({
+          userId: 'user-123',
+          revision: '7',
+          currentState: 'ONBOARDING_DRIVE',
+          statePayload: {
+            provider: 'google',
+            state: 'test-state-456',
+            reauthorizationOnly: true,
+          },
+        }),
+      } as unknown as IConversationStateRepository;
+
+      const result = await new HandleOAuthCallback(buildMockDeps({ conversationRepo })).execute(
+        baseInput,
+      );
+
+      expect(result).toMatchObject({ success: true, nextState: 'ONBOARDING_FILE' });
+      expect(mockHandleSpreadsheetFileSelectionExecute).toHaveBeenCalledOnce();
+    });
+
     it('validates state, exchanges code, persists tokens, cancels reminder, sends success, transitions FSM', async () => {
       mockRedisGet.mockResolvedValue(baseRedisPayload);
       mockExchangeCode.mockResolvedValue({

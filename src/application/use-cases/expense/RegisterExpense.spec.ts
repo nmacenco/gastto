@@ -620,6 +620,49 @@ describe('RegisterExpenseUseCase', () => {
   });
 
   describe('interpret()', () => {
+    it('requests reconnection before expense extraction when authorization is lost', async () => {
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Refresh credentials revoked', { code: 'AUTH_ERROR' }),
+      );
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result).toEqual({ status: 'authorization_required' });
+      expect(mockConversationTransition).toHaveBeenCalledWith(
+        'user-123',
+        'ONBOARDING_START',
+        { promptShown: true, reauthorizationOnly: true },
+        null,
+      );
+      expect(mockLLMExtractExpense).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+      expect(mockAppendRow).not.toHaveBeenCalled();
+    });
+
+    it('continues interpretation when an expired access token refreshes successfully', async () => {
+      mockGetValidAccessToken.mockResolvedValue({
+        accessToken: 'refreshed-access-token',
+        expiresAt: new Date(Date.now() + 60_000),
+        refreshed: true,
+      });
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense());
+
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput());
+
+      expect(result.status).toBe('ready_for_review');
+      expect(mockGetValidAccessToken.mock.invocationCallOrder[0]).toBeLessThan(
+        mockLLMExtractExpense.mock.invocationCallOrder[0]!,
+      );
+      expect(mockConversationTransition).not.toHaveBeenCalledWith(
+        'user-123',
+        'ONBOARDING_START',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
     it('builds a ready payload with stable parent and child selections', async () => {
       mockVocabularyFindBySpreadsheetId.mockResolvedValue(
         new CategoryVocabulary(

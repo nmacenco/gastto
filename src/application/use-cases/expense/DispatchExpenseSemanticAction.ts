@@ -40,6 +40,7 @@ export interface DispatchExpenseSemanticActionInput {
 export type DispatchExpenseSemanticActionOutcome =
   | { readonly status: 'review_required'; readonly payload: ExpenseReviewPayload }
   | { readonly status: 'missing_data'; readonly field: 'monto' | 'moneda' }
+  | { readonly status: 'authorization_required' }
   | { readonly status: 'expense_queued'; readonly pendingCount: 1 | 2 }
   | { readonly status: 'queue_full'; readonly pendingCount: 2 }
   | { readonly status: 'clarification_required'; readonly reason: ExpenseGuidanceReason };
@@ -178,6 +179,7 @@ export class DispatchExpenseSemanticAction {
   private mapInterpretation(
     result: Awaited<ReturnType<RegisterExpenseUseCase['interpret']>>,
   ): DispatchExpenseSemanticActionOutcome {
+    if (result.status === 'authorization_required') return result;
     return result.status === 'needs_clarification'
       ? { status: 'missing_data', field: result.missingField }
       : { status: 'review_required', payload: result.payload };

@@ -885,6 +885,22 @@ describe('processMessageJob', () => {
       );
     });
 
+    it('asks for reconnection when authorization fails before interpretation', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'IDLE' }),
+      );
+      mockRegisterExpenseInterpret.mockResolvedValue({ status: 'authorization_required' });
+
+      await processMessageJob(buildJob(baseJobData), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.saveAuthorizationFailure(),
+      );
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+
     it('sends one hierarchy-aware expense summary when interpretation succeeds', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
@@ -3204,6 +3220,26 @@ describe('processMessageJob', () => {
   });
 
   describe('ONBOARDING states', () => {
+    it('preserves the reconnect-only flag when empezar launches OAuth', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_START',
+          statePayload: { promptShown: true, reauthorizationOnly: true },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'empezar' }), deps);
+
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'empezar',
+        externalId: '123456789',
+        channel: 'telegram',
+        reauthorizationOnly: true,
+      });
+    });
+
     it('delegates recovery empezar to InitiateCloudConnection without expense interpretation', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(

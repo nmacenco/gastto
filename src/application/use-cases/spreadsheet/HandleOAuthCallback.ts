@@ -10,6 +10,8 @@ import type { OAuthServicePort } from '../../../domain/ports/oauth';
 import type {
   IConversationStateRepository,
   IOAuthTokenRepository,
+  ISpreadsheetConfigRepository,
+  IColumnMappingRepository,
 } from '../../../domain/ports/repositories';
 import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
@@ -59,6 +61,8 @@ export interface HandleOAuthCallbackDeps {
   handleSpreadsheetFileSelection: HandleSpreadsheetFileSelection;
   conversationRepo: IConversationStateRepository;
   userProcessingLock: IUserProcessingLock;
+  spreadsheetConfigRepository: ISpreadsheetConfigRepository;
+  columnMappingRepository: IColumnMappingRepository;
 }
 
 export class HandleOAuthCallback {
@@ -131,6 +135,23 @@ export class HandleOAuthCallback {
       }
 
       return await this.deps.transitionState.runWithState(observed!, async () => {
+        const reauthorizationOnly = observed?.statePayload?.reauthorizationOnly === true;
+        const config = reauthorizationOnly
+          ? await this.deps.spreadsheetConfigRepository.findByUserId(metadata.userId)
+          : null;
+        const confirmedMappings =
+          config && config.provider === metadata.provider
+            ? await this.deps.columnMappingRepository.findBySpreadsheetId(config.id)
+            : [];
+        const reuseConfiguration =
+          reauthorizationOnly &&
+          config !== null &&
+          config.provider === metadata.provider &&
+          config.fileId.length > 0 &&
+          config.sheetName.length > 0 &&
+          confirmedMappings.length > 0 &&
+          confirmedMappings.every((mapping) => mapping.confirmedAt !== null);
+
         try {
           const tokenResponse = await this.deps.oauthService.exchangeCode(
             metadata.provider,
@@ -215,6 +236,22 @@ export class HandleOAuthCallback {
           await this.deps.redis.del(redisKey);
         } catch {
           // non-critical
+        }
+
+        if (reuseConfiguration) {
+          const message = onboardingCopies.googleReconnectedSuccess();
+          await this.deps.transitionState.execute({
+            userId: metadata.userId,
+            targetState: 'IDLE',
+            payload: null,
+            expected: {
+              revision: metadata.revision,
+              currentState: 'ONBOARDING_DRIVE',
+              expiry: 'any',
+            },
+          });
+          await this.deps.messagingPort.sendMessage(metadata.externalId, message);
+          return { success: true, nextState: 'IDLE', message };
         }
 
         const successMessage =

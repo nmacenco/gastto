@@ -79,9 +79,30 @@ export class RegisterExpenseUseCase {
     input: RegisterExpenseInput,
   ): Promise<
     | { status: 'needs_clarification'; missingField: 'monto' | 'moneda' }
+    | { status: 'authorization_required' }
     | { status: 'needs_zero_confirmation'; payload: ExpenseReviewPayload }
     | { status: 'ready_for_review'; payload: ExpenseReviewPayload }
   > {
+    // Check the configured provider before doing any expense interpretation.
+    // A terminal OAuth failure should never produce a review that cannot be saved.
+    const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
+    if (config) {
+      try {
+        await this.oauthAccessTokenService.getValidAccessToken({
+          userId: input.userId,
+          provider: config.provider,
+        });
+      } catch (error) {
+        if (!(error instanceof SpreadsheetError) || error.code !== 'AUTH_ERROR') throw error;
+        await this.transitionState.execute({
+          userId: input.userId,
+          targetState: 'ONBOARDING_START',
+          payload: { promptShown: true, reauthorizationOnly: true },
+        });
+        return { status: 'authorization_required' };
+      }
+    }
+
     const activeState = this.transitionState.currentState?.(input.userId);
     if (activeState?.currentState === 'IDLE') {
       await this.transitionState.execute({
@@ -97,7 +118,6 @@ export class RegisterExpenseUseCase {
     const defaultCurrency = await this.userProfilePort.getDefaultCurrency(input.userId);
 
     // Load active user categories to give context to the LLM
-    const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
     const [activeCategories, categoryVocabulary, columnMappings] = config
       ? await Promise.all([
           this.categoryRepo.findActiveBySpreadsheetId(config.id),
