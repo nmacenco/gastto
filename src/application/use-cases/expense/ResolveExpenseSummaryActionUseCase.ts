@@ -307,7 +307,7 @@ export class ResolveExpenseSummaryActionUseCase {
       await this.deps.transitionState.finalizeClaim({
         userId: input.userId,
         targetState: 'ONBOARDING_START',
-        payload: { promptShown: true },
+        payload: { promptShown: true, reauthorizationOnly: true },
         claimId,
       });
     } else {

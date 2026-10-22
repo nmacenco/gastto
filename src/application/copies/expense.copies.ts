@@ -27,6 +27,8 @@ export const expenseCopies = {
   noActiveReview: () => 'No hay un gasto pendiente de confirmación.',
   saveAuthorizationFailure: () =>
     'No pude acceder a tu planilla. Respondé *empezar* para volver a conectar tu cuenta.',
+  queuedAuthorizationFailure: () =>
+    'No pude continuar con los gastos pendientes. Respondé *empezar* para reconectar tu cuenta y después enviá esos gastos nuevamente.',
   saveStructureFailure: () =>
     'No pude guardar el gasto porque la hoja o sus columnas cambiaron. Respondé *reconfigurar* para revisar la configuración.',
   saveRetryExpired: () =>

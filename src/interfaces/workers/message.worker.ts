@@ -295,7 +295,9 @@ export async function processMessageJob(
           ) {
             await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
           }
-          if (outcome.status === 'missing_data') {
+          if (outcome.status === 'authorization_required') {
+            await messaging.sendMessage(externalId, expenseCopies.saveAuthorizationFailure());
+          } else if (outcome.status === 'missing_data') {
             await messaging.sendMessage(
               externalId,
               outcome.field === 'monto'
@@ -633,7 +635,9 @@ async function routeByState(
         correlationId: `${channel}:${jobData.externalMessageId}`,
       });
 
-      if (result.status === 'needs_clarification') {
+      if (result.status === 'authorization_required') {
+        await messaging.sendMessage(externalId, expenseCopies.saveAuthorizationFailure());
+      } else if (result.status === 'needs_clarification') {
         const question =
           result.missingField === 'monto'
             ? expenseCopies.clarificationAmount()
@@ -749,7 +753,15 @@ async function routeByState(
       }
 
       if (opts.initiateCloudConnection) {
-        await opts.initiateCloudConnection.execute({ userId, rawMessage, externalId, channel });
+        await opts.initiateCloudConnection.execute({
+          userId,
+          rawMessage,
+          externalId,
+          channel,
+          ...(conversationState?.statePayload?.reauthorizationOnly === true
+            ? { reauthorizationOnly: true }
+            : {}),
+        });
       } else {
         await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
       }
@@ -1780,7 +1792,9 @@ async function handleClarification(
       channel,
     });
 
-    if (result.status === 'needs_clarification') {
+    if (result.status === 'authorization_required') {
+      await messaging.sendMessage(externalId, expenseCopies.saveAuthorizationFailure());
+    } else if (result.status === 'needs_clarification') {
       const question =
         result.missingField === 'monto'
           ? expenseCopies.clarificationAmount()
@@ -1821,7 +1835,9 @@ async function handleClarification(
     statePayload,
   });
 
-  if (result.status === 'needs_clarification') {
+  if (result.status === 'authorization_required') {
+    await messaging.sendMessage(externalId, expenseCopies.saveAuthorizationFailure());
+  } else if (result.status === 'needs_clarification') {
     const question =
       result.missingField === 'monto'
         ? expenseCopies.clarificationAmount()

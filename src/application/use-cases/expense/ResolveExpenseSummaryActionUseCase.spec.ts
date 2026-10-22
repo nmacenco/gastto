@@ -370,7 +370,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     expect(transitionMock).toHaveBeenLastCalledWith({
       userId: 'user-123',
       targetState: 'ONBOARDING_START',
-      payload: { promptShown: true },
+      payload: { promptShown: true, reauthorizationOnly: true },
       claimId,
     });
     const recoveryTransition = transitionMock.mock.calls[transitionMock.mock.calls.length - 1]?.[0];

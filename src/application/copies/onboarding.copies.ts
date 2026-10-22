@@ -16,6 +16,8 @@ export const onboardingCopies = {
   onboardingPlaceholder: () =>
     'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
   googleConnectedSuccess: () => '¡Google Drive conectado! Ahora elegí el archivo de tu planilla.',
+  googleReconnectedSuccess: () =>
+    '¡Google Drive reconectado! Conservé tu planilla y columnas. Enviá el gasto nuevamente para registrarlo.',
   onedriveConnectedSuccess: () => '¡OneDrive conectado! Ahora elegí el archivo de tu planilla.',
   oauthConnectionFailed: (canRetry: boolean) =>
     canRetry

@@ -8,7 +8,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 - [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone proposal evaluator plus checksum-pinned, fail-closed release reports, aggregate-safe rollout evidence, guarded enabled dispatch, and migration-free rollback boundaries.
 
-- [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, encrypted token lifecycle, and transparent Google access-token refresh (MVP), with OneDrive planned for the future.
+- [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, encrypted token lifecycle, transparent Google access-token refresh, and reconnection that reuses a configured sheet and columns (MVP), with OneDrive planned for the future.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, deterministic search/direct URL handling, and revision-bound numeric or semantic displayed-file selection.
 - [`select-sheet.md`](./select-sheet.md) — Deterministic and revision-bound semantic sheet selection, IDK header guidance, config persistence, and eager access validation within the chosen file.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation before expense recording, with one transparent OAuth refresh/replay for provider authorization failures.
@@ -21,7 +21,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Bounded initial extraction with configurable provider selection, explicit Groq opt-in, and one independent fallback, GLM streaming, safe recovery, timeout phase diagnostics, and recorded registration acceptance, plus structured interpreted-expense summary with persisted presentation identity and version-bound confirm / correct / cancel actions.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Exact text/callback and revision-bound natural cancellation that cannot cancel a replacement draft.
 - [`expense-correction.md`](./expense-correction.md) — Contextual and validated-semantic correction with whole-target active-category recovery, rejection of unresolved negations/alternatives, atomic hierarchy validation, and review-revision invalidation of old buttons.
-- [`expense-confirmation.md`](./expense-confirmation.md) — Exact whole-message save/retry authorization, request-only natural retry, bounded reconfiguration, guarded claims, and stale/expired rejection.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Early OAuth check before expense extraction, exact whole-message save/retry authorization, request-only natural retry, bounded reconfiguration, guarded claims, and stale/expired rejection.
 - [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo with exact-target claims, explicit-only immediate eligibility, and bound delayed confirmation for inferred requests.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with guarded initial-extraction recovery, renewable ownership, review/undo/retry presentation bindings, guarded timeout/queue effects, and financial claims.

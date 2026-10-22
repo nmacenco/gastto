@@ -65,6 +65,23 @@ describe('InitiateCloudConnection', () => {
   });
 
   describe('valid Google Drive selection', () => {
+    it('carries the reauthorization flag to the OAuth callback state', async () => {
+      await new InitiateCloudConnection(buildMockDeps()).execute({
+        ...baseInput,
+        reauthorizationOnly: true,
+      });
+
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_DRIVE',
+        payload: {
+          provider: 'google',
+          state: 'test-state-123',
+          reauthorizationOnly: true,
+        },
+      });
+    });
+
     it('generates auth URL, stores state, schedules reminder, transitions FSM, and sends link', async () => {
       const deps = buildMockDeps();
       const useCase = new InitiateCloudConnection(deps);
