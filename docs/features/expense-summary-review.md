@@ -61,15 +61,22 @@ Groq is available by explicit `LLM_PROVIDER=groq` or
 `GROQ_MODEL` (default `openai/gpt-oss-20b`). The primary setting also directs
 correction and response generation to Groq; the fallback setting applies only
 to initial extraction. Both `auto` priorities remain unchanged until Fly
-connectivity and representative expense quality are validated. Groq JSON object
-mode does not replace the local strict expense schema or the explicit review
-and save confirmation.
+connectivity and representative expense quality are validated. For the exact
+`openai/gpt-oss-20b` and `openai/gpt-oss-120b` models, expense extraction requests
+use Groq's strict JSON Schema mode with all eight fields required, nullable
+unknown values, low reasoning effort, and a 1024-token completion cap. Other
+configured Groq models keep JSON object mode. Local schema validation and the
+explicit review and save confirmation remain required. This change addresses
+a possible JSON generation failure behind an HTTP 400, but an HTTP status alone
+does not establish the provider's exact error reason.
 
 Before a review is built, all provider extraction requests have a configurable 30-second default deadline with real transport cancellation. Empty/blank responses, truncated output, invalid JSON/schema, provider failures, timeout, and cancellation have separate safe diagnostic codes. Only validated final response content enters the expense workflow. The exact NVIDIA `z-ai/glm-5.3-flash` extraction profile uses low reasoning with a 4096-token cap; user-reported registration acceptance and the limits of live evidence are recorded in the [validation record](../../ai/plans/2026_09_23-fix_expense_extraction_failures/validation.md).
 
 Extraction completion logs include the configured deadline. NVIDIA extraction also records the request size in bytes and the phase reached (`awaiting_headers`, `reading_body`, `streaming_body`, or `processing_response`) without logging the prompt or provider response. A timeout in `awaiting_headers` means no HTTP response headers reached the adapter before its deadline; it does not distinguish provider generation time from network delay.
 
 For the exact NVIDIA model `z-ai/glm-5.3-flash`, initial extraction requests use streaming. The adapter assembles only final-answer content from SSE events, discards reasoning text, and waits for the completion marker before validating the JSON. It records the first event latency and counts of stream/reasoning events without recording their text. The same configured deadline bounds the entire stream; receiving early events does not extend it. Other NVIDIA model IDs retain their JSON response path.
+
+The initial review preserves the calendar date extracted from a written receipt (for example, `21 oct 2026` becomes `2026-10-21`). It does not convert a local date-only value through UTC, which could move it to the previous day.
 
 A failed initial attempt from `IDLE` or `EXPENSE_RECEIVING` resets only its owned receiving revision to `IDLE`, clearing its failed payload and expiry before notifying the user. Queued-batch interpretation, clarification, and correction do not use this reset. No expense record or spreadsheet row is written on this path. The user can resend the expense and must still confirm its review before saving.
 

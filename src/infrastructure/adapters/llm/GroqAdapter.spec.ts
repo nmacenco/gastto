@@ -5,6 +5,7 @@ import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { LLMPort, UserContext } from '../../../domain/ports/services';
 import { GroqAdapter } from './GroqAdapter';
 import { ExtractionFallbackLLMPort } from './ExtractionFallbackLLMPort';
+import { ExtractedExpenseSchema } from './expenseExtraction';
 
 const { createMock, constructorMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
@@ -75,16 +76,86 @@ describe('GroqAdapter', () => {
     });
     expect(typeof clientConfig.fetch).toBe('function');
     const [request, options] = createMock.mock.calls[0] as [
-      { model: string; response_format: unknown; messages: Array<{ content: string }> },
+      {
+        model: string;
+        response_format: {
+          type: string;
+          json_schema: {
+            strict: boolean;
+            schema: {
+              required: string[];
+              properties: Record<string, unknown>;
+              additionalProperties: boolean;
+            };
+          };
+        };
+        reasoning_effort: string;
+        max_completion_tokens: number;
+        messages: Array<{ content: string }>;
+      },
       { signal: AbortSignal; maxRetries: number; timeout: number },
     ];
     expect(request.model).toBe('openai/gpt-oss-20b');
-    expect(request.response_format).toEqual({ type: 'json_object' });
+    expect(request.response_format).toMatchObject({
+      type: 'json_schema',
+      json_schema: {
+        strict: true,
+        schema: { additionalProperties: false },
+      },
+    });
+    expect(request.response_format.json_schema.schema.required).toEqual(
+      Object.keys(ExtractedExpenseSchema.shape),
+    );
+    expect(Object.keys(request.response_format.json_schema.schema.properties)).toEqual(
+      Object.keys(ExtractedExpenseSchema.shape),
+    );
+    expect(request.reasoning_effort).toBe('low');
+    expect(request.max_completion_tokens).toBe(1024);
     expect(request.messages[0]?.content).toContain('subcategoria_raw');
     expect(request.messages[1]?.content).toContain('"subcategoryEnabled": true');
     expect(request.messages[1]?.content).toContain('Supermercado');
     expect(options).toMatchObject({ maxRetries: 0, timeout: 30_000 });
     expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('sends the complete multiline card notification as untrusted expense data', async () => {
+    createMock.mockResolvedValue(response(JSON.stringify(expenseJson)));
+    const receipt = [
+      'Fecha: 21 oct 2026, 17:12',
+      'Comercio: Mercadona La Albuferet',
+      'Importe: 20,19\u00a0€',
+      'Tarjeta: CREDITO SANTANDER',
+      'Nombre: Mercadona La Albuferet',
+      'Transacción: Mercadona La Albuferet',
+    ].join('\n');
+
+    await expect(new GroqAdapter('key').extractExpense(receipt, context)).resolves.toMatchObject({
+      monto: 20.19,
+      moneda: 'EUR',
+      fechaRaw: '21 oct 2026',
+    });
+
+    const [request] = createMock.mock.calls[0] as [
+      { messages: Array<{ content: string }>; response_format: { type: string } },
+    ];
+    expect(request.messages[1]!.content).toContain(`"userMessage": ${JSON.stringify(receipt)}`);
+    expect(request.response_format.type).toBe('json_schema');
+  });
+
+  it('keeps JSON object mode for a Groq model without strict schema support', async () => {
+    createMock.mockResolvedValue(response(JSON.stringify(expenseJson)));
+
+    await new GroqAdapter('key', 'llama-3.3-70b-versatile').extractExpense(
+      'Mercadona 20 €',
+      context,
+    );
+
+    expect(createMock.mock.calls[0]?.[0]).toMatchObject({
+      model: 'llama-3.3-70b-versatile',
+      response_format: { type: 'json_object' },
+      max_completion_tokens: 512,
+    });
+    expect(createMock.mock.calls[0]?.[0]).not.toHaveProperty('reasoning_effort');
   });
 
   it('passes disabled subcategory context and accepts an explicit null', async () => {

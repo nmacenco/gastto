@@ -20,6 +20,43 @@ import {
   toExpenseCorrectionSuggestion,
 } from './expenseCorrection';
 
+// GPT-OSS supports constrained decoding. Keep every field required and nullable
+// where the shared extraction contract permits an unknown value.
+const STRICT_EXPENSE_RESPONSE_FORMAT = {
+  type: 'json_schema' as const,
+  json_schema: {
+    name: 'gastto_expense',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        monto: { type: ['number', 'null'] },
+        moneda: {
+          type: ['string', 'null'],
+          enum: ['ARS', 'EUR', 'USD', 'MXN', 'GBP', 'BRL', null],
+        },
+        categoria_raw: { type: ['string', 'null'] },
+        subcategoria_raw: { type: ['string', 'null'] },
+        fecha_raw: { type: ['string', 'null'] },
+        medio_pago: { type: ['string', 'null'] },
+        confianza_categoria: { type: 'string', enum: ['alta', 'baja', 'nula'] },
+        confianza_subcategoria: { type: 'string', enum: ['alta', 'baja', 'nula'] },
+      },
+      required: [
+        'monto',
+        'moneda',
+        'categoria_raw',
+        'subcategoria_raw',
+        'fecha_raw',
+        'medio_pago',
+        'confianza_categoria',
+        'confianza_subcategoria',
+      ],
+      additionalProperties: false,
+    },
+  },
+};
+
 export class GroqAdapter implements LLMPort {
   private readonly client: OpenAI;
 
@@ -42,12 +79,15 @@ export class GroqAdapter implements LLMPort {
     options?: ExtractionExecutionOptions,
   ): Promise<ExtractedExpense> {
     return runExtraction('groq', this.model, this.extractionSettings, options, async (signal) => {
+      const strictModel =
+        this.model === 'openai/gpt-oss-20b' || this.model === 'openai/gpt-oss-120b';
       const completion = await this.client.chat.completions.create(
         {
           model: this.model,
           temperature: 0,
-          max_completion_tokens: 512,
-          response_format: { type: 'json_object' },
+          max_completion_tokens: strictModel ? 1024 : 512,
+          ...(strictModel ? { reasoning_effort: 'low' as const } : {}),
+          response_format: strictModel ? STRICT_EXPENSE_RESPONSE_FORMAT : { type: 'json_object' },
           messages: [
             { role: 'system', content: buildExtractionSystemPrompt() },
             {
