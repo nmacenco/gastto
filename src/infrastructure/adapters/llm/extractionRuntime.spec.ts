@@ -165,6 +165,25 @@ for (const provider of ['nvidia', 'openai', 'anthropic']) {
       expect(vi.getTimerCount()).toBe(0);
     });
 
+    it('uses the per-attempt timeout supplied by the fallback', async () => {
+      vi.useFakeTimers();
+      const h = setup(provider);
+      h.request.mockImplementationOnce(() => new Promise(() => {}));
+      const pending = h.adapter.extractExpense('almuerzo 200 euros', context, {
+        timeoutMs: 250,
+      });
+      const checked = expect(pending).rejects.toMatchObject({ code: 'LLM_TIMEOUT' });
+      await vi.advanceTimersByTimeAsync(250);
+      await checked;
+      expect(h.error).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 250 }));
+      if (provider !== 'nvidia') {
+        expect(h.request).toHaveBeenCalledWith(
+          expect.any(Object),
+          expect.objectContaining({ timeout: 250 }),
+        );
+      }
+    });
+
     it('cancels on ownership loss and skips requests already cancelled', async () => {
       const h = setup(provider);
       h.request.mockImplementationOnce(() => new Promise(() => {}));

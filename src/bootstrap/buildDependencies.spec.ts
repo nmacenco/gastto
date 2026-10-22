@@ -13,6 +13,7 @@ import type { DrizzleDatabase } from './types';
 import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
 import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
+import { ExtractionFallbackLLMPort } from '../infrastructure/adapters/llm/ExtractionFallbackLLMPort';
 import { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
 import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
 import { SubcategoryFallbackMatcher } from '../infrastructure/adapters/category/SubcategoryFallbackMatcher';
@@ -35,6 +36,8 @@ const baseEnv: Env = {
   EXPENSE_REVIEW_TIMEOUT_MINUTES: 10,
   EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: 10,
   OPENAI_API_KEY: 'sk-test-openai',
+  LLM_PROVIDER: 'auto',
+  LLM_FALLBACK_PROVIDER: 'auto',
   LLM_EXTRACTION_TIMEOUT_MS: 30_000,
   NVIDIA_MODEL: 'z-ai/glm-5.3-flash',
   SEMANTIC_ROUTER_STATE_MODES: {},
@@ -146,7 +149,7 @@ describe('buildDependencies', () => {
 
   it('registers one sanitized error listener on every queue without optional features', () => {
     const loggerError = vi.fn();
-    const logger = { error: loggerError } as unknown as Logger;
+    const logger = { error: loggerError, info: vi.fn() } as unknown as Logger;
     const env: Env = {
       ...baseEnv,
       TELEGRAM_BOT_TOKEN: '',
@@ -269,7 +272,7 @@ describe('buildDependencies', () => {
       buildInfra(),
     );
 
-    expect(deps.llmPort).toBeInstanceOf(NvidiaAdapter);
+    expect(deps.llmPort).toBeInstanceOf(ExtractionFallbackLLMPort);
     expect(deps.semanticRouter).toBeInstanceOf(OpenAISemanticRouterAdapter);
   });
 
@@ -297,6 +300,39 @@ describe('buildDependencies', () => {
     const deps = buildDependencies(env, buildInfra());
 
     expect(deps.llmPort).toBeInstanceOf(OpenAIAdapter);
+  });
+
+  it('selects an explicit provider even when NVIDIA is configured', () => {
+    const keys = {
+      ...baseEnv,
+      NVIDIA_API_KEY: 'nvidia-key',
+      ANTHROPIC_API_KEY: 'anthropic-key',
+      LLM_FALLBACK_PROVIDER: 'none' as const,
+    };
+    expect(
+      buildDependencies({ ...keys, LLM_PROVIDER: 'openai' }, buildInfra()).llmPort,
+    ).toBeInstanceOf(OpenAIAdapter);
+    expect(
+      buildDependencies({ ...keys, LLM_PROVIDER: 'anthropic' }, buildInfra()).llmPort,
+    ).toBeInstanceOf(ClaudeAdapter);
+  });
+
+  it('rejects an explicit provider whose API key is absent', () => {
+    expect(() =>
+      buildDependencies(
+        { ...baseEnv, LLM_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: undefined },
+        buildInfra(),
+      ),
+    ).toThrow('LLM_PROVIDER=anthropic requires ANTHROPIC_API_KEY');
+  });
+
+  it('requires a distinct configured key for an explicit extraction fallback', () => {
+    expect(() =>
+      buildDependencies({ ...baseEnv, LLM_FALLBACK_PROVIDER: 'anthropic' }, buildInfra()),
+    ).toThrow('LLM_FALLBACK_PROVIDER=anthropic requires ANTHROPIC_API_KEY');
+    expect(() =>
+      buildDependencies({ ...baseEnv, LLM_FALLBACK_PROVIDER: 'openai' }, buildInfra()),
+    ).toThrow('LLM_FALLBACK_PROVIDER must differ from LLM_PROVIDER');
   });
 
   it('throws when no LLM provider is configured', () => {

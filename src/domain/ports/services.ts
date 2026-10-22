@@ -45,6 +45,7 @@ export interface ExpenseCorrectionSuggestion {
 export interface ExtractionExecutionOptions {
   correlationId?: string;
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface LLMPort {

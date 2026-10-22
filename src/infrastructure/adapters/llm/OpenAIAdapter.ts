@@ -56,7 +56,11 @@ export class OpenAIAdapter implements LLMPort {
             },
           ],
         },
-        { signal, maxRetries: 0, timeout: this.extractionSettings.timeoutMs ?? 30_000 },
+        {
+          signal,
+          maxRetries: 0,
+          timeout: options?.timeoutMs ?? this.extractionSettings.timeoutMs ?? 30_000,
+        },
       );
 
       return {

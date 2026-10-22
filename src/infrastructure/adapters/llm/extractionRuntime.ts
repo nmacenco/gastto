@@ -59,7 +59,7 @@ export async function runExtraction(
   options: ExtractionExecutionOptions | undefined,
   request: (signal: AbortSignal, metadata: ExtractionMetadata) => Promise<ExtractionResponse>,
 ) {
-  const timeoutMs = settings.timeoutMs ?? 30_000;
+  const timeoutMs = options?.timeoutMs ?? settings.timeoutMs ?? 30_000;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     throw new Error('Invalid extraction timeout');
   }

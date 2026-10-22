@@ -45,6 +45,17 @@ After the user describes an expense in natural language, the system interprets t
 
 ## Initial extraction failures
 
+The shared LLM provider can be selected with `LLM_PROVIDER`. `auto` preserves the
+existing NVIDIA, Anthropic, OpenAI priority; an explicit choice requires that
+provider's key. `LLM_FALLBACK_PROVIDER=auto` uses one different configured provider
+for initial expense extraction after a typed provider, timeout, or invalid-output
+failure. The first attempt receives half the configured extraction deadline and
+the backup receives the remaining time. Caller cancellation never starts the
+backup. `none` disables it, and one configured key alone provides no fallback.
+Both attempts reuse the original message and correlation ID. No failed attempt
+can save a record; review and explicit confirmation remain required. Correction
+and other shared LLM operations use the primary provider only.
+
 Before a review is built, all provider extraction requests have a configurable 30-second default deadline with real transport cancellation. Empty/blank responses, truncated output, invalid JSON/schema, provider failures, timeout, and cancellation have separate safe diagnostic codes. Only validated final response content enters the expense workflow. The exact NVIDIA `z-ai/glm-5.3-flash` extraction profile uses low reasoning with a 4096-token cap; user-reported registration acceptance and the limits of live evidence are recorded in the [validation record](../../ai/plans/2026_09_23-fix_expense_extraction_failures/validation.md).
 
 Extraction completion logs include the configured deadline. NVIDIA extraction also records the request size in bytes and the phase reached (`awaiting_headers`, `reading_body`, `streaming_body`, or `processing_response`) without logging the prompt or provider response. A timeout in `awaiting_headers` means no HTTP response headers reached the adapter before its deadline; it does not distinguish provider generation time from network delay.

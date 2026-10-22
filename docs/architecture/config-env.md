@@ -23,6 +23,8 @@ The release-evidence command accepts configuration only through explicit JSON fi
 | `OPENAI_API_KEY`                               | Server | No       | OpenAI API key. Optional; at least one LLM provider key is required.                                                                                           |
 | `ANTHROPIC_API_KEY`                            | Server | No       | Anthropic API key. Optional.                                                                                                                                   |
 | `NVIDIA_API_KEY`                               | Server | No       | NVIDIA API key for the `integrate.api.nvidia.com` OpenAI-compatible endpoint. Optional.                                                                        |
+| `LLM_PROVIDER`                                  | Server | No       | Provider for the shared LLM port: `auto`, `nvidia`, `anthropic`, or `openai`. Default `auto` retains NVIDIA → Anthropic → OpenAI precedence. An explicit provider requires its API key. This is separate from `SEMANTIC_ROUTER_PROVIDER`. |
+| `LLM_FALLBACK_PROVIDER`                         | Server | No       | Extraction backup: `auto`, `none`, `nvidia`, `anthropic`, or `openai`. Default `auto` selects one independently keyed provider, preferring OpenAI then Anthropic then NVIDIA. An explicit selection requires its key and must differ from the primary. |
 | `LLM_EXTRACTION_TIMEOUT_MS`                    | Server | No       | Extraction-only provider deadline in milliseconds, integer 1000–60000, default 30000. Includes response-body consumption; SDK extraction retries are disabled. |
 | `NVIDIA_MODEL`                                 | Server | No       | NVIDIA-only extraction/chat model ID. Defaults to `z-ai/glm-5.3-flash`; accepts a 1-128 character ID using letters, numbers, `.`, `_`, `-`, and `/`.           |
 | `TELEGRAM_WEBHOOK_SECRET`                      | Server | No       | Secret token for Telegram webhook origin validation. Required once webhook is wired.                                                                           |
@@ -41,11 +43,21 @@ The release-evidence command accepts configuration only through explicit JSON fi
 
 **Security note**: All secrets are server-side only. No env var is exposed to the client.
 
-`NVIDIA_MODEL` is provider-specific and is read only when `NVIDIA_API_KEY` is
-configured and NVIDIA has the highest provider-selection precedence. It does not
+`NVIDIA_MODEL` is provider-specific and is used when NVIDIA is selected by
+`LLM_PROVIDER` or by `auto` precedence. It does not
 change the NVIDIA API key, endpoint, prompts, response parsing,
 or provider precedence. Direct `NvidiaAdapter` construction also defaults to
 `z-ai/glm-5.3-flash` when no model is supplied.
+
+`LLM_PROVIDER` also selects the adapter for correction, column inference, and
+other shared LLM-port calls. Set it explicitly to use another configured provider
+while keeping `NVIDIA_API_KEY` available. The extraction-only fallback tries one
+different configured provider after a typed provider/output failure. It gives the
+primary half of `LLM_EXTRACTION_TIMEOUT_MS` and the backup the time remaining in
+the original deadline; cancellation does not trigger it. If only one provider key
+exists, `auto` has no backup. `none` disables fallback. This does not change
+semantic routing. Validate both extraction and correction with the chosen provider
+in development before promotion.
 
 ## Environment files
 

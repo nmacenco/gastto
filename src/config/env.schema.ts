@@ -75,6 +75,8 @@ export const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   NVIDIA_API_KEY: z.string().optional(),
+  LLM_PROVIDER: z.enum(['auto', 'nvidia', 'anthropic', 'openai']).default('auto'),
+  LLM_FALLBACK_PROVIDER: z.enum(['auto', 'none', 'nvidia', 'anthropic', 'openai']).default('auto'),
   LLM_EXTRACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(30_000),
   NVIDIA_MODEL: z
     .string()

@@ -26,6 +26,15 @@ The production app (`gastto`) is assumed to already exist.
 
 ## Secrets
 
+If the configured extraction provider repeatedly times out before HTTP headers,
+`LLM_FALLBACK_PROVIDER=auto` can try one different provider when that app has a
+second API key. The combined extraction deadline remains bounded. Use
+`LLM_FALLBACK_PROVIDER=none` to disable it or explicitly select the backup. An
+operator can instead set `LLM_PROVIDER` to another configured primary provider;
+`auto` retains NVIDIA-first precedence. Verify an expense review and correction
+in development before promotion. A fallback does not enable semantic routing or
+replay a failed expense. Keep former settings for rollback; do not print API keys.
+
 All environment-specific configuration (sensitive and non-sensitive) lives in Fly.io secrets per app. The only values stored in GitHub are the Fly.io API tokens required by GitHub Actions to trigger deploys.
 
 ### Required secrets per environment

@@ -32,6 +32,8 @@ describe('envSchema', () => {
       expect(result.data.SEMANTIC_ROUTER_COHORT_PERCENT).toBe(0);
       expect(result.data.SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT).toBe(0);
       expect(result.data.LLM_EXTRACTION_TIMEOUT_MS).toBe(30000);
+      expect(result.data.LLM_PROVIDER).toBe('auto');
+      expect(result.data.LLM_FALLBACK_PROVIDER).toBe('auto');
       expect(result.data.NVIDIA_MODEL).toBe('z-ai/glm-5.3-flash');
     }
   });
@@ -77,6 +79,8 @@ describe('envSchema', () => {
     { LLM_EXTRACTION_TIMEOUT_MS: '60001' },
     { LLM_EXTRACTION_TIMEOUT_MS: 'NaN' },
     { LLM_EXTRACTION_TIMEOUT_MS: '1000.5' },
+    { LLM_PROVIDER: 'other' },
+    { LLM_FALLBACK_PROVIDER: 'other' },
     { NVIDIA_MODEL: '' },
     { NVIDIA_MODEL: 'model with spaces' },
     { NVIDIA_MODEL: 'model:with:invalid:characters' },
@@ -188,6 +192,21 @@ describe('envSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.NVIDIA_MODEL).toBe('z-ai/custom-model.v2');
+    }
+  });
+
+  it('accepts explicit LLM provider selection', () => {
+    for (const provider of ['nvidia', 'anthropic', 'openai']) {
+      const result = envSchema.safeParse({ ...validEnv, LLM_PROVIDER: provider });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('accepts explicit extraction fallback selection', () => {
+    for (const provider of ['none', 'nvidia', 'anthropic', 'openai']) {
+      expect(envSchema.safeParse({ ...validEnv, LLM_FALLBACK_PROVIDER: provider }).success).toBe(
+        true,
+      );
     }
   });
 
