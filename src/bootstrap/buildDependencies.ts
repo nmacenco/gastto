@@ -37,6 +37,7 @@ import { LLMColumnInferenceAdapter } from '../infrastructure/adapters/sheets/LLM
 import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
 import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
 import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
+import { GroqAdapter } from '../infrastructure/adapters/llm/GroqAdapter';
 import {
   ExtractionFallbackLLMPort,
   type ExtractionProvider,
@@ -126,6 +127,7 @@ function createLLMPort(env: Env, logger: BuildDependenciesInfra['rootLogger']): 
     nvidia: env.NVIDIA_API_KEY,
     anthropic: env.ANTHROPIC_API_KEY,
     openai: env.OPENAI_API_KEY,
+    groq: env.GROQ_API_KEY,
   };
   const primaryProvider =
     env.LLM_PROVIDER === 'auto'
@@ -134,7 +136,7 @@ function createLLMPort(env: Env, logger: BuildDependenciesInfra['rootLogger']): 
       : env.LLM_PROVIDER;
   if (!primaryProvider) {
     throw new Error(
-      'At least one LLM provider API key must be configured: NVIDIA_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY.',
+      'At least one LLM provider API key must be configured: NVIDIA_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, or GROQ_API_KEY.',
     );
   }
   const createAdapter = (provider: ExtractionProvider): LLMPort => {
@@ -149,6 +151,8 @@ function createLLMPort(env: Env, logger: BuildDependenciesInfra['rootLogger']): 
         return new ClaudeAdapter(apiKey, settings);
       case 'openai':
         return new OpenAIAdapter(apiKey, settings);
+      case 'groq':
+        return new GroqAdapter(apiKey, env.GROQ_MODEL, settings);
     }
   };
   const primary = createAdapter(primaryProvider);

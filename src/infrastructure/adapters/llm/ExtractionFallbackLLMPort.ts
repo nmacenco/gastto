@@ -11,7 +11,7 @@ import type {
   UserContext,
 } from '../../../domain/ports/services';
 
-export type ExtractionProvider = 'nvidia' | 'anthropic' | 'openai';
+export type ExtractionProvider = 'nvidia' | 'anthropic' | 'openai' | 'groq';
 
 /** Try one independent provider after a failed extraction, within one deadline. */
 export class ExtractionFallbackLLMPort implements LLMPort {

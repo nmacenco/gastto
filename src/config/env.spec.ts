@@ -35,6 +35,7 @@ describe('envSchema', () => {
       expect(result.data.LLM_PROVIDER).toBe('auto');
       expect(result.data.LLM_FALLBACK_PROVIDER).toBe('auto');
       expect(result.data.NVIDIA_MODEL).toBe('z-ai/glm-5.3-flash');
+      expect(result.data.GROQ_MODEL).toBe('openai/gpt-oss-20b');
     }
   });
 
@@ -85,6 +86,10 @@ describe('envSchema', () => {
     { NVIDIA_MODEL: 'model with spaces' },
     { NVIDIA_MODEL: 'model:with:invalid:characters' },
     { NVIDIA_MODEL: `${'a'.repeat(128)}!` },
+    { GROQ_MODEL: '' },
+    { GROQ_MODEL: 'model with spaces' },
+    { GROQ_MODEL: 'model:with:invalid:characters' },
+    { GROQ_MODEL: `${'a'.repeat(128)}!` },
   ])('rejects invalid environment setting %#', (override) => {
     expect(envSchema.safeParse({ ...validEnv, ...override }).success).toBe(false);
   });
@@ -100,6 +105,8 @@ describe('envSchema', () => {
     // @ts-expect-error dynamically deleting for test
     delete withoutOptional.NVIDIA_API_KEY;
     // @ts-expect-error dynamically deleting for test
+    delete withoutOptional.GROQ_API_KEY;
+    // @ts-expect-error dynamically deleting for test
     delete withoutOptional.SENTRY_DSN;
     const result = envSchema.safeParse(withoutOptional);
     expect(result.success).toBe(true);
@@ -107,6 +114,7 @@ describe('envSchema', () => {
       expect(result.data.OPENAI_API_KEY).toBeUndefined();
       expect(result.data.ANTHROPIC_API_KEY).toBeUndefined();
       expect(result.data.NVIDIA_API_KEY).toBeUndefined();
+      expect(result.data.GROQ_API_KEY).toBeUndefined();
       expect(result.data.SENTRY_DSN).toBeUndefined();
     }
   });
@@ -171,12 +179,14 @@ describe('envSchema', () => {
       ...validEnv,
       ANTHROPIC_API_KEY: 'sk-test-anthropic',
       NVIDIA_API_KEY: 'nvidia-test-key',
+      GROQ_API_KEY: 'groq-test-key',
       SENTRY_DSN: 'https://sentry.example.com',
     });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.ANTHROPIC_API_KEY).toBe('sk-test-anthropic');
       expect(result.data.NVIDIA_API_KEY).toBe('nvidia-test-key');
+      expect(result.data.GROQ_API_KEY).toBe('groq-test-key');
       expect(result.data.NVIDIA_MODEL).toBe('z-ai/glm-5.3-flash');
       expect(result.data.SENTRY_DSN).toBe('https://sentry.example.com');
       expect(result.data.TELEGRAM_BOT_TOKEN).toBe('test-bot-token');
@@ -195,15 +205,21 @@ describe('envSchema', () => {
     }
   });
 
+  it('accepts a custom Groq model identifier', () => {
+    const result = envSchema.safeParse({ ...validEnv, GROQ_MODEL: 'openai/gpt-oss-120b' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.GROQ_MODEL).toBe('openai/gpt-oss-120b');
+  });
+
   it('accepts explicit LLM provider selection', () => {
-    for (const provider of ['nvidia', 'anthropic', 'openai']) {
+    for (const provider of ['nvidia', 'anthropic', 'openai', 'groq']) {
       const result = envSchema.safeParse({ ...validEnv, LLM_PROVIDER: provider });
       expect(result.success).toBe(true);
     }
   });
 
   it('accepts explicit extraction fallback selection', () => {
-    for (const provider of ['none', 'nvidia', 'anthropic', 'openai']) {
+    for (const provider of ['none', 'nvidia', 'anthropic', 'openai', 'groq']) {
       expect(envSchema.safeParse({ ...validEnv, LLM_FALLBACK_PROVIDER: provider }).success).toBe(
         true,
       );

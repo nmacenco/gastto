@@ -53,7 +53,7 @@ function safeResponseMetadata(response: ExtractionResponse): Record<string, unkn
 }
 
 export async function runExtraction(
-  provider: 'nvidia' | 'openai' | 'anthropic',
+  provider: 'nvidia' | 'openai' | 'anthropic' | 'groq',
   model: string,
   settings: ExtractionSettings,
   options: ExtractionExecutionOptions | undefined,
