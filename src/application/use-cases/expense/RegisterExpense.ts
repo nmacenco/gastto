@@ -54,6 +54,21 @@ export interface RegisterExpenseInput {
   correlationId?: string;
 }
 
+function resolveExpenseCalendarDate(rawDate: string | null): string {
+  const value = rawDate?.trim();
+  if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) throw new RangeError('Invalid extracted expense date');
+  // The review records the calendar day stated by the user. Converting local
+  // midnight to UTC can silently move a date-only expense to the previous day.
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
 export class RegisterExpenseUseCase {
   private readonly fallbackExtractor = new ExtractAmountCurrency();
 
@@ -406,9 +421,7 @@ export class RegisterExpenseUseCase {
     classification: HierarchicalClassificationResult,
     subcategoryEnabled: boolean,
   ): ExpenseReviewPayload {
-    const resolvedDate = extracted.fechaRaw
-      ? new Date(extracted.fechaRaw).toISOString().slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
+    const resolvedDate = resolveExpenseCalendarDate(extracted.fechaRaw);
 
     const canonicalExtracted =
       classification.subcategory.id === null

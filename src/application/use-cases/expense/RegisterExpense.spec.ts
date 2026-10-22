@@ -620,6 +620,30 @@ describe('RegisterExpenseUseCase', () => {
   });
 
   describe('interpret()', () => {
+    it('keeps the printed calendar date from a Spanish card notification', async () => {
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({
+          monto: 20.19,
+          moneda: 'EUR',
+          categoriaRaw: 'Mercadona La Albuferet',
+          fechaRaw: '21 oct 2026',
+        }),
+      );
+      const { useCase } = buildUseCase();
+
+      const result = await useCase.interpret(
+        buildInput({
+          rawMessage: 'Fecha: 21 oct 2026, 17:12\nImporte: 20,19\u00a0€',
+        }),
+      );
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status === 'ready_for_review') {
+        expect(result.payload.resolvedDate).toBe('2026-10-21');
+        expect(result.payload.extracted.monto).toBe(20.19);
+      }
+    });
+
     it('requests reconnection before expense extraction when authorization is lost', async () => {
       mockGetValidAccessToken.mockRejectedValue(
         new SpreadsheetError('Refresh credentials revoked', { code: 'AUTH_ERROR' }),
