@@ -23,8 +23,10 @@ Scenario 3: The sheet is empty
   Given that the system accesses the sheet
   When it detects that it has no content
   Then it informs the user that the sheet appears to be empty
-  And it asks if it's the correct sheet or if they want to choose another
-  And if the user confirms it's the correct one, it informs them that it will create the structure from scratch (out of MVP scope, escalate to product)
+  And it clarifies that creating the structure from scratch is not available in the MVP
+  And it offers the user to choose another sheet or abort onboarding
+  And if the user chooses another sheet, it returns to sheet selection (HU-4.03)
+  And if the user aborts, the flow stops without advancing to mapping
 
 Scenario 4: Access error (network, expired token)
   Given that the system attempts to access the sheet

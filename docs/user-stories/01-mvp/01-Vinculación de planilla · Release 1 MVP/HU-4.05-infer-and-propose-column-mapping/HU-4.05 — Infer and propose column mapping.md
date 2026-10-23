@@ -16,7 +16,7 @@ Scenario 1: Clear headers — high-confidence mapping
   And the user can respond "yes" or correct it
 
 Scenario 2: Ambiguous headers — low-confidence mapping
-  Given that the headers are not unambiguous (e.g., "Col1", "Amount", "Type")
+  Given that the headers are not unambiguous (e.g., "Col1", "Col2", "Type")
   When the system infers with lower certainty
   Then it presents the proposed mapping indicating its uncertainty:
     "I'm not sure about some fields, this is my best attempt: [mapping]"
