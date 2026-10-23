@@ -9,6 +9,8 @@ export type CorrectionParseResult =
   | { kind: 'success'; field: GasttoField; columnRef: string }
   | { kind: 'failure'; reason: string };
 
+export const MULTIPLE_FIELDS_CORRECTION_REASON = 'multiple-fields';
+
 export interface ColumnMappingCorrectionParser {
   parse(message: string): CorrectionParseResult;
 }
@@ -19,7 +21,14 @@ interface FieldMatcher {
 }
 
 const FIELD_MATCHERS: FieldMatcher[] = [
-  { regex: /\b(categoria|rubro|tipo|category)\b/, field: 'categoria' },
+  {
+    regex: /\b(subcategoria|sub\s+categoria|subcategory|sub\s+category|categoria\s+secundaria)\b/,
+    field: 'subcategoria',
+  },
+  {
+    regex: /(?<!sub )\b(categoria|rubro|tipo|category)\b(?!\s+secundaria)/,
+    field: 'categoria',
+  },
   { regex: /\b(monto|amount|valor|importe|total|precio|costo)\b/, field: 'monto' },
   { regex: /\b(fecha|date|data|dia)\b/, field: 'fecha' },
   { regex: /\b(concepto|descripcion|description|detalle|motivo|nota)\b/, field: 'concepto' },
@@ -34,9 +43,12 @@ export class RuleBasedColumnMappingCorrectionParser implements ColumnMappingCorr
   parse(message: string): CorrectionParseResult {
     const normalized = this.normalize(message);
 
-    const field = this.extractField(normalized);
-    if (!field) {
+    const fields = this.extractFields(normalized);
+    if (fields.length === 0) {
       return { kind: 'failure', reason: 'No recognizable Gastto field found in the message' };
+    }
+    if (fields.length > 1) {
+      return { kind: 'failure', reason: MULTIPLE_FIELDS_CORRECTION_REASON };
     }
 
     const columnRef = this.extractColumnRef(normalized);
@@ -44,7 +56,7 @@ export class RuleBasedColumnMappingCorrectionParser implements ColumnMappingCorr
       return { kind: 'failure', reason: 'No recognizable column reference found in the message' };
     }
 
-    return { kind: 'success', field, columnRef };
+    return { kind: 'success', field: fields[0]!, columnRef };
   }
 
   private normalize(message: string): string {
@@ -57,13 +69,10 @@ export class RuleBasedColumnMappingCorrectionParser implements ColumnMappingCorr
       .trim();
   }
 
-  private extractField(normalized: string): GasttoField | null {
-    for (const matcher of FIELD_MATCHERS) {
-      if (matcher.regex.test(normalized)) {
-        return matcher.field;
-      }
-    }
-    return null;
+  private extractFields(normalized: string): GasttoField[] {
+    return FIELD_MATCHERS.filter((matcher) => matcher.regex.test(normalized)).map(
+      (matcher) => matcher.field,
+    );
   }
 
   private extractColumnRef(normalized: string): string | null {

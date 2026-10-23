@@ -20,8 +20,8 @@ Gastto is a conversational expense tracker with no frontend. Users message via W
 | Architecture     | Clean Architecture + Modular Monolith       |
 | Primary database | PostgreSQL on Supabase (driver: `postgres`) |
 | ORM              | Drizzle ORM + Drizzle Kit                   |
-| Queue            | BullMQ (broker: Upstash Redis)              |
-| Cache / broker   | Upstash Redis (ioredis)                     |
+| Queue            | BullMQ over a Redis-compatible broker       |
+| Cache / broker   | ioredis; provider isolated by environment   |
 | LLM              | Anthropic Claude via `LLMPort`              |
 | Validation       | Zod                                         |
 | Logging          | Pino (JSON structured)                      |
@@ -39,6 +39,18 @@ A single Node.js process on Fly.io runs two concurrent responsibilities:
 | Message processor | BullMQ worker (same process) | Full NLP processing < 5s |
 
 Fastify validates origin, enqueues a BullMQ job, sends an acknowledgement to the user, and returns HTTP 200. The worker runs the FSM, calls the LLM, writes to the spreadsheet, and sends the final response. These stages never share work synchronously.
+
+### Broker providers
+
+`REDIS_URL` is the only broker contract exposed to the application. Local
+development uses Docker Redis, deployed development uses an isolated Aiven for
+Valkey Free service under ADR-021, and production retains its independent existing
+provider. Hosted connections use TLS through `rediss://`; provider credentials
+remain in each Fly app's secret store.
+
+Changing the development provider does not change BullMQ semantics or the runtime
+topology. Each Fly environment still runs exactly one persistent `app` Machine
+with automatic stopping disabled, as required by ADR-020.
 
 ## Modules
 

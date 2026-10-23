@@ -45,7 +45,7 @@ describe('GoogleDriveOAuthAdapter', () => {
       );
       expect(parsed.searchParams.get('response_type')).toBe('code');
       expect(parsed.searchParams.get('scope')).toBe(
-        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets',
       );
       expect(parsed.searchParams.get('access_type')).toBe('offline');
       expect(parsed.searchParams.get('prompt')).toBe('consent');
@@ -70,7 +70,8 @@ describe('GoogleDriveOAuthAdapter', () => {
             access_token: 'access-123',
             refresh_token: 'refresh-456',
             expires_in: 3600,
-            scope: 'https://www.googleapis.com/auth/drive.readonly',
+            scope:
+              'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets',
           }),
       });
 
@@ -79,7 +80,10 @@ describe('GoogleDriveOAuthAdapter', () => {
 
       expect(result.accessToken).toBe('access-123');
       expect(result.refreshToken).toBe('refresh-456');
-      expect(result.scope).toEqual(['https://www.googleapis.com/auth/drive.readonly']);
+      expect(result.scope).toEqual([
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/spreadsheets',
+      ]);
       expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
 
       expect(fetchMock).toHaveBeenCalledOnce();
@@ -178,7 +182,7 @@ describe('GoogleDriveOAuthAdapter', () => {
     });
   });
 
-  describe('refreshToken', () => {
+  describe('refreshAccessToken', () => {
     it('returns new access token on successful refresh', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
@@ -187,16 +191,20 @@ describe('GoogleDriveOAuthAdapter', () => {
           Promise.resolve({
             access_token: 'new-access-789',
             expires_in: 3600,
-            scope: 'https://www.googleapis.com/auth/drive.readonly',
+            scope:
+              'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets',
           }),
       });
 
       const adapter = new GoogleDriveOAuthAdapter(CONFIG);
-      const result = await adapter.refreshToken('refresh-456');
+      const result = await adapter.refreshAccessToken('google', 'refresh-456');
 
       expect(result.accessToken).toBe('new-access-789');
       expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
-      expect(result.scope).toEqual(['https://www.googleapis.com/auth/drive.readonly']);
+      expect(result.scope).toEqual([
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/spreadsheets',
+      ]);
 
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe('https://oauth2.googleapis.com/token');
@@ -205,7 +213,7 @@ describe('GoogleDriveOAuthAdapter', () => {
       expect(body.get('grant_type')).toBe('refresh_token');
     });
 
-    it('throws OAuthNetworkError on refresh failure', async () => {
+    it('throws OAuthDeniedError when the refresh credential is rejected', async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 400,
@@ -213,7 +221,29 @@ describe('GoogleDriveOAuthAdapter', () => {
       });
 
       const adapter = new GoogleDriveOAuthAdapter(CONFIG);
-      await expect(adapter.refreshToken('bad-refresh')).rejects.toBeInstanceOf(OAuthNetworkError);
+      await expect(adapter.refreshAccessToken('google', 'bad-refresh')).rejects.toBeInstanceOf(
+        OAuthDeniedError,
+      );
+    });
+
+    it('throws OAuthNetworkError on transient refresh failure', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: () => Promise.resolve({ error: 'temporarily_unavailable' }),
+      });
+
+      const adapter = new GoogleDriveOAuthAdapter(CONFIG);
+      await expect(adapter.refreshAccessToken('google', 'refresh-456')).rejects.toBeInstanceOf(
+        OAuthNetworkError,
+      );
+    });
+
+    it('rejects non-google refresh requests', async () => {
+      const adapter = new GoogleDriveOAuthAdapter(CONFIG);
+      await expect(adapter.refreshAccessToken('microsoft', 'refresh-456')).rejects.toBeInstanceOf(
+        InvalidProviderError,
+      );
     });
   });
 });

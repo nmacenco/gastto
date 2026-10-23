@@ -1,6 +1,9 @@
 # Deployment Operations Guide
 
-This document describes the complete manual setup required for the multi-environment Fly.io infrastructure, including secrets management and Telegram bot isolation.
+This document describes the multi-environment Fly.io infrastructure, including
+merge-protected deployment, persistent BullMQ worker Machines, graceful shutdown,
+environment-isolated Redis-compatible brokers, secrets management, and Telegram
+bot isolation.
 
 ## Apps
 
@@ -23,22 +26,42 @@ The production app (`gastto`) is assumed to already exist.
 
 ## Secrets
 
+If the configured extraction provider repeatedly times out before HTTP headers,
+`LLM_FALLBACK_PROVIDER=auto` can try one different provider when that app has a
+second API key. The combined extraction deadline remains bounded. Use
+`LLM_FALLBACK_PROVIDER=none` to disable it or explicitly select the backup. An
+operator can instead set `LLM_PROVIDER` to another configured primary provider;
+`auto` retains NVIDIA-first precedence. Verify an expense review and correction
+in development before promotion. A fallback does not enable semantic routing or
+replay a failed expense. Keep former settings for rollback; do not print API keys.
+
+Groq requires explicit selection. Set `GROQ_API_KEY` through Fly secrets, then select
+`LLM_FALLBACK_PROVIDER=groq` for extraction backup or `LLM_PROVIDER=groq` for
+the shared LLM port. `GROQ_MODEL` defaults to `openai/gpt-oss-20b`. Do not put
+the Groq credential in `OPENAI_API_KEY`: the services have separate endpoints
+and credentials. Adding only `GROQ_API_KEY` does not alter `auto` selection.
+Development uses `LLM_PROVIDER=groq` and `LLM_FALLBACK_PROVIDER=nvidia`.
+Representative Telegram extraction and one confirmed spreadsheet save passed on
+2026-10-23; see the [validation record](../../ai/plans/2026_10_22-integrate_groq_expense_extraction/validation.md).
+Automatic priority and production settings remain unchanged.
+
 All environment-specific configuration (sensitive and non-sensitive) lives in Fly.io secrets per app. The only values stored in GitHub are the Fly.io API tokens required by GitHub Actions to trigger deploys.
 
 ### Required secrets per environment
 
 Set the following secrets on **each** app. Values should differ between production and development.
 
-| Secret                    | Description                                               |
-| ------------------------- | --------------------------------------------------------- |
-| `DATABASE_URL`            | PostgreSQL connection string                              |
-| `REDIS_URL`               | Redis connection string (BullMQ / cache)                  |
-| `TELEGRAM_BOT_TOKEN`      | Telegram Bot API token                                    |
-| `TELEGRAM_WEBHOOK_SECRET` | Random string used to validate Telegram webhook origin    |
-| `OPENAI_API_KEY`          | OpenAI API key for LLM extraction                         |
-| `ANTHROPIC_API_KEY`       | Anthropic API key (optional)                              |
-| `SENTRY_DSN`              | Sentry DSN for error tracking (optional)                  |
-| `ENCRYPTION_KEY`          | AES-256-GCM key for OAuth token encryption (64 hex chars) |
+| Secret                    | Description                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| `DATABASE_URL`            | PostgreSQL connection string                                                      |
+| `REDIS_URL`               | Redis-compatible broker URI for BullMQ and cache; hosted environments require TLS |
+| `TELEGRAM_BOT_TOKEN`      | Telegram Bot API token                                                            |
+| `TELEGRAM_WEBHOOK_SECRET` | Random string used to validate Telegram webhook origin                            |
+| `OPENAI_API_KEY`          | OpenAI API key for LLM extraction                                                 |
+| `ANTHROPIC_API_KEY`       | Anthropic API key (optional)                                                      |
+| `GROQ_API_KEY`            | Groq API key (optional; needed only when explicitly selected)                     |
+| `SENTRY_DSN`              | Sentry DSN for error tracking (optional)                                          |
+| `ENCRYPTION_KEY`          | AES-256-GCM key for OAuth token encryption (64 hex chars)                         |
 
 ### Setting secrets on production
 
@@ -104,6 +127,17 @@ Generate tokens via [Fly.io tokens dashboard](https://fly.io/user/personal_acces
 
 Pushes to any other branch do not trigger automatic deploys.
 
+The deployment workflow listens only for `push` events. Opening or updating a
+pull request, including a `synchronize` event caused by pushing another commit to
+the PR branch, does not deploy either environment. A push workflow cannot
+distinguish a merge commit from a direct push, so the merge-only guarantee comes
+from the repository protections described below, not from the workflow trigger
+alone.
+
+Each deploy command includes `--ha=false`. If an app ever has zero Machines, this
+prevents the deployment from creating redundant Machines and preserves the
+single-Machine capacity policy.
+
 ## Environment Variables Location
 
 - **Fly.io secrets**: All runtime configuration (database URLs, API keys, bot tokens, encryption keys). These are encrypted at rest and injected as environment variables into the running containers.
@@ -111,6 +145,71 @@ Pushes to any other branch do not trigger automatic deploys.
 - **Fly.io config files (`fly.toml`, `fly.develop.toml`)**: Non-sensitive, static infrastructure settings (port, memory, region, `NODE_ENV`).
 
 This separation ensures that rotating a third-party API key or database credential requires a single `flyctl secrets set` command, with no GitHub interaction needed.
+
+## Semantic router staged rollout and rollback
+
+Release evidence and deployment authorization are separate. Before any candidate or shadow execution, an immutable bundle must contain independently reviewed labels, Product Owner and Tech Lead approval, numeric gates/minimums, approved pricing, the exact candidate tuple, artifact checksums, accountable owner, and technical operator. `approved_for_next_stage` authorizes only the stage named by the manifest; it is not production-wide approval.
+
+Each external stage records exact state modes, cohort and shadow percentages, model snapshot, timeout, output-token cap, observation window, prior/applied configuration digests, report digest, and stop conditions without copying secret values. Stop and set affected state modes to `off` first on any critical false authorization, unauthorized effect, breached approved budget, missing safety telemetry, version drift, incomplete usage/task denominators, unresolved operator concern, or manual stop. Already queued work resolves current flags after lock acquisition; do not rewrite queue payloads, database rows, or migrations. Verify deterministic exact commands and active review, queue, selection, retry, and undo contexts after the flag change.
+
+Phase 1 performed no deployment or configuration change. Its local acceptance report is `hold`; live provider, shadow, controlled rollout, and production rollback records remain pending explicit authorization.
+
+## Redis-Compatible Broker Isolation
+
+`REDIS_URL` is a provider-independent runtime contract. BullMQ and application
+caches use ioredis and do not depend on provider-specific APIs.
+
+| Environment | Broker policy                | Current decision                                                                     |
+| ----------- | ---------------------------- | ------------------------------------------------------------------------------------ |
+| Development | Isolated managed TLS service | Aiven for Valkey Free, dedicated to `gastto-develop`                                 |
+| Production  | Isolated managed TLS service | Existing provider remains unchanged; ADR-021 does not authorize production migration |
+| Local       | Local disposable service     | Docker Redis over `redis://localhost:6379`                                           |
+
+Hosted URIs must use the ioredis-compatible `rediss://` scheme. If a provider
+labels an equivalent URI with another TLS scheme, normalize only the scheme in the
+secret-management workflow. Never print, log, screenshot, commit, or place a real
+URI, username, password, host, or port in shell history. Fly secret inspection must
+be limited to secret names and digests; operators recover previous values from
+their password manager or provider console.
+
+The Aiven development service is intentionally not shared with production. The
+Free plan is single-node with 1 CPU and 1 GB VM RAM, is outside Aiven's 99.99% SLA,
+has no integrations, and may be powered off for inactivity. Aiven assigns its
+cloud and region. Runtime `maxmemory`, rather than advertised VM RAM, is the
+capacity boundary: the accepted target reported 313,524,224 bytes with
+`noeviction`. Monitor `used_memory / maxmemory` in Aiven and warn at 80%, or
+250,819,379 bytes (approximately 239 MiB). Re-evaluate the threshold after any
+provider-initiated plan, region, or configuration change.
+
+### Development broker rotation and cutover
+
+1. Provision a target used only by `gastto-develop`; never place production keys
+   or jobs in a Free development service.
+2. Confirm the previous broker URI is recoverable without reading the current Fly
+   secret value.
+3. Inventory aggregate queue states and transient-key categories without emitting
+   keys, values, payloads, user data, or credentials. Abort on waiting, active, or
+   failed business jobs, processing locks, OAuth state, or mapping-correction
+   state.
+4. Select a migration method compatible with the source version. Aiven managed
+   Redis migration requires a source at Redis 7.2 or lower; do not configure it
+   against a newer source.
+5. For an approved no-copy maintenance cutover, treat completed BullMQ history and
+   reconstructable caches as disposable. Application startup recreates the
+   `session-timeout` repeatable scheduler.
+6. Through an authorized operator workflow, replace only `gastto-develop`'s
+   `REDIS_URL`. Do not change either Fly configuration or production secrets.
+7. Verify one running development Machine, `/health`, TLS, Fly-to-provider latency,
+   actual `maxmemory`, all queue roles, delayed and repeatable jobs, retries,
+   locks, TTL state, reconnection, idle recovery, and a safe Telegram canary.
+8. Scan aggregate logs for Redis/BullMQ errors and URI-like patterns without
+   displaying raw secret-bearing lines.
+
+Connection errors are recoverable only after processing resumes. A log event by
+itself is not acceptance evidence. After a controlled provider recycle or safe
+equivalent, require a `ready` signal and successful canary consumption for every
+logical queue role within two minutes. Keep the Node.js process alive and confirm
+that logs contain only the redacted metadata defined by the BullMQ runtime.
 
 ## Continuous Integration
 
@@ -126,7 +225,7 @@ The `ci.yml` workflow runs the following quality gates on every pull request and
 | Lint      | `pnpm lint`                      | ESLint rules pass on all `src/**/*.ts` files   |
 | Typecheck | `pnpm typecheck`                 | `tsc --noEmit` passes with strict mode         |
 | Build     | `pnpm build`                     | `tsup` compiles successfully to `dist/main.js` |
-| Test      | `pnpm test`                      | All 103 Vitest unit tests pass                 |
+| Test      | `pnpm test`                      | The complete Vitest suite passes               |
 
 ### When it runs
 
@@ -135,11 +234,16 @@ The `ci.yml` workflow runs the following quality gates on every pull request and
 
 ### Viewing results
 
-Check results appear in the **Checks** tab of the pull request on GitHub. The job is named `quality`. If any gate fails, the PR cannot be merged until branch protection rules are satisfied (see next section).
+Check results appear in the **Checks** tab of the pull request on GitHub. The job
+identifier is `quality` and its displayed check name is `Quality gates`. If any
+gate fails, the PR cannot be merged until branch protection rules are satisfied
+(see next section).
 
 ## Branch Protection Setup
 
-Branch protection rules ensure that no one (including maintainers) can merge a pull request or push directly to `main` or `develop` without passing the CI checks.
+Branch protection rules or repository rulesets must ensure that no one,
+including administrators and automation actors, can push directly to `main` or
+`develop` or merge without passing the CI checks.
 
 ### Steps to configure
 
@@ -152,8 +256,21 @@ Branch protection rules ensure that no one (including maintainers) can merge a p
      - Optional: enable **"Require approvals"** and set to 1 reviewer for extra safety.
 
    - **"Require status checks to pass before merging"**
-     - Search for and select the `quality` check from the `ci.yml` workflow.
+     - Search for and select the `Quality gates` check (job identifier `quality`)
+       from the `ci.yml` workflow.
      - This blocks the merge button in the PR UI until all gates are green.
+
+   - **Apply protections to administrators**
+     - Enable administrator enforcement for branch protection rules, or disable
+       ruleset bypass for repository administrators.
+
+   - **Disallow force pushes**
+     - Do not enable any option that permits force pushes to either protected
+       branch.
+
+   - **No bypass actors**
+     - Leave the ruleset bypass list empty. Do not grant users, teams, apps, or
+       deploy keys permission to bypass the pull-request and `quality` rules.
 
 5. Save the rule.
 
@@ -164,6 +281,107 @@ With this configuration:
 - A developer opens a PR and pushes broken code (e.g., a type error or a failing test).
 - The CI workflow runs and fails on the `typecheck` or `test` gate.
 - The PR merge button stays blocked until all checks pass.
-- Even a direct push to `main` or `develop` triggers the CI; if it fails, the commit is still visible in the branch history but does not reach a "green" state.
+- A direct push to `main` or `develop` is rejected before it can trigger a
+  deployment.
 
 This prevents incidents like the Fastify plugin version mismatch from reaching the deployable branches.
+
+Protection is an external repository setting and must be inspected periodically
+for both branches. Required state is: pull requests required, `Quality gates`
+required, administrator enforcement enabled, force pushes disabled, and no bypass
+actors. If any item cannot be verified, do not claim that deployment is
+merge-only.
+
+## Persistent Worker Lifecycle
+
+Fastify and BullMQ workers run in one persistent process. Both Fly configurations
+therefore use the same lifecycle settings:
+
+```toml
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[http_service]
+  auto_stop_machines = "off"
+  auto_start_machines = false
+```
+
+`min_machines_running` is intentionally absent. Runtime capacity is managed as
+exactly one Machine in the `app` process group for each environment. Automatic
+start remains disabled because automatic stop is disabled; BullMQ work must not
+depend on inbound HTTP traffic to wake the process.
+
+During a deploy, host migration, or manual stop, Fly.io sends `SIGTERM`. The Node.js
+entry point calls `app.close()` once, and the Fastify shutdown hook closes all
+BullMQ Workers before their Queues. Fly.io allows up to 30 seconds for this drain.
+Review the timeout if observed job durations routinely approach or exceed that
+window.
+
+Inspect capacity without changing it:
+
+```bash
+flyctl scale show --app gastto-develop
+flyctl machine list --app gastto-develop
+flyctl scale show --app gastto
+flyctl machine list --app gastto
+```
+
+If the `app` process group count is not one, record the current Machine IDs,
+regions, statuses, and target state. Scaling down destroys capacity and requires
+explicit operator confirmation before running:
+
+```bash
+flyctl scale count app=1 --app <app-name>
+```
+
+Do not modify unrelated process groups. After an approved change, repeat both
+inspection commands and confirm exactly one running `app` Machine remains in the
+intended region.
+
+## Rollout and Verification
+
+Roll out development before production:
+
+1. Merge a reviewed pull request into protected `develop` after `quality` passes.
+2. Confirm the resulting push run targets `gastto-develop`, uses
+   `fly.develop.toml`, and passes `--ha=false`.
+3. Confirm one running `app` Machine, a healthy endpoint, worker-start logs, and
+   continued operation after an idle interval long enough for Fly Proxy autostop
+   evaluation.
+4. Exercise a safe development queue operation and a controlled shutdown or
+   redeploy. Confirm delayed work continues and the Fastify/BullMQ drain completes
+   within 30 seconds.
+5. Promote the same reviewed change to protected `main` only after development
+   verification succeeds.
+6. Confirm the production push run targets `gastto`, uses `fly.toml`, and passes
+   `--ha=false`; then verify one running `app` Machine, health, worker-start logs,
+   and absence of new shutdown, Redis, queue-stall, or repeated-job errors.
+
+Do not expose secrets or mutate production data during verification. Record the
+GitHub protection, Fly scale, health, and graceful-shutdown evidence in the pull
+request or deployment record.
+
+## Rollback
+
+If rollout fails, revert the relevant merge commit with
+`git revert -m 1 <merge-sha>` and deploy the restored version through the same
+protected-branch workflow. Do not force-push, edit migration history, or re-enable
+automatic stopping while BullMQ workers remain in the runtime. Keeping autostop
+disabled preserves queue consumption while the application rollback is reviewed.
+
+For a development broker rollback within ADR-021's 24-hour window:
+
+1. Pause or drain new development writes.
+2. Inventory Aiven-only waiting, active, delayed, and failed jobs without exposing
+   job payloads or user data.
+3. Preserve or explicitly accept every Aiven-only pending or delayed business job;
+   the recovery point objective is zero data loss for these jobs. Completed job
+   history and reconstructable caches may be discarded.
+4. Restore the securely retained previous `gastto-develop` `REDIS_URL` through the
+   authorized Fly secret workflow, then restart or redeploy the existing Machine.
+5. Re-run health, topology, queue, scheduler, Telegram, and sanitized-log checks.
+
+Upstash remains unchanged during the rollback window but does not receive writes
+made only to Aiven. Rollback requires neither Machine scaling nor deletion of
+either broker. Do not flush, downgrade, disconnect, or delete a provider as part
+of rollback.

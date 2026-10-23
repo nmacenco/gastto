@@ -15,33 +15,31 @@ import type {
   ISpreadsheetConfigRepository,
   IMappingCorrectionStateRepository,
   MappingCorrectionStateSnapshot,
-  IOAuthTokenRepository,
 } from '../../../domain/ports/repositories';
 import type {
   ISpreadsheetColumnPort,
   AvailableColumn,
 } from '../../../domain/ports/spreadsheetColumns';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { ColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
 import { RuleBasedColumnMappingCorrectionParser } from '../../services/ColumnMappingCorrectionParser';
-import { ColumnMappingCorrectionState } from '../../../domain/value-objects/ColumnMappingCorrectionState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
-import type {
-  ColumnMapping,
-  SpreadsheetConfig,
-  OAuthToken,
-} from '../../../domain/entities/SpreadsheetConfig';
+import type { ColumnMapping, SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 const mockFindByUserId = vi.fn();
 const mockFindBySpreadsheetId = vi.fn();
-const mockFindByUserAndProvider = vi.fn();
-const mockDecrypt = vi.fn();
+const mockGetValidAccessToken = vi.fn();
+const mockForceRefreshAccessToken = vi.fn();
 const mockListAvailableColumns = vi.fn();
 const mockParse = vi.fn();
 const mockLoadCorrectionState = vi.fn();
 const mockSaveCorrectionState = vi.fn();
 const mockClearCorrectionState = vi.fn();
+const mockDetectHeaderRow = vi.fn();
+const mockLLMDetectHeaderRow = vi.fn();
+const mockLLMInfer = vi.fn();
+const mockUpsertMany = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockTransitionExecute = vi.fn();
 
@@ -51,16 +49,15 @@ function buildMockDeps(
   return {
     columnMappingRepository: {
       findBySpreadsheetId: mockFindBySpreadsheetId,
+      upsertMany: mockUpsertMany,
     } as unknown as IColumnMappingRepository,
     spreadsheetConfigRepository: {
       findByUserId: mockFindByUserId,
     } as unknown as ISpreadsheetConfigRepository,
-    tokenRepository: {
-      findByUserAndProvider: mockFindByUserAndProvider,
-    } as unknown as IOAuthTokenRepository,
-    tokenEncryption: {
-      decrypt: mockDecrypt,
-    } as unknown as TokenEncryptionPort,
+    oauthAccessTokenService: {
+      getValidAccessToken: mockGetValidAccessToken,
+      forceRefreshAccessToken: mockForceRefreshAccessToken,
+    },
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     spreadsheetColumnPort: {
       listAvailableColumns: mockListAvailableColumns,
@@ -75,6 +72,15 @@ function buildMockDeps(
       save: mockSaveCorrectionState,
       clear: mockClearCorrectionState,
     } as unknown as IMappingCorrectionStateRepository,
+    headerDetectionPort: {
+      detectHeaderRow: mockDetectHeaderRow,
+    },
+    llmHeaderDetectionPort: {
+      detectHeaderRow: mockLLMDetectHeaderRow,
+    },
+    llmColumnInferencePort: {
+      infer: mockLLMInfer,
+    },
     messagingPort: { sendMessage: mockSendMessage },
     transitionState: {
       execute: mockTransitionExecute,
@@ -84,11 +90,32 @@ function buildMockDeps(
   };
 }
 
+const mockPreview = {
+  provider: 'google',
+  fileId: 'file-123',
+  sheetName: 'Gastos',
+  rows: [
+    { index: 1, values: ['Fecha', 'Monto', 'Categoria'] },
+    { index: 2, values: ['01/01/2026', '100.50', 'Comida'] },
+  ],
+};
+
 const baseInput: CorrectColumnMappingInput = {
   userId: 'user-123',
   externalId: '987654321',
   channel: 'telegram',
   rawMessage: 'la categoría está en la columna E',
+  statePayload: {
+    provider: 'google',
+    preview: mockPreview,
+    headerRowIndex: 1,
+    mappings: [
+      { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+      { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+      { gasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoria', confidence: 'alta' },
+    ],
+    unmappedFields: [],
+  },
 };
 
 const mockConfig: SpreadsheetConfig = {
@@ -99,6 +126,7 @@ const mockConfig: SpreadsheetConfig = {
   fileName: 'Mi Planilla',
   sheetName: 'Gastos',
   accessVerifiedAt: new Date(),
+  categoriesConfirmedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -122,20 +150,6 @@ const mockMappings: ColumnMapping[] = [
   buildMockMapping({ GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoría' }),
 ];
 
-const mockToken: OAuthToken = {
-  id: 'token-1',
-  userId: 'user-123',
-  provider: 'google',
-  accessTokenEnc: Buffer.from('encrypted'),
-  refreshTokenEnc: Buffer.from('encrypted-refresh'),
-  iv: Buffer.from('iv'),
-  accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-  scope: ['drive', 'spreadsheets'],
-  grantedAt: new Date(),
-  lastRefreshedAt: null,
-  revokedAt: null,
-};
-
 const availableColumns: AvailableColumn[] = [
   { index: 0, columnHeader: 'Fecha' },
   { index: 1, columnHeader: 'Monto' },
@@ -146,14 +160,26 @@ const availableColumns: AvailableColumn[] = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetValidAccessToken.mockResolvedValue({
+    accessToken: 'access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: false,
+  });
+  mockForceRefreshAccessToken.mockResolvedValue({
+    accessToken: 'refreshed-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: true,
+  });
   mockFindByUserId.mockResolvedValue(mockConfig);
   mockFindBySpreadsheetId.mockResolvedValue(mockMappings);
-  mockFindByUserAndProvider.mockResolvedValue(mockToken);
-  mockDecrypt.mockReturnValue('access-token');
   mockListAvailableColumns.mockResolvedValue(availableColumns);
   mockParse.mockReturnValue({ kind: 'success', field: 'categoria', columnRef: 'E' });
   mockLoadCorrectionState.mockResolvedValue(null);
   mockSaveCorrectionState.mockResolvedValue(undefined);
+  mockUpsertMany.mockResolvedValue(undefined);
+  mockDetectHeaderRow.mockResolvedValue(1);
+  mockLLMDetectHeaderRow.mockResolvedValue(null);
+  mockLLMInfer.mockResolvedValue({ mappings: [], noHeaderFound: false, unmappedFields: [] });
   mockTransitionExecute.mockResolvedValue({
     userId: 'user-123',
     currentState: 'ONBOARDING_MAPPING',
@@ -174,6 +200,10 @@ describe('CorrectColumnMapping', () => {
     expect(result.kind).toBe('updated');
     expect(result.nextState).toBe('ONBOARDING_MAPPING');
 
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ headerRowIndex: 1 }),
+    );
+
     expect(mockSaveCorrectionState).toHaveBeenCalledTimes(1);
     const savedSnapshot = mockSaveCorrectionState.mock
       .calls[0]![1] as MappingCorrectionStateSnapshot;
@@ -184,37 +214,23 @@ describe('CorrectColumnMapping', () => {
       columnHeader: 'Medio de pago',
     });
 
-    const currentMapping = ColumnMappingCorrectionState.create(mockMappings)
-      .applyCorrection({ field: 'categoria', columnIndex: 4, columnHeader: 'Medio de pago' })
-      .getCurrentMapping();
     expect(mockSendMessage).toHaveBeenCalledWith(
       '987654321',
-      onboardingCopies.mappingUpdatedConfirmation(
-        currentMapping.map((m) => ({
-          gasttoField: m.GasttoField,
-          columnIndex: m.columnIndex,
-          columnHeader: m.columnHeader,
-        })),
-        [],
-      ),
+      expect.stringContaining('Actualicé el mapeo'),
     );
 
-    expect(mockTransitionExecute).toHaveBeenCalledWith({
-      userId: 'user-123',
-      targetState: 'ONBOARDING_MAPPING',
-      payload: {
-        provider: 'google',
-        fileId: 'file-123',
-        sheetName: 'Gastos',
-        mappings: currentMapping.map((m) => ({
-          gasttoField: m.GasttoField,
-          columnIndex: m.columnIndex,
-          columnHeader: m.columnHeader,
-        })),
-        unmappedFields: [],
-      },
-      expiresAt: expect.any(Date) as Date,
-    });
+    expect(mockTransitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_MAPPING',
+        payload: expect.objectContaining({
+          proposalId: 'legacy:config-1:file-123:Gastos',
+          mappings: expect.arrayContaining([
+            expect.objectContaining({ gasttoField: 'categoria', columnIndex: 4 }),
+          ]) as unknown[],
+        }) as Record<string, unknown>,
+      }),
+    );
   });
 
   it('accumulates corrections for different fields', async () => {
@@ -222,6 +238,11 @@ describe('CorrectColumnMapping', () => {
       originalMapping: mockMappings,
       corrections: [{ field: 'monto', columnIndex: 3, columnHeader: 'Descripción' }],
       status: 'correcting',
+      proposalId: 'legacy:config-1:file-123:Gastos',
+      spreadsheetId: 'config-1',
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Gastos',
     };
     mockLoadCorrectionState.mockResolvedValue(previousSnapshot);
 
@@ -247,6 +268,11 @@ describe('CorrectColumnMapping', () => {
       originalMapping: mockMappings,
       corrections: [{ field: 'categoria', columnIndex: 3, columnHeader: 'Descripción' }],
       status: 'correcting',
+      proposalId: 'legacy:config-1:file-123:Gastos',
+      spreadsheetId: 'config-1',
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Gastos',
     };
     mockLoadCorrectionState.mockResolvedValue(previousSnapshot);
 
@@ -264,6 +290,96 @@ describe('CorrectColumnMapping', () => {
       columnIndex: 4,
       columnHeader: 'Medio de pago',
     });
+  });
+
+  it('adds a correction for a previously unmapped field and displays it', async () => {
+    mockFindBySpreadsheetId.mockResolvedValue([
+      buildMockMapping({
+        GasttoField: 'medio_pago',
+        columnIndex: 0,
+        columnHeader: '',
+      }),
+    ]);
+    mockListAvailableColumns.mockResolvedValue([
+      { index: 0, columnHeader: '' },
+      { index: 1, columnHeader: '' },
+      { index: 2, columnHeader: '' },
+      { index: 7, columnHeader: 'Ganancias' },
+    ]);
+
+    const useCase = new CorrectColumnMapping(
+      buildMockDeps({ correctionParser: new RuleBasedColumnMappingCorrectionParser() }),
+    );
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'Categoría columna C',
+      statePayload: {
+        ...baseInput.statePayload,
+        mappings: [
+          {
+            gasttoField: 'medio_pago',
+            columnIndex: 0,
+            columnHeader: '',
+            inferred: true,
+          },
+        ],
+        unmappedFields: ['monto', 'moneda', 'categoria', 'fecha', 'concepto'],
+      },
+    });
+
+    expect(result.kind).toBe('updated');
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      expect.stringContaining('Categoría → columna C'),
+    );
+    expect(mockTransitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          mappings: expect.arrayContaining([
+            expect.objectContaining({ gasttoField: 'categoria', columnIndex: 2 }),
+          ]) as unknown[],
+          unmappedFields: ['monto', 'moneda', 'fecha', 'concepto', 'subcategoria'],
+        }) as Record<string, unknown>,
+      }),
+    );
+  });
+
+  it('manually assigns an optional subcategory and removes it from unmapped fields', async () => {
+    mockParse.mockReturnValue({ kind: 'success', field: 'subcategoria', columnRef: 'D' });
+
+    const result = await new CorrectColumnMapping(buildMockDeps()).execute({
+      ...baseInput,
+      statePayload: {
+        ...baseInput.statePayload,
+        unmappedFields: ['subcategoria', 'unknown-field'],
+      },
+    });
+
+    expect(result.kind).toBe('updated');
+    expect(mockSaveCorrectionState).toHaveBeenCalledWith(
+      'user-123',
+      expect.objectContaining({
+        corrections: [
+          {
+            field: 'subcategoria',
+            columnIndex: 3,
+            columnHeader: 'Descripción',
+          },
+        ],
+      }),
+      1800,
+    );
+    expect(mockTransitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          unmappedFields: ['moneda', 'concepto', 'medio_pago'],
+        }) as Record<string, unknown>,
+      }),
+    );
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      expect.stringContaining('🔖 Subcategoría → columna D'),
+    );
   });
 
   it('returns invalid-column when the referenced column does not exist', async () => {
@@ -306,6 +422,166 @@ describe('CorrectColumnMapping', () => {
     expect(mockTransitionExecute).not.toHaveBeenCalled();
   });
 
+  it('rejects multiple corrections without applying a partial mapping', async () => {
+    const deps = buildMockDeps({
+      correctionParser: new RuleBasedColumnMappingCorrectionParser(),
+    });
+    const useCase = new CorrectColumnMapping(deps);
+
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'A Medio de pago. B Fecha. C Categoría. E Importe. F Concepto.',
+    });
+
+    expect(result).toEqual({
+      kind: 'parse-failure',
+      nextState: 'ONBOARDING_MAPPING',
+      message: onboardingCopies.multipleMappingCorrectionsPrompt(),
+    });
+    expect(mockGetValidAccessToken).not.toHaveBeenCalled();
+    expect(mockListAvailableColumns).not.toHaveBeenCalled();
+    expect(mockLoadCorrectionState).not.toHaveBeenCalled();
+    expect(mockSaveCorrectionState).not.toHaveBeenCalled();
+    expect(mockTransitionExecute).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      onboardingCopies.multipleMappingCorrectionsPrompt(),
+    );
+  });
+
+  it('rejects category and subcategory corrections in the same message', async () => {
+    const useCase = new CorrectColumnMapping(
+      buildMockDeps({ correctionParser: new RuleBasedColumnMappingCorrectionParser() }),
+    );
+
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'categoría en C y subcategoría en D',
+    });
+
+    expect(result.kind).toBe('parse-failure');
+    expect(mockListAvailableColumns).not.toHaveBeenCalled();
+    expect(mockSaveCorrectionState).not.toHaveBeenCalled();
+  });
+
+  it('guides the user to manual correction when they reject the proposal', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'no, eso está mal',
+    });
+
+    expect(result.kind).toBe('rejected');
+    expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    expect(mockListAvailableColumns).toHaveBeenCalledWith({
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Gastos',
+      accessToken: 'access-token',
+      headerRowIndex: 1,
+    });
+    expect(mockClearCorrectionState).not.toHaveBeenCalled();
+    expect(mockSaveCorrectionState).toHaveBeenCalledWith(
+      'user-123',
+      expect.objectContaining({ proposalId: 'legacy:config-1:file-123:Gastos' }),
+      1800,
+    );
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '987654321',
+      onboardingCopies.mappingRejectionPrompt(availableColumns),
+    );
+    expect(mockTransitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_MAPPING',
+      payload: baseInput.statePayload,
+      expiresAt: expect.any(Date) as Date,
+    });
+  });
+
+  it('uses headerRowIndex from state payload when listing available columns', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    await useCase.execute({
+      ...baseInput,
+      statePayload: { ...baseInput.statePayload, headerRowIndex: 2 },
+      rawMessage: 'no',
+    });
+
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ headerRowIndex: 2 }),
+    );
+  });
+
+  it('triggers reconnect flow when the OAuth token is missing on rejection', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+    mockGetValidAccessToken.mockRejectedValue(
+      new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+    );
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'no',
+    });
+
+    expect(result.kind).toBe('no-proposed-mapping');
+    expect(result.nextState).toBe('ONBOARDING_START');
+    expect(mockListAvailableColumns).not.toHaveBeenCalled();
+    expect(mockClearCorrectionState).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
+  });
+
+  it('continues correction when an expired OAuth token refreshes on rejection', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+    mockGetValidAccessToken.mockResolvedValue({
+      accessToken: 'refreshed-access-token',
+      expiresAt: new Date(Date.now() + 3600_000),
+      refreshed: true,
+    });
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'incorrecto',
+    });
+
+    expect(result.kind).toBe('rejected');
+    expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: 'refreshed-access-token' }),
+    );
+    expect(mockSendMessage).not.toHaveBeenCalledWith(
+      '987654321',
+      onboardingCopies.reconnectAccount(),
+    );
+  });
+
+  it('triggers reconnect flow when token decryption fails on rejection', async () => {
+    mockParse.mockReturnValue({ kind: 'failure', reason: 'No recognizable column reference' });
+    mockGetValidAccessToken.mockRejectedValue(
+      new SpreadsheetError('Stored token cannot be decrypted', { code: 'AUTH_ERROR' }),
+    );
+
+    const deps = buildMockDeps();
+    const useCase = new CorrectColumnMapping(deps);
+    const result = await useCase.execute({
+      ...baseInput,
+      rawMessage: 'no es correcto',
+    });
+
+    expect(result.kind).toBe('no-proposed-mapping');
+    expect(result.nextState).toBe('ONBOARDING_START');
+    expect(mockListAvailableColumns).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
+  });
+
   it('triggers reconnect flow when spreadsheet config is missing', async () => {
     mockFindByUserId.mockResolvedValue(null);
 
@@ -326,12 +602,13 @@ describe('CorrectColumnMapping', () => {
   });
 
   it('stays in ONBOARDING_MAPPING when no proposed mappings exist', async () => {
-    mockFindBySpreadsheetId.mockResolvedValue([]);
-
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
 
-    const result = await useCase.execute(baseInput);
+    const result = await useCase.execute({
+      ...baseInput,
+      statePayload: { ...baseInput.statePayload, mappings: [] },
+    });
 
     expect(result.kind).toBe('no-proposed-mapping');
     expect(result.nextState).toBe('ONBOARDING_MAPPING');
@@ -345,7 +622,9 @@ describe('CorrectColumnMapping', () => {
   });
 
   it('triggers reconnect flow when the OAuth token is missing', async () => {
-    mockFindByUserAndProvider.mockResolvedValue(null);
+    mockGetValidAccessToken.mockRejectedValue(
+      new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+    );
 
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
@@ -363,10 +642,11 @@ describe('CorrectColumnMapping', () => {
     });
   });
 
-  it('triggers reconnect flow when the OAuth token is expired', async () => {
-    mockFindByUserAndProvider.mockResolvedValue({
-      ...mockToken,
-      accessTokenExpiresAt: new Date(Date.now() - 1000),
+  it('continues correction when an expired OAuth token refreshes', async () => {
+    mockGetValidAccessToken.mockResolvedValue({
+      accessToken: 'refreshed-access-token',
+      expiresAt: new Date(Date.now() + 3600_000),
+      refreshed: true,
     });
 
     const deps = buildMockDeps();
@@ -374,16 +654,21 @@ describe('CorrectColumnMapping', () => {
 
     const result = await useCase.execute(baseInput);
 
-    expect(result.kind).toBe('no-proposed-mapping');
-    expect(result.nextState).toBe('ONBOARDING_START');
-    expect(mockDecrypt).not.toHaveBeenCalled();
-    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
+    expect(result.kind).toBe('updated');
+    expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    expect(mockListAvailableColumns).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: 'refreshed-access-token' }),
+    );
+    expect(mockSendMessage).not.toHaveBeenCalledWith(
+      '987654321',
+      onboardingCopies.reconnectAccount(),
+    );
   });
 
   it('triggers reconnect flow when token decryption fails', async () => {
-    mockDecrypt.mockImplementation(() => {
-      throw new Error('decrypt failed');
-    });
+    mockGetValidAccessToken.mockRejectedValue(
+      new SpreadsheetError('Stored token cannot be decrypted', { code: 'AUTH_ERROR' }),
+    );
 
     const deps = buildMockDeps();
     const useCase = new CorrectColumnMapping(deps);
@@ -411,7 +696,7 @@ describe('CorrectColumnMapping', () => {
     expect(mockTransitionExecute).not.toHaveBeenCalled();
   });
 
-  it('sends updated mapping message even when transition state fails', async () => {
+  it('does not send an updated mapping message when transition state fails', async () => {
     mockTransitionExecute.mockRejectedValue(new Error('Invalid transition'));
 
     const deps = buildMockDeps();
@@ -419,8 +704,7 @@ describe('CorrectColumnMapping', () => {
 
     await expect(useCase.execute(baseInput)).rejects.toThrow('Invalid transition');
 
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    expect(mockSendMessage).toHaveBeenCalledWith('987654321', expect.stringContaining('Actualicé'));
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   it('resolves column references by numeric index and header name', async () => {
@@ -484,5 +768,85 @@ describe('CorrectColumnMapping', () => {
       columnIndex: 1,
       columnHeader: 'Monto',
     });
+  });
+
+  it('assigns payment method to empty column A without resurrecting stale currency', async () => {
+    mockFindBySpreadsheetId.mockResolvedValue([
+      buildMockMapping({ GasttoField: 'moneda', columnIndex: 0, columnHeader: '' }),
+    ]);
+    mockLoadCorrectionState.mockResolvedValue({
+      originalMapping: [
+        buildMockMapping({ GasttoField: 'moneda', columnIndex: 0, columnHeader: '' }),
+      ],
+      corrections: [],
+      status: 'proposed',
+      proposalId: 'proposal-from-another-sheet',
+      spreadsheetId: 'config-1',
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Other',
+    });
+    mockListAvailableColumns.mockResolvedValue(
+      [
+        '',
+        'Fecha',
+        'Categoría',
+        'Subcategoria',
+        'Importe',
+        'Descripción',
+        '',
+        'Fecha',
+        'Categoría',
+        'Subcategoria',
+        'Importe',
+        'Descripción',
+      ].map((columnHeader, index) => ({ index, columnHeader })),
+    );
+    const mappings = [
+      ['fecha', 1, 'Fecha'],
+      ['categoria', 2, 'Categoría'],
+      ['subcategoria', 3, 'Subcategoria'],
+      ['monto', 4, 'Importe'],
+      ['concepto', 5, 'Descripción'],
+    ].map(([gasttoField, columnIndex, columnHeader]) => ({
+      gasttoField,
+      columnIndex,
+      columnHeader,
+      inferred: true,
+    }));
+
+    const result = await new CorrectColumnMapping(
+      buildMockDeps({ correctionParser: new RuleBasedColumnMappingCorrectionParser() }),
+    ).execute({
+      ...baseInput,
+      rawMessage: 'medio de pago columna A',
+      statePayload: {
+        ...baseInput.statePayload,
+        fileId: 'file-123',
+        sheetName: 'Gastos',
+        proposalId: 'proposal-t6',
+        mappings,
+        unmappedFields: ['moneda', 'medio_pago'],
+      },
+    });
+
+    expect(result.kind).toBe('updated');
+    const transitionCall = mockTransitionExecute.mock.calls[0] as unknown[];
+    const transitionedPayload = (transitionCall[0] as { payload: unknown }).payload as {
+      mappings: Array<{ gasttoField: string; columnIndex: number }>;
+      unmappedFields: string[];
+    };
+    expect(transitionedPayload.mappings).toContainEqual(
+      expect.objectContaining({ gasttoField: 'medio_pago', columnIndex: 0 }),
+    );
+    expect(transitionedPayload.mappings.some((mapping) => mapping.gasttoField === 'moneda')).toBe(
+      false,
+    );
+    expect(transitionedPayload.unmappedFields).toContain('moneda');
+    const savedSnapshot = mockSaveCorrectionState.mock
+      .calls[0]![1] as MappingCorrectionStateSnapshot;
+    expect(savedSnapshot.originalMapping.some((mapping) => mapping.GasttoField === 'moneda')).toBe(
+      false,
+    );
   });
 });

@@ -3,7 +3,7 @@
 // Runs against a real PostgreSQL database inside a testcontainer.
 // Tests the full handler-to-use-case flow including state transitions.
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -15,16 +15,21 @@ import {
   isDockerAvailable,
 } from '../helpers/db-container';
 import { runMigrations } from '../helpers/migrate';
-import { createUser, createConversationState, createOAuthToken, createSpreadsheetConfig } from '../helpers/fixtures';
-import { DrizzleOAuthTokenRepository } from '../../../src/infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import { createUser, createConversationState, createSpreadsheetConfig } from '../helpers/fixtures';
 import { DrizzleSpreadsheetConfigRepository } from '../../../src/infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
 import { DrizzleConversationStateRepository } from '../../../src/infrastructure/db/repositories/DrizzleConversationStateRepository';
 import { TransitionConversationState } from '../../../src/application/use-cases/conversation/TransitionConversationState';
-import { ValidateSpreadsheetAccess } from '../../../src/application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
-import type { ValidateSpreadsheetAccessPortFactory, ValidateSpreadsheetAccessPort } from '../../../src/domain/ports/spreadsheetAccess';
+import {
+  ValidateSpreadsheetAccess,
+  type ValidateSpreadsheetAccessDeps,
+} from '../../../src/application/use-cases/spreadsheet/ValidateSpreadsheetAccess';
+import type {
+  ValidateSpreadsheetAccessPortFactory,
+  ValidateSpreadsheetAccessPort,
+} from '../../../src/domain/ports/spreadsheetAccess';
 import type { SpreadsheetAccessResult } from '../../../src/domain/value-objects/SpreadsheetAccessResult';
 import type { MessagingOutputPort } from '../../../src/application/ports/output/messaging.port';
-import type { TokenEncryptionPort } from '../../../src/domain/ports/tokenEncryption';
+import { SpreadsheetError } from '../../../src/domain/errors/SpreadsheetError';
 import { SpreadsheetPreview } from '../../../src/domain/entities/SpreadsheetPreview';
 import { onboardingCopies } from '../../../src/application/copies/onboarding.copies';
 
@@ -32,7 +37,6 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
   let container: StartedPostgreSqlContainer;
   let pgClient: postgres.Sql;
   let db: ReturnType<typeof drizzle<typeof schema>>;
-  let tokenRepo: DrizzleOAuthTokenRepository;
   let configRepo: DrizzleSpreadsheetConfigRepository;
   let conversationRepo: DrizzleConversationStateRepository;
   let transitionState: TransitionConversationState;
@@ -40,11 +44,17 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
   const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
   const messagingPort: MessagingOutputPort = { sendMessage: mockSendMessage };
 
-  const mockDecrypt = vi.fn().mockReturnValue('decrypted-access-token');
-  const tokenEncryption: TokenEncryptionPort = {
-    encrypt: vi.fn(),
-    decrypt: mockDecrypt,
-  };
+  const mockGetValidAccessToken = vi.fn();
+  const mockForceRefreshAccessToken = vi.fn();
+  const oauthAccessTokenService = {
+    getValidAccessToken: mockGetValidAccessToken,
+    forceRefreshAccessToken: mockForceRefreshAccessToken,
+  } as ValidateSpreadsheetAccessDeps['oauthAccessTokenService'];
+
+  const mockInferColumnMapping = {
+    execute: vi.fn().mockResolvedValue({ nextState: 'ONBOARDING_MAPPING', message: '' }),
+  } as unknown as ValidateSpreadsheetAccessDeps['inferColumnMapping'];
+  const mockLogger = { error: vi.fn() } as unknown as ValidateSpreadsheetAccessDeps['logger'];
 
   beforeAll(async () => {
     container = await startDbContainer();
@@ -52,7 +62,6 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
     await runMigrations(pgClient);
     db = drizzle(pgClient, { schema });
 
-    tokenRepo = new DrizzleOAuthTokenRepository(db);
     configRepo = new DrizzleSpreadsheetConfigRepository(db);
     conversationRepo = new DrizzleConversationStateRepository(db);
     transitionState = new TransitionConversationState(conversationRepo);
@@ -63,13 +72,52 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
     if (container) await stopDbContainer(container);
   });
 
-  function createMockPortFactory(result: SpreadsheetAccessResult): ValidateSpreadsheetAccessPortFactory {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetValidAccessToken.mockResolvedValue({
+      accessToken: 'access-token',
+      expiresAt: new Date(Date.now() + 3600_000),
+      refreshed: false,
+    });
+    mockForceRefreshAccessToken.mockResolvedValue({
+      accessToken: 'refreshed-access-token',
+      expiresAt: new Date(Date.now() + 3600_000),
+      refreshed: true,
+    });
+  });
+
+  function createMockPortFactory(
+    result: SpreadsheetAccessResult,
+  ): ValidateSpreadsheetAccessPortFactory {
     const mockPort: ValidateSpreadsheetAccessPort = {
       validateSpreadsheetAccess: vi.fn().mockResolvedValue(result),
     };
     return {
       create: vi.fn().mockReturnValue(mockPort),
     };
+  }
+
+  function createUseCase(
+    portFactory: ValidateSpreadsheetAccessPortFactory,
+  ): ValidateSpreadsheetAccess {
+    return new ValidateSpreadsheetAccess({
+      validateSpreadsheetAccessPortFactory: portFactory,
+      oauthAccessTokenService,
+      transitionState,
+      messagingPort,
+      spreadsheetConfigRepository: configRepo,
+      inferColumnMapping: mockInferColumnMapping,
+      logger: mockLogger,
+    });
+  }
+
+  async function executeWithCurrentState(
+    useCase: ValidateSpreadsheetAccess,
+    input: Parameters<ValidateSpreadsheetAccess['execute']>[0],
+  ) {
+    const observed = await conversationRepo.findByUserId(input.userId);
+    if (!observed) throw new Error('Expected persisted conversation state');
+    return transitionState.runWithState(observed, () => useCase.execute(input));
   }
 
   const mockPreview = new SpreadsheetPreview({
@@ -92,20 +140,12 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
           provider: 'google',
         },
       });
-      await createOAuthToken(db, { userId: user.userId });
       const config = await createSpreadsheetConfig(db, { userId: user.userId });
 
       const portFactory = createMockPortFactory({ kind: 'success', preview: mockPreview });
-      const useCase = new ValidateSpreadsheetAccess({
-        validateSpreadsheetAccessPortFactory: portFactory,
-        tokenRepository: tokenRepo,
-        transitionState,
-        messagingPort,
-        tokenEncryption,
-        spreadsheetConfigRepository: configRepo,
-      });
+      const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -127,7 +167,9 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
       const updatedConfig = await configRepo.findByUserId(user.userId);
       expect(updatedConfig).not.toBeNull();
       expect(updatedConfig!.id).toBe(config.id);
-      expect(updatedConfig!.accessVerifiedAt.getTime()).toBeGreaterThan(config.accessVerifiedAt.getTime());
+      expect(updatedConfig!.accessVerifiedAt.getTime()).toBeGreaterThan(
+        config.accessVerifiedAt.getTime(),
+      );
     });
   });
 
@@ -144,23 +186,15 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
           provider: 'google',
         },
       });
-      await createOAuthToken(db, {
-        userId: user.userId,
-        accessTokenExpiresAt: new Date(Date.now() - 3600_000),
-      });
       await createSpreadsheetConfig(db, { userId: user.userId });
 
       const portFactory = createMockPortFactory({ kind: 'success', preview: mockPreview });
-      const useCase = new ValidateSpreadsheetAccess({
-        validateSpreadsheetAccessPortFactory: portFactory,
-        tokenRepository: tokenRepo,
-        transitionState,
-        messagingPort,
-        tokenEncryption,
-        spreadsheetConfigRepository: configRepo,
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('expired authorization', { code: 'AUTH_ERROR' }),
+      );
+      const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -197,20 +231,12 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
           provider: 'google',
         },
       });
-      await createOAuthToken(db, { userId: user.userId });
       await createSpreadsheetConfig(db, { userId: user.userId });
 
       const portFactory = createMockPortFactory({ kind: 'read-only', preview: mockPreview });
-      const useCase = new ValidateSpreadsheetAccess({
-        validateSpreadsheetAccessPortFactory: portFactory,
-        tokenRepository: tokenRepo,
-        transitionState,
-        messagingPort,
-        tokenEncryption,
-        spreadsheetConfigRepository: configRepo,
-      });
+      const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -223,10 +249,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
       });
 
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        '123456789',
-        onboardingCopies.readOnlyWarning(),
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', onboardingCopies.readOnlyWarning());
 
       const state = await conversationRepo.findByUserId(user.userId);
       expect(state).not.toBeNull();
@@ -249,20 +272,12 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
           sheetList,
         },
       });
-      await createOAuthToken(db, { userId: user.userId });
       await createSpreadsheetConfig(db, { userId: user.userId });
 
       const portFactory = createMockPortFactory({ kind: 'empty-sheet' });
-      const useCase = new ValidateSpreadsheetAccess({
-        validateSpreadsheetAccessPortFactory: portFactory,
-        tokenRepository: tokenRepo,
-        transitionState,
-        messagingPort,
-        tokenEncryption,
-        spreadsheetConfigRepository: configRepo,
-      });
+      const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -292,8 +307,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
     });
   });
 
-  describe('access error with retry', () => {
-    it('retries once and succeeds on second attempt', async () => {
+  describe('authorization recovery', () => {
+    it('refreshes once and succeeds on the replayed access check', async () => {
       const user = await createUser(db);
       await createConversationState(db, {
         userId: user.userId,
@@ -305,13 +320,13 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
           provider: 'google',
         },
       });
-      await createOAuthToken(db, { userId: user.userId });
       await createSpreadsheetConfig(db, { userId: user.userId });
 
-      const mockValidateAccess = vi.fn()
+      const mockValidateAccess = vi
+        .fn()
         .mockResolvedValueOnce({
           kind: 'access-error',
-          errorType: 'network-error',
+          errorType: 'token-expired',
           retryable: true,
         })
         .mockResolvedValueOnce({ kind: 'success', preview: mockPreview });
@@ -322,16 +337,9 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
         }),
       };
 
-      const useCase = new ValidateSpreadsheetAccess({
-        validateSpreadsheetAccessPortFactory: portFactory,
-        tokenRepository: tokenRepo,
-        transitionState,
-        messagingPort,
-        tokenEncryption,
-        spreadsheetConfigRepository: configRepo,
-      });
+      const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -344,6 +352,11 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
       });
 
       expect(mockValidateAccess).toHaveBeenCalledTimes(2);
+      expect(mockForceRefreshAccessToken).toHaveBeenCalledWith({
+        userId: user.userId,
+        provider: 'google',
+        requiredScopes: ['https://www.googleapis.com/auth/spreadsheets'],
+      });
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
 
       const state = await conversationRepo.findByUserId(user.userId);
@@ -351,7 +364,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
       expect(state!.currentState).toBe('ONBOARDING_MAPPING');
     });
 
-    it('transitions to ONBOARDING_START when retry also fails', async () => {
+    it('transitions to ONBOARDING_START when the replayed access check still fails', async () => {
       const user = await createUser(db);
       await createConversationState(db, {
         userId: user.userId,
@@ -363,15 +376,13 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
           provider: 'google',
         },
       });
-      await createOAuthToken(db, { userId: user.userId });
       await createSpreadsheetConfig(db, { userId: user.userId });
 
-      const mockValidateAccess = vi.fn()
-        .mockResolvedValue({
-          kind: 'access-error',
-          errorType: 'network-error',
-          retryable: true,
-        });
+      const mockValidateAccess = vi.fn().mockResolvedValue({
+        kind: 'access-error',
+        errorType: 'token-expired',
+        retryable: true,
+      });
 
       const portFactory: ValidateSpreadsheetAccessPortFactory = {
         create: vi.fn().mockReturnValue({
@@ -379,16 +390,9 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
         }),
       };
 
-      const useCase = new ValidateSpreadsheetAccess({
-        validateSpreadsheetAccessPortFactory: portFactory,
-        tokenRepository: tokenRepo,
-        transitionState,
-        messagingPort,
-        tokenEncryption,
-        spreadsheetConfigRepository: configRepo,
-      });
+      const useCase = createUseCase(portFactory);
 
-      const result = await useCase.execute({
+      const result = await executeWithCurrentState(useCase, {
         userId: user.userId,
         externalId: '123456789',
         channel: 'telegram',
@@ -401,6 +405,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ValidateSpreadsheetAccess'
       });
 
       expect(mockValidateAccess).toHaveBeenCalledTimes(2);
+      expect(mockForceRefreshAccessToken).toHaveBeenCalledOnce();
       expect(result.nextState).toBe('ONBOARDING_START');
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',

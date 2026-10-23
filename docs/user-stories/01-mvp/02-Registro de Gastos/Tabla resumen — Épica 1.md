@@ -13,11 +13,14 @@
 |E1-US-10|Confirmación de guardado con ubicación|MVP|3|E4 (escritura + metadata), E1-US-08, E1-US-12|
 |E1-US-11|Deshacer último gasto|MVP|5|E1-US-10, E4 (operación de eliminación)|
 |E1-US-12|Notificación de fallo en guardado|MVP|5|E1-US-10, E4 (tipos de error diferenciados)|
-|E1-US-13|Múltiples gastos en un mensaje|R2|8|E1-US-03 a E1-US-09 completos|
+|E1-US-13|Cola de gastos pendientes con procesamiento secuencial|MVP|8|E1-US-01 a E1-US-12, HU-0.04|
 |E1-US-14|Interpretación de fechas relativas|R2|5|E1-US-06, zona horaria del usuario|
 |E1-US-15|Identificación del medio de pago|R2|3|E4 (mapeo incluye medio de pago), E1-US-04|
 |E1-US-16|Recepción y transcripción de voz|R2|5|E1-US-03 a E1-US-10, servicio STT|
 |E1-US-17|Manejo de transcripciones con baja confianza|R2|3|E1-US-16|
-|**Total MVP**|||**46 SP**||
+|E1-US-18|Classify and register linked subcategories|R2|8|HU-4.08, HU-4.07, E1-US-04, E1-US-06 through E1-US-08, E1-US-10, E1-US-12, E1-US-13|
+|**Total MVP**|||**54 SP**||
 |**Total R2**|||**24 SP**||
-|**Total Épica 1**|||**70 SP**||
+|**Total Épica 1**|||**78 SP**||
+
+> **Traceability note:** The historical Release 2 file `E1-US-13 — Registro de varios gastos en un único mensaje.md` remains unchanged. Its identifier conflicts with the implemented MVP pending-expense queue story, so this table uses `E1-US-13` for the queue and does not count the historical multi-expense story again.

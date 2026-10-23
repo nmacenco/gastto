@@ -1,30 +1,36 @@
 # Estimation Summary — HU-4.07
 
-## Total estimated effort
+## Total hours
 
-**12 hours**
+**10 hours**
 
-## Hours per task
+## Hours distributed per task
 
-| Task ID | Title | Hours |
-|---|---|---|
-| T-4.07-01 | Define domain model for category vocabulary | 1 |
-| T-4.07-02 | Define application ports for category vocabulary persistence | 1 |
-| T-4.07-03 | Implement spreadsheet unique category values reader | 1.5 |
-| T-4.07-04 | Implement natural-language category edit parser | 2 |
-| T-4.07-05 | Implement detect and present categories use case | 1.5 |
-| T-4.07-06 | Implement confirm categories use case | 1 |
-| T-4.07-07 | Implement add or correct category use case | 1 |
-| T-4.07-08 | Implement Redis conversation state adapter for category confirmation flow | 1 |
-| T-4.07-09 | Implement Telegram handler for category confirmation messages | 2 |
-| T-4.07-10 | Add unit tests for category vocabulary use cases and parser | 1 |
+| Task ID | Title | Estimated Hours |
+|---------|-------|-----------------|
+| T-4.07-01 | Read unique category values from spreadsheet | 1.5 |
+| T-4.07-02 | Define category vocabulary domain model | 0.5 |
+| T-4.07-03 | Implement category vocabulary repository and schema | 1.5 |
+| T-4.07-04 | Implement detect-and-present categories use case | 1.5 |
+| T-4.07-05 | Implement confirm categories use case | 1.0 |
+| T-4.07-06 | Implement add and correct categories via natural language use case | 1.5 |
+| T-4.07-07 | Implement Telegram conversation handlers for category confirmation | 1.5 |
+| T-4.07-08 | Write integration tests and QA coverage | 1.5 |
+| **Total** | | **10.0** |
 
 ## Coherence check with Story Points
 
 - **User Story Story Points:** 3
-- **Expected range for 3 SP:** 6–12 hours
-- **Estimated total:** 12 hours
+- **Nominal hour range for 3 SP:** 6 – 12 hours
+- **Total estimated hours:** 10 hours
+- **Status:** ✅ Within range
 
 ## Justification
 
-The estimate sits at the upper bound of the 3 SP range. The main cost drivers are the natural-language category edit parser (2 hours), which must handle add/remove/rename intents in two languages, and the Telegram handler (2 hours), which routes multiple states and formats list/prompt/welcome messages. Reading unique values from the spreadsheet (1.5 hours) and the detect/present use case (1.5 hours) account for the empty-column default path and state persistence. The remaining hours cover domain modeling, port definition, Redis state adapter, confirm/correct use cases, and tests. Since the project scaffold already exists from earlier HUs, no bootstrap task is required.
+The main complexity drivers are:
+
+1. **Spreadsheet integration (T-4.07-01, 1.5h):** Efficiently reading and deduplicating category values from an external sheet requires careful adapter design and pagination handling.
+2. **Natural-language intent parsing (T-4.07-06, 1.5h):** Interpreting user commands to add or rename categories is the core business-logic challenge. It may involve an LLM call or a robust rule-based parser, both requiring thorough unit testing with multiple Spanish/English variations.
+3. **Cross-layer orchestration (T-4.07-04, 1.5h):** The detect-and-present use case coordinates the adapter, domain model, repository, and default-set logic, making it a nontrivial integration point.
+
+The remaining tasks are standard Clean Architecture scaffolding (Domain model, Repository, Confirm use case, Telegram handlers, Tests) with well-understood patterns already established in previous HUs. The 10-hour total fits comfortably within the 3 SP range and reflects realistic effort for a single developer working through the stack without hidden bootstrap work.

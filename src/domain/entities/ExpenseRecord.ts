@@ -14,10 +14,13 @@ export interface ExpenseRecord {
   monto: number; // NUMERIC(14,2) — siempre >= 0
   moneda: Currency;
   categoria: string | null;
+  categoryId: string | null;
+  subcategoryId: string | null;
+  subcategoria: string | null;
   fechaGasto: Date; // DATE en BD
   medioPago: string | null;
   sheetName: string;
-  rowIndex: number; // fila real en la planilla (necesario para deshacer, ADR-006)
+  rowIndex: number | null; // fila real en la planilla, si el proveedor la confirmó
   categoriaConfidence: CategoryConfidence | null;
   rawMessage: string; // mensaje original del usuario
   isDeleted: boolean; // soft delete (ADR-006 / E1-US-11)
@@ -31,7 +34,9 @@ export interface ExtractedExpense {
   monto: number | null;
   moneda: Currency | null;
   categoriaRaw: string | null;
+  subcategoriaRaw: string | null;
   fechaRaw: string | null;
   medioPago: string | null;
   confianzaCategoria: CategoryConfidence;
+  confianzaSubcategoria: CategoryConfidence;
 }

@@ -24,6 +24,7 @@ function buildMockRepo(
 function buildConversationState(overrides: Partial<ConversationState> = {}): ConversationState {
   return {
     userId: 'user-123',
+    revision: '0',
     currentState: 'IDLE',
     statePayload: null,
     enteredAt: new Date('2026-01-01T00:00:00Z'),

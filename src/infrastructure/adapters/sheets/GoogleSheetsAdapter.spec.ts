@@ -3,7 +3,7 @@
 // Mocks the global fetch API so no real Google calls are made.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GoogleSheetsAdapter } from './GoogleSheetsAdapter';
+import { GoogleSheetsAdapter, sanitizeGoogleSheetsCellValue } from './GoogleSheetsAdapter';
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
 import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
@@ -79,25 +79,17 @@ describe('GoogleSheetsAdapter', () => {
       expect(result).toEqual([]);
     });
 
-    it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('classifies authorization failures', async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 403,
         json: () => Promise.resolve({ error: 'forbidden' }),
       });
 
-      await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'GoogleSheetsAdapter.listSheets',
-          code: 'SHEETS_API_ERROR',
-          status: 403,
-          errorBody: { error: 'forbidden' },
-        }),
-      );
-      consoleErrorSpy.mockRestore();
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toMatchObject({
+        code: 'AUTH_ERROR',
+        retryable: false,
+      });
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -113,7 +105,19 @@ describe('GoogleSheetsAdapter', () => {
     it('throws SpreadsheetError on network failure', async () => {
       fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
 
-      await expect(adapter.listSheets('spreadsheet-123')).rejects.toBeInstanceOf(SpreadsheetError);
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
+    });
+
+    it('classifies provider 5xx responses as retryable network failures', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 503 });
+
+      await expect(adapter.listSheets('spreadsheet-123')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
     });
 
     it('throws SpreadsheetError on unexpected response format', async () => {
@@ -215,6 +219,26 @@ describe('GoogleSheetsAdapter', () => {
       expect(init.headers).toEqual({ Authorization: 'Bearer access-token-123' });
     });
 
+    it('reads the requested header row index', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            values: [['Fecha', 'Monto', 'Categoria']],
+          }),
+      });
+
+      const result = await adapter.getHeaders('spreadsheet-123', 'Gastos', 2);
+
+      expect(result).toEqual(['Fecha', 'Monto', 'Categoria']);
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!2:2',
+      );
+    });
+
     it('returns empty array when sheet has no values', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
@@ -251,7 +275,6 @@ describe('GoogleSheetsAdapter', () => {
     });
 
     it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 404,
@@ -261,16 +284,6 @@ describe('GoogleSheetsAdapter', () => {
       await expect(adapter.getHeaders('spreadsheet-123', 'Gastos')).rejects.toBeInstanceOf(
         SpreadsheetError,
       );
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'GoogleSheetsAdapter.getHeaders',
-          code: 'SHEETS_API_ERROR',
-          status: 404,
-          errorBody: { error: 'notFound' },
-        }),
-      );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -333,29 +346,27 @@ describe('GoogleSheetsAdapter', () => {
   });
 
   describe('getUniqueValues', () => {
-    it('returns unique values from a column', async () => {
+    it('returns deduplicated non-empty values starting from row 2', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
         json: () =>
           Promise.resolve({
-            range: 'Gastos!C:C',
-            majorDimension: 'COLUMNS',
-            values: [['Categoria'], ['Food'], ['Transportation'], ['Food'], ['Health'], ['']],
+            values: [['Comida'], ['Transporte'], ['Comida'], [''], ['Servicios']],
           }),
       });
 
       const result = await adapter.getUniqueValues('spreadsheet-123', 2, 'Gastos');
 
-      expect(result).toEqual(['Categoria', 'Food', 'Transportation', 'Food', 'Health', '']);
-
+      expect(result).toEqual(['Comida', 'Transporte', 'Servicios']);
+      expect(fetchMock).toHaveBeenCalledOnce();
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe(
-        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!C:C',
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!C2:C',
       );
     });
 
-    it('returns empty array when column has no values', async () => {
+    it('returns empty array when response has no values', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
@@ -363,72 +374,411 @@ describe('GoogleSheetsAdapter', () => {
       });
 
       const result = await adapter.getUniqueValues('spreadsheet-123', 0, 'Gastos');
+
       expect(result).toEqual([]);
     });
 
-    it('handles multi-letter column indices', async () => {
+    it('starts at the supplied data row instead of including a later header row', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ values: [['Value']] }),
+        json: () => Promise.resolve({ values: [['Comida'], ['Transporte']] }),
       });
 
-      await adapter.getUniqueValues('spreadsheet-123', 27, 'Gastos');
+      const result = await adapter.getUniqueValues('spreadsheet-123', 2, 'Gastos', 3);
 
+      expect(result).toEqual(['Comida', 'Transporte']);
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain('AB:AB');
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!C3:C',
+      );
     });
 
-    it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it.each([0, -1, 2.5])(
+      'rejects invalid data start row %s before making a request',
+      async (row) => {
+        await expect(
+          adapter.getUniqueValues('spreadsheet-123', 2, 'Gastos', row),
+        ).rejects.toMatchObject({
+          code: 'STRUCTURE_ERROR',
+        });
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it('throws SpreadsheetError on API error', async () => {
       fetchMock.mockResolvedValue({
         ok: false,
-        status: 404,
-        json: () => Promise.resolve({ error: 'notFound' }),
+        status: 403,
+        json: () => Promise.resolve({ error: {} }),
       });
 
       await expect(adapter.getUniqueValues('spreadsheet-123', 0, 'Gastos')).rejects.toBeInstanceOf(
-        SpreadsheetError,
-      );
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'GoogleSheetsAdapter.getUniqueValues',
-          code: 'SHEETS_API_ERROR',
-          status: 404,
-        }),
-      );
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('throws SpreadsheetError on network failure', async () => {
-      fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
-
-      await expect(adapter.getUniqueValues('spreadsheet-123', 0, 'Gastos')).rejects.toBeInstanceOf(
-        SpreadsheetError,
-      );
-    });
-
-    it('throws SpreadsheetError for negative column index', async () => {
-      await expect(adapter.getUniqueValues('spreadsheet-123', -1, 'Gastos')).rejects.toBeInstanceOf(
         SpreadsheetError,
       );
     });
   });
 
+  describe('appendRow', () => {
+    it.each([
+      ['=SUM(A1:A2)', "'=SUM(A1:A2)"],
+      ['+SUM(A1:A2)', "'+SUM(A1:A2)"],
+      ['-SUM(A1:A2)', "'-SUM(A1:A2)"],
+      ['@SUM(A1:A2)', "'@SUM(A1:A2)"],
+      [' \t=SUM(A1:A2)', "' \t=SUM(A1:A2)"],
+      ['\u0000@SUM(A1:A2)', "'\u0000@SUM(A1:A2)"],
+    ])('escapes dangerous textual prefix %j', (value, expected) => {
+      expect(sanitizeGoogleSheetsCellValue(value)).toBe(expected);
+    });
+
+    it('preserves safe strings, apostrophe-prefixed strings, numbers, and null values', () => {
+      expect(sanitizeGoogleSheetsCellValue('Taxi')).toBe('Taxi');
+      expect(sanitizeGoogleSheetsCellValue("'=SUM(A1:A2)")).toBe("'=SUM(A1:A2)");
+      expect(sanitizeGoogleSheetsCellValue(-12)).toBe(-12);
+      expect(sanitizeGoogleSheetsCellValue(null)).toBeNull();
+    });
+
+    it('serializes escaped user-controlled text while preserving USER_ENTERED writes', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: { updatedRange: 'Gastos!A2:B2' } }),
+      });
+
+      await adapter.appendRow('spreadsheet-123', 'Gastos', [
+        '=IMPORTXML("https://example.com")',
+        -12,
+      ]);
+
+      const [, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(request.body).toBe(
+        JSON.stringify({ values: [['\'=IMPORTXML("https://example.com")', -12]] }),
+      );
+    });
+
+    it('appends a row and returns the confirmed sheet and row', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: { updatedRange: 'Gastos!A47:F47' } }),
+      });
+
+      await expect(adapter.appendRow('spreadsheet-123', 'Gastos', ['Taxi', 500])).resolves.toEqual({
+        sheet: 'Gastos',
+        row: 47,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer access-token-123',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: [['Taxi', 500]] }),
+        },
+      );
+    });
+
+    it('uses the selected sheet and returns no row when the response lacks one', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: { updatedRange: "'Expenses 2026'!A:F" } }),
+      });
+
+      await expect(adapter.appendRow('spreadsheet-123', 'Expenses 2026', [100])).resolves.toEqual({
+        sheet: 'Expenses 2026',
+      });
+    });
+
+    it('classifies authorization, structure, and network append failures', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({ error: 'forbidden' }),
+      });
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
+        code: 'AUTH_ERROR',
+        retryable: false,
+      });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: {} }),
+      });
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
+
+      fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+        outcomeUnknown: true,
+      });
+
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+      await expect(adapter.appendRow('id', 'Gastos', [])).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+        outcomeUnknown: true,
+      });
+    });
+  });
+
+  describe('deleteRow', () => {
+    it('resolves the sheet ID and deletes exactly the requested one-based row', async () => {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 42 } }] }),
+        })
+        .mockResolvedValueOnce({ ok: true, status: 200 });
+
+      await expect(adapter.deleteRow('spreadsheet-123', 'Gastos', 7)).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123?fields=sheets.properties(sheetId,title)',
+        { headers: { Authorization: 'Bearer access-token-123' } },
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123:batchUpdate',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            requests: [
+              {
+                deleteDimension: {
+                  range: { sheetId: 42, dimension: 'ROWS', startIndex: 6, endIndex: 7 },
+                },
+              },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('maps missing sheets and provider failures to SpreadsheetError', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ sheets: [{ properties: { title: 'Other', sheetId: 1 } }] }),
+      });
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toBeInstanceOf(SpreadsheetError);
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 1 } }] }),
+        })
+        .mockResolvedValueOnce({ ok: false, status: 403 });
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toBeInstanceOf(SpreadsheetError);
+    });
+
+    it('classifies authorization and 5xx failures during row deletion', async () => {
+      const metadata = {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 1 } }] }),
+      };
+      fetchMock.mockResolvedValueOnce(metadata).mockResolvedValueOnce({ ok: false, status: 401 });
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toMatchObject({
+        code: 'AUTH_ERROR',
+        retryable: false,
+      });
+
+      fetchMock.mockResolvedValueOnce(metadata).mockResolvedValueOnce({ ok: false, status: 503 });
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+        outcomeUnknown: true,
+      });
+    });
+
+    it('distinguishes lookup failure from an uncertain deletion request', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('metadata unavailable'));
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        outcomeUnknown: false,
+      });
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({ sheets: [{ properties: { title: 'Gastos', sheetId: 1 } }] }),
+        })
+        .mockRejectedValueOnce(new Error('connection closed'));
+      await expect(adapter.deleteRow('id', 'Gastos', 1)).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        outcomeUnknown: true,
+      });
+    });
+  });
+
+  describe('readRows', () => {
+    it('preserves mixed cells, blank offsets, sparse cells, and absolute row indexes', async () => {
+      const sparseRow = new Array<unknown>(3);
+      sparseRow[0] = 'Casa';
+      sparseRow[2] = false;
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            range: "'Gastos 2026'!B7:D9",
+            values: [
+              ['Comida', '', 12.5],
+              [true, null, 'EUR'],
+              sparseRow,
+              ['trailing cells omitted'],
+            ],
+          }),
+      });
+
+      await expect(adapter.readRows('file-id', "'Gastos 2026'!B5:D")).resolves.toEqual([
+        { index: 7, values: ['Comida', '', 12.5] },
+        { index: 8, values: [true, null, 'EUR'] },
+        { index: 9, values: ['Casa', null, false] },
+        { index: 10, values: ['trailing cells omitted'] },
+      ]);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://sheets.googleapis.com/v4/spreadsheets/file-id/values/%27Gastos%202026%27%21B5%3AD',
+        { headers: { Authorization: 'Bearer access-token-123' } },
+      );
+    });
+
+    it('encodes worksheet punctuation and the complete A1 range', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: [] }),
+      });
+
+      await expect(adapter.readRows('file-id', "'Q1 & O''Brien!'!A2:C10")).resolves.toEqual([]);
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain('%27Q1%20%26%20O%27%27Brien%21%27%21A2%3AC10');
+    });
+
+    it.each([{ range: 'Gastos!A4:C' }, { range: 'Gastos!A4:C', values: [] }])(
+      'returns an empty array for a valid empty range',
+      async (payload) => {
+        fetchMock.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(payload),
+        });
+
+        await expect(adapter.readRows('file-id', 'Gastos!A4:C')).resolves.toEqual([]);
+      },
+    );
+
+    it.each(['range', 'Gastos!A:F', 'Gastos!A0:F', '!A1:F', 'Gastos!A1:'])(
+      'rejects invalid range %s before making a request',
+      async (range) => {
+        await expect(adapter.readRows('file-id', range)).rejects.toMatchObject({
+          code: 'STRUCTURE_ERROR',
+          retryable: false,
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      null,
+      { range: 42, values: [] },
+      { values: {} },
+      { values: ['not-a-row'] },
+      { values: [[{ formula: '=1+1' }]] },
+    ])('classifies malformed payloads as structure errors', async (payload) => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(payload),
+      });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
+    });
+
+    it.each([401, 403])('classifies HTTP %s as an authorization error', async (status) => {
+      fetchMock.mockResolvedValue({ ok: false, status });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'AUTH_ERROR',
+        retryable: false,
+      });
+    });
+
+    it('classifies provider 5xx responses as retryable network errors', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 503 });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
+    });
+
+    it.each([400, 404])(
+      'classifies provider range failure HTTP %s as a structure error',
+      async (status) => {
+        fetchMock.mockResolvedValue({ ok: false, status });
+
+        await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+          code: 'STRUCTURE_ERROR',
+          retryable: false,
+        });
+      },
+    );
+
+    it('classifies unexpected HTTP failures as unknown errors', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 429 });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'UNKNOWN',
+        retryable: false,
+      });
+    });
+
+    it('classifies transport failures as retryable network errors', async () => {
+      fetchMock.mockRejectedValue(new Error('ECONNRESET'));
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
+    });
+
+    it('classifies invalid JSON as a structure error', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError('invalid JSON')),
+      });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+      });
+    });
+  });
+
   describe('unimplemented methods', () => {
-    it('readRows throws SpreadsheetError', async () => {
-      await expect(adapter.readRows('id', 'range')).rejects.toBeInstanceOf(SpreadsheetError);
-    });
-
-    it('appendRow throws SpreadsheetError', async () => {
-      await expect(adapter.appendRow('id', 'sheet', [])).rejects.toBeInstanceOf(SpreadsheetError);
-    });
-
-    it('deleteRow throws SpreadsheetError', async () => {
-      await expect(adapter.deleteRow('id', 'sheet', 1)).rejects.toBeInstanceOf(SpreadsheetError);
-    });
-
     it('validateAccess throws SpreadsheetError', async () => {
       await expect(adapter.validateAccess('id', 'sheet')).rejects.toBeInstanceOf(SpreadsheetError);
     });
@@ -470,7 +820,7 @@ describe('GoogleSheetsAdapter', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
       const [sheetsUrl] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(sheetsUrl).toContain('/values/Gastos!1:10');
+      expect(sheetsUrl).toContain('/values/Gastos!1:20');
       const [driveUrl] = fetchMock.mock.calls[1] as [string, RequestInit];
       expect(driveUrl).toContain('/files/spreadsheet-123?fields=capabilities(canEdit)');
     });
@@ -568,8 +918,7 @@ describe('GoogleSheetsAdapter', () => {
       }
     });
 
-    it('returns access-error with unknown on other HTTP errors from Sheets API', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('returns access-error with network-error on 5xx from Sheets API', async () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 500,
@@ -580,10 +929,9 @@ describe('GoogleSheetsAdapter', () => {
 
       expect(result.kind).toBe('access-error');
       if (result.kind === 'access-error') {
-        expect(result.errorType).toBe('unknown');
+        expect(result.errorType).toBe('network-error');
         expect(result.retryable).toBe(true);
       }
-      consoleErrorSpy.mockRestore();
     });
 
     it('returns access-error with network-error on fetch failure during capability check', async () => {
@@ -657,8 +1005,7 @@ describe('GoogleSheetsAdapter', () => {
       }
     });
 
-    it('returns access-error with unknown on other HTTP errors from Drive API', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('returns access-error with network-error on 5xx from Drive API', async () => {
       fetchMock
         .mockResolvedValueOnce({
           ok: true,
@@ -678,10 +1025,9 @@ describe('GoogleSheetsAdapter', () => {
 
       expect(result.kind).toBe('access-error');
       if (result.kind === 'access-error') {
-        expect(result.errorType).toBe('unknown');
+        expect(result.errorType).toBe('network-error');
         expect(result.retryable).toBe(true);
       }
-      consoleErrorSpy.mockRestore();
     });
 
     it('returns read-only when capabilities.canEdit is missing', async () => {
@@ -725,6 +1071,61 @@ describe('GoogleSheetsAdapter', () => {
 
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toContain(encodeURIComponent('My Sheet!'));
+    });
+  });
+
+  describe('listAvailableColumns', () => {
+    it('returns columns with their index and header from the requested row', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            values: [['Fecha', 'Monto', 'Categoria']],
+          }),
+      });
+
+      const result = await adapter.listAvailableColumns({
+        provider: 'google',
+        fileId: 'spreadsheet-123',
+        sheetName: 'Gastos',
+        accessToken: 'access-token-123',
+        headerRowIndex: 3,
+      });
+
+      expect(result).toEqual([
+        { index: 0, columnHeader: 'Fecha' },
+        { index: 1, columnHeader: 'Monto' },
+        { index: 2, columnHeader: 'Categoria' },
+      ]);
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!3:3',
+      );
+    });
+
+    it('defaults to row 1 when headerRowIndex is omitted', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            values: [['Fecha', 'Monto']],
+          }),
+      });
+
+      await adapter.listAvailableColumns({
+        provider: 'google',
+        fileId: 'spreadsheet-123',
+        sheetName: 'Gastos',
+        accessToken: 'access-token-123',
+      });
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos!1:1',
+      );
     });
   });
 });

@@ -6,15 +6,15 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 
 ## Scope
 
-- **In scope:** Google Drive OAuth2 authorization, CSRF state management, reminder scheduling, OAuth callback handling, user cancellation during the OAuth flow.
+- **In scope:** Google Drive OAuth2 authorization, encrypted token lifecycle and transparent access-token refresh, CSRF state management, reminder scheduling, OAuth callback handling, user cancellation during the OAuth flow.
 - **Out of scope:** OneDrive adapter, file/sheet/mapping selection.
 
 ## FSM States
 
-| State              | Description                                                         | Next                                                                                         | Payload                                    |
-| ------------------ | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `ONBOARDING_START` | User is asked to choose a cloud provider                            | `ONBOARDING_DRIVE` (Google) or stays here (invalid / OneDrive), self-transition to set `promptShown` | `{ promptShown: boolean }`                 |
-| `ONBOARDING_DRIVE` | User has received the Google auth link and is expected to authorize | `ONBOARDING_FILE` (callback success), `IDLE` (cancel), self-transition (`SendOAuthReminder`) | `{ provider: 'google', state: string }`    |
+| State              | Description                                                         | Next                                                                                                 | Payload                                 |
+| ------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `ONBOARDING_START` | User is asked to choose a cloud provider                            | `ONBOARDING_DRIVE` (Google) or stays here (invalid / OneDrive), self-transition to set `promptShown` | `{ promptShown: boolean }`              |
+| `ONBOARDING_DRIVE` | User has received the Google auth link and is expected to authorize | `ONBOARDING_FILE` (callback success), `IDLE` (cancel), self-transition (`SendOAuthReminder`)         | `{ provider: 'google', state: string }` |
 
 ## OAuth Flow Sequence
 
@@ -26,37 +26,51 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 4. For **Google Drive**:
    - Generates a cryptographically random `state` (32 bytes hex).
    - Builds the Google OAuth URL via `GoogleDriveOAuthAdapter.buildAuthUrl()`.
-   - Stores `oauth:state:{state}` in Redis with a **15-minute TTL**.
    - Schedules a BullMQ job on the `oauth-reminder` queue with a **10-minute delay**.
-   - Sends the auth link to the user via `MessagingOutputPort`.
    - Transitions FSM to `ONBOARDING_DRIVE`.
+   - Stores `oauth:state:{state}` with the committed revision in Redis with a **15-minute TTL**.
+   - Sends the auth link to the user via `MessagingOutputPort` only after the transition commits.
 5. For **OneDrive**: returns a "coming soon" message; state remains `ONBOARDING_START`.
 6. For **invalid input**: returns a re-prompt; state remains `ONBOARDING_START`.
 
-Reconnection paths (e.g., expired token during file or sheet selection) transition back to `ONBOARDING_START` with `promptShown: true`, so the user receives the standard re-prompt instead of the welcome message.
+Reconnection paths for terminal authorization loss transition back to `ONBOARDING_START` with `promptShown: true` and `reauthorizationOnly: true`, so the user receives the standard re-prompt instead of the welcome message. Normal access-token expiration is refreshed silently and does not restart onboarding. The reconnect flag is carried through `ONBOARDING_DRIVE`. After a successful Google callback, an existing Google configuration with a selected file, sheet, and confirmed column mappings returns directly to `IDLE` and asks the user to resend the expense. It does not relist files or overwrite the saved configuration. If that configuration is incomplete, normal file selection continues.
 
 ### Callback (`HandleOAuthCallback`)
+
+The Redis CSRF record includes the committed conversation revision. The callback acquires and renews the same per-user lease as message processing, then compares the persisted `ONBOARDING_DRIVE` nonce and revision before code exchange and again before token persistence. Lease invalidation is checked immediately before token persistence. It commits `ONBOARDING_FILE` before sending success copy; a callback stale before persistence stores no token, and any stale final transition sends no success copy or file-selection effect.
 
 6. User completes Google authorization and the redirect delivers `code` + `state`.
 7. `HandleOAuthCallback`:
    - Validates the `state` against Redis (`oauth:state:{state}`).
    - Exchanges the `code` for tokens via `GoogleDriveOAuthAdapter.exchangeCode()`.
-   - Encrypts tokens (AES-256-GCM) and persists them via `IOAuthTokenRepository.upsert()`.
+   - Encrypts the access token and refresh token separately (AES-256-GCM), each with its own IV, and persists both ciphertexts plus both IVs via `IOAuthTokenRepository.upsert()`.
    - Cancels the pending BullMQ reminder job using the stored `reminderJobId`.
    - Removes the Redis CSRF key.
-   - Sends a success confirmation to the user.
    - Transitions FSM to `ONBOARDING_FILE`.
+   - Sends a success confirmation to the user only after that transition commits.
 
 ### Reminder (`SendOAuthReminder`)
+
+The reminder owns the per-user lease, commits a guarded nonce/revision self-transition, and only then stores and sends the replacement authorization link. A stale reminder has no state or message effect.
 
 8. If the user has not completed authorization within **10 minutes**, the BullMQ job fires.
 9. `SendOAuthReminder`:
    - Checks if tokens already exist; if so, silently skips.
    - Generates a fresh CSRF `state`.
-   - Builds a new auth URL and stores the new state in Redis (15-minute TTL).
    - Schedules a new BullMQ reminder job for +10 minutes.
    - Updates the FSM payload via self-transition `ONBOARDING_DRIVE` → `ONBOARDING_DRIVE`.
-   - Resends the auth link to the user.
+   - Stores the new state and committed revision in Redis (15-minute TTL).
+   - Resends the auth link to the user only after the self-transition commits.
+
+### Transparent access-token refresh (`OAuthAccessTokenService`)
+
+- Every spreadsheet token consumer obtains plaintext access through the shared Application service. Use cases do not read token rows or decrypt credentials directly.
+- A fresh access token is reused. A token that is expired or expires within five minutes is refreshed before the external operation starts.
+- The refresh token is decrypted only for the provider exchange. The returned access token is encrypted with a fresh IV and persisted through `IOAuthTokenRepository.markRefreshed()`.
+- If a spreadsheet or Drive operation returns HTTP 401/403 while using a token considered valid, that exact operation receives one forced-refresh replay. Writes such as append and delete are never retried more than once.
+- A missing, revoked, undecryptable, or Google-rejected (`invalid_grant`) refresh credential is terminal. Provider rejection marks the stored credential revoked and the existing reconnection flow starts.
+- Refresh timeouts, network failures, and provider 5xx responses are retryable `NETWORK_ERROR` outcomes. They do not revoke the credential or restart onboarding.
+- Successful refresh preserves the user's FSM state, spreadsheet selection, mappings, categories, and user status.
 
 > **TODO (future work):** HU-4.01 Scenario 4 specifies a **maximum of 3 reminder attempts**, after which the system should suggest reconnecting or aborting onboarding. The current `SendOAuthReminder` implementation reschedules indefinitely with no cap. Implement the attempt counter (e.g. in the FSM payload or Redis) and the cap-exceeded transition in `src/application/use-cases/spreadsheet/SendOAuthReminder.ts`.
 
@@ -69,9 +83,9 @@ Reconnection paths (e.g., expired token during file or sheet selection) transiti
 
 ## Redis Key Patterns
 
-| Key                   | Value                                                            | TTL            |
-| --------------------- | ---------------------------------------------------------------- | -------------- |
-| `oauth:state:{state}` | JSON: `{ userId, provider, externalId, channel, reminderJobId }` | 15 min (900 s) |
+| Key                   | Value                                                                      | TTL            |
+| --------------------- | -------------------------------------------------------------------------- | -------------- |
+| `oauth:state:{state}` | JSON: `{ userId, provider, externalId, channel, reminderJobId, revision }` | 15 min (900 s) |
 
 ## BullMQ Reminder Queue
 
@@ -82,20 +96,25 @@ Reconnection paths (e.g., expired token during file or sheet selection) transiti
 
 ## Error Handling and Retry Behavior
 
-| Scenario                              | Behavior                                                                                                             |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Scenario                              | Behavior                                                                                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | User denies authorization             | `HandleOAuthCallback` catches `OAuthDeniedError`, logs `OAUTH_EXCHANGE_REJECTED`, returns `success: false` with `canRetry: true` and `oauthConnectionFailed`. |
-| Network failure during token exchange | `HandleOAuthCallback` catches `OAuthNetworkError`, logs `OAUTH_EXCHANGE_REJECTED`, returns `success: false` with `canRetry: true`.                   |
-| Invalid / missing `state` on callback | `HandleOAuthCallback` logs `OAUTH_STATE_MISSING` / `OAUTH_STATE_INVALID`, returns `success: false` with `canRetry: true` and `oauthConnectionFailed`. |
-| Token persistence failure             | `HandleOAuthCallback` logs `OAUTH_EXCHANGE_UNEXPECTED_ERROR`, returns `success: false` with `canRetry: true`; no success message is sent.            |
-| Reminder cancellation failure         | Logged via `logger.error` but does not block callback success.                                                       |
-| Invalid provider requested            | `InitiateCloudConnection` throws `InvalidProviderError` (caught by caller).                                          |
-| BullMQ reminder job failure           | Retries with exponential backoff (3 attempts).                                                                       |
-| Cancellation with missing Redis state | `CancelCloudConnection` still transitions to `IDLE` and sends the cancellation message.                              |
+| Network failure during token exchange | `HandleOAuthCallback` catches `OAuthNetworkError`, logs `OAUTH_EXCHANGE_REJECTED`, returns `success: false` with `canRetry: true`.                            |
+| Expired or near-expiry access token   | Refreshes silently through `OAuthAccessTokenService`; the current spreadsheet operation continues without an onboarding transition.                           |
+| Spreadsheet/Drive HTTP 401 or 403     | Forces one refresh and replays the failed operation once; reconnects only if authorization still cannot be restored.                                          |
+| Refresh credential rejected           | Calls `markRevoked`, returns terminal `AUTH_ERROR`, and uses the existing `ONBOARDING_START` reconnection flow.                                               |
+| Transient refresh failure / HTTP 5xx  | Returns retryable `NETWORK_ERROR`; the credential remains active and onboarding is not restarted.                                                             |
+| Invalid / missing `state` on callback | `HandleOAuthCallback` logs `OAUTH_STATE_MISSING` / `OAUTH_STATE_INVALID`, returns `success: false` with `canRetry: true` and `oauthConnectionFailed`.         |
+| Token persistence failure             | `HandleOAuthCallback` logs `OAUTH_EXCHANGE_UNEXPECTED_ERROR`, returns `success: false` with `canRetry: true`; no success message is sent.                     |
+| Reminder cancellation failure         | Logged via `logger.error` but does not block callback success.                                                                                                |
+| Invalid provider requested            | `InitiateCloudConnection` throws `InvalidProviderError` (caught by caller).                                                                                   |
+| BullMQ reminder job failure           | Retries with exponential backoff (3 attempts).                                                                                                                |
+| Cancellation with missing Redis state | `CancelCloudConnection` still transitions to `IDLE` and sends the cancellation message.                                                                       |
 
 ## Adapters
 
-- `GoogleDriveOAuthAdapter` — direct `fetch` calls to Google OAuth endpoints. No `google-auth-library` dependency.
+- `GoogleDriveOAuthAdapter` — direct `fetch` calls to Google OAuth endpoints, including provider-neutral access-token refresh. No `google-auth-library` dependency.
+- `OAuthAccessTokenService` — Application service that owns proactive refresh, decryption/encryption, persistence, terminal revocation, and one controlled replay after `AUTH_ERROR`.
 - `InitiateCloudConnection` — Application use case that starts the OAuth flow.
 - `HandleOAuthCallback` — Application use case that completes the OAuth flow after redirect.
 - `CancelCloudConnection` — Application use case that cancels an in-progress OAuth flow.
@@ -110,6 +129,15 @@ The following environment variables are required once the adapter is wired:
 - `GOOGLE_REDIRECT_URI`
 
 All three are optional in `env.schema.ts` so the app can bootstrap without them during skeleton phases.
+
+## Requested scopes
+
+For Google Drive, the authorization URL requests the following space-separated OAuth scopes:
+
+- `https://www.googleapis.com/auth/drive.readonly` — list and search spreadsheet files, read file metadata, and check `capabilities.canEdit`.
+- `https://www.googleapis.com/auth/spreadsheets` — read from and write to the selected Google Sheet.
+
+If the scope set changes, existing tokens must be re-authorized because Google does not grant incremental permissions without a new consent flow.
 
 ## API Contracts
 
@@ -224,6 +252,31 @@ interface SendOAuthReminderOutput {
 }
 ```
 
+#### OAuth refresh contracts
+
+```ts
+interface OAuthServicePort {
+  refreshAccessToken(
+    provider: SpreadsheetProvider,
+    refreshToken: string,
+  ): Promise<{ accessToken: string; expiresAt: Date; scope: string[] }>;
+}
+
+interface OAuthAccessTokenProvider {
+  getValidAccessToken(input: {
+    userId: string;
+    provider: SpreadsheetProvider;
+    requiredScopes?: string[];
+  }): Promise<{ accessToken: string; expiresAt: Date; refreshed: boolean }>;
+
+  forceRefreshAccessToken(input: {
+    userId: string;
+    provider: SpreadsheetProvider;
+    requiredScopes?: string[];
+  }): Promise<{ accessToken: string; expiresAt: Date; refreshed: true }>;
+}
+```
+
 ## QA Checklist
 
 ### Google Drive
@@ -240,7 +293,7 @@ interface SendOAuthReminderOutput {
   - Browser redirects to `/auth/google/callback?code=...&state=...`.
   - `HandleOAuthCallback` validates `state` against Redis.
   - Tokens exchanged via `GoogleDriveOAuthAdapter.exchangeCode()`.
-  - Tokens encrypted (AES-256-GCM) and persisted via `IOAuthTokenRepository.upsert()`.
+  - Access token and refresh token encrypted separately (AES-256-GCM) with distinct IVs; both ciphertexts and both IVs persisted via `IOAuthTokenRepository.upsert()`.
   - Reminder job cancelled via `Queue.remove(reminderJobId)`.
   - Redis CSRF key deleted.
   - Success message sent to user.

@@ -1,0 +1,399 @@
+// LAYER: Bootstrap / Unit Tests
+// Tests for the dependency graph builder: wiring, conditional features and LLM selection.
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Redis } from 'ioredis';
+import { Queue } from 'bullmq';
+import type { Logger } from 'pino';
+
+import { buildDependencies } from './buildDependencies';
+import { createLogger } from '../infrastructure/logger';
+import type { Env } from '../config/env.schema';
+import type { DrizzleDatabase } from './types';
+import { OpenAIAdapter } from '../infrastructure/adapters/llm/OpenAIAdapter';
+import { ClaudeAdapter } from '../infrastructure/adapters/llm/ClaudeAdapter';
+import { NvidiaAdapter } from '../infrastructure/adapters/llm/NvidiaAdapter';
+import { GroqAdapter } from '../infrastructure/adapters/llm/GroqAdapter';
+import { ExtractionFallbackLLMPort } from '../infrastructure/adapters/llm/ExtractionFallbackLLMPort';
+import { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
+import { ClassifyExpenseCategory } from '../application/use-cases/expense/ClassifyExpenseCategory';
+import { SubcategoryFallbackMatcher } from '../infrastructure/adapters/category/SubcategoryFallbackMatcher';
+import { OpenAISemanticRouterAdapter } from '../infrastructure/adapters/llm/OpenAISemanticRouterAdapter';
+
+vi.mock('bullmq', () => ({
+  Queue: vi.fn(),
+  Worker: vi.fn(),
+}));
+
+const baseEnv: Env = {
+  NODE_ENV: 'test',
+  PORT: 0,
+  LOG_LEVEL: 'fatal',
+  DATABASE_URL: 'postgres://localhost:5432/test',
+  REDIS_URL: 'redis://localhost:6379/0',
+  MAPPING_CORRECTION_TTL_SECONDS: 1800,
+  CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: 0.6,
+  HIGH_AMOUNT_THRESHOLD_MULTIPLIER: 10,
+  EXPENSE_REVIEW_TIMEOUT_MINUTES: 10,
+  EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: 10,
+  OPENAI_API_KEY: 'sk-test-openai',
+  LLM_PROVIDER: 'auto',
+  LLM_FALLBACK_PROVIDER: 'auto',
+  LLM_EXTRACTION_TIMEOUT_MS: 30_000,
+  NVIDIA_MODEL: 'z-ai/glm-5.3-flash',
+  GROQ_MODEL: 'openai/gpt-oss-20b',
+  SEMANTIC_ROUTER_STATE_MODES: {},
+  SEMANTIC_ROUTER_COHORT_PERCENT: 0,
+  SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: 0,
+  SEMANTIC_ROUTER_COHORT_SEED: 'test-seed',
+  SEMANTIC_ROUTER_PROVIDER: 'openai',
+  SEMANTIC_ROUTER_MODEL: 'gpt-4o-mini-2024-07-18',
+  SEMANTIC_ROUTER_TIMEOUT_MS: 10000,
+  SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: 256,
+  TELEGRAM_WEBHOOK_SECRET: 'test-webhook-secret',
+  TELEGRAM_BOT_TOKEN: 'test-bot-token',
+  WEBHOOK_BASE_URL: 'https://example.com',
+  ENCRYPTION_KEY: 'a'.repeat(64),
+  GOOGLE_CLIENT_ID: 'test-google-client-id',
+  GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
+  GOOGLE_REDIRECT_URI: 'http://localhost:3000/auth/google/callback',
+};
+
+function buildInfra(rootLogger: Logger = createLogger({ level: 'silent' })) {
+  return {
+    db: {} as DrizzleDatabase,
+    redis: {
+      on: vi.fn(),
+      quit: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Redis,
+    rootLogger,
+  };
+}
+
+describe('buildDependencies', () => {
+  beforeEach(() => {
+    vi.mocked(Queue).mockImplementation(() => {
+      const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+      return {
+        add: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+          if (!events[event]) events[event] = [];
+          events[event].push(handler);
+        }),
+        emit: vi.fn().mockImplementation((event: string, ...args: unknown[]) => {
+          (events[event] ?? []).forEach((handler) => handler(...args));
+        }),
+      } as unknown as Queue;
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('wires all core repositories and use cases when DB/Redis are present', () => {
+    const deps = buildDependencies(baseEnv, buildInfra());
+
+    expect(deps.userRepo).toBeDefined();
+    expect(deps.conversationRepo).toBeDefined();
+    expect(deps.tokenRepo).toBeDefined();
+    expect(deps.resolveIdentity).toBeDefined();
+    expect(deps.getConversationState).toBeDefined();
+    expect(deps.transitionState).toBeDefined();
+    expect(deps.recoverCorruptedState).toBeDefined();
+    expect(deps.semanticRouter).toBeInstanceOf(OpenAISemanticRouterAdapter);
+    expect(deps.observeSemanticRouting).toBeDefined();
+    expect(deps.registerExpense).toBeDefined();
+    expect(deps.correctExpense).toBeDefined();
+    expect(deps.generateExpenseSummary).toBeDefined();
+    expect(deps.resolveExpenseSummaryAction).toBeDefined();
+    expect(deps.resolveExpenseReviewReply).toBeDefined();
+    expect(deps.expenseSummaryPresenterFactory).toBeDefined();
+    expect(deps.categoryClassifier).toBeInstanceOf(ClassifyExpenseCategory);
+    expect(deps.subcategoryFallbackMatcher).toBeInstanceOf(SubcategoryFallbackMatcher);
+    expect((deps.categoryClassifier as unknown as { hierarchyRepo: unknown }).hierarchyRepo).toBe(
+      deps.categoryVocabularyRepo,
+    );
+    expect(
+      (
+        deps.correctExpense as unknown as {
+          deps: { categoryVocabularyRepo: unknown };
+        }
+      ).deps.categoryVocabularyRepo,
+    ).toBe(deps.categoryVocabularyRepo);
+  });
+
+  it('creates the required BullMQ queues', () => {
+    buildDependencies(baseEnv, buildInfra());
+
+    const queueNames = vi.mocked(Queue).mock.calls.map(([name]) => name);
+    expect(queueNames).toContain('process-message');
+    expect(queueNames).toContain('incoming-message');
+    expect(queueNames).toContain('oauth-reminder');
+  });
+
+  it('configures twelve attempts with the lock-only custom backoff', () => {
+    buildDependencies(baseEnv, buildInfra());
+
+    const processMessageCall = vi
+      .mocked(Queue)
+      .mock.calls.find(([name]) => name === 'process-message');
+    const options = processMessageCall?.[1] as
+      | { defaultJobOptions?: { attempts?: number; backoff?: { type?: string } } }
+      | undefined;
+
+    expect(options?.defaultJobOptions).toMatchObject({
+      attempts: 12,
+      backoff: { type: 'custom' },
+    });
+  });
+
+  it('registers one sanitized error listener on every queue without optional features', () => {
+    const loggerError = vi.fn();
+    const logger = { error: loggerError, info: vi.fn() } as unknown as Logger;
+    const env: Env = {
+      ...baseEnv,
+      TELEGRAM_BOT_TOKEN: '',
+      TELEGRAM_WEBHOOK_SECRET: '',
+      GOOGLE_CLIENT_ID: '',
+      GOOGLE_CLIENT_SECRET: '',
+      GOOGLE_REDIRECT_URI: '',
+    };
+
+    buildDependencies(env, buildInfra(logger));
+
+    const queues = vi.mocked(Queue).mock.results.map(({ value }) => value as Queue);
+    expect(queues).toHaveLength(3);
+    for (const queue of queues) {
+      const mockQueue = queue as unknown as {
+        on: ReturnType<typeof vi.fn>;
+        emit: (event: string, error: Error) => void;
+      };
+      expect(mockQueue.on.mock.calls.filter(([event]) => event === 'error')).toHaveLength(1);
+      mockQueue.emit('error', new Error('Connection lost'));
+    }
+
+    expect(loggerError).toHaveBeenCalledTimes(3);
+    expect(loggerError).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ code: 'BULLMQ_QUEUE_ERROR', queue: 'process-message' }),
+    );
+    expect(loggerError).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ code: 'BULLMQ_QUEUE_ERROR', queue: 'incoming-message' }),
+    );
+    expect(loggerError).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ code: 'BULLMQ_QUEUE_ERROR', queue: 'oauth-reminder' }),
+    );
+  });
+
+  it('creates the Telegram feature when Telegram is configured', () => {
+    const deps = buildDependencies(baseEnv, buildInfra());
+
+    expect(deps.telegram).not.toBeNull();
+    expect(deps.telegram?.adapter).toBeDefined();
+    expect(deps.telegram?.routeIncomingMessage).toBeDefined();
+  });
+
+  it('creates the Google OAuth feature when credentials are configured', () => {
+    const deps = buildDependencies(baseEnv, buildInfra());
+
+    expect(deps.googleOAuth).not.toBeNull();
+    expect(deps.googleOAuth?.adapter).toBeDefined();
+    expect(deps.googleOAuth?.handleOAuthCallback).toBeDefined();
+    expect(deps.googleOAuth?.inferColumnMapping).toBeDefined();
+    expect(deps.googleOAuth?.confirmCategories).toBeDefined();
+    expect(deps.googleOAuth?.modifyCategoryVocabulary).toBeDefined();
+    expect(deps.dispatchOptionSelection).toBeDefined();
+    expect(deps.googleOAuth?.categoryHierarchyReaderFactory).toBeInstanceOf(
+      SpreadsheetCategoryHierarchyReaderFactory,
+    );
+  });
+
+  it('returns null Telegram feature when Telegram is not configured', () => {
+    const env: Env = {
+      ...baseEnv,
+      TELEGRAM_BOT_TOKEN: '',
+      TELEGRAM_WEBHOOK_SECRET: '',
+    };
+
+    const deps = buildDependencies(env, buildInfra());
+
+    expect(deps.telegram).toBeNull();
+  });
+
+  it('returns null Google OAuth feature when credentials are missing', () => {
+    const env: Env = {
+      ...baseEnv,
+      GOOGLE_CLIENT_ID: '',
+      GOOGLE_CLIENT_SECRET: '',
+      GOOGLE_REDIRECT_URI: '',
+    };
+
+    const deps = buildDependencies(env, buildInfra());
+
+    expect(deps.telegram).not.toBeNull();
+    expect(deps.googleOAuth).toBeNull();
+    expect(deps.dispatchOptionSelection).toBeNull();
+  });
+
+  it('selects NVIDIA when its API key is configured', () => {
+    const env: Env = {
+      ...baseEnv,
+      OPENAI_API_KEY: undefined,
+      ANTHROPIC_API_KEY: undefined,
+      NVIDIA_API_KEY: 'nvidia-key',
+    };
+
+    const deps = buildDependencies(env, buildInfra());
+
+    expect(deps.llmPort).toBeInstanceOf(NvidiaAdapter);
+    expect(deps.semanticRouter).toBeNull();
+  });
+
+  it('passes the configured NVIDIA model to the adapter', () => {
+    const deps = buildDependencies(
+      {
+        ...baseEnv,
+        OPENAI_API_KEY: undefined,
+        ANTHROPIC_API_KEY: undefined,
+        NVIDIA_API_KEY: 'nvidia-key',
+        NVIDIA_MODEL: 'z-ai/custom-model',
+      },
+      buildInfra(),
+    );
+
+    expect((deps.llmPort as unknown as { model: string }).model).toBe('z-ai/custom-model');
+  });
+
+  it('composes the OpenAI semantic router independently from NVIDIA extraction precedence', () => {
+    const deps = buildDependencies(
+      { ...baseEnv, NVIDIA_API_KEY: 'nvidia-key', OPENAI_API_KEY: 'openai-key' },
+      buildInfra(),
+    );
+
+    expect(deps.llmPort).toBeInstanceOf(ExtractionFallbackLLMPort);
+    expect(deps.semanticRouter).toBeInstanceOf(OpenAISemanticRouterAdapter);
+  });
+
+  it('selects Claude when its API key is configured', () => {
+    const env: Env = {
+      ...baseEnv,
+      OPENAI_API_KEY: undefined,
+      ANTHROPIC_API_KEY: 'anthropic-key',
+      NVIDIA_API_KEY: undefined,
+    };
+
+    const deps = buildDependencies(env, buildInfra());
+
+    expect(deps.llmPort).toBeInstanceOf(ClaudeAdapter);
+  });
+
+  it('selects OpenAI when its API key is configured', () => {
+    const env: Env = {
+      ...baseEnv,
+      OPENAI_API_KEY: 'openai-key',
+      ANTHROPIC_API_KEY: undefined,
+      NVIDIA_API_KEY: undefined,
+    };
+
+    const deps = buildDependencies(env, buildInfra());
+
+    expect(deps.llmPort).toBeInstanceOf(OpenAIAdapter);
+  });
+
+  it('selects explicit Groq primary with its own key and model', () => {
+    const deps = buildDependencies(
+      {
+        ...baseEnv,
+        LLM_PROVIDER: 'groq',
+        LLM_FALLBACK_PROVIDER: 'none',
+        OPENAI_API_KEY: undefined,
+        GROQ_API_KEY: 'groq-key',
+        GROQ_MODEL: 'openai/gpt-oss-120b',
+      },
+      buildInfra(),
+    );
+    expect(deps.llmPort).toBeInstanceOf(GroqAdapter);
+    expect((deps.llmPort as unknown as { model: string }).model).toBe('openai/gpt-oss-120b');
+  });
+
+  it('uses Groq only as an explicitly selected fallback', () => {
+    const deps = buildDependencies(
+      { ...baseEnv, GROQ_API_KEY: 'groq-key', LLM_FALLBACK_PROVIDER: 'groq' },
+      buildInfra(),
+    );
+    expect(deps.llmPort).toBeInstanceOf(ExtractionFallbackLLMPort);
+    expect((deps.llmPort as unknown as { fallback: unknown }).fallback).toBeInstanceOf(GroqAdapter);
+    expect((deps.llmPort as unknown as { primary: unknown }).primary).toBeInstanceOf(OpenAIAdapter);
+  });
+
+  it('keeps Groq out of auto provider selection in Phase 1', () => {
+    const deps = buildDependencies(
+      { ...baseEnv, GROQ_API_KEY: 'groq-key', NVIDIA_API_KEY: 'nvidia-key' },
+      buildInfra(),
+    );
+    expect(deps.llmPort).toBeInstanceOf(ExtractionFallbackLLMPort);
+    expect((deps.llmPort as unknown as { primary: unknown }).primary).toBeInstanceOf(NvidiaAdapter);
+    expect((deps.llmPort as unknown as { fallback: unknown }).fallback).toBeInstanceOf(
+      OpenAIAdapter,
+    );
+  });
+
+  it('selects an explicit provider even when NVIDIA is configured', () => {
+    const keys = {
+      ...baseEnv,
+      NVIDIA_API_KEY: 'nvidia-key',
+      ANTHROPIC_API_KEY: 'anthropic-key',
+      LLM_FALLBACK_PROVIDER: 'none' as const,
+    };
+    expect(
+      buildDependencies({ ...keys, LLM_PROVIDER: 'openai' }, buildInfra()).llmPort,
+    ).toBeInstanceOf(OpenAIAdapter);
+    expect(
+      buildDependencies({ ...keys, LLM_PROVIDER: 'anthropic' }, buildInfra()).llmPort,
+    ).toBeInstanceOf(ClaudeAdapter);
+  });
+
+  it('rejects an explicit provider whose API key is absent', () => {
+    expect(() =>
+      buildDependencies(
+        { ...baseEnv, LLM_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: undefined },
+        buildInfra(),
+      ),
+    ).toThrow('LLM_PROVIDER=anthropic requires ANTHROPIC_API_KEY');
+  });
+
+  it('requires a distinct configured key for an explicit extraction fallback', () => {
+    expect(() =>
+      buildDependencies({ ...baseEnv, LLM_FALLBACK_PROVIDER: 'anthropic' }, buildInfra()),
+    ).toThrow('LLM_FALLBACK_PROVIDER=anthropic requires ANTHROPIC_API_KEY');
+    expect(() =>
+      buildDependencies({ ...baseEnv, LLM_FALLBACK_PROVIDER: 'openai' }, buildInfra()),
+    ).toThrow('LLM_FALLBACK_PROVIDER must differ from LLM_PROVIDER');
+    expect(() =>
+      buildDependencies({ ...baseEnv, LLM_FALLBACK_PROVIDER: 'groq' }, buildInfra()),
+    ).toThrow('LLM_FALLBACK_PROVIDER=groq requires GROQ_API_KEY');
+    expect(() =>
+      buildDependencies(
+        { ...baseEnv, LLM_PROVIDER: 'groq', LLM_FALLBACK_PROVIDER: 'groq', GROQ_API_KEY: 'key' },
+        buildInfra(),
+      ),
+    ).toThrow('LLM_FALLBACK_PROVIDER must differ from LLM_PROVIDER');
+  });
+
+  it('throws when no LLM provider is configured', () => {
+    const env: Env = {
+      ...baseEnv,
+      OPENAI_API_KEY: undefined,
+      ANTHROPIC_API_KEY: undefined,
+      NVIDIA_API_KEY: undefined,
+    };
+
+    expect(() => buildDependencies(env, buildInfra())).toThrow(
+      /At least one LLM provider API key must be configured/,
+    );
+  });
+});

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "semantic-runtime-evidence-v1",
+  "releaseId": "replace-with-approved-release-id",
+  "observationWindow": {
+    "startedAt": "2026-01-01T00:00:00.000Z",
+    "endedAt": "2026-01-01T01:00:00.000Z"
+  },
+  "observations": [],
+  "acknowledgmentLatencyMs": []
+}
+

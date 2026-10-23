@@ -50,9 +50,38 @@ describe('InitiateCloudConnection', () => {
       'https://accounts.google.com/o/oauth2/v2/auth?state=test-state-123',
     );
     mockQueueAdd.mockResolvedValue({ id: 'job-123' } as Job);
+    mockTransitionExecute.mockResolvedValue({
+      status: 'updated',
+      state: {
+        userId: 'user-123',
+        revision: '1',
+        currentState: 'ONBOARDING_DRIVE',
+        statePayload: { provider: 'google', state: 'test-state-123' },
+        enteredAt: new Date(),
+        expiresAt: null,
+        updatedAt: new Date(),
+      },
+    });
   });
 
   describe('valid Google Drive selection', () => {
+    it('carries the reauthorization flag to the OAuth callback state', async () => {
+      await new InitiateCloudConnection(buildMockDeps()).execute({
+        ...baseInput,
+        reauthorizationOnly: true,
+      });
+
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_DRIVE',
+        payload: {
+          provider: 'google',
+          state: 'test-state-123',
+          reauthorizationOnly: true,
+        },
+      });
+    });
+
     it('generates auth URL, stores state, schedules reminder, transitions FSM, and sends link', async () => {
       const deps = buildMockDeps();
       const useCase = new InitiateCloudConnection(deps);
@@ -73,6 +102,7 @@ describe('InitiateCloudConnection', () => {
           externalId: '123456789',
           channel: 'telegram',
           reminderJobId: 'job-123',
+          revision: '1',
         }),
       );
       expect(mockSendMessage).toHaveBeenCalledWith(
@@ -96,17 +126,22 @@ describe('InitiateCloudConnection', () => {
       expect(result.payload).toEqual({ provider: 'google', state: 'test-state-123' });
     });
 
-    it.each([['1'], ['google drive'], ['Google Drive'], ['GOOGLE'], ['drive'], ['gdrive']])(
-      'accepts "%s" as Google Drive',
-      async (rawMessage) => {
-        const deps = buildMockDeps();
-        const useCase = new InitiateCloudConnection(deps);
-        const result = await useCase.execute({ ...baseInput, rawMessage });
+    it.each([
+      ['1'],
+      ['google drive'],
+      ['Google Drive'],
+      ['GOOGLE'],
+      ['drive'],
+      ['gdrive'],
+      ['empezar'],
+    ])('accepts "%s" as Google Drive', async (rawMessage) => {
+      const deps = buildMockDeps();
+      const useCase = new InitiateCloudConnection(deps);
+      const result = await useCase.execute({ ...baseInput, rawMessage });
 
-        expect(result.nextState).toBe('ONBOARDING_DRIVE');
-        expect(mockBuildAuthUrl).toHaveBeenCalled();
-      },
-    );
+      expect(result.nextState).toBe('ONBOARDING_DRIVE');
+      expect(mockBuildAuthUrl).toHaveBeenCalled();
+    });
   });
 
   describe('OneDrive selection', () => {

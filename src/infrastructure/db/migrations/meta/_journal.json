@@ -22,6 +22,55 @@
       "when": 1782097200000,
       "tag": "0002_add_onboarding_validating_access_state",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783368177535,
+      "tag": "0003_chunky_bishop",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783617896302,
+      "tag": "0004_red_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785659921307,
+      "tag": "0005_lying_gwen_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785678186949,
+      "tag": "0006_add_undo_confirming_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788463736975,
+      "tag": "0007_material_eternals",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788530594374,
+      "tag": "0008_add_subcategory_mapping_field",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789230041586,
+      "tag": "0009_wooden_polaris",
+      "breakpoints": true
     }
   ]
 }

@@ -1,45 +1,64 @@
-# Dependency Tree — HU-4.07
+# Task Dependency Tree — HU-4.07
 
-## Task relationships
+## Textual diagram
 
-```text
-T-4.07-01 (Domain model)
-├── T-4.07-02 (Application ports)
-│   ├── T-4.07-03 (Spreadsheet reader)
-│   │   └── T-4.07-05 (Detect/present use case)
-│   │       ├── T-4.07-06 (Confirm use case)
-│   │       │   └── T-4.07-09 (Telegram handler)
-│   │       └── T-4.07-07 (Add/correct use case)
-│   │           └── T-4.07-09 (Telegram handler)
-│   └── T-4.07-08 (Redis state adapter)
-│       └── T-4.07-09 (Telegram handler)
-└── T-4.07-04 (NL parser)
-    └── T-4.07-07 (Add/correct use case)
+```
+T-4.07-01  Read unique category values from spreadsheet
+    |
+    v
+T-4.07-02  Define category vocabulary domain model
+    |
+    v
+T-4.07-03  Implement category vocabulary repository and schema
+    |
+    v
+T-4.07-04  Implement detect-and-present categories use case
+    |
+    +------> T-4.07-05  Implement confirm categories use case
+    |            |
+    |            v
+    |       T-4.07-07  Implement Telegram conversation handlers
+    |            ^
+    +------> T-4.07-06  Implement add and correct categories use case
+                 |
+                 v
+            T-4.07-07  Implement Telegram conversation handlers
+                 |
+                 v
+            T-4.07-08  Write integration tests and QA coverage
+```
 
-T-4.07-10 (Tests)
-├── T-4.07-04
-├── T-4.07-05
-├── T-4.07-06
-└── T-4.07-07
+## Mermaid graph
+
+```mermaid
+graph TD
+    A[T-4.07-01<br/>Read unique values] --> B[T-4.07-02<br/>Domain model]
+    B --> C[T-4.07-03<br/>Repository & schema]
+    C --> D[T-4.07-04<br/>Detect & present use case]
+    D --> E[T-4.07-05<br/>Confirm use case]
+    D --> F[T-4.07-06<br/>Add/correct use case]
+    E --> G[T-4.07-07<br/>Telegram handlers]
+    F --> G
+    G --> H[T-4.07-08<br/>Integration tests]
 ```
 
 ## Critical path
 
-`T-4.07-01 → T-4.07-02 → T-4.07-05 → T-4.07-07 → T-4.07-09`
+The longest chain of dependent tasks determines the minimum duration:
 
-This is the longest chain (6.5 hours) and determines the minimum time to deliver the full feature. The confirm-only path (`T-4.07-01 → T-4.07-02 → T-4.07-05 → T-4.07-06 → T-4.07-09`) is shorter.
+`T-4.07-01 → T-4.07-02 → T-4.07-03 → T-4.07-04 → T-4.07-06 → T-4.07-07 → T-4.07-08`
+
+**Critical path duration:** 1.5 + 0.5 + 1.5 + 1.5 + 1.5 + 1.5 + 1.5 = **9.5 hours**
 
 ## Summary table
 
 | Task ID | Title | Depends on | Estimated Hours |
-|---|---|---|---|
-| T-4.07-01 | Define domain model for category vocabulary | None | 1 |
-| T-4.07-02 | Define application ports for category vocabulary persistence | T-4.07-01 | 1 |
-| T-4.07-03 | Implement spreadsheet unique category values reader | T-4.07-02 | 1.5 |
-| T-4.07-04 | Implement natural-language category edit parser | T-4.07-01 | 2 |
-| T-4.07-05 | Implement detect and present categories use case | T-4.07-02, T-4.07-03 | 1.5 |
-| T-4.07-06 | Implement confirm categories use case | T-4.07-02, T-4.07-05 | 1 |
-| T-4.07-07 | Implement add or correct category use case | T-4.07-02, T-4.07-04, T-4.07-05 | 1 |
-| T-4.07-08 | Implement Redis conversation state adapter for category confirmation flow | T-4.07-02 | 1 |
-| T-4.07-09 | Implement Telegram handler for category confirmation messages | T-4.07-06, T-4.07-07, T-4.07-08 | 2 |
-| T-4.07-10 | Add unit tests for category vocabulary use cases and parser | T-4.07-04, T-4.07-05, T-4.07-06, T-4.07-07 | 1 |
+|---------|-------|------------|-----------------|
+| T-4.07-01 | Read unique category values from spreadsheet | None | 1.5 |
+| T-4.07-02 | Define category vocabulary domain model | T-4.07-01 | 0.5 |
+| T-4.07-03 | Implement category vocabulary repository and schema | T-4.07-02 | 1.5 |
+| T-4.07-04 | Implement detect-and-present categories use case | T-4.07-03 | 1.5 |
+| T-4.07-05 | Implement confirm categories use case | T-4.07-04 | 1.0 |
+| T-4.07-06 | Implement add and correct categories via natural language use case | T-4.07-04 | 1.5 |
+| T-4.07-07 | Implement Telegram conversation handlers for category confirmation | T-4.07-05, T-4.07-06 | 1.5 |
+| T-4.07-08 | Write integration tests and QA coverage | T-4.07-07 | 1.5 |

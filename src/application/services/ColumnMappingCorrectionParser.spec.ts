@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  MULTIPLE_FIELDS_CORRECTION_REASON,
   RuleBasedColumnMappingCorrectionParser,
   type CorrectionParseResult,
 } from './ColumnMappingCorrectionParser';
@@ -105,6 +106,12 @@ describe('RuleBasedColumnMappingCorrectionParser', () => {
   });
 
   describe('parse failures', () => {
+    it('rejects multiple field corrections in the same message', () => {
+      const result = parser.parse('A Medio de pago. B Fecha. C Categoría. E Importe. F Concepto.');
+
+      expect(result).toEqual({ kind: 'failure', reason: MULTIPLE_FIELDS_CORRECTION_REASON });
+    });
+
     it('fails on plain confirmation "sí"', () => {
       const result = parser.parse('sí');
       expect(result.kind).toBe('failure');
@@ -134,6 +141,9 @@ describe('RuleBasedColumnMappingCorrectionParser', () => {
       { message: 'currency en A', expectedField: 'moneda' },
       { message: 'categoria en A', expectedField: 'categoria' },
       { message: 'category en A', expectedField: 'categoria' },
+      { message: 'subcategoría en A', expectedField: 'subcategoria' },
+      { message: 'sub category in column A', expectedField: 'subcategoria' },
+      { message: 'categoria secundaria en A', expectedField: 'subcategoria' },
       { message: 'fecha en A', expectedField: 'fecha' },
       { message: 'date en A', expectedField: 'fecha' },
       { message: 'concepto en A', expectedField: 'concepto' },
@@ -183,5 +193,12 @@ describe('RuleBasedColumnMappingCorrectionParser', () => {
         expect(result.columnRef).toBe(expectedColumn);
       },
     );
+  });
+
+  it('rejects category and subcategory in one message without a partial correction', () => {
+    expect(parser.parse('categoría en C y subcategoría en D')).toEqual({
+      kind: 'failure',
+      reason: MULTIPLE_FIELDS_CORRECTION_REASON,
+    });
   });
 });

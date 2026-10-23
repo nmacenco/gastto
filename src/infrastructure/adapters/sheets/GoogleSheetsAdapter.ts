@@ -12,9 +12,62 @@ import type { SpreadsheetAccessResult } from '../../../domain/value-objects/Spre
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
 import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { encodeUrlComponent, parseSpreadsheetRange } from './spreadsheetRange';
 
 const GOOGLE_SHEETS_API_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
 const GOOGLE_DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
+
+function networkError(
+  operation: string,
+  error: unknown,
+  outcomeUnknown: boolean = false,
+): SpreadsheetError {
+  return new SpreadsheetError(`Network error during ${operation}: ${String(error)}`, {
+    code: 'NETWORK_ERROR',
+    retryable: true,
+    outcomeUnknown,
+  });
+}
+
+function providerHttpError(
+  operation: string,
+  status: number,
+  outcomeUnknown: boolean = false,
+): SpreadsheetError {
+  if (status === 401 || status === 403) {
+    return new SpreadsheetError(`Google authorization error during ${operation}: HTTP ${status}`, {
+      code: 'AUTH_ERROR',
+    });
+  }
+  if (status >= 500) {
+    return new SpreadsheetError(`Google API error during ${operation}: HTTP ${status}`, {
+      code: 'NETWORK_ERROR',
+      retryable: true,
+      outcomeUnknown,
+    });
+  }
+  if (status === 400 || status === 404) {
+    return new SpreadsheetError(`Google structure error during ${operation}: HTTP ${status}`, {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+  return new SpreadsheetError(`Google API error during ${operation}: HTTP ${status}`, {
+    code: 'UNKNOWN',
+  });
+}
+
+/**
+ * Prevent USER_ENTERED from interpreting user-controlled text as a formula.
+ * Numbers remain numbers so existing date and numeric behavior is preserved.
+ */
+export function sanitizeGoogleSheetsCellValue(value: CellValue): CellValue {
+  if (typeof value !== 'string' || value.startsWith("'")) {
+    return value;
+  }
+
+  const firstMeaningfulCharacter = value.replace(/^[\s\u0000-\u001f]*/u, '').charAt(0);
+  return ['=', '+', '-', '@'].includes(firstMeaningfulCharacter) ? `'${value}` : value;
+}
 
 export class GoogleSheetsAdapter
   implements SpreadsheetPort, ValidateSpreadsheetAccessPort, ISpreadsheetColumnPort
@@ -30,7 +83,11 @@ export class GoogleSheetsAdapter
         headers: { Authorization: `Bearer ${this.accessToken}` },
       });
     } catch (err) {
-      throw new SpreadsheetError(`Network error during sheet listing: ${String(err)}`);
+      throw networkError('sheet listing', err);
+    }
+
+    if (!response.ok) {
+      throw providerHttpError('sheet listing', response.status);
     }
 
     let data: unknown;
@@ -39,33 +96,20 @@ export class GoogleSheetsAdapter
     } catch {
       throw new SpreadsheetError(
         `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
-      );
-    }
-
-    if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.listSheets',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
-      throw new SpreadsheetError(
-        `Google Sheets API error during sheet listing: HTTP ${response.status}`,
+        { code: 'STRUCTURE_ERROR' },
       );
     }
 
     return parseListSheetsResponse(data);
   }
 
-  async getHeaders(fileId: string, sheetName: string): Promise<string[]> {
+  async getHeaders(
+    fileId: string,
+    sheetName: string,
+    headerRowIndex: number = 1,
+  ): Promise<string[]> {
     const encodedSheetName = encodeURIComponent(sheetName);
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!1:1`;
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!${headerRowIndex}:${headerRowIndex}`;
 
     let response: Response;
     try {
@@ -73,7 +117,11 @@ export class GoogleSheetsAdapter
         headers: { Authorization: `Bearer ${this.accessToken}` },
       });
     } catch (err) {
-      throw new SpreadsheetError(`Network error during header retrieval: ${String(err)}`);
+      throw networkError('header retrieval', err);
+    }
+
+    if (!response.ok) {
+      throw providerHttpError('header retrieval', response.status);
     }
 
     let data: unknown;
@@ -82,24 +130,7 @@ export class GoogleSheetsAdapter
     } catch {
       throw new SpreadsheetError(
         `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
-      );
-    }
-
-    if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.getHeaders',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-        errorBody,
-      });
-      throw new SpreadsheetError(
-        `Google Sheets API error during header retrieval: HTTP ${response.status}`,
+        { code: 'STRUCTURE_ERROR' },
       );
     }
 
@@ -111,38 +142,34 @@ export class GoogleSheetsAdapter
     fileId: string;
     sheetName: string;
     accessToken: string;
+    headerRowIndex?: number;
   }): Promise<AvailableColumn[]> {
     // Use the access token supplied in the input so a single port instance can
     // serve requests for different users/sessions.
     const client = new GoogleSheetsAdapter(input.accessToken);
-    const headers = await client.getHeaders(input.fileId, input.sheetName);
+    const headers = await client.getHeaders(
+      input.fileId,
+      input.sheetName,
+      input.headerRowIndex ?? 1,
+    );
     return headers.map((columnHeader, index) => ({ index, columnHeader }));
   }
 
-  readRows(_fileId: string, _range: string): Promise<Row[]> {
-    return Promise.reject(new SpreadsheetError('readRows not yet implemented'));
-  }
-
-  appendRow(_fileId: string, _sheetName: string, _values: CellValue[]): Promise<AppendResult> {
-    return Promise.reject(new SpreadsheetError('appendRow not yet implemented'));
-  }
-
-  deleteRow(_fileId: string, _sheetName: string, _rowIndex: number): Promise<void> {
-    return Promise.reject(new SpreadsheetError('deleteRow not yet implemented'));
-  }
-
-  async getUniqueValues(fileId: string, columnIndex: number, sheetName: string): Promise<string[]> {
-    const encodedSheetName = encodeURIComponent(sheetName);
-    const columnLetter = columnIndexToLetter(columnIndex);
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!${columnLetter}:${columnLetter}`;
+  async readRows(fileId: string, range: string): Promise<Row[]> {
+    const requestedRange = parseSpreadsheetRange(range);
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodeUrlComponent(range)}`;
 
     let response: Response;
     try {
       response = await fetch(url, {
         headers: { Authorization: `Bearer ${this.accessToken}` },
       });
-    } catch (err) {
-      throw new SpreadsheetError(`Network error during unique values retrieval: ${String(err)}`);
+    } catch (error) {
+      throw networkError('row retrieval', error);
+    }
+
+    if (!response.ok) {
+      throw providerHttpError('row retrieval', response.status);
     }
 
     let data: unknown;
@@ -151,24 +178,137 @@ export class GoogleSheetsAdapter
     } catch {
       throw new SpreadsheetError(
         `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
+        { code: 'STRUCTURE_ERROR' },
       );
     }
 
-    if (!response.ok) {
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = 'Could not parse error body';
-      }
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.getUniqueValues',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-        errorBody,
+    return parseRowsResponse(data, requestedRange.startRow);
+  }
+
+  async appendRow(fileId: string, sheetName: string, values: CellValue[]): Promise<AppendResult> {
+    const encodedSheetName = encodeURIComponent(sheetName);
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ values: [values.map(sanitizeGoogleSheetsCellValue)] }),
       });
+    } catch (err) {
+      throw networkError('row append', err, true);
+    }
+
+    if (!response.ok) {
+      throw providerHttpError('row append', response.status, response.status >= 500);
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
       throw new SpreadsheetError(
-        `Google Sheets API error during unique values retrieval: HTTP ${response.status}`,
+        `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
+        { code: 'STRUCTURE_ERROR' },
+      );
+    }
+
+    return parseAppendResponse(data, sheetName);
+  }
+
+  async deleteRow(fileId: string, sheetName: string, rowIndex: number): Promise<void> {
+    const metadataUrl = `${GOOGLE_SHEETS_API_URL}/${fileId}?fields=sheets.properties(sheetId,title)`;
+    let metadataResponse: Response;
+    try {
+      metadataResponse = await fetch(metadataUrl, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+    } catch (error) {
+      throw networkError('sheet lookup', error);
+    }
+
+    if (!metadataResponse.ok) {
+      throw providerHttpError('sheet lookup', metadataResponse.status);
+    }
+
+    let metadata: unknown;
+    try {
+      metadata = await metadataResponse.json();
+    } catch {
+      throw new SpreadsheetError(
+        `Invalid JSON response from Google Sheets API: HTTP ${metadataResponse.status}`,
+        { code: 'STRUCTURE_ERROR' },
+      );
+    }
+
+    const sheetId = findGoogleSheetId(metadata, sheetName);
+    if (sheetId === null) {
+      throw new SpreadsheetError(`Sheet structure error: sheet '${sheetName}' not found`, {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+
+    let deleteResponse: Response;
+    try {
+      deleteResponse = await fetch(`${GOOGLE_SHEETS_API_URL}/${fileId}:batchUpdate`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              deleteDimension: {
+                range: { sheetId, dimension: 'ROWS', startIndex: rowIndex - 1, endIndex: rowIndex },
+              },
+            },
+          ],
+        }),
+      });
+    } catch (error) {
+      throw networkError('row deletion', error, true);
+    }
+    if (!deleteResponse.ok) {
+      throw providerHttpError('row deletion', deleteResponse.status, deleteResponse.status >= 500);
+    }
+  }
+
+  async getUniqueValues(
+    fileId: string,
+    columnIndex: number,
+    sheetName: string,
+    dataStartRow: number = 2,
+  ): Promise<string[]> {
+    assertPositiveRow(dataStartRow);
+    const columnLetter = columnIndexToLetter(columnIndex);
+    const encodedSheetName = encodeURIComponent(sheetName);
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!${columnLetter}${dataStartRow}:${columnLetter}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+    } catch (err) {
+      throw networkError('unique values retrieval', err);
+    }
+
+    if (!response.ok) {
+      throw providerHttpError('unique values retrieval', response.status);
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new SpreadsheetError(
+        `Invalid JSON response from Google Sheets API: HTTP ${response.status}`,
+        { code: 'STRUCTURE_ERROR' },
       );
     }
 
@@ -176,7 +316,9 @@ export class GoogleSheetsAdapter
   }
 
   validateAccess(_fileId: string, _sheetName: string): Promise<boolean> {
-    return Promise.reject(new SpreadsheetError('validateAccess not yet implemented'));
+    return Promise.reject(
+      new SpreadsheetError('validateAccess not yet implemented', { code: 'STRUCTURE_ERROR' }),
+    );
   }
 
   async validateSpreadsheetAccess(
@@ -219,7 +361,7 @@ export class GoogleSheetsAdapter
       }
   > {
     const encodedSheetName = encodeURIComponent(sheetName);
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!1:10`;
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}!1:20`;
 
     let response: Response;
     try {
@@ -239,19 +381,16 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.fetchPreview',
-        code: 'SHEETS_API_ERROR',
-        status: response.status,
-      });
-      return { kind: 'access-error', errorType: 'unknown', retryable: true };
+      return response.status >= 500
+        ? { kind: 'access-error', errorType: 'network-error', retryable: true }
+        : { kind: 'access-error', errorType: 'unknown', retryable: false };
     }
 
     let data: unknown;
     try {
       data = await response.json();
     } catch {
-      return { kind: 'access-error', errorType: 'unknown', retryable: true };
+      return { kind: 'access-error', errorType: 'unknown', retryable: false };
     }
 
     const rows = parsePreviewRows(data);
@@ -299,19 +438,16 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      console.error({
-        endpoint: 'GoogleSheetsAdapter.checkWritePermission',
-        code: 'DRIVE_API_ERROR',
-        status: response.status,
-      });
-      return { kind: 'access-error', errorType: 'unknown', retryable: true };
+      return response.status >= 500
+        ? { kind: 'access-error', errorType: 'network-error', retryable: true }
+        : { kind: 'access-error', errorType: 'unknown', retryable: false };
     }
 
     let data: unknown;
     try {
       data = await response.json();
     } catch {
-      return { kind: 'access-error', errorType: 'unknown', retryable: true };
+      return { kind: 'access-error', errorType: 'unknown', retryable: false };
     }
 
     const canEdit = parseCanEdit(data);
@@ -319,21 +455,70 @@ export class GoogleSheetsAdapter
   }
 }
 
+function parseAppendResponse(data: unknown, sheetName: string): AppendResult {
+  if (!isRecord(data) || !isRecord(data.updates) || typeof data.updates.updatedRange !== 'string') {
+    throw new SpreadsheetError('Invalid append response from Google Sheets API', {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+
+  const rowMatch = data.updates.updatedRange.match(/![A-Z]+(\d+)(?::[A-Z]+\d+)?$/i);
+  if (!rowMatch?.[1]) {
+    return { sheet: sheetName };
+  }
+
+  const row = Number(rowMatch[1]);
+  if (!Number.isSafeInteger(row) || row < 1) {
+    throw new SpreadsheetError('Invalid row reference in Google Sheets append response', {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+
+  return { sheet: sheetName, row };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function findGoogleSheetId(data: unknown, sheetName: string): number | null {
+  if (!isRecord(data) || !Array.isArray(data.sheets)) {
+    throw new SpreadsheetError('Unexpected sheet metadata response from Google Sheets API', {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+
+  for (const sheet of data.sheets) {
+    if (!isRecord(sheet) || !isRecord(sheet.properties)) continue;
+    const { title, sheetId } = sheet.properties;
+    if (title === sheetName && typeof sheetId === 'number' && Number.isInteger(sheetId)) {
+      return sheetId;
+    }
+  }
+  return null;
+}
+
 // ── Response parsers ─────────────────────────────────────────────────────────
 
 function parseListSheetsResponse(data: unknown): SheetInfo[] {
   if (typeof data !== 'object' || data === null || !('sheets' in data)) {
-    throw new SpreadsheetError('Unexpected response format from Google Sheets API');
+    throw new SpreadsheetError('Unexpected response format from Google Sheets API', {
+      code: 'STRUCTURE_ERROR',
+    });
   }
 
   const sheets = (data as Record<string, unknown>).sheets;
   if (!Array.isArray(sheets)) {
-    throw new SpreadsheetError('Unexpected response format from Google Sheets API');
+    throw new SpreadsheetError('Unexpected response format from Google Sheets API', {
+      code: 'STRUCTURE_ERROR',
+    });
   }
 
   return sheets.map((item, index) => {
     if (typeof item !== 'object' || item === null) {
-      throw new SpreadsheetError('Invalid sheet item in Google Sheets API response');
+      throw new SpreadsheetError('Invalid sheet item in Google Sheets API response', {
+        code: 'STRUCTURE_ERROR',
+      });
     }
 
     const obj = item as Record<string, unknown>;
@@ -343,14 +528,18 @@ function parseListSheetsResponse(data: unknown): SheetInfo[] {
         : null;
 
     if (!properties) {
-      throw new SpreadsheetError('Invalid sheet item in Google Sheets API response');
+      throw new SpreadsheetError('Invalid sheet item in Google Sheets API response', {
+        code: 'STRUCTURE_ERROR',
+      });
     }
 
     const title = typeof properties.title === 'string' ? properties.title : '';
     const sheetIndex = typeof properties.index === 'number' ? properties.index : index;
 
     if (!title) {
-      throw new SpreadsheetError('Invalid sheet item in Google Sheets API response');
+      throw new SpreadsheetError('Invalid sheet item in Google Sheets API response', {
+        code: 'STRUCTURE_ERROR',
+      });
     }
 
     return new SheetInfo({ name: title, index: sheetIndex });
@@ -359,7 +548,9 @@ function parseListSheetsResponse(data: unknown): SheetInfo[] {
 
 function parseGetHeadersResponse(data: unknown): string[] {
   if (typeof data !== 'object' || data === null) {
-    throw new SpreadsheetError('Unexpected response format from Google Sheets API');
+    throw new SpreadsheetError('Unexpected response format from Google Sheets API', {
+      code: 'STRUCTURE_ERROR',
+    });
   }
 
   if (!('values' in data)) {
@@ -373,10 +564,69 @@ function parseGetHeadersResponse(data: unknown): string[] {
 
   const firstRow = values[0] as unknown;
   if (!Array.isArray(firstRow)) {
-    throw new SpreadsheetError('Unexpected response format from Google Sheets API');
+    throw new SpreadsheetError('Unexpected response format from Google Sheets API', {
+      code: 'STRUCTURE_ERROR',
+    });
   }
 
   return firstRow.map((cell) => (typeof cell === 'string' ? cell : String(cell)));
+}
+
+function parseRowsResponse(data: unknown, requestedStartRow: number): Row[] {
+  if (!isRecord(data)) {
+    throw new SpreadsheetError('Unexpected row response format from Google Sheets API', {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+
+  let startRow = requestedStartRow;
+  if ('range' in data) {
+    if (typeof data.range !== 'string') {
+      throw new SpreadsheetError('Invalid range in Google Sheets row response', {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+    startRow = parseSpreadsheetRange(data.range).startRow;
+  }
+
+  if (!('values' in data)) {
+    return [];
+  }
+  if (!Array.isArray(data.values)) {
+    throw new SpreadsheetError('Invalid values in Google Sheets row response', {
+      code: 'STRUCTURE_ERROR',
+    });
+  }
+
+  return parseCellRows(data.values, startRow, 'Google Sheets');
+}
+
+function parseCellRows(values: unknown[], startRow: number, provider: string): Row[] {
+  return values.map((row, rowOffset) => {
+    if (!Array.isArray(row)) {
+      throw new SpreadsheetError(`Invalid row in ${provider} response`, {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+
+    const cells = Array.from({ length: row.length }, (_, columnIndex): CellValue => {
+      if (!(columnIndex in row)) return null;
+      const cell: unknown = row[columnIndex];
+      if (
+        cell === null ||
+        typeof cell === 'string' ||
+        typeof cell === 'number' ||
+        typeof cell === 'boolean'
+      ) {
+        return cell;
+      }
+      throw new SpreadsheetError(`Invalid cell value in ${provider} response`, {
+        code: 'STRUCTURE_ERROR',
+      });
+    });
+
+    return { index: startRow + rowOffset, values: cells };
+  });
 }
 
 function parsePreviewRows(data: unknown): Row[] {
@@ -404,33 +654,23 @@ function parsePreviewRows(data: unknown): Row[] {
   });
 }
 
-function parseCanEdit(data: unknown): boolean {
-  if (typeof data !== 'object' || data === null) {
-    return false;
-  }
-
-  const capabilities = (data as Record<string, unknown>).capabilities;
-  if (typeof capabilities !== 'object' || capabilities === null) {
-    return false;
-  }
-
-  const canEdit = (capabilities as Record<string, unknown>).canEdit;
-  return canEdit === true;
+function columnIndexToLetter(index: number): string {
+  if (index < 0) throw new SpreadsheetError('Column index must be non-negative');
+  let result = '';
+  let n = index;
+  do {
+    result = String.fromCharCode((n % 26) + 65) + result;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return result;
 }
 
-function columnIndexToLetter(index: number): string {
-  if (index < 0) {
-    throw new SpreadsheetError(`Invalid column index: ${index}`);
+function assertPositiveRow(row: number): void {
+  if (!Number.isInteger(row) || row < 1) {
+    throw new SpreadsheetError('Data start row must be a positive integer', {
+      code: 'STRUCTURE_ERROR',
+    });
   }
-
-  let result = '';
-  let remaining = index;
-  do {
-    result = String.fromCharCode((remaining % 26) + 65) + result;
-    remaining = Math.floor(remaining / 26) - 1;
-  } while (remaining >= 0);
-
-  return result;
 }
 
 function parseUniqueValuesResponse(data: unknown): string[] {
@@ -447,10 +687,32 @@ function parseUniqueValuesResponse(data: unknown): string[] {
     return [];
   }
 
-  return values
-    .filter((row): row is unknown[] => Array.isArray(row) && row.length > 0)
-    .map((row) => {
-      const firstCell = row[0];
-      return typeof firstCell === 'string' ? firstCell : String(firstCell);
-    });
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const row of values) {
+    if (!Array.isArray(row) || row.length === 0) continue;
+    const cell: unknown = row[0];
+    const text = typeof cell === 'string' ? cell.trim() : String(cell).trim();
+    if (text.length === 0) continue;
+    if (seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+  }
+
+  return result;
+}
+
+function parseCanEdit(data: unknown): boolean {
+  if (typeof data !== 'object' || data === null) {
+    return false;
+  }
+
+  const capabilities = (data as Record<string, unknown>).capabilities;
+  if (typeof capabilities !== 'object' || capabilities === null) {
+    return false;
+  }
+
+  const canEdit = (capabilities as Record<string, unknown>).canEdit;
+  return canEdit === true;
 }

@@ -1,0 +1,162 @@
+// LAYER: Application / Integration Tests
+// Wires the expense save orchestration through its real use cases while
+// replacing database, messaging, token, and Google Sheets boundaries.
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ResolveExpenseSummaryActionUseCase } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
+import { RegisterExpenseUseCase } from '../../application/use-cases/expense/RegisterExpense';
+import { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
+import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
+import type { ConversationState, FsmState } from '../../domain/entities/ConversationState';
+import type { ExpenseReviewPayload } from '../../domain/value-objects/expense-review-payload';
+
+const payload: ExpenseReviewPayload = {
+  rawMessage: 'Café 100 EUR',
+  extracted: {
+    monto: 100,
+    moneda: 'EUR',
+    categoriaRaw: 'café',
+    subcategoriaRaw: null,
+    fechaRaw: '2026-08-04',
+    medioPago: null,
+    confianzaCategoria: 'alta',
+    confianzaSubcategoria: 'nula',
+  },
+  resolvedDate: '2026-08-04',
+  resolvedCategory: 'Comida',
+  resolvedCategoryId: null,
+  categoryStatus: 'confirmed',
+  reviewBinding: {
+    operationId: 'abcdefghijklmnopqrstuv',
+    revision: 1,
+    presentedAt: '2026-08-04T12:00:00.000Z',
+  },
+};
+
+describe('expense save failure recovery', () => {
+  let state: ConversationState;
+  const appendRow = vi.fn();
+  const createExpenseRecord = vi.fn();
+  const sendMessage = vi.fn();
+  const createOperationLog = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    state = {
+      userId: 'user-123',
+      revision: '0',
+      currentState: 'EXPENSE_REVIEW',
+      statePayload: { ...payload },
+      enteredAt: new Date('2026-08-04T12:00:00.000Z'),
+      expiresAt: new Date('2099-08-04T12:10:00.000Z'),
+      updatedAt: new Date('2026-08-04T12:00:00.000Z'),
+    };
+    appendRow.mockRejectedValue(
+      new SpreadsheetError('Google Sheets request timed out', {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      }),
+    );
+    createExpenseRecord.mockResolvedValue({ id: 'expense-1' });
+    sendMessage.mockResolvedValue({ status: 'success' });
+    createOperationLog.mockResolvedValue({});
+  });
+
+  it('emits recovery copy without recording or confirming an unconfirmed append', async () => {
+    const conversationRepository = {
+      findByUserId: vi.fn(() => Promise.resolve(state)),
+      transition: vi.fn(
+        (input: {
+          nextState: FsmState;
+          payload: Record<string, unknown> | null;
+          expiresAt: Date | null;
+        }) => {
+          state = {
+            ...state,
+            revision: (BigInt(state.revision) + 1n).toString(),
+            currentState: input.nextState,
+            statePayload: input.payload,
+            expiresAt: input.expiresAt,
+            updatedAt: new Date(),
+          };
+          return Promise.resolve({ status: 'updated' as const, state });
+        },
+      ),
+    };
+    const transitionState = new TransitionConversationState(conversationRepository as never);
+    const registerExpense = new RegisterExpenseUseCase(
+      {} as never,
+      { create: vi.fn(() => ({ appendRow })) } as never,
+      { create: createExpenseRecord } as never,
+      {
+        findByUserId: vi.fn().mockResolvedValue({
+          id: 'config-1',
+          userId: 'user-123',
+          provider: 'google',
+          fileId: 'file-1',
+          fileName: 'Gastos',
+          sheetName: 'Hoja 1',
+        }),
+      } as never,
+      {
+        findBySpreadsheetId: vi.fn().mockResolvedValue([{ GasttoField: 'monto', columnIndex: 0 }]),
+      } as never,
+      {} as never,
+      {} as never,
+      transitionState,
+      { create: createOperationLog },
+      {} as never,
+      {} as never,
+      {
+        getValidAccessToken: vi.fn().mockResolvedValue({
+          accessToken: 'access-token',
+          expiresAt: new Date('2030-08-05T12:00:00.000Z'),
+          refreshed: false,
+        }),
+        forceRefreshAccessToken: vi.fn(),
+      },
+    );
+    const useCase = new ResolveExpenseSummaryActionUseCase({
+      registerExpense,
+      transitionState,
+      messagingPort: { sendMessage },
+      cancelExpenseRegistration: {} as never,
+      operationLogRepo: { create: createOperationLog },
+    });
+
+    await transitionState.runWithState(state, () =>
+      useCase.execute({
+        userId: 'user-123',
+        chatId: 'chat-123',
+        action: 'confirm',
+        payload,
+        authorization: {
+          kind: 'callback',
+          callbackData: {
+            version: 1,
+            action: 'confirm',
+            operationId: payload.reviewBinding!.operationId,
+            reviewRevision: payload.reviewBinding!.revision,
+          },
+          receivedAt: '2026-08-04T12:01:00.000Z',
+          sourceMessageId: 'callback-1',
+        },
+      }),
+    );
+
+    expect(appendRow).toHaveBeenCalledOnce();
+    expect(createExpenseRecord).not.toHaveBeenCalled();
+    expect(state.currentState).toBe('EXPENSE_SAVING_RETRY');
+    expect(state.statePayload).toMatchObject({
+      expense: payload,
+      failureCode: 'NETWORK_ERROR',
+      attemptCount: 1,
+    });
+    expect(state.expiresAt?.getTime()).toBeGreaterThan(Date.now() + 9 * 60 * 1000);
+    expect(sendMessage).toHaveBeenCalledWith('chat-123', expect.stringContaining('reintentar'));
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      'chat-123',
+      expect.stringContaining('✅ *Gasto guardado*'),
+    );
+  });
+});

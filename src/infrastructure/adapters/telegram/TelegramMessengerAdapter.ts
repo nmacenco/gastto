@@ -8,6 +8,10 @@ import type {
   MessagingOutputPort,
   SendResult,
 } from '../../../application/ports/output/messaging.port';
+import type {
+  InlineKeyboardButton,
+  InlineKeyboardOutputPort,
+} from '../../../application/ports/output/inline-keyboard.port';
 import type { Logger } from 'pino';
 
 const MAX_TEXT_LENGTH = 4096;
@@ -51,7 +55,9 @@ function chunkText(text: string, maxLength: number): string[] {
   return fragments;
 }
 
-export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutputPort {
+export class TelegramMessengerAdapter
+  implements IChatMessenger, MessagingOutputPort, InlineKeyboardOutputPort
+{
   private readonly baseUrl: string;
 
   constructor(
@@ -89,6 +95,114 @@ export class TelegramMessengerAdapter implements IChatMessenger, MessagingOutput
     }
 
     return { status: 'success' };
+  }
+
+  async sendMessageWithInlineKeyboard(
+    chatId: string,
+    text: string,
+    buttons: InlineKeyboardButton[][],
+  ): Promise<SendResult> {
+    const maxAttempts = RETRY_DELAYS_MS.length + 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const response = await fetch(`${this.baseUrl}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          reply_markup: {
+            inline_keyboard: buttons.map((row) =>
+              row.map((button) => ({
+                text: button.text,
+                callback_data: button.callbackData,
+              })),
+            ),
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const json = (await response.json()) as { ok: boolean; description?: string };
+        if (json.ok) {
+          this.logger.info({
+            event: 'message_sent',
+            chatId,
+            textLength: text.length,
+            attempt,
+            result: 'success',
+          });
+          return { status: 'success' };
+        }
+
+        this.logger.info({
+          event: 'message_sent',
+          chatId,
+          textLength: text.length,
+          attempt,
+          result: 'failure',
+          errorCode: 'TELEGRAM_API_ERROR',
+        });
+        return { status: 'failure', errorCode: 'TELEGRAM_API_ERROR' };
+      }
+
+      const status = response.status;
+
+      if (status === 400 || status === 403) {
+        this.logger.error({
+          event: 'message_send_failed',
+          chatId,
+          textLength: text.length,
+          errorCode: 'PERMANENT_FAILURE',
+          reason: `HTTP ${status}`,
+        });
+        return { status: 'failure', errorCode: 'PERMANENT_FAILURE' };
+      }
+
+      if (status >= 500 && attempt < maxAttempts) {
+        this.logger.info({
+          event: 'retry_scheduled',
+          chatId,
+          textLength: text.length,
+          attempt,
+          delayMs: RETRY_DELAYS_MS[attempt - 1]!,
+        });
+        await sleep(RETRY_DELAYS_MS[attempt - 1]!);
+        continue;
+      }
+
+      if (status >= 500) {
+        this.logger.info({
+          event: 'message_sent',
+          chatId,
+          textLength: text.length,
+          attempt,
+          result: 'failure',
+          errorCode: 'MAX_RETRIES_EXCEEDED',
+        });
+        return { status: 'failure', errorCode: 'MAX_RETRIES_EXCEEDED' };
+      }
+
+      this.logger.info({
+        event: 'message_sent',
+        chatId,
+        textLength: text.length,
+        attempt,
+        result: 'failure',
+        errorCode: 'SEND_FAILED',
+      });
+      return { status: 'failure', errorCode: 'SEND_FAILED' };
+    }
+
+    this.logger.info({
+      event: 'message_sent',
+      chatId,
+      textLength: text.length,
+      attempt: maxAttempts,
+      result: 'failure',
+      errorCode: 'MAX_RETRIES_EXCEEDED',
+    });
+    return { status: 'failure', errorCode: 'MAX_RETRIES_EXCEEDED' };
   }
 
   private async sendSingleMessage(chatId: string, text: string): Promise<SendResult> {

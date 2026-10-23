@@ -3,6 +3,7 @@
 // Uses `postgres` driver (not `pg`) per package.json and ADR decisions.
 
 import {
+  bigint,
   pgTable,
   uuid,
   text,
@@ -78,6 +79,9 @@ export const conversationStates = pgTable(
       .primaryKey()
       .references(() => users.userId, { onDelete: 'cascade' }),
     currentState: text('current_state').notNull().default('IDLE'),
+    revision: bigint('revision', { mode: 'bigint' })
+      .notNull()
+      .default(sql`0`),
     statePayload: jsonb('state_payload'),
     enteredAt: timestamp('entered_at').notNull().defaultNow(),
     expiresAt: timestamp('expires_at'),
@@ -90,7 +94,7 @@ export const conversationStates = pgTable(
     stateIdx: index('idx_conversation_states_current').on(t.currentState),
     stateCheck: check(
       'chk_conversation_state',
-      sql`${t.currentState} IN ('IDLE','ONBOARDING_START','ONBOARDING_DRIVE','ONBOARDING_FILE','ONBOARDING_SHEET','ONBOARDING_VALIDATING_ACCESS','ONBOARDING_MAPPING','ONBOARDING_CATEGORIES','EXPENSE_RECEIVING','EXPENSE_CLARIFYING','EXPENSE_REVIEW','EXPENSE_CORRECTING','EXPENSE_SAVING','EXPENSE_SAVING_RETRY')`,
+      sql`${t.currentState} IN ('IDLE','ONBOARDING_START','ONBOARDING_DRIVE','ONBOARDING_FILE','ONBOARDING_SHEET','ONBOARDING_VALIDATING_ACCESS','ONBOARDING_MAPPING','ONBOARDING_CATEGORIES','EXPENSE_RECEIVING','EXPENSE_CLARIFYING','EXPENSE_REVIEW','EXPENSE_CORRECTING','EXPENSE_SAVING','EXPENSE_SAVING_RETRY','EXPENSE_UNDO_CONFIRMING')`,
     ),
   }),
 );
@@ -127,7 +131,8 @@ export const oauthTokens = pgTable(
     provider: text('provider').notNull(),
     accessTokenEnc: bytea('access_token_enc').notNull(), // AES-256-GCM (ADR-007)
     refreshTokenEnc: bytea('refresh_token_enc').notNull(), // AES-256-GCM
-    iv: bytea('iv').notNull(), // initialization vector
+    iv: bytea('iv').notNull(), // initialization vector for access token
+    refreshIv: bytea('refresh_iv').notNull(), // initialization vector for refresh token
     accessTokenExpiresAt: timestamp('access_token_expires_at').notNull(),
     scope: text('scope')
       .array()
@@ -159,6 +164,7 @@ export const spreadsheetConfigs = pgTable(
     fileName: text('file_name').notNull(),
     sheetName: text('sheet_name').notNull(),
     accessVerifiedAt: timestamp('access_verified_at').notNull(),
+    categoriesConfirmedAt: timestamp('categories_confirmed_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -188,7 +194,7 @@ export const columnMappings = pgTable(
     uniqueColumn: uniqueIndex('uq_spreadsheet_column').on(t.spreadsheetId, t.columnIndex),
     fieldCheck: check(
       'chk_gastto_field',
-      sql`${t.gasttoField} IN ('monto','moneda','categoria','fecha','concepto','medio_pago')`,
+      sql`${t.gasttoField} IN ('monto','moneda','categoria','fecha','concepto','medio_pago','subcategoria')`,
     ),
   }),
 );
@@ -214,6 +220,27 @@ export const userCategories = pgTable(
   }),
 );
 
+export const userSubcategories = pgTable(
+  'user_subcategories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => userCategories.id, { onDelete: 'cascade' }),
+    rawValue: text('raw_value').notNull(),
+    normalizedValue: text('normalized_value').notNull(),
+    usageCount: integer('usage_count').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    categoryIdx: index('idx_user_subcategories_category')
+      .on(t.categoryId)
+      .where(sql`${t.isActive} = true`),
+    uniqueSubcategory: uniqueIndex('uq_category_subcategory').on(t.categoryId, t.normalizedValue),
+  }),
+);
+
 // ── GRUPO 5: REGISTRO DE GASTOS ───────────────────────────────────────────────
 
 export const expenseRecords = pgTable(
@@ -230,10 +257,17 @@ export const expenseRecords = pgTable(
     monto: numeric('monto', { precision: 14, scale: 2 }).notNull(),
     moneda: text('moneda').notNull(),
     categoria: text('categoria'),
+    categoryId: uuid('category_id').references(() => userCategories.id, {
+      onDelete: 'set null',
+    }),
+    subcategoryId: uuid('subcategory_id').references(() => userSubcategories.id, {
+      onDelete: 'set null',
+    }),
+    subcategoria: text('subcategoria'),
     fechaGasto: date('fecha_gasto').notNull(),
     medioPago: text('medio_pago'),
     sheetName: text('sheet_name').notNull(),
-    rowIndex: integer('row_index').notNull(),
+    rowIndex: integer('row_index'),
     categoriaConfidence: text('categoria_confidence'),
     rawMessage: text('raw_message').notNull(),
     isDeleted: boolean('is_deleted').notNull().default(false),
@@ -253,6 +287,8 @@ export const expenseRecords = pgTable(
       t.sheetName,
       t.rowIndex,
     ),
+    categoryIdx: index('idx_expense_records_category').on(t.categoryId),
+    subcategoryIdx: index('idx_expense_records_subcategory').on(t.subcategoryId),
     montoCheck: check('chk_monto', sql`${t.monto} >= 0`),
     monedaCheck: check('chk_moneda', sql`${t.moneda} IN ('ARS','EUR','USD','MXN','GBP','BRL')`),
     confidenceCheck: check(

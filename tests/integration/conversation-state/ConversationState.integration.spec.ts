@@ -24,8 +24,11 @@ import { TransitionConversationState } from '../../../src/application/use-cases/
 import { GetConversationState } from '../../../src/application/use-cases/conversation/GetConversationState';
 import { RecoverCorruptedState } from '../../../src/application/use-cases/conversation/RecoverCorruptedState';
 import { HandleExpiredSessions } from '../../../src/application/use-cases/conversation/HandleExpiredSessions';
+import { CancelExpenseRegistrationUseCase } from '../../../src/application/use-cases/expense/CancelExpenseRegistrationUseCase';
 import type { IChatMessenger } from '../../../src/application/ports/IChatMessenger';
 import type { MessagingOutputPort } from '../../../src/application/ports/output/messaging.port';
+import type { ExpenseSummaryPresenter } from '../../../src/application/ports/output/expense-summary.presenter';
+import type { Logger } from 'pino';
 import type { Redis } from 'ioredis';
 
 describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', () => {
@@ -86,17 +89,21 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
 
     const transition = new TransitionConversationState(conversationRepo);
     const expiresAt = new Date(Date.now() + 3600_000);
+    const observed = (await conversationRepo.findByUserId(user.userId))!;
 
     const result = await transition.execute({
       userId: user.userId,
       targetState: 'EXPENSE_RECEIVING',
       payload: { amount: 1500, concept: 'Almuerzo' },
       expiresAt,
+      expected: transition.precondition(observed, 'any'),
     });
 
-    expect(result.currentState).toBe('EXPENSE_RECEIVING');
-    expect(result.statePayload).toEqual({ amount: 1500, concept: 'Almuerzo' });
-    expect(result.expiresAt).toEqual(expiresAt);
+    expect(result.status).toBe('updated');
+    if (result.status !== 'updated') throw new Error('Expected state update');
+    expect(result.state.currentState).toBe('EXPENSE_RECEIVING');
+    expect(result.state.statePayload).toEqual({ amount: 1500, concept: 'Almuerzo' });
+    expect(result.state.expiresAt).toEqual(expiresAt);
 
     const getState = new GetConversationState(conversationRepo);
     const readBack = await getState.execute({ userId: user.userId });
@@ -144,24 +151,22 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     const result = await useCase.execute({
       userId: user.userId,
       observedState: 'BOGUS_STATE',
+      observedRevision: '0',
     });
 
-    expect(result.recovered).toBe(true);
-    expect(result.message).toBe('Parece que algo falló. Vamos a empezar de nuevo.');
+    expect(result.recovered).toBe(false);
+    expect(result.message).toBe('');
 
     const state = await conversationRepo.findByUserId(user.userId);
     expect(state).not.toBeNull();
-    expect(state!.currentState).toBe('IDLE');
+    expect(state!.currentState).toBe('EXPENSE_REVIEW');
 
     const logs = await db
       .select()
       .from(schema.operationLogs)
       .where(eq(schema.operationLogs.userId, user.userId));
 
-    expect(logs.length).toBe(1);
-    expect(logs[0]!.errorType).toBe('CORRUPTED_STATE');
-    expect(logs[0]!.operation).toBe('STATE_CORRUPTED');
-    expect(logs[0]!.payload).toEqual({ observedState: 'BOGUS_STATE' });
+    expect(logs.length).toBe(0);
   });
 
   it('Scenario 5: Expired session transitions to IDLE and notifies user', async () => {
@@ -169,7 +174,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     const past = new Date(Date.now() - 3600_000); // 1 hour ago
     await createConversationState(db, {
       userId: user.userId,
-      currentState: 'EXPENSE_REVIEW',
+      currentState: 'EXPENSE_CLARIFYING',
       expiresAt: past,
     });
     await createMessagingIdentity(db, {
@@ -181,6 +186,16 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     const messagingMock: MessagingOutputPort = {
       sendMessage: vi.fn().mockResolvedValue({ status: 'success' }),
     };
+    const mockPresenterFactory = (
+      _messaging: MessagingOutputPort,
+      _chatId: string,
+    ): ExpenseSummaryPresenter => ({
+      presentSummary: vi.fn(),
+      showTimeoutWarning: vi.fn(),
+      notifyCancellation: vi.fn(),
+      requestHighAmountConfirmation: vi.fn(),
+    });
+    const mockLogger = { error: vi.fn() } as unknown as Logger;
 
     const transition = new TransitionConversationState(conversationRepo);
     const useCase = new HandleExpiredSessions(
@@ -188,6 +203,9 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
       userRepo,
       transition,
       messagingMock,
+      mockPresenterFactory,
+      10,
+      mockLogger,
     );
 
     await useCase.execute();
@@ -199,6 +217,94 @@ describe.skipIf(!isDockerAvailable())('Integration :: ConversationState FSM', ()
     expect(messagingMock.sendMessage).toHaveBeenCalledWith(
       '987654321',
       'Tu sesion expiro. Queres continuar o empezar de nuevo?',
+    );
+  });
+
+  it.each([
+    'EXPENSE_RECEIVING',
+    'EXPENSE_CLARIFYING',
+    'EXPENSE_REVIEW',
+    'EXPENSE_CORRECTING',
+  ] as const)(
+    'cancels %s, removes its persisted payload, and permits a fresh expense flow',
+    async (currentState) => {
+      const user = await createUser(db);
+      const cancelledPayload = { rawMessage: 'Cena 1200', marker: `cancelled-${currentState}` };
+      await createConversationState(db, {
+        userId: user.userId,
+        currentState,
+        statePayload: cancelledPayload,
+        expiresAt: new Date(Date.now() + 600_000),
+      });
+      const messagingMock: MessagingOutputPort = {
+        sendMessage: vi.fn().mockResolvedValue({ status: 'success' }),
+      };
+      const transition = new TransitionConversationState(conversationRepo);
+      const cancel = new CancelExpenseRegistrationUseCase({
+        transitionState: transition,
+        messagingPort: messagingMock,
+      });
+      const observedBeforeCancellation = (await conversationRepo.findByUserId(user.userId))!;
+
+      await expect(
+        transition.runWithState(observedBeforeCancellation, () =>
+          cancel.execute({
+            userId: user.userId,
+            chatId: 'chat-1',
+            currentState,
+            source: 'text',
+          }),
+        ),
+      ).resolves.toEqual({ status: 'cancelled' });
+
+      const cancelledState = await conversationRepo.findByUserId(user.userId);
+      expect(cancelledState).toMatchObject({
+        currentState: 'IDLE',
+        statePayload: null,
+        expiresAt: null,
+      });
+      await expect(
+        db
+          .select()
+          .from(schema.expenseRecords)
+          .where(eq(schema.expenseRecords.userId, user.userId)),
+      ).resolves.toEqual([]);
+
+      const observed = (await conversationRepo.findByUserId(user.userId))!;
+      await transition.execute({
+        userId: user.userId,
+        targetState: 'EXPENSE_RECEIVING',
+        payload: { rawMessage: 'Taxi 500', marker: 'fresh-expense' },
+        expected: transition.precondition(observed, 'any'),
+      });
+      const freshState = await conversationRepo.findByUserId(user.userId);
+      expect(freshState?.statePayload).toEqual({ rawMessage: 'Taxi 500', marker: 'fresh-expense' });
+      expect(freshState?.statePayload).not.toEqual(cancelledPayload);
+    },
+  );
+
+  it('reports a friendly response when there is no active expense to cancel', async () => {
+    const user = await createUser(db);
+    await createConversationState(db, { userId: user.userId });
+    const messagingMock: MessagingOutputPort = {
+      sendMessage: vi.fn().mockResolvedValue({ status: 'success' }),
+    };
+    const cancel = new CancelExpenseRegistrationUseCase({
+      transitionState: new TransitionConversationState(conversationRepo),
+      messagingPort: messagingMock,
+    });
+
+    await expect(
+      cancel.execute({
+        userId: user.userId,
+        chatId: 'chat-1',
+        currentState: 'IDLE',
+        source: 'text',
+      }),
+    ).resolves.toEqual({ status: 'no_active_expense' });
+    expect(messagingMock.sendMessage).toHaveBeenCalledWith(
+      'chat-1',
+      'No hay ningún registro pendiente para cancelar.',
     );
   });
 });

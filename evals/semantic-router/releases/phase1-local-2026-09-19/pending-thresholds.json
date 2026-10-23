@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "semantic-release-thresholds-pending-v1",
+  "status": "pending_owner_approval",
+  "candidate": {
+    "provider": "openai",
+    "model": "gpt-4o-mini-2024-07-18",
+    "promptVersion": "semantic-openai-v3",
+    "contractVersion": "semantic-contract-v2",
+    "policyVersion": "semantic-policy-v3",
+    "datasetVersion": "semantic-corpus-v6",
+    "labelVersion": "semantic-labels-v6"
+  },
+  "missingFields": [
+    "threshold_version",
+    "product_owner_approval",
+    "tech_lead_approval",
+    "numeric_minimums",
+    "numeric_gates",
+    "pricing"
+  ]
+}
+

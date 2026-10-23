@@ -9,75 +9,20 @@ import type {
   ColumnInferenceMapping,
   ConfidenceLevel,
 } from '../../../domain/ports/columnInference';
-import type { GasttoField } from '../../../domain/entities/SpreadsheetConfig';
-
-const ALL_GASTTO_FIELDS: GasttoField[] = [
-  'monto',
-  'moneda',
-  'categoria',
-  'fecha',
-  'concepto',
-  'medio_pago',
-];
-
-const DICTIONARY: Record<string, GasttoField> = {
-  fecha: 'fecha',
-  dia: 'fecha',
-  'dia del gasto': 'fecha',
-  date: 'fecha',
-  day: 'fecha',
-  data: 'fecha',
-
-  monto: 'monto',
-  importe: 'monto',
-  total: 'monto',
-  cantidad: 'monto',
-  precio: 'monto',
-  valor: 'monto',
-  amount: 'monto',
-  price: 'monto',
-  quantia: 'monto',
-
-  categoria: 'categoria',
-  tipo: 'categoria',
-  rubro: 'categoria',
-  category: 'categoria',
-  type: 'categoria',
-
-  concepto: 'concepto',
-  descripcion: 'concepto',
-  detalle: 'concepto',
-  observacion: 'concepto',
-  description: 'concepto',
-  detail: 'concepto',
-  descricao: 'concepto',
-  observacoes: 'concepto',
-
-  'medio de pago': 'medio_pago',
-  'forma de pago': 'medio_pago',
-  'payment method': 'medio_pago',
-  'meio de pagamento': 'medio_pago',
-  medio_pago: 'medio_pago',
-
-  moneda: 'moneda',
-  currency: 'moneda',
-  moeda: 'moneda',
-};
-
-const NORMALIZED_DICTIONARY_KEYS = Object.keys(DICTIONARY);
+import {
+  SUPPORTED_GASTTO_FIELDS,
+  type GasttoField,
+} from '../../../domain/entities/SpreadsheetConfig';
+import {
+  COLUMN_HEADER_DICTIONARY,
+  getExactGasttoField,
+  NORMALIZED_COLUMN_HEADER_KEYS,
+  normalizeColumnHeader,
+} from './columnHeaderVocabulary';
 
 const DATE_REGEX = /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/;
-const NUMERIC_REGEX = /^[\$€£R]?\s*\d{1,3}([.,]\d{3})*([.,]\d+)?\s*[\$€£R]?$/;
+const NUMERIC_REGEX = /^[+-]?\s*[\$€£R]?\s*\d{1,3}([.,]\d{3})*([.,]\d+)?\s*[\$€£R]?$/;
 const CURRENCY_CODE_REGEX = /^(ARS|EUR|USD|MXN|GBP|BRL)$/i;
-
-function normalize(str: string): string {
-  return str
-    .toLowerCase()
-    .trim()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ');
-}
 
 function levenshteinDistance(a: string, b: string): number {
   const m = a.length;
@@ -168,7 +113,7 @@ export class RuleBasedColumnInferenceAdapter implements ColumnInferencePort {
       return Promise.resolve({
         mappings: [],
         noHeaderFound: false,
-        unmappedFields: [...ALL_GASTTO_FIELDS],
+        unmappedFields: [...SUPPORTED_GASTTO_FIELDS],
       });
     }
 
@@ -176,7 +121,7 @@ export class RuleBasedColumnInferenceAdapter implements ColumnInferencePort {
       return Promise.resolve({
         mappings: [],
         noHeaderFound: true,
-        unmappedFields: [...ALL_GASTTO_FIELDS],
+        unmappedFields: [...SUPPORTED_GASTTO_FIELDS],
       });
     }
 
@@ -185,22 +130,22 @@ export class RuleBasedColumnInferenceAdapter implements ColumnInferencePort {
 
     for (let colIdx = 0; colIdx < headers.length; colIdx++) {
       const rawHeader = headers[colIdx] ?? '';
-      const normalizedHeader = normalize(rawHeader);
+      const normalizedHeader = normalizeColumnHeader(rawHeader);
 
       let matchedField: GasttoField | null = null;
       let confidence: ConfidenceLevel = 'baja';
 
-      const exactMatch = DICTIONARY[normalizedHeader];
+      const exactMatch = getExactGasttoField(rawHeader);
       if (exactMatch !== undefined) {
         matchedField = exactMatch;
         confidence = 'alta';
       } else {
         let bestRatio = 0;
-        for (const dictKey of NORMALIZED_DICTIONARY_KEYS) {
+        for (const dictKey of NORMALIZED_COLUMN_HEADER_KEYS) {
           const ratio = levenshteinRatio(normalizedHeader, dictKey);
           if (ratio >= 0.75 && ratio > bestRatio) {
             bestRatio = ratio;
-            const fuzzyMatch = DICTIONARY[dictKey];
+            const fuzzyMatch = COLUMN_HEADER_DICTIONARY[dictKey];
             if (fuzzyMatch !== undefined) {
               matchedField = fuzzyMatch;
               confidence = 'baja';
@@ -228,7 +173,7 @@ export class RuleBasedColumnInferenceAdapter implements ColumnInferencePort {
       }
     }
 
-    const unmappedFields = ALL_GASTTO_FIELDS.filter((f) => !mappedFields.has(f));
+    const unmappedFields = SUPPORTED_GASTTO_FIELDS.filter((f) => !mappedFields.has(f));
 
     return Promise.resolve({ mappings, noHeaderFound: false, unmappedFields });
   }

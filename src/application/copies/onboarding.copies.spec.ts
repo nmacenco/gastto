@@ -8,6 +8,116 @@ import { CloudFile } from '../../domain/entities/CloudFile';
 import { SheetInfo } from '../../domain/entities/SheetInfo';
 
 describe('onboardingCopies', () => {
+  describe('category hierarchy proposal', () => {
+    it('formats parents, nested children, and every orphan deterministically', () => {
+      const result = onboardingCopies.categoryHierarchyConfirmationPrompt(
+        [
+          { name: 'food', subcategories: ['groceries', 'restaurant'] },
+          { name: 'health', subcategories: [] },
+        ],
+        ['streaming', 'cinema'],
+      );
+
+      expect(result).toContain('• food\n  ◦ groceries\n  ◦ restaurant\n• health');
+      expect(result).toContain('• streaming\n• cinema');
+      expect(result).toContain('no tenían una categoría padre asignada');
+    });
+
+    it('omits the orphan warning when every child has a parent', () => {
+      const result = onboardingCopies.categoryHierarchyConfirmationPrompt(
+        [{ name: 'food', subcategories: ['restaurant'] }],
+        [],
+      );
+
+      expect(result).not.toContain('Excluí');
+      expect(onboardingCopies.orphanSubcategoriesWarning([])).toBe('');
+    });
+  });
+
+  describe('category hierarchy modification guidance', () => {
+    const state = {
+      categories: [
+        { name: 'Food', subcategories: ['Delivery'] },
+        { name: 'Leisure', subcategories: ['Cinema'] },
+      ],
+      orphanSubcategories: ['Unassigned'],
+    };
+
+    it('shows the updated hierarchy and retained orphan warning', () => {
+      const result = onboardingCopies.hierarchyUpdatedPrompt(state);
+
+      expect(result).toContain('• Food\n  ◦ Delivery');
+      expect(result).toContain('• Leisure\n  ◦ Cinema');
+      expect(result).toContain('Unassigned');
+      expect(result).toContain('Respondé *sí*');
+    });
+
+    it('lists valid parents when the requested parent is missing', () => {
+      const result = onboardingCopies.hierarchyParentNotFound('Missing', state);
+
+      expect(result).toContain('"Missing"');
+      expect(result).toContain('• Food');
+      expect(result).toContain('• Leisure');
+    });
+
+    it('lists ambiguous candidates and asks for an unambiguous parent', () => {
+      const result = onboardingCopies.hierarchyParentAmbiguous('food', ['Food', 'FOOD'], state);
+
+      expect(result).toContain('ambigua');
+      expect(result).toContain('• Food\n• FOOD');
+      expect(result).toContain('inequívoco');
+    });
+
+    it('identifies a missing child within its requested parent', () => {
+      const result = onboardingCopies.hierarchyChildNotFound('Takeout', 'Food', state);
+
+      expect(result).toContain('"Takeout"');
+      expect(result).toContain('"Food"');
+      expect(result).toContain('  ◦ Delivery');
+    });
+
+    it('explains duplicate or move-collision rejection without exposing domain details', () => {
+      const result = onboardingCopies.hierarchyDuplicateOrCollision(
+        'internal domain detail',
+        state,
+      );
+
+      expect(result).toContain('duplicado');
+      expect(result).toContain('colisión');
+      expect(result).not.toContain('internal domain detail');
+      expect(result).toContain('Jerarquía actual');
+    });
+
+    it('shows parent-aware command guidance for unknown input', () => {
+      const result = onboardingCopies.hierarchyUpdateGuidance(state);
+
+      expect(result).toContain('categoría padre');
+      expect(result).toContain('agregar Peajes a Transporte');
+      expect(result).toContain('Jerarquía actual');
+    });
+  });
+
+  describe('invalid category proposal recovery', () => {
+    it('explains that detection will run again before completion', () => {
+      const result = onboardingCopies.categoryProposalUnavailable();
+
+      expect(result).toContain('No pude validar');
+      expect(result).toContain('detectar de nuevo');
+      expect(result).not.toContain('Todo listo');
+    });
+  });
+
+  describe('categoryNotFoundForRemoval', () => {
+    it('identifies the missing category and lists the current vocabulary', () => {
+      const result = onboardingCopies.categoryNotFoundForRemoval('ocio', ['comida', 'transporte']);
+
+      expect(result).toContain('"ocio"');
+      expect(result).toContain('• comida');
+      expect(result).toContain('• transporte');
+      expect(result).toContain('querés quitar');
+    });
+  });
+
   describe('welcomePrompt', () => {
     it('returns a welcome message with provider options', () => {
       const result = onboardingCopies.welcomePrompt();
@@ -246,6 +356,93 @@ describe('onboardingCopies', () => {
       const result = onboardingCopies.sheetMappingTransition();
 
       expect(result).toContain('analizar la estructura');
+    });
+  });
+
+  describe('invalidDataStartRowPrompt', () => {
+    it('returns a re-prompt asking for a valid data-start row greater than 1', () => {
+      const result = onboardingCopies.invalidDataStartRowPrompt();
+
+      expect(result).toContain('No entendí la fila');
+      expect(result).toContain('número de fila');
+      expect(result).toContain('mayor a 1');
+    });
+  });
+
+  describe('mappingRejectionPrompt', () => {
+    it('lists available columns and invites manual correction with an example', () => {
+      const columns = [
+        { index: 0, columnHeader: 'Fecha' },
+        { index: 1, columnHeader: 'Monto' },
+        { index: 2, columnHeader: 'Categoría' },
+      ];
+
+      const result = onboardingCopies.mappingRejectionPrompt(columns);
+
+      expect(result).toContain('Entendido');
+      expect(result).toContain('A - Fecha');
+      expect(result).toContain('B - Monto');
+      expect(result).toContain('C - Categoría');
+      expect(result).toContain('Los campos que podés indicar son');
+      expect(result).toContain('Fecha');
+      expect(result).toContain('Monto');
+      expect(result).toContain('Categoría');
+      expect(result).toContain('Subcategoría');
+      expect(result).toContain('Indicame un solo campo por mensaje');
+      expect(result).toContain('la categoría está en la columna E');
+    });
+
+    it('marks empty headers as (vacía) and truncates very long headers', () => {
+      const columns = [
+        { index: 0, columnHeader: '' },
+        {
+          index: 1,
+          columnHeader: 'Para añadir o cambiar categorías, modifica las tablas de la hoja Resumen',
+        },
+      ];
+
+      const result = onboardingCopies.mappingRejectionPrompt(columns);
+
+      expect(result).toContain('A - (vacía)');
+      expect(result).toContain('B - Para añadir o cambiar categorías, modifi…');
+      expect(result).not.toContain('tablas de la hoja Resumen');
+    });
+  });
+
+  describe('optional subcategory mapping', () => {
+    it('uses a distinct label and icon for a mapped subcategory', () => {
+      const result = onboardingCopies.mappingProposalHighConfidence(
+        [
+          {
+            gasttoField: 'subcategoria',
+            columnIndex: 3,
+            columnHeader: 'Subcategoría',
+            confidence: 'alta',
+          },
+        ],
+        [],
+      );
+
+      expect(result).toContain('🔖 Subcategoría → columna D (Subcategoría)');
+    });
+
+    it('describes an unmapped subcategory as optional', () => {
+      const result = onboardingCopies.unmappedFieldsNote(['subcategoria']);
+
+      expect(result).toContain('Es opcional');
+      expect(result).toContain('continuar solo con Categoría');
+      expect(result).not.toContain('se omitirán al registrar');
+    });
+  });
+
+  describe('multipleMappingCorrectionsPrompt', () => {
+    it('rejects batch corrections and asks for one field per message', () => {
+      const result = onboardingCopies.multipleMappingCorrectionsPrompt();
+
+      expect(result).toContain('varios campos');
+      expect(result).toContain('evitar cambios parciales');
+      expect(result).toContain('una sola corrección por mensaje');
+      expect(result).toContain('medio de pago en A');
     });
   });
 });

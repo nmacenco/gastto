@@ -3,9 +3,26 @@
 // Covers happy path, unsupported types, and malformed payloads.
 
 import { describe, it, expect } from 'vitest';
-import { parseTelegramPayload } from './TelegramPayloadParser';
+import { getTelegramChatScope, parseTelegramPayload } from './TelegramPayloadParser';
 
 describe('parseTelegramPayload', () => {
+  describe('Telegram chat scope', () => {
+    it.each([
+      ['private message', { message: { chat: { type: 'private' } } }, 'private'],
+      ['group message', { message: { chat: { type: 'group' } } }, 'non-private'],
+      ['supergroup message', { message: { chat: { type: 'supergroup' } } }, 'non-private'],
+      ['channel message', { message: { chat: { type: 'channel' } } }, 'non-private'],
+      [
+        'private callback query',
+        { callback_query: { message: { chat: { type: 'private' } } } },
+        'private',
+      ],
+      ['missing chat type', { message: { chat: { id: 123 } } }, 'unknown'],
+    ])('classifies %s as %s', (_label, payload, expected) => {
+      expect(getTelegramChatScope(payload)).toBe(expected);
+    });
+  });
+
   describe('TEXT messages', () => {
     it('extracts all fields from a standard Telegram text payload', () => {
       const payload = {
@@ -27,6 +44,7 @@ describe('parseTelegramPayload', () => {
       expect(result.text).toBe('Cafe con leche 850');
       expect(result.timestamp).toEqual(new Date(1716206400 * 1000));
       expect(result.channel).toBe('telegram');
+      expect(result.externalMessageId).toBe('42');
     });
 
     it('trims whitespace from text', () => {
@@ -80,6 +98,24 @@ describe('parseTelegramPayload', () => {
 
       expect(result.chatId).toBe('channel-123');
       expect(result.userId).toBe('user-999');
+      expect(result.externalMessageId).toBe('42');
+    });
+
+    it('handles string message id', () => {
+      const payload = {
+        update_id: 1,
+        message: {
+          message_id: 'msg-abc',
+          from: { id: 'user-999' },
+          chat: { id: 'channel-123' },
+          text: 'Hello',
+          date: 1716206400,
+        },
+      };
+
+      const result = parseTelegramPayload(payload);
+
+      expect(result.externalMessageId).toBe('msg-abc');
     });
   });
 
@@ -104,6 +140,7 @@ describe('parseTelegramPayload', () => {
       expect(result.text).toBeUndefined();
       expect(result.timestamp).toEqual(new Date(1716206400 * 1000));
       expect(result.channel).toBe('telegram');
+      expect(result.externalMessageId).toBe('42');
     });
 
     it('returns UNSUPPORTED for audio payload', () => {
@@ -204,6 +241,7 @@ describe('parseTelegramPayload', () => {
       expect(result.chatId).toBe('unknown');
       expect(result.channel).toBe('telegram');
       expect(result.timestamp.getTime()).toBeGreaterThan(0);
+      expect(result.externalMessageId).toBeUndefined();
       expect(result.rawPayload).toBe(payload);
     });
 
@@ -218,6 +256,38 @@ describe('parseTelegramPayload', () => {
 
     it('returns MALFORMED when message is not an object', () => {
       const payload = { update_id: 1, message: 'not-an-object' };
+
+      const result = parseTelegramPayload(payload);
+
+      expect(result.messageType).toBe('MALFORMED');
+    });
+
+    it('returns MALFORMED when message_id is missing', () => {
+      const payload = {
+        update_id: 1,
+        message: {
+          chat: { id: 123456789 },
+          text: 'Hello',
+          date: 1716206400,
+        },
+      };
+
+      const result = parseTelegramPayload(payload);
+
+      expect(result.messageType).toBe('MALFORMED');
+      expect(result.externalMessageId).toBeUndefined();
+    });
+
+    it('returns MALFORMED when message_id is not a number or string', () => {
+      const payload = {
+        update_id: 1,
+        message: {
+          message_id: null,
+          chat: { id: 123456789 },
+          text: 'Hello',
+          date: 1716206400,
+        },
+      };
 
       const result = parseTelegramPayload(payload);
 
@@ -283,6 +353,115 @@ describe('parseTelegramPayload', () => {
 
     it('returns MALFORMED for number payload', () => {
       const result = parseTelegramPayload(42);
+
+      expect(result.messageType).toBe('MALFORMED');
+    });
+  });
+
+  describe('CALLBACK messages', () => {
+    it('extracts all fields from a valid callback query', () => {
+      const payload = {
+        update_id: 2,
+        callback_query: {
+          id: 'query-123',
+          from: { id: 999, username: 'testuser' },
+          message: {
+            message_id: 42,
+            chat: { id: 123456789 },
+            date: 1716206400,
+          },
+          data: JSON.stringify({ action: 'confirm' }),
+        },
+      };
+
+      const result = parseTelegramPayload(payload);
+
+      expect(result.messageType).toBe('CALLBACK');
+      expect(result.chatId).toBe('123456789');
+      expect(result.userId).toBe('999');
+      expect(result.externalMessageId).toBe('query-123');
+      expect(result.callbackData).toEqual({ action: 'confirm' });
+      expect(result.timestamp.getTime()).toBeGreaterThan(new Date(1716206400 * 1000).getTime());
+      expect(result.channel).toBe('telegram');
+      expect(result.rawPayload).toBe(payload);
+    });
+
+    it('parses correct and cancel actions', () => {
+      const correct = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q1',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'correct' }),
+        },
+      });
+
+      const cancel = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q2',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'cancel' }),
+        },
+      });
+
+      expect(correct.callbackData).toEqual({ action: 'correct' });
+      expect(cancel.callbackData).toEqual({ action: 'cancel' });
+    });
+
+    it('parses callback data with optional field', () => {
+      const result = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q1',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'correct', field: 'monto' }),
+        },
+      });
+
+      expect(result.callbackData).toEqual({ action: 'correct', field: 'monto' });
+    });
+
+    it('returns UNSUPPORTED when callback data is unknown', () => {
+      const result = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q1',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'unknown' }),
+        },
+      });
+
+      expect(result.messageType).toBe('UNSUPPORTED');
+    });
+
+    it('returns UNSUPPORTED when callback data is not valid JSON', () => {
+      const result = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          id: 'q1',
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: 'not-json',
+        },
+      });
+
+      expect(result.messageType).toBe('UNSUPPORTED');
+    });
+
+    it('returns MALFORMED when callback_query id is missing', () => {
+      const result = parseTelegramPayload({
+        update_id: 1,
+        callback_query: {
+          from: { id: 1 },
+          message: { message_id: 1, chat: { id: 1 }, date: 1 },
+          data: JSON.stringify({ action: 'confirm' }),
+        },
+      });
 
       expect(result.messageType).toBe('MALFORMED');
     });

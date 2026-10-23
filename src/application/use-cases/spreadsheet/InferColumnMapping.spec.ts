@@ -1,7 +1,7 @@
 // LAYER: Application / Tests
 // Unit tests for InferColumnMapping use case.
-// Mocks all ports: IOAuthTokenRepository, TokenEncryptionPort,
-// ISpreadsheetConfigRepository, IColumnMappingRepository, ColumnInferencePort,
+// Mocks all ports: OAuthAccessTokenProvider, ISpreadsheetConfigRepository,
+// IColumnMappingRepository, ColumnInferencePort,
 // MessagingOutputPort, TransitionConversationState.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -10,36 +10,50 @@ import {
   type InferColumnMappingDeps,
   type InferColumnMappingInput,
 } from './InferColumnMapping';
-import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
-const mockFindToken = vi.fn();
 const mockTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
-const mockEncrypt = vi.fn();
-const mockDecrypt = vi.fn();
+const mockGetValidAccessToken = vi.fn();
+const mockForceRefreshAccessToken = vi.fn();
 const mockFindByUserId = vi.fn();
 const mockUpsertMany = vi.fn();
+const mockReplaceBySpreadsheetId = vi.fn();
+const mockClearCorrectionState = vi.fn();
 const mockInfer = vi.fn();
+const mockLLMInfer = vi.fn();
+const mockDetectHeaderRow = vi.fn();
+const mockLLMDetectHeaderRow = vi.fn();
 
 function buildMockDeps(overrides: Partial<InferColumnMappingDeps> = {}): InferColumnMappingDeps {
   return {
-    tokenRepository: {
-      findByUserAndProvider: mockFindToken,
-    } as unknown as IOAuthTokenRepository,
-    tokenEncryption: {
-      encrypt: mockEncrypt,
-      decrypt: mockDecrypt,
+    oauthAccessTokenService: {
+      getValidAccessToken: mockGetValidAccessToken,
+      forceRefreshAccessToken: mockForceRefreshAccessToken,
     },
     spreadsheetConfigRepository: {
       findByUserId: mockFindByUserId,
     } as unknown as InferColumnMappingDeps['spreadsheetConfigRepository'],
     columnMappingRepository: {
       upsertMany: mockUpsertMany,
+      replaceBySpreadsheetId: mockReplaceBySpreadsheetId,
     } as unknown as InferColumnMappingDeps['columnMappingRepository'],
+    correctionStateRepository: {
+      clear: mockClearCorrectionState,
+    } as unknown as InferColumnMappingDeps['correctionStateRepository'],
     columnInferencePort: {
       infer: mockInfer,
+    },
+    llmColumnInferencePort: {
+      infer: mockLLMInfer,
+    },
+    headerDetectionPort: {
+      detectHeaderRow: mockDetectHeaderRow,
+    },
+    llmHeaderDetectionPort: {
+      detectHeaderRow: mockLLMDetectHeaderRow,
     },
     messagingPort: { sendMessage: mockSendMessage },
     transitionState: {
@@ -54,20 +68,6 @@ const baseInput: InferColumnMappingInput = {
   externalId: '987654321',
   channel: 'telegram',
   statePayload: null,
-};
-
-const mockToken = {
-  id: 'token-1',
-  userId: 'user-123',
-  provider: 'google' as const,
-  accessTokenEnc: Buffer.from('enc'),
-  refreshTokenEnc: Buffer.from('ref'),
-  iv: Buffer.from('iv'),
-  accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-  scope: ['drive.file'],
-  grantedAt: new Date(),
-  lastRefreshedAt: null,
-  revokedAt: null,
 };
 
 const mockConfig = {
@@ -103,10 +103,23 @@ const mockStatePayload = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDecrypt.mockReturnValue('decrypted-access-token');
-  mockFindToken.mockResolvedValue(mockToken);
+  mockReplaceBySpreadsheetId.mockResolvedValue(undefined);
+  mockClearCorrectionState.mockResolvedValue(undefined);
+  mockGetValidAccessToken.mockResolvedValue({
+    accessToken: 'decrypted-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: false,
+  });
+  mockForceRefreshAccessToken.mockResolvedValue({
+    accessToken: 'refreshed-access-token',
+    expiresAt: new Date(Date.now() + 3600_000),
+    refreshed: true,
+  });
   mockFindByUserId.mockResolvedValue(mockConfig);
   mockUpsertMany.mockResolvedValue(undefined);
+  mockDetectHeaderRow.mockResolvedValue(1);
+  mockLLMDetectHeaderRow.mockResolvedValue(null);
+  mockLLMInfer.mockResolvedValue({ mappings: [], noHeaderFound: false, unmappedFields: [] });
 });
 
 describe('InferColumnMapping', () => {
@@ -141,9 +154,8 @@ describe('InferColumnMapping', () => {
           ['02/01/2026', '200.75', 'Transporte'],
         ],
       );
-      expect(mockUpsertMany).toHaveBeenCalledWith([
+      expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith('config-1', [
         {
-          spreadsheetId: 'config-1',
           GasttoField: 'fecha',
           columnIndex: 0,
           columnHeader: 'Fecha',
@@ -151,7 +163,6 @@ describe('InferColumnMapping', () => {
           confirmedAt: null,
         },
         {
-          spreadsheetId: 'config-1',
           GasttoField: 'monto',
           columnIndex: 1,
           columnHeader: 'Monto',
@@ -159,7 +170,6 @@ describe('InferColumnMapping', () => {
           confirmedAt: null,
         },
         {
-          spreadsheetId: 'config-1',
           GasttoField: 'categoria',
           columnIndex: 2,
           columnHeader: 'Categoria',
@@ -183,28 +193,19 @@ describe('InferColumnMapping', () => {
           [],
         ),
       );
-      expect(mockTransitionExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'ONBOARDING_MAPPING',
-        payload: {
-          selectedFileId: 'file-123',
-          selectedFileName: 'Mi Planilla',
-          selectedSheetName: 'Gastos',
-          provider: 'google',
-          preview: mockPreview,
-          mappings: [
-            { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
-            { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
-            {
-              gasttoField: 'categoria',
-              columnIndex: 2,
-              columnHeader: 'Categoria',
-              confidence: 'alta',
-            },
-          ],
-          unmappedFields: [],
-        },
-      });
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          targetState: 'ONBOARDING_MAPPING',
+          payload: expect.objectContaining({
+            proposalId: expect.any(String) as string,
+            spreadsheetId: 'config-1',
+            fileId: 'file-123',
+            sheetName: 'Gastos',
+            headerRowIndex: 1,
+          }) as Record<string, unknown>,
+        }),
+      );
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
     });
   });
@@ -234,7 +235,7 @@ describe('InferColumnMapping', () => {
             { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fcha', confidence: 'baja' },
             { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Mnto', confidence: 'baja' },
           ],
-          [],
+          ['moneda', 'categoria', 'concepto', 'medio_pago', 'subcategoria'],
         ),
       );
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
@@ -298,7 +299,7 @@ describe('InferColumnMapping', () => {
             { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
             { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
           ],
-          ['categoria', 'concepto', 'medio_pago', 'moneda'],
+          ['moneda', 'categoria', 'concepto', 'medio_pago', 'subcategoria'],
         ),
       );
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
@@ -340,9 +341,551 @@ describe('InferColumnMapping', () => {
     });
   });
 
+  describe('Hybrid rule-based + LLM inference', () => {
+    it('does not call LLM inference when rule-based result is complete and high-confidence', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockLLMInfer).not.toHaveBeenCalled();
+    });
+
+    it('does not call LLM or block a category-only proposal when only subcategory is unmapped', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['subcategoria'],
+      });
+
+      const result = await new InferColumnMapping(buildMockDeps()).execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockLLMInfer).not.toHaveBeenCalled();
+      expect(result.payload).toEqual(expect.objectContaining({ unmappedFields: ['subcategoria'] }));
+      expect(result.message).toContain('Es opcional');
+      expect(result.message).not.toContain('No estoy seguro');
+      expect(result.payload).not.toEqual(expect.objectContaining({ step: 'no-header' }));
+    });
+
+    it('retains a mapped subcategory when merging required fields from the LLM', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [
+          {
+            gasttoField: 'subcategoria',
+            columnIndex: 2,
+            columnHeader: 'Subcategoría',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['monto', 'moneda', 'categoria', 'fecha', 'concepto', 'medio_pago'],
+      });
+      mockLLMInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['moneda', 'categoria', 'concepto', 'medio_pago'],
+      });
+
+      await new InferColumnMapping(buildMockDeps()).execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith(
+        'config-1',
+        expect.arrayContaining([
+          expect.objectContaining({ GasttoField: 'subcategoria', columnIndex: 2 }),
+        ]),
+      );
+    });
+
+    it('falls back to LLM inference when rule-based result has unmapped fields', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['categoria', 'concepto', 'medio_pago', 'moneda'],
+      });
+
+      mockLLMInfer.mockResolvedValue({
+        mappings: [
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+          {
+            gasttoField: 'concepto',
+            columnIndex: 3,
+            columnHeader: 'Descripción',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['medio_pago', 'moneda'],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockLLMInfer).toHaveBeenCalledWith(
+        ['Fecha', 'Monto', 'Categoria'],
+        [
+          ['01/01/2026', '100.50', 'Comida'],
+          ['02/01/2026', '200.75', 'Transporte'],
+        ],
+      );
+      expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith(
+        'config-1',
+        expect.arrayContaining([
+          expect.objectContaining({ GasttoField: 'fecha', columnIndex: 0 }),
+          expect.objectContaining({ GasttoField: 'monto', columnIndex: 1 }),
+          expect.objectContaining({ GasttoField: 'categoria', columnIndex: 2 }),
+          expect.objectContaining({ GasttoField: 'concepto', columnIndex: 3 }),
+        ]),
+      );
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('falls back to LLM inference when rule-based result has low-confidence mappings', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fcha', confidence: 'baja' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Mnto', confidence: 'baja' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      mockLLMInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fcha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Mnto', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockLLMInfer).toHaveBeenCalled();
+      expect(mockReplaceBySpreadsheetId).toHaveBeenCalledWith('config-1', [
+        expect.objectContaining({ GasttoField: 'fecha', columnIndex: 0 }),
+        expect.objectContaining({ GasttoField: 'monto', columnIndex: 1 }),
+      ]);
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('keeps high-confidence rule-based mappings when LLM disagrees', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['categoria'],
+      });
+
+      mockLLMInfer.mockResolvedValue({
+        mappings: [
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+          {
+            gasttoField: 'fecha',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      const replacement = mockReplaceBySpreadsheetId.mock.calls[0]![1] as Array<{
+        GasttoField: string;
+        columnIndex: number;
+      }>;
+      expect(replacement).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ GasttoField: 'fecha', columnIndex: 0 }),
+          expect.objectContaining({ GasttoField: 'monto', columnIndex: 1 }),
+          expect.objectContaining({ GasttoField: 'categoria', columnIndex: 2 }),
+        ]),
+      );
+      expect(replacement).toHaveLength(3);
+    });
+
+    it('falls back to LLM inference when rule-based detects no header', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [],
+        noHeaderFound: true,
+        unmappedFields: ['fecha', 'monto', 'categoria', 'concepto', 'medio_pago', 'moneda'],
+      });
+
+      mockLLMInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['categoria', 'concepto', 'medio_pago', 'moneda'],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockLLMInfer).toHaveBeenCalled();
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('sends no-header prompt when both rule-based and LLM detect no header', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [],
+        noHeaderFound: true,
+        unmappedFields: ['fecha', 'monto', 'categoria', 'concepto', 'medio_pago', 'moneda'],
+      });
+
+      mockLLMInfer.mockResolvedValue({
+        mappings: [],
+        noHeaderFound: true,
+        unmappedFields: ['fecha', 'monto', 'categoria', 'concepto', 'medio_pago', 'moneda'],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+  });
+
+  describe('Header row detection', () => {
+    it('uses the header row returned by HeaderDetectionPort and passes later rows as samples', async () => {
+      mockDetectHeaderRow.mockResolvedValue(5);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const preview = {
+        ...mockPreview,
+        rows: [
+          { index: 1, values: ['', '', ''] },
+          { index: 2, values: ['', '', ''] },
+          { index: 3, values: ['', '', ''] },
+          { index: 4, values: ['', '', ''] },
+          { index: 5, values: ['Fecha', 'Monto', 'Categoria'] },
+          { index: 6, values: ['01/01/2026', '100.50', 'Comida'] },
+          { index: 7, values: ['02/01/2026', '200.75', 'Transporte'] },
+        ],
+      };
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, preview },
+      });
+
+      expect(mockDetectHeaderRow).toHaveBeenCalledWith(preview.rows);
+      expect(mockInfer).toHaveBeenCalledWith(
+        ['Fecha', 'Monto', 'Categoria'],
+        [
+          ['01/01/2026', '100.50', 'Comida'],
+          ['02/01/2026', '200.75', 'Transporte'],
+        ],
+      );
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('falls back to LLM header detection when rule-based detection cannot locate headers', async () => {
+      mockDetectHeaderRow.mockResolvedValue(null);
+      mockLLMDetectHeaderRow.mockResolvedValue(5);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const preview = {
+        ...mockPreview,
+        rows: [
+          { index: 1, values: ['', '', ''] },
+          { index: 2, values: ['', '', ''] },
+          { index: 3, values: ['', '', ''] },
+          { index: 4, values: ['', '', ''] },
+          { index: 5, values: ['Fecha', 'Monto', 'Categoria'] },
+          { index: 6, values: ['01/01/2026', '100.50', 'Comida'] },
+        ],
+      };
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, preview },
+      });
+
+      expect(mockDetectHeaderRow).toHaveBeenCalledWith(preview.rows);
+      expect(mockLLMDetectHeaderRow).toHaveBeenCalledWith(preview.rows);
+      expect(mockInfer).toHaveBeenCalledWith(
+        ['Fecha', 'Monto', 'Categoria'],
+        [['01/01/2026', '100.50', 'Comida']],
+      );
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('sends no-header prompt when both rule-based and LLM detection cannot locate headers', async () => {
+      mockDetectHeaderRow.mockResolvedValue(null);
+      mockLLMDetectHeaderRow.mockResolvedValue(null);
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockInfer).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_MAPPING',
+        payload: {
+          selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+          preview: mockPreview,
+          step: 'no-header',
+        },
+      });
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('asks for the header row when row 1 produces a partial mapping', async () => {
+      mockDetectHeaderRow.mockResolvedValue(1);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: ['monto', 'categoria', 'concepto', 'medio_pago', 'moneda'],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_MAPPING',
+        payload: {
+          selectedFileId: 'file-123',
+          selectedFileName: 'Mi Planilla',
+          selectedSheetName: 'Gastos',
+          provider: 'google',
+          preview: mockPreview,
+          step: 'no-header',
+        },
+      });
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('uses headerRowIndex from state payload and skips detection', async () => {
+      mockDetectHeaderRow.mockResolvedValue(1);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const preview = {
+        ...mockPreview,
+        rows: [
+          { index: 1, values: ['', '', ''] },
+          { index: 2, values: ['', '', ''] },
+          { index: 3, values: ['', '', ''] },
+          { index: 4, values: ['Fecha', 'Monto', 'Categoria'] },
+          { index: 5, values: ['01/01/2026', '100.50', 'Comida'] },
+          { index: 6, values: ['02/01/2026', '200.75', 'Transporte'] },
+        ],
+      };
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, preview, headerRowIndex: 4 },
+      });
+
+      expect(mockDetectHeaderRow).not.toHaveBeenCalled();
+      expect(mockLLMDetectHeaderRow).not.toHaveBeenCalled();
+      expect(mockInfer).toHaveBeenCalledWith(
+        ['Fecha', 'Monto', 'Categoria'],
+        [
+          ['01/01/2026', '100.50', 'Comida'],
+          ['02/01/2026', '200.75', 'Transporte'],
+        ],
+      );
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    });
+
+    it('falls back to detection when headerRowIndex in payload is not a number', async () => {
+      mockDetectHeaderRow.mockResolvedValue(1);
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, headerRowIndex: '4' },
+      });
+
+      expect(mockDetectHeaderRow).toHaveBeenCalled();
+    });
+  });
+
+  describe('No-header step cleanup', () => {
+    it('clears step no-header from payload when proposing mappings', async () => {
+      mockInfer.mockResolvedValue({
+        mappings: [
+          { gasttoField: 'fecha', columnIndex: 0, columnHeader: 'Fecha', confidence: 'alta' },
+          { gasttoField: 'monto', columnIndex: 1, columnHeader: 'Monto', confidence: 'alta' },
+          {
+            gasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+            confidence: 'alta',
+          },
+        ],
+        noHeaderFound: false,
+        unmappedFields: [],
+      });
+
+      const deps = buildMockDeps();
+      const useCase = new InferColumnMapping(deps);
+      const result = await useCase.execute({
+        ...baseInput,
+        statePayload: { ...mockStatePayload, step: 'no-header' },
+      });
+
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(result.payload).not.toHaveProperty('step');
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_MAPPING',
+        payload: expect.not.objectContaining({ step: 'no-header' }) as Record<string, unknown>,
+      });
+    });
+  });
+
   describe('Token errors', () => {
     it('sends reconnect message and transitions to ONBOARDING_START when token is missing', async () => {
-      mockFindToken.mockResolvedValue(null);
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('No active token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new InferColumnMapping(deps);
@@ -364,10 +907,11 @@ describe('InferColumnMapping', () => {
       expect(mockInfer).not.toHaveBeenCalled();
     });
 
-    it('sends reconnect message and transitions to ONBOARDING_START when token is expired', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        accessTokenExpiresAt: new Date(Date.now() - 3600_000),
+    it('continues mapping when an expired token refreshes', async () => {
+      mockGetValidAccessToken.mockResolvedValue({
+        accessToken: 'refreshed-access-token',
+        expiresAt: new Date(Date.now() + 3600_000),
+        refreshed: true,
       });
 
       const deps = buildMockDeps();
@@ -377,18 +921,18 @@ describe('InferColumnMapping', () => {
         statePayload: mockStatePayload,
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
         '987654321',
         onboardingCopies.reconnectAccount(),
       );
-      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(mockInfer).toHaveBeenCalledOnce();
     });
 
     it('sends reconnect message and transitions to ONBOARDING_START when token is revoked', async () => {
-      mockFindToken.mockResolvedValue({
-        ...mockToken,
-        revokedAt: new Date(),
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Revoked token', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new InferColumnMapping(deps);
@@ -405,9 +949,9 @@ describe('InferColumnMapping', () => {
     });
 
     it('sends reconnect message and transitions to ONBOARDING_START when decryption fails', async () => {
-      mockDecrypt.mockImplementation(() => {
-        throw new Error('decryption failed');
-      });
+      mockGetValidAccessToken.mockRejectedValue(
+        new SpreadsheetError('Stored token cannot be decrypted', { code: 'AUTH_ERROR' }),
+      );
 
       const deps = buildMockDeps();
       const useCase = new InferColumnMapping(deps);

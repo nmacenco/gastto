@@ -1,7 +1,8 @@
 import type { CloudFile } from '../../domain/entities/CloudFile';
 import type { SheetInfo } from '../../domain/entities/SheetInfo';
 import type { ColumnInferenceMapping } from '../../domain/ports/columnInference';
-import type { GasttoField } from '../../domain/entities/SpreadsheetConfig';
+import { SUPPORTED_GASTTO_FIELDS, type GasttoField } from '../../domain/entities/SpreadsheetConfig';
+import type { CategoryOnboardingCategory } from '../dtos/CategoryOnboardingState';
 
 export const onboardingCopies = {
   welcomePrompt: () =>
@@ -15,6 +16,8 @@ export const onboardingCopies = {
   onboardingPlaceholder: () =>
     'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
   googleConnectedSuccess: () => '¡Google Drive conectado! Ahora elegí el archivo de tu planilla.',
+  googleReconnectedSuccess: () =>
+    '¡Google Drive reconectado! Conservé tu planilla y columnas. Enviá el gasto nuevamente para registrarlo.',
   onedriveConnectedSuccess: () => '¡OneDrive conectado! Ahora elegí el archivo de tu planilla.',
   oauthConnectionFailed: (canRetry: boolean) =>
     canRetry
@@ -42,6 +45,12 @@ export const onboardingCopies = {
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
   invalidSelectionRePrompt: (fileCount: number) =>
     `No entendí. Escribí un número del *1* al *${fileCount}*, o *${fileCount + 1}* para buscar por nombre.`,
+  ambiguousFileReference: () =>
+    'Encontré más de una opción con esa referencia. Elegí el número exacto de la lista.',
+  fileReferenceNotFound: () =>
+    'No encontré esa opción en la lista actual. Elegí el número exacto de la lista.',
+  staleFileReference: () =>
+    'La lista de archivos cambió. Revisá la lista actual y elegí nuevamente.',
   searchByNamePrompt: () => 'Escribí parte del nombre del archivo que querés usar:',
   urlValidationFailed: () =>
     'No pude acceder a ese archivo. Verificá que el enlace sea correcto y que tengas permisos.',
@@ -66,6 +75,11 @@ export const onboardingCopies = {
     const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
     return `No encontré esa hoja. Elegí una de estas:\n${lines.join('\n')}`;
   },
+  ambiguousSheetReference: () =>
+    'Encontré más de una hoja con esa referencia. Elegí el número exacto de la lista.',
+  sheetReferenceNotFound: () =>
+    'No encontré esa hoja en la lista actual. Elegí el número exacto de la lista.',
+  staleSheetReference: () => 'La lista de hojas cambió. Revisá la lista actual y elegí nuevamente.',
   sheetHeadersDescription: (sheetName: string, headers: string[]) =>
     `Hoja *${sheetName}*: tiene las columnas ${headers.join(', ')}`,
   sheetHeaderDescription: (descriptions: { sheetName: string; headers: string[] }[]) =>
@@ -122,11 +136,42 @@ export const onboardingCopies = {
   noHeaderPrompt: () =>
     `Parece que tu planilla no tiene una fila de encabezados.\n\n¿En qué fila comienzan los datos? Escribí el número de fila.`,
 
+  invalidDataStartRowPrompt: () =>
+    `No entendí la fila. Escribí el número de fila donde comienzan los datos (tiene que ser mayor a 1 para que exista una fila de encabezados arriba).`,
+
   mappingConfirmedNextStep: () =>
     `¡Listo! El mapeo de columnas quedó confirmado. Ahora vamos a revisar las categorías de tu planilla.`,
 
+  categoryConfirmationPrompt: (categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `Encontré estas categorías en tu planilla:\n${list}\n\n¿Las usamos tal cual? Respondé *sí* o decime si querés agregar/quitar alguna.`;
+  },
+
+  categoryHierarchyConfirmationPrompt: (
+    categories: CategoryOnboardingCategory[],
+    orphanSubcategories: string[],
+  ) => {
+    const hierarchy = categories
+      .flatMap((category) => [
+        `• ${category.name}`,
+        ...category.subcategories.map((subcategory) => `  ◦ ${subcategory}`),
+      ])
+      .join('\n');
+    const orphanWarning = onboardingCopies.orphanSubcategoriesWarning(orphanSubcategories);
+    return `Encontré estas categorías y subcategorías en tu planilla:\n${hierarchy}${orphanWarning}\n\n¿Las usamos tal cual? Respondé *sí* o decime si querés agregar/quitar alguna.`;
+  },
+
+  orphanSubcategoriesWarning: (orphanSubcategories: string[]) => {
+    if (orphanSubcategories.length === 0) return '';
+    const values = orphanSubcategories.map((subcategory) => `• ${subcategory}`).join('\n');
+    return `\n\n⚠️ Excluí estas subcategorías porque no tenían una categoría padre asignada:\n${values}`;
+  },
+
   noMappingToConfirm: () =>
     `Todavía no tengo una propuesta de mapeo para confirmar. Esperá un momento o escribí *empezar* para reconectar.`,
+
+  categoryProposalUnavailable: () =>
+    'No pude validar la propuesta de categorías. La voy a detectar de nuevo antes de completar la configuración.',
 
   unmappedFieldsNote: (fields: GasttoField[]) => formatUnmappedFields(fields),
 
@@ -134,6 +179,7 @@ export const onboardingCopies = {
   mappingUpdatedConfirmation: (
     mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
     unmappedFields: GasttoField[],
+    displacedFields: GasttoField[] = [],
   ) => {
     const lines = mappings.map(
       (m) =>
@@ -144,8 +190,15 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     if (unmappedFields.length > 0) {
       message += `\n\n${formatUnmappedFields(unmappedFields)}`;
     }
+    if (displacedFields.length > 0) {
+      const labels = displacedFields.map((field) => GASTTO_FIELD_LABELS[field]).join(', ');
+      message += `\n\nLa columna indicada queda reservada para el nuevo campo. ${labels} queda sin asignar.`;
+    }
     return message;
   },
+
+  mappingProposalRecoveryPrompt: () =>
+    'No pude validar el mapeo que estabas revisando. Voy a generar una propuesta nueva antes de guardarlo.',
 
   invalidColumnPrompt: (
     columnRef: string,
@@ -157,8 +210,82 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     return `No encontré la columna *${columnRef}* en tu planilla. Las columnas disponibles son:\n${lines.join('\n')}\n\nEscribí la letra, número o nombre correcto.`;
   },
 
+  mappingRejectionPrompt: (availableColumns: { index: number; columnHeader: string }[]) => {
+    const lines = availableColumns.map((c) => {
+      const label =
+        c.columnHeader.trim().length > 0 ? formatColumnHeader(c.columnHeader) : '(vacía)';
+      return `${columnIndexToLetter(c.index)} - ${label}`;
+    });
+    const fieldLines = SUPPORTED_GASTTO_FIELDS.map((f) => `• ${GASTTO_FIELD_LABELS[f]}`);
+    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}\n\nIndicame un solo campo por mensaje. Por ejemplo: "la categoría está en la columna E".`;
+  },
+
   correctionParseFailurePrompt: () =>
-    `No entendí la corrección. Podés escribir algo como: "la categoría está en la columna E" o "el monto va en B".`,
+    `No entendí la corrección. Enviá una sola corrección por mensaje, por ejemplo: "la categoría está en la columna E" o "el monto va en B".`,
+
+  multipleMappingCorrectionsPrompt: () =>
+    `Detecté varios campos en el mismo mensaje. Para evitar cambios parciales, enviá una sola corrección por mensaje. Por ejemplo: "medio de pago en A".`,
+
+  onboardingComplete: () =>
+    '¡Todo listo! Ya podés empezar a registrar gastos. Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
+
+  categoryUpdatedPrompt: (categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `Estas son las categorías actualizadas:\n${list}\n\n¿Están bien ahora? Respondé *sí* o decime si querés cambiar algo más.`;
+  },
+
+  categoryNotFoundForRename: (from: string, categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `No encontré la categoría "${from}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés cambiar.`;
+  },
+
+  categoryNotFoundForRemoval: (name: string, categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `No encontré la categoría "${name}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés quitar.`;
+  },
+
+  categoryUpdateError: (_errorMessage: string, categories: string[]) => {
+    const list = categories.map((c) => `• ${c}`).join('\n');
+    return `No pude actualizar la categoría. Las categorías actuales son:\n${list}\n\n¿Están bien? Respondé *sí* o intentá de nuevo.`;
+  },
+
+  hierarchyUpdatedPrompt: (state: {
+    categories: CategoryOnboardingCategory[];
+    orphanSubcategories: string[];
+  }) =>
+    `Actualicé la jerarquía:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}\n\n¿Está bien ahora? Respondé *sí* o decime si querés cambiar algo más.`,
+
+  hierarchyUpdateGuidance: (state: {
+    categories: CategoryOnboardingCategory[];
+    orphanSubcategories: string[];
+  }) =>
+    `No entendí el cambio. Indicá siempre la categoría padre de una subcategoría. Por ejemplo: "agregar Peajes a Transporte".\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+
+  hierarchyParentNotFound: (
+    parent: string,
+    state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
+  ) =>
+    `No encontré la categoría padre "${parent}". Podés elegir una de estas categorías:\n${formatCategoryNames(state.categories)}\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+
+  hierarchyParentAmbiguous: (
+    parent: string,
+    candidates: string[],
+    state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
+  ) =>
+    `La categoría padre "${parent}" es ambigua. Coincide con:\n${candidates.map((candidate) => `• ${candidate}`).join('\n')}\n\nElegí un nombre de categoría padre inequívoco.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+
+  hierarchyChildNotFound: (
+    child: string,
+    parent: string,
+    state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
+  ) =>
+    `No encontré la subcategoría "${child}" dentro de "${parent}". Revisá el nombre y la categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+
+  hierarchyDuplicateOrCollision: (
+    _errorMessage: string,
+    state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
+  ) =>
+    `No pude aplicar el cambio porque generaría un nombre duplicado o una colisión en esa categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
 
   mappingResumePrompt: (
     mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
@@ -176,6 +303,7 @@ const GASTTO_FIELD_LABELS: Record<GasttoField, string> = {
   fecha: 'Fecha',
   monto: 'Monto',
   categoria: 'Categoría',
+  subcategoria: 'Subcategoría',
   concepto: 'Concepto',
   medio_pago: 'Medio de pago',
   moneda: 'Moneda',
@@ -185,6 +313,7 @@ const GASTTO_FIELD_EMOJI: Record<GasttoField, string> = {
   fecha: '📅',
   monto: '💰',
   categoria: '🏷️',
+  subcategoria: '🔖',
   concepto: '📝',
   medio_pago: '💳',
   moneda: '💱',
@@ -194,7 +323,40 @@ function columnIndexToLetter(index: number): string {
   return String.fromCharCode(65 + index);
 }
 
+function formatColumnHeader(header: string): string {
+  const MAX_HEADER_LENGTH = 40;
+  const trimmed = header.trim();
+  if (trimmed.length <= MAX_HEADER_LENGTH) return trimmed;
+  return `${trimmed.slice(0, MAX_HEADER_LENGTH)}…`;
+}
+
 function formatUnmappedFields(fields: GasttoField[]): string {
-  const labels = fields.map((f) => GASTTO_FIELD_LABELS[f]).join(', ');
-  return `No encontré columnas para: ${labels}. Estos campos se omitirán al registrar.`;
+  const requiredFields = fields.filter((field) => field !== 'subcategoria');
+  const messages: string[] = [];
+
+  if (requiredFields.length > 0) {
+    const labels = requiredFields.map((field) => GASTTO_FIELD_LABELS[field]).join(', ');
+    messages.push(`No encontré columnas para: ${labels}. Estos campos se omitirán al registrar.`);
+  }
+
+  if (fields.includes('subcategoria')) {
+    messages.push(
+      'No encontré una columna de Subcategoría. Es opcional y podés continuar solo con Categoría.',
+    );
+  }
+
+  return messages.join(' ');
+}
+
+function formatCategoryHierarchy(categories: CategoryOnboardingCategory[]): string {
+  return categories
+    .flatMap((category) => [
+      `• ${category.name}`,
+      ...category.subcategories.map((subcategory) => `  ◦ ${subcategory}`),
+    ])
+    .join('\n');
+}
+
+function formatCategoryNames(categories: CategoryOnboardingCategory[]): string {
+  return categories.map((category) => `• ${category.name}`).join('\n');
 }

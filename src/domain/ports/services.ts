@@ -5,7 +5,6 @@
 import type { ExtractedExpense } from '../entities/ExpenseRecord';
 import type { SheetInfo } from '../entities/SheetInfo';
 import type { Currency } from '../entities/User';
-import type { SpreadsheetProvider } from '../entities/SpreadsheetConfig';
 
 // ── LLMPort (ADR-002) ─────────────────────────────────────────────────────────
 // Default implementation: OpenAIAdapter (gpt-4o).
@@ -14,7 +13,14 @@ import type { SpreadsheetProvider } from '../entities/SpreadsheetConfig';
 export interface UserContext {
   defaultCurrency: Currency | null;
   categories: string[]; // active categories from the user's spreadsheet
+  categoryHierarchy: CategoryHierarchyContext[];
+  subcategoryEnabled: boolean;
   channel: 'telegram' | 'whatsapp';
+}
+
+export interface CategoryHierarchyContext {
+  name: string;
+  subcategories: string[];
 }
 
 export interface ConversationContext {
@@ -23,9 +29,39 @@ export interface ConversationContext {
   statePayload: Record<string, unknown> | null;
 }
 
+export type CorrectionField = 'monto' | 'moneda' | 'categoria' | 'subcategoria' | 'fecha';
+export type ExpenseFollowUpIntent = 'correction' | 'new_expense' | 'unrelated';
+
+export interface ExpenseCorrectionSuggestion {
+  intent: ExpenseFollowUpIntent;
+  changedFields: CorrectionField[];
+  monto: number | null;
+  moneda: Currency | null;
+  categoriaRaw: string | null;
+  subcategoriaRaw: string | null;
+  fechaRaw: string | null;
+}
+
+export interface ExtractionExecutionOptions {
+  correlationId?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
 export interface LLMPort {
   // Extrae entidades financieras de un mensaje en lenguaje natural
-  extractExpense(userMessage: string, userContext: UserContext): Promise<ExtractedExpense>;
+  extractExpense(
+    userMessage: string,
+    userContext: UserContext,
+    options?: ExtractionExecutionOptions,
+  ): Promise<ExtractedExpense>;
+
+  // Interpreta una corrección relativa al resumen que se acaba de mostrar
+  interpretCorrection(
+    rawMessage: string,
+    currentExtracted: ExtractedExpense,
+    userContext: UserContext,
+  ): Promise<ExpenseCorrectionSuggestion>;
 
   // Genera una respuesta en lenguaje natural para enviar al usuario
   generateResponse(prompt: string, context: ConversationContext): Promise<string>;
@@ -43,11 +79,12 @@ export interface Row {
 
 export interface AppendResult {
   sheet: string;
-  row: number; // row index where the record ended up (ADR-006)
+  row?: number | undefined; // row index where the record ended up (ADR-006)
 }
 
 export interface SpreadsheetPort {
-  // Lee filas de un rango (ej. "Gastos!A:F")
+  // Reads a worksheet-qualified A1 range whose first cell has a 1-based row
+  // (for example, "Gastos!A2:F" or "'Gastos 2026'!A2:F50").
   readRows(fileId: string, range: string): Promise<Row[]>;
 
   // Appends a row and returns the location reference (ADR-006)
@@ -57,7 +94,12 @@ export interface SpreadsheetPort {
   deleteRow(fileId: string, sheetName: string, rowIndex: number): Promise<void>;
 
   // Gets unique values from a column (for inferring categories during onboarding)
-  getUniqueValues(fileId: string, columnIndex: number, sheetName: string): Promise<string[]>;
+  getUniqueValues(
+    fileId: string,
+    columnIndex: number,
+    sheetName: string,
+    dataStartRow?: number,
+  ): Promise<string[]>;
 
   // Obtiene encabezados de la primera fila de una hoja
   getHeaders(fileId: string, sheetName: string): Promise<string[]>;
@@ -75,5 +117,5 @@ export interface SpreadsheetPort {
 // storing the token in the adapter's constructor at bootstrap time.
 
 export interface SpreadsheetPortFactory {
-  create(provider: SpreadsheetProvider, accessToken: string): SpreadsheetPort;
+  create(accessToken: string): SpreadsheetPort;
 }

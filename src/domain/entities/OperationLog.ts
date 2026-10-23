@@ -12,7 +12,12 @@ export type OperationType =
   | 'MAPPING_UPDATED'
   | 'STATE_CORRUPTED';
 
-export type ErrorType = 'NETWORK_ERROR' | 'AUTH_ERROR' | 'STRUCTURE_ERROR' | 'CORRUPTED_STATE';
+export type ErrorType =
+  | 'NETWORK_ERROR'
+  | 'AUTH_ERROR'
+  | 'STRUCTURE_ERROR'
+  | 'UNKNOWN'
+  | 'CORRUPTED_STATE';
 
 export interface OperationLog {
   id: string;

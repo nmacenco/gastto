@@ -28,7 +28,70 @@ describe('envSchema', () => {
       expect(result.data.NODE_ENV).toBe('development');
       expect(result.data.PORT).toBe(3000);
       expect(result.data.LOG_LEVEL).toBe('info');
+      expect(result.data.SEMANTIC_ROUTER_STATE_MODES).toEqual({});
+      expect(result.data.SEMANTIC_ROUTER_COHORT_PERCENT).toBe(0);
+      expect(result.data.SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT).toBe(0);
+      expect(result.data.LLM_EXTRACTION_TIMEOUT_MS).toBe(30000);
+      expect(result.data.LLM_PROVIDER).toBe('auto');
+      expect(result.data.LLM_FALLBACK_PROVIDER).toBe('auto');
+      expect(result.data.NVIDIA_MODEL).toBe('z-ai/glm-5.3-flash');
+      expect(result.data.GROQ_MODEL).toBe('openai/gpt-oss-20b');
     }
+  });
+
+  it('parses strict semantic router runtime settings', () => {
+    const result = envSchema.safeParse({
+      ...validEnv,
+      SEMANTIC_ROUTER_STATE_MODES: 'IDLE=shadow,EXPENSE_RECEIVING=off',
+      SEMANTIC_ROUTER_COHORT_PERCENT: '25',
+      SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: '50',
+      SEMANTIC_ROUTER_COHORT_SEED: 'release-2026.09',
+      SEMANTIC_ROUTER_PROVIDER: 'openai',
+      SEMANTIC_ROUTER_MODEL: 'gpt-4o-2024-08-06',
+      SEMANTIC_ROUTER_TIMEOUT_MS: '25000',
+      SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: '512',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.SEMANTIC_ROUTER_STATE_MODES).toEqual({
+        IDLE: 'shadow',
+        EXPENSE_RECEIVING: 'off',
+      });
+      expect(result.data.SEMANTIC_ROUTER_COHORT_PERCENT).toBe(25);
+      expect(result.data.SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT).toBe(50);
+      expect(result.data.SEMANTIC_ROUTER_TIMEOUT_MS).toBe(25000);
+      expect(result.data.SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS).toBe(512);
+    }
+  });
+
+  it.each([
+    { SEMANTIC_ROUTER_STATE_MODES: 'UNKNOWN=shadow' },
+    { SEMANTIC_ROUTER_STATE_MODES: 'IDLE=shadow,IDLE=off' },
+    { SEMANTIC_ROUTER_STATE_MODES: 'IDLE=active' },
+    { SEMANTIC_ROUTER_COHORT_PERCENT: '101' },
+    { SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: '-1' },
+    { SEMANTIC_ROUTER_COHORT_SEED: 'contains spaces' },
+    { SEMANTIC_ROUTER_PROVIDER: 'anthropic' },
+    { SEMANTIC_ROUTER_MODEL: 'gpt-4o-mini' },
+    { SEMANTIC_ROUTER_TIMEOUT_MS: '30000' },
+    { SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: '63' },
+    { LLM_EXTRACTION_TIMEOUT_MS: '999' },
+    { LLM_EXTRACTION_TIMEOUT_MS: '60001' },
+    { LLM_EXTRACTION_TIMEOUT_MS: 'NaN' },
+    { LLM_EXTRACTION_TIMEOUT_MS: '1000.5' },
+    { LLM_PROVIDER: 'other' },
+    { LLM_FALLBACK_PROVIDER: 'other' },
+    { NVIDIA_MODEL: '' },
+    { NVIDIA_MODEL: 'model with spaces' },
+    { NVIDIA_MODEL: 'model:with:invalid:characters' },
+    { NVIDIA_MODEL: `${'a'.repeat(128)}!` },
+    { GROQ_MODEL: '' },
+    { GROQ_MODEL: 'model with spaces' },
+    { GROQ_MODEL: 'model:with:invalid:characters' },
+    { GROQ_MODEL: `${'a'.repeat(128)}!` },
+  ])('rejects invalid environment setting %#', (override) => {
+    expect(envSchema.safeParse({ ...validEnv, ...override }).success).toBe(false);
   });
 
   it('accepts missing truly optional variables', () => {
@@ -36,13 +99,22 @@ describe('envSchema', () => {
       ...validEnv,
     };
     // @ts-expect-error dynamically deleting for test
+    delete withoutOptional.OPENAI_API_KEY;
+    // @ts-expect-error dynamically deleting for test
     delete withoutOptional.ANTHROPIC_API_KEY;
+    // @ts-expect-error dynamically deleting for test
+    delete withoutOptional.NVIDIA_API_KEY;
+    // @ts-expect-error dynamically deleting for test
+    delete withoutOptional.GROQ_API_KEY;
     // @ts-expect-error dynamically deleting for test
     delete withoutOptional.SENTRY_DSN;
     const result = envSchema.safeParse(withoutOptional);
     expect(result.success).toBe(true);
     if (result.success) {
+      expect(result.data.OPENAI_API_KEY).toBeUndefined();
       expect(result.data.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(result.data.NVIDIA_API_KEY).toBeUndefined();
+      expect(result.data.GROQ_API_KEY).toBeUndefined();
       expect(result.data.SENTRY_DSN).toBeUndefined();
     }
   });
@@ -60,7 +132,6 @@ describe('envSchema', () => {
       const fieldErrors = result.error.flatten().fieldErrors;
       expect(fieldErrors).toHaveProperty('DATABASE_URL');
       expect(fieldErrors).toHaveProperty('REDIS_URL');
-      expect(fieldErrors).toHaveProperty('OPENAI_API_KEY');
       expect(fieldErrors).toHaveProperty('TELEGRAM_WEBHOOK_SECRET');
       expect(fieldErrors).toHaveProperty('TELEGRAM_BOT_TOKEN');
       expect(fieldErrors).toHaveProperty('WEBHOOK_BASE_URL');
@@ -107,13 +178,51 @@ describe('envSchema', () => {
     const result = envSchema.safeParse({
       ...validEnv,
       ANTHROPIC_API_KEY: 'sk-test-anthropic',
+      NVIDIA_API_KEY: 'nvidia-test-key',
+      GROQ_API_KEY: 'groq-test-key',
       SENTRY_DSN: 'https://sentry.example.com',
     });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.ANTHROPIC_API_KEY).toBe('sk-test-anthropic');
+      expect(result.data.NVIDIA_API_KEY).toBe('nvidia-test-key');
+      expect(result.data.GROQ_API_KEY).toBe('groq-test-key');
+      expect(result.data.NVIDIA_MODEL).toBe('z-ai/glm-5.3-flash');
       expect(result.data.SENTRY_DSN).toBe('https://sentry.example.com');
       expect(result.data.TELEGRAM_BOT_TOKEN).toBe('test-bot-token');
+    }
+  });
+
+  it('accepts a custom NVIDIA model identifier', () => {
+    const result = envSchema.safeParse({
+      ...validEnv,
+      NVIDIA_MODEL: 'z-ai/custom-model.v2',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.NVIDIA_MODEL).toBe('z-ai/custom-model.v2');
+    }
+  });
+
+  it('accepts a custom Groq model identifier', () => {
+    const result = envSchema.safeParse({ ...validEnv, GROQ_MODEL: 'openai/gpt-oss-120b' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.GROQ_MODEL).toBe('openai/gpt-oss-120b');
+  });
+
+  it('accepts explicit LLM provider selection', () => {
+    for (const provider of ['nvidia', 'anthropic', 'openai', 'groq']) {
+      const result = envSchema.safeParse({ ...validEnv, LLM_PROVIDER: provider });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('accepts explicit extraction fallback selection', () => {
+    for (const provider of ['none', 'nvidia', 'anthropic', 'openai', 'groq']) {
+      expect(envSchema.safeParse({ ...validEnv, LLM_FALLBACK_PROVIDER: provider }).success).toBe(
+        true,
+      );
     }
   });
 
@@ -137,5 +246,91 @@ describe('envSchema', () => {
     if (!withoutToken.success) {
       expect(withoutToken.error.flatten().fieldErrors).toHaveProperty('TELEGRAM_BOT_TOKEN');
     }
+  });
+
+  it('defaults CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD to 0.6', () => {
+    const result = envSchema.safeParse(validEnv);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD).toBe(0.6);
+    }
+  });
+
+  it('coerces CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD to a number', () => {
+    const result = envSchema.safeParse({
+      ...validEnv,
+      CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: '0.8',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD).toBe(0.8);
+    }
+  });
+
+  it('rejects CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD outside [0, 1]', () => {
+    const belowZero = envSchema.safeParse({
+      ...validEnv,
+      CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: '-0.1',
+    });
+    expect(belowZero.success).toBe(false);
+
+    const aboveOne = envSchema.safeParse({
+      ...validEnv,
+      CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: '1.1',
+    });
+    expect(aboveOne.success).toBe(false);
+  });
+
+  it('defaults HIGH_AMOUNT_THRESHOLD_MULTIPLIER to 10', () => {
+    const result = envSchema.safeParse(validEnv);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.HIGH_AMOUNT_THRESHOLD_MULTIPLIER).toBe(10);
+    }
+  });
+
+  it('coerces HIGH_AMOUNT_THRESHOLD_MULTIPLIER to a number and rejects values below 1', () => {
+    const valid = envSchema.safeParse({
+      ...validEnv,
+      HIGH_AMOUNT_THRESHOLD_MULTIPLIER: '5',
+    });
+    expect(valid.success).toBe(true);
+    if (valid.success) {
+      expect(valid.data.HIGH_AMOUNT_THRESHOLD_MULTIPLIER).toBe(5);
+    }
+
+    const belowOne = envSchema.safeParse({
+      ...validEnv,
+      HIGH_AMOUNT_THRESHOLD_MULTIPLIER: '0.5',
+    });
+    expect(belowOne.success).toBe(false);
+  });
+
+  it('defaults review timeout constants', () => {
+    const result = envSchema.safeParse(validEnv);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.EXPENSE_REVIEW_TIMEOUT_MINUTES).toBe(10);
+      expect(result.data.EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES).toBe(10);
+    }
+  });
+
+  it('coerces review timeout constants to numbers and rejects values below 1', () => {
+    const valid = envSchema.safeParse({
+      ...validEnv,
+      EXPENSE_REVIEW_TIMEOUT_MINUTES: '15',
+      EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: '20',
+    });
+    expect(valid.success).toBe(true);
+    if (valid.success) {
+      expect(valid.data.EXPENSE_REVIEW_TIMEOUT_MINUTES).toBe(15);
+      expect(valid.data.EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES).toBe(20);
+    }
+
+    const invalid = envSchema.safeParse({
+      ...validEnv,
+      EXPENSE_REVIEW_TIMEOUT_MINUTES: '0',
+    });
+    expect(invalid.success).toBe(false);
   });
 });

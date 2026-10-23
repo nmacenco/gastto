@@ -1,8 +1,16 @@
 // LAYER: Domain
 // Barrel export for domain value objects. Keeps imports stable across refactors.
 
+export * from './AmountCurrencyExtractionResult';
 export * from './Category';
+export * from './CategoryKeywordVocabulary';
 export * from './CategoryVocabulary';
+export * from './ClassificationResult';
+export * from './Currency';
+export * from './expense-clarification-state';
+export * from './FreeTextIntent';
 export * from './IncomingMessage';
 export * from './MessageType';
+export * from './Money';
+export * from './ProcessedMessageKey';
 export * from './SpreadsheetAccessResult';

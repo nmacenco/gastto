@@ -1,0 +1,362 @@
+// LAYER: Bootstrap / Unit Tests
+// Tests for worker registration: BullMQ workers are created with the right names/options
+// and the Telegram webhook is auto-registered on startup.
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { Queue, Worker } from 'bullmq';
+
+import { registerWorkers } from './registerWorkers';
+import { createFastify } from './createFastify';
+import { createLogger } from '../infrastructure/logger';
+import type { Dependencies, TelegramFeature, GoogleOAuthFeature } from './types';
+import type { Env } from '../config/env.schema';
+
+const baseEnv: Env = {
+  NODE_ENV: 'test',
+  PORT: 0,
+  LOG_LEVEL: 'fatal',
+  DATABASE_URL: 'postgres://localhost:5432/test',
+  REDIS_URL: 'redis://localhost:6379/0',
+  MAPPING_CORRECTION_TTL_SECONDS: 1800,
+  CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: 0.6,
+  HIGH_AMOUNT_THRESHOLD_MULTIPLIER: 10,
+  EXPENSE_REVIEW_TIMEOUT_MINUTES: 10,
+  EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: 10,
+  OPENAI_API_KEY: 'sk-test-openai',
+  LLM_PROVIDER: 'auto',
+  LLM_FALLBACK_PROVIDER: 'auto',
+  LLM_EXTRACTION_TIMEOUT_MS: 30_000,
+  NVIDIA_MODEL: 'z-ai/glm-5.3-flash',
+  GROQ_MODEL: 'openai/gpt-oss-20b',
+  SEMANTIC_ROUTER_STATE_MODES: {},
+  SEMANTIC_ROUTER_COHORT_PERCENT: 0,
+  SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: 0,
+  SEMANTIC_ROUTER_COHORT_SEED: 'test-seed',
+  SEMANTIC_ROUTER_PROVIDER: 'openai',
+  SEMANTIC_ROUTER_MODEL: 'gpt-4o-mini-2024-07-18',
+  SEMANTIC_ROUTER_TIMEOUT_MS: 10000,
+  SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: 256,
+  TELEGRAM_WEBHOOK_SECRET: 'test-webhook-secret',
+  TELEGRAM_BOT_TOKEN: 'test-bot-token',
+  WEBHOOK_BASE_URL: 'https://example.com',
+  ENCRYPTION_KEY: 'a'.repeat(64),
+  GOOGLE_CLIENT_ID: 'test-google-client-id',
+  GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
+  GOOGLE_REDIRECT_URI: 'http://localhost:3000/auth/google/callback',
+};
+
+vi.mock('bullmq', () => ({
+  Queue: vi.fn(),
+  Worker: vi.fn(),
+}));
+
+const dependencyQueueCloseMocks: Array<ReturnType<typeof vi.fn>> = [];
+const workerCloseMocks: Array<ReturnType<typeof vi.fn>> = [];
+const createdQueueCloseMocks: Array<ReturnType<typeof vi.fn>> = [];
+
+function buildQueueDependency<T>(): T {
+  const close = vi.fn().mockResolvedValue(undefined);
+  dependencyQueueCloseMocks.push(close);
+  return { close } as T;
+}
+
+function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
+  return {
+    db: {} as Dependencies['db'],
+    redis: { on: vi.fn() } as unknown as Dependencies['redis'],
+    rootLogger: createLogger({ level: 'silent' }),
+    userRepo: {} as Dependencies['userRepo'],
+    conversationRepo: {} as Dependencies['conversationRepo'],
+    operationLogRepo: {} as Dependencies['operationLogRepo'],
+    tokenRepo: {} as Dependencies['tokenRepo'],
+    spreadsheetConfigRepo: {} as Dependencies['spreadsheetConfigRepo'],
+    columnMappingRepo: {} as Dependencies['columnMappingRepo'],
+    categoryVocabularyRepo: {} as Dependencies['categoryVocabularyRepo'],
+    userCategoryRepo: {} as Dependencies['userCategoryRepo'],
+    expenseRecordRepo: {} as Dependencies['expenseRecordRepo'],
+    expenseQueueRepo: {} as Dependencies['expenseQueueRepo'],
+    tokenEncryption: {} as Dependencies['tokenEncryption'],
+    oauthAccessTokenService: {} as Dependencies['oauthAccessTokenService'],
+    resolveIdentity: {} as Dependencies['resolveIdentity'],
+    getConversationState: {} as Dependencies['getConversationState'],
+    transitionState: {} as Dependencies['transitionState'],
+    recoverCorruptedState: {} as Dependencies['recoverCorruptedState'],
+    semanticRoutingPolicy: {} as Dependencies['semanticRoutingPolicy'],
+    deterministicRoutingPolicy: {
+      decide: vi.fn(),
+    } as unknown as Dependencies['deterministicRoutingPolicy'],
+    semanticRouter: null,
+    observeSemanticRouting: {} as Dependencies['observeSemanticRouting'],
+    dispatchExpenseSemanticAction: {} as Dependencies['dispatchExpenseSemanticAction'],
+    dispatchControlSemanticAction: {} as Dependencies['dispatchControlSemanticAction'],
+    completeExpenseClarification: {} as Dependencies['completeExpenseClarification'],
+    messageQueue: buildQueueDependency<Dependencies['messageQueue']>(),
+    incomingMessageQueue: buildQueueDependency<Dependencies['incomingMessageQueue']>(),
+    reminderQueue: buildQueueDependency<Dependencies['reminderQueue']>(),
+    llmPort: {} as Dependencies['llmPort'],
+    llmHeaderDetectionAdapter: {} as Dependencies['llmHeaderDetectionAdapter'],
+    llmColumnInferenceAdapter: {} as Dependencies['llmColumnInferenceAdapter'],
+    spreadsheetAccessAdapterFactory: {} as Dependencies['spreadsheetAccessAdapterFactory'],
+    ruleBasedColumnInferenceAdapter: {} as Dependencies['ruleBasedColumnInferenceAdapter'],
+    ruleBasedHeaderDetectionAdapter: {} as Dependencies['ruleBasedHeaderDetectionAdapter'],
+    mappingCorrectionStateRepository: {} as Dependencies['mappingCorrectionStateRepository'],
+    userProcessingLock: {} as Dependencies['userProcessingLock'],
+    registerExpense: {} as Dependencies['registerExpense'],
+    queuePendingExpense: {} as Dependencies['queuePendingExpense'],
+    advancePendingExpense: {} as Dependencies['advancePendingExpense'],
+    correctExpense: {} as Dependencies['correctExpense'],
+    generateExpenseSummary: {} as Dependencies['generateExpenseSummary'],
+    resolveExpenseSummaryAction: {} as Dependencies['resolveExpenseSummaryAction'],
+    cancelExpenseRegistration: {} as Dependencies['cancelExpenseRegistration'],
+    resolveExpenseReviewReply: {} as Dependencies['resolveExpenseReviewReply'],
+    presentUndoConfirmation: {} as Dependencies['presentUndoConfirmation'],
+    retryExpenseSave: {} as Dependencies['retryExpenseSave'],
+    expenseSummaryPresenterFactory: {} as Dependencies['expenseSummaryPresenterFactory'],
+    telegram: null,
+    googleOAuth: null,
+    ...partial,
+  };
+}
+
+function buildTelegramFeature(): TelegramFeature {
+  return {
+    adapter: { sendMessage: vi.fn() } as unknown as TelegramFeature['adapter'],
+    handleStartCommand: {} as TelegramFeature['handleStartCommand'],
+    sendImmediateAcknowledgement: {} as TelegramFeature['sendImmediateAcknowledgement'],
+    handleUnsupportedMessage: {} as TelegramFeature['handleUnsupportedMessage'],
+    classifyFreeTextExpenseIntent: {} as TelegramFeature['classifyFreeTextExpenseIntent'],
+    sendExpenseGuidance: {} as TelegramFeature['sendExpenseGuidance'],
+    processedMessageRepository: {} as TelegramFeature['processedMessageRepository'],
+    routeIncomingMessage: {
+      execute: vi.fn(),
+    } as unknown as TelegramFeature['routeIncomingMessage'],
+  };
+}
+
+function buildGoogleOAuthFeature(): GoogleOAuthFeature {
+  return {
+    adapter: {} as GoogleOAuthFeature['adapter'],
+    initiateCloudConnection: {} as GoogleOAuthFeature['initiateCloudConnection'],
+    handleOAuthCallback: {} as GoogleOAuthFeature['handleOAuthCallback'],
+    sendOAuthReminder: { execute: vi.fn() } as unknown as GoogleOAuthFeature['sendOAuthReminder'],
+    cancelCloudConnection: {} as GoogleOAuthFeature['cancelCloudConnection'],
+    driveFileDiscovery: {} as GoogleOAuthFeature['driveFileDiscovery'],
+    sheetsAdapterFactory: {} as GoogleOAuthFeature['sheetsAdapterFactory'],
+    categoryReaderFactory: {} as GoogleOAuthFeature['categoryReaderFactory'],
+    categoryHierarchyReaderFactory: {} as GoogleOAuthFeature['categoryHierarchyReaderFactory'],
+    handleSpreadsheetFileSelection: {} as GoogleOAuthFeature['handleSpreadsheetFileSelection'],
+    handleSheetSelection: {} as GoogleOAuthFeature['handleSheetSelection'],
+    validateSpreadsheetAccess: {} as GoogleOAuthFeature['validateSpreadsheetAccess'],
+    startSpreadsheetReconfiguration: {} as GoogleOAuthFeature['startSpreadsheetReconfiguration'],
+    inferColumnMapping: {} as GoogleOAuthFeature['inferColumnMapping'],
+    confirmColumnMapping: {} as GoogleOAuthFeature['confirmColumnMapping'],
+    correctColumnMapping: {} as GoogleOAuthFeature['correctColumnMapping'],
+    detectCategories: {} as GoogleOAuthFeature['detectCategories'],
+    confirmCategories: {} as GoogleOAuthFeature['confirmCategories'],
+    modifyCategoryVocabulary: {} as GoogleOAuthFeature['modifyCategoryVocabulary'],
+  };
+}
+
+describe('registerWorkers', () => {
+  let app: FastifyInstance;
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    dependencyQueueCloseMocks.length = 0;
+    workerCloseMocks.length = 0;
+    createdQueueCloseMocks.length = 0;
+    vi.mocked(Worker).mockImplementation(() => {
+      const close = vi.fn().mockResolvedValue(undefined);
+      workerCloseMocks.push(close);
+      return {
+        opts: { concurrency: 1 },
+        on: vi.fn(),
+        close,
+      } as unknown as Worker;
+    });
+    vi.mocked(Queue).mockImplementation(() => {
+      const close = vi.fn().mockResolvedValue(undefined);
+      const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+      createdQueueCloseMocks.push(close);
+      return {
+        add: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+          if (!events[event]) events[event] = [];
+          events[event].push(handler);
+        }),
+        emit: vi.fn().mockImplementation((event: string, ...args: unknown[]) => {
+          (events[event] ?? []).forEach((handler) => handler(...args));
+        }),
+        close,
+      } as unknown as Queue;
+    });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ ok: true }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(async () => {
+    if (app) {
+      await app.close();
+    }
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('creates the incoming-message worker when Telegram is configured', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({ telegram: buildTelegramFeature() });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    const names = vi.mocked(Worker).mock.calls.map(([name]) => name);
+    expect(names).toContain('incoming-message');
+  });
+
+  it('creates the process-message worker with the Google OAuth options', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      googleOAuth: buildGoogleOAuthFeature(),
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    const processMessageCall = vi
+      .mocked(Worker)
+      .mock.calls.find(([name]) => name === 'process-message');
+    expect(processMessageCall).toBeDefined();
+    const options = processMessageCall![2] as unknown as { concurrency: number };
+    expect(options.concurrency).toBe(2);
+  });
+
+  it('auto-registers the Telegram webhook when WEBHOOK_BASE_URL is not localhost', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      googleOAuth: buildGoogleOAuthFeature(),
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    const setWebhookCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/setWebhook'),
+    );
+    expect(setWebhookCalls.length).toBeGreaterThan(0);
+  });
+
+  it('skips Telegram webhook auto-registration for localhost', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      googleOAuth: buildGoogleOAuthFeature(),
+    });
+    const env: Env = { ...baseEnv, WEBHOOK_BASE_URL: 'http://localhost:3000' };
+
+    await registerWorkers(app, deps, env);
+
+    const setWebhookCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/setWebhook'),
+    );
+    expect(setWebhookCalls).toHaveLength(0);
+  });
+
+  it('creates the oauth-reminder worker when Google OAuth is configured', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      googleOAuth: buildGoogleOAuthFeature(),
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    const names = vi.mocked(Worker).mock.calls.map(([name]) => name);
+    expect(names).toContain('oauth-reminder');
+  });
+
+  it('creates the session-timeout worker', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      googleOAuth: buildGoogleOAuthFeature(),
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    const names = vi.mocked(Worker).mock.calls.map(([name]) => name);
+    expect(names).toContain('session-timeout');
+  });
+
+  it('registers one sanitized error listener on the session-timeout queue', async () => {
+    const loggerError = vi.fn();
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      rootLogger: { error: loggerError } as unknown as Dependencies['rootLogger'],
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    const queueResultIndex = vi
+      .mocked(Queue)
+      .mock.calls.findIndex(([name]) => name === 'session-timeout');
+    const queue = vi.mocked(Queue).mock.results[queueResultIndex]?.value as Queue;
+    const mockQueue = queue as unknown as {
+      on: ReturnType<typeof vi.fn>;
+      emit: (event: string, error: Error) => void;
+    };
+    expect(mockQueue.on.mock.calls.filter(([event]) => event === 'error')).toHaveLength(1);
+
+    mockQueue.emit('error', new Error('Connection lost'));
+
+    expect(loggerError).toHaveBeenCalledOnce();
+    expect(loggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ queue error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_QUEUE_ERROR',
+      queue: 'session-timeout',
+      error: 'Connection lost',
+    });
+  });
+
+  it('closes every worker before closing every queue', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: buildTelegramFeature(),
+      googleOAuth: buildGoogleOAuthFeature(),
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+    await app.close();
+
+    const queueCloseMocks = [...dependencyQueueCloseMocks, ...createdQueueCloseMocks];
+
+    expect(workerCloseMocks).toHaveLength(4);
+    expect(queueCloseMocks).toHaveLength(4);
+    workerCloseMocks.forEach((close) => expect(close).toHaveBeenCalledOnce());
+    queueCloseMocks.forEach((close) => expect(close).toHaveBeenCalledOnce());
+
+    const lastWorkerClose = Math.max(
+      ...workerCloseMocks.map((close) => close.mock.invocationCallOrder[0] ?? 0),
+    );
+    const firstQueueClose = Math.min(
+      ...queueCloseMocks.map((close) => close.mock.invocationCallOrder[0] ?? Infinity),
+    );
+    expect(lastWorkerClose).toBeLessThan(firstQueueClose);
+  });
+
+  it('closes dependency queues even when Telegram is not configured', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({ telegram: null, googleOAuth: buildGoogleOAuthFeature() });
+
+    await registerWorkers(app, deps, baseEnv);
+    await app.close();
+
+    expect(Worker).not.toHaveBeenCalled();
+    dependencyQueueCloseMocks.forEach((close) => expect(close).toHaveBeenCalledOnce());
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

@@ -42,18 +42,26 @@ export class ResolveUserIdentityUseCase {
     const { user } = await this.userRepo.createWithIdentity(channel, externalId);
 
     // 3. Estado inicial IDLE → ONBOARDING_START
-    await this.conversationRepo.create(user.userId);
-    await this.conversationRepo.transition(
-      user.userId,
-      'ONBOARDING_START',
-      { promptShown: false },
-      null,
-    );
+    const initialState = await this.conversationRepo.create(user.userId);
+    const transition = await this.conversationRepo.transition({
+      userId: user.userId,
+      expected: {
+        revision: initialState.revision,
+        currentState: initialState.currentState,
+        expiry: 'any',
+      },
+      nextState: 'ONBOARDING_START',
+      payload: { promptShown: false },
+      expiresAt: null,
+    });
 
     return {
       userId: user.userId,
-      isNewUser: true,
-      currentState: 'ONBOARDING_START',
+      isNewUser: transition.status === 'updated',
+      currentState:
+        transition.status === 'updated'
+          ? transition.state.currentState
+          : ((await this.conversationRepo.findByUserId(user.userId))?.currentState ?? 'IDLE'),
     };
   }
 }

@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "semantic-proposal-evidence-v1",
+  "evidenceClass": "protocol_fixture_replay",
+  "split": "held_out",
+  "complete": true,
+  "passed": true,
+  "sourceVersion": "7e9df3bee9c64b8b1d6b7f10c50b159a17e9e6eb9a0de975e44651b2c98080be",
+  "candidate": {
+    "provider": "openai",
+    "model": "gpt-4o-mini-2024-07-18",
+    "promptVersion": "semantic-openai-v3",
+    "contractVersion": "semantic-contract-v2",
+    "policyVersion": "semantic-policy-v3",
+    "datasetVersion": "semantic-corpus-v6",
+    "labelVersion": "semantic-labels-v6"
+  },
+  "totalCases": 53,
+  "perScopeActionAccuracy": {
+    "EXPENSE_CLARIFYING/default": { "numerator": 7, "denominator": 7 },
+    "EXPENSE_CORRECTING/default": { "numerator": 2, "denominator": 2 },
+    "EXPENSE_RECEIVING/default": { "numerator": 3, "denominator": 3 },
+    "EXPENSE_REVIEW/default": { "numerator": 10, "denominator": 10 },
+    "EXPENSE_SAVING_RETRY/default": { "numerator": 6, "denominator": 6 },
+    "EXPENSE_UNDO_CONFIRMING/default": { "numerator": 1, "denominator": 1 },
+    "IDLE/default": { "numerator": 11, "denominator": 11 },
+    "ONBOARDING_FILE/default": { "numerator": 1, "denominator": 1 },
+    "ONBOARDING_SHEET/default": { "numerator": 8, "denominator": 8 },
+    "ONBOARDING_SHEET/empty-sheet-confirm": { "numerator": 1, "denominator": 1 },
+    "ONBOARDING_SHEET/idk": { "numerator": 2, "denominator": 2 }
+  },
+  "ambiguityDetection": {
+    "EXPENSE_CLARIFYING/default": { "numerator": 2, "denominator": 2 },
+    "EXPENSE_CORRECTING/default": { "numerator": 1, "denominator": 1 },
+    "EXPENSE_RECEIVING/default": { "numerator": 0, "denominator": 0 },
+    "EXPENSE_REVIEW/default": { "numerator": 3, "denominator": 3 },
+    "EXPENSE_SAVING_RETRY/default": { "numerator": 2, "denominator": 2 },
+    "EXPENSE_UNDO_CONFIRMING/default": { "numerator": 1, "denominator": 1 },
+    "IDLE/default": { "numerator": 4, "denominator": 4 },
+    "ONBOARDING_FILE/default": { "numerator": 0, "denominator": 0 },
+    "ONBOARDING_SHEET/default": { "numerator": 2, "denominator": 2 },
+    "ONBOARDING_SHEET/empty-sheet-confirm": { "numerator": 1, "denominator": 1 },
+    "ONBOARDING_SHEET/idk": { "numerator": 0, "denominator": 0 }
+  },
+  "unnecessaryClarification": {
+    "EXPENSE_CLARIFYING/default": { "numerator": 0, "denominator": 5 },
+    "EXPENSE_CORRECTING/default": { "numerator": 0, "denominator": 1 },
+    "EXPENSE_RECEIVING/default": { "numerator": 0, "denominator": 3 },
+    "EXPENSE_REVIEW/default": { "numerator": 0, "denominator": 7 },
+    "EXPENSE_SAVING_RETRY/default": { "numerator": 0, "denominator": 4 },
+    "EXPENSE_UNDO_CONFIRMING/default": { "numerator": 0, "denominator": 0 },
+    "IDLE/default": { "numerator": 0, "denominator": 7 },
+    "ONBOARDING_FILE/default": { "numerator": 0, "denominator": 1 },
+    "ONBOARDING_SHEET/default": { "numerator": 0, "denominator": 6 },
+    "ONBOARDING_SHEET/empty-sheet-confirm": { "numerator": 0, "denominator": 0 },
+    "ONBOARDING_SHEET/idk": { "numerator": 0, "denominator": 2 }
+  },
+  "schemaFailures": { "numerator": 0, "denominator": 53 },
+  "p95RouterLatencyMsByScope": {
+    "EXPENSE_CLARIFYING/default": { "value": null, "samples": 0 },
+    "EXPENSE_CORRECTING/default": { "value": null, "samples": 0 },
+    "EXPENSE_RECEIVING/default": { "value": null, "samples": 0 },
+    "EXPENSE_REVIEW/default": { "value": null, "samples": 0 },
+    "EXPENSE_SAVING_RETRY/default": { "value": null, "samples": 0 },
+    "EXPENSE_UNDO_CONFIRMING/default": { "value": null, "samples": 0 },
+    "IDLE/default": { "value": null, "samples": 0 },
+    "ONBOARDING_FILE/default": { "value": null, "samples": 0 },
+    "ONBOARDING_SHEET/default": { "value": null, "samples": 0 },
+    "ONBOARDING_SHEET/empty-sheet-confirm": { "value": null, "samples": 0 },
+    "ONBOARDING_SHEET/idk": { "value": null, "samples": 0 }
+  },
+  "criticalFalseAuthorizationCount": 0,
+  "unauthorizedEffectCount": null
+}
+

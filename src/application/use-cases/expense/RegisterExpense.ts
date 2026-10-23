@@ -1,47 +1,104 @@
 // LAYER: Application
 // Use case: register an expense from a natural language message.
-// Orchestrates: LLMPort → category → summary → (confirmation in next turn).
+// Orchestrates: LLMPort → deterministic fallback → category → summary → (confirmation in next turn).
 // Executed by BullMQ worker, NOT by Fastify handler (ADR-005).
 
-import type { LLMPort, UserContext, SpreadsheetPort } from '../../../domain/ports/services';
+import type { LLMPort, UserContext, SpreadsheetPortFactory } from '../../../domain/ports/services';
+import type { Logger } from 'pino';
+import { LLMExtractionError } from '../../../domain/errors/LLMExtractionError';
+import {
+  RecoverExpenseExtraction,
+  RecoveredExpenseExtractionError,
+} from './RecoverExpenseExtraction';
 import type {
   IExpenseRecordRepository,
   ISpreadsheetConfigRepository,
   IColumnMappingRepository,
   IUserCategoryRepository,
+  ICategoryVocabularyRepository,
   IOperationLogRepository,
-  IConversationStateRepository,
 } from '../../../domain/ports/repositories';
+import type { IUserProfilePort } from '../../../domain/ports/IUserProfilePort';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
-import type { Currency } from '../../../domain/entities/User';
 import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
+import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
+import { ExtractAmountCurrency } from '../../services/ExtractAmountCurrency';
+import {
+  isSuccessAmountCurrencyResult,
+  isAmountNotFoundResult,
+  isInvalidAmountFormatResult,
+  isCurrencyNotFoundResult,
+  isAmbiguousCurrencyResult,
+} from '../../../domain/value-objects/AmountCurrencyExtractionResult';
+import {
+  ExpenseClarificationState,
+  type MissingClarificationField,
+} from '../../../domain/value-objects/expense-clarification-state';
+import type { HierarchicalClassificationResult } from '../../../domain/value-objects/ClassificationResult';
+import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import {
+  executeWithOAuthAccessToken,
+  type OAuthAccessTokenProvider,
+} from '../../services/OAuthAccessTokenService';
+import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import { createExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
 
 export interface RegisterExpenseInput {
   userId: string;
   rawMessage: string;
   channel: 'telegram' | 'whatsapp';
-  defaultCurrency: Currency | null;
+  queueRegisteredCount?: number;
+  immediateUndoExpenseId?: string;
+  correlationId?: string;
 }
 
-// Lo que se pone en state_payload cuando el estado es EXPENSE_REVIEW
-export interface ExpenseReviewPayload {
-  extracted: ExtractedExpense;
-  rawMessage: string;
-  resolvedDate: string; // ISO date string
-  resolvedCategory: string | null;
-  resolvedCategoryId: string | null;
+function resolveExpenseCalendarDate(rawDate: string | null): string {
+  const value = rawDate?.trim();
+  if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  const spanishNumericDate = value?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (spanishNumericDate) {
+    const day = Number(spanishNumericDate[1]);
+    const month = Number(spanishNumericDate[2]);
+    const year = Number(spanishNumericDate[3]);
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+      throw new RangeError('Invalid extracted expense date');
+    }
+    return [year, String(month).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
+  }
+
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) throw new RangeError('Invalid extracted expense date');
+  // The review records the calendar day stated by the user. Converting local
+  // midnight to UTC can silently move a date-only expense to the previous day.
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
 }
 
 export class RegisterExpenseUseCase {
+  private readonly fallbackExtractor = new ExtractAmountCurrency();
+
   constructor(
     private readonly llm: LLMPort,
-    private readonly spreadsheetPort: SpreadsheetPort,
+    private readonly spreadsheetPortFactory: SpreadsheetPortFactory,
     private readonly expenseRepo: IExpenseRecordRepository,
     private readonly spreadsheetConfigRepo: ISpreadsheetConfigRepository,
     private readonly columnMappingRepo: IColumnMappingRepository,
     private readonly categoryRepo: IUserCategoryRepository,
-    private readonly conversationRepo: IConversationStateRepository,
+    private readonly categoryVocabularyRepo: ICategoryVocabularyRepository,
+    private readonly transitionState: TransitionConversationState,
     private readonly logRepo: IOperationLogRepository,
+    private readonly userProfilePort: IUserProfilePort,
+    private readonly classifier: ICategoryClassifier,
+    private readonly oauthAccessTokenService: OAuthAccessTokenProvider,
+    private readonly reviewTimeoutMinutes: number = 10,
+    private readonly logger?: Logger,
   ) {}
 
   // Fase 1: interpreta el mensaje y transiciona a EXPENSE_REVIEW
@@ -49,76 +106,242 @@ export class RegisterExpenseUseCase {
     input: RegisterExpenseInput,
   ): Promise<
     | { status: 'needs_clarification'; missingField: 'monto' | 'moneda' }
+    | { status: 'authorization_required' }
+    | { status: 'needs_zero_confirmation'; payload: ExpenseReviewPayload }
     | { status: 'ready_for_review'; payload: ExpenseReviewPayload }
   > {
-    // Load active user categories to give context to the LLM
+    // Check the configured provider before doing any expense interpretation.
+    // A terminal OAuth failure should never produce a review that cannot be saved.
     const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
-    const categories = config
-      ? (await this.categoryRepo.findActiveBySpreadsheetId(config.id)).map((c) => c.normalizedValue)
+    if (config) {
+      try {
+        await this.oauthAccessTokenService.getValidAccessToken({
+          userId: input.userId,
+          provider: config.provider,
+        });
+      } catch (error) {
+        if (!(error instanceof SpreadsheetError) || error.code !== 'AUTH_ERROR') throw error;
+        await this.transitionState.execute({
+          userId: input.userId,
+          targetState: 'ONBOARDING_START',
+          payload: { promptShown: true, reauthorizationOnly: true },
+        });
+        return { status: 'authorization_required' };
+      }
+    }
+
+    const activeState = this.transitionState.currentState?.(input.userId);
+    if (activeState?.currentState === 'IDLE') {
+      await this.transitionState.execute({
+        userId: input.userId,
+        targetState: 'EXPENSE_RECEIVING',
+        payload: { raw_message: input.rawMessage },
+      });
+    }
+
+    const contextStarted = Date.now();
+    this.logger?.info({ event: 'expense_context_loading', correlationId: input.correlationId });
+    // Fetch user's default currency through the dedicated domain port
+    const defaultCurrency = await this.userProfilePort.getDefaultCurrency(input.userId);
+
+    // Load active user categories to give context to the LLM
+    const [activeCategories, categoryVocabulary, columnMappings] = config
+      ? await Promise.all([
+          this.categoryRepo.findActiveBySpreadsheetId(config.id),
+          this.categoryVocabularyRepo.findBySpreadsheetId(config.id),
+          this.columnMappingRepo.findBySpreadsheetId(config.id),
+        ])
+      : [[], null, []];
+    const categories = activeCategories.map((category) => category.normalizedValue);
+    const categoryHierarchy = categoryVocabulary
+      ? [...categoryVocabulary.getCategories()]
+          .sort((left, right) => left.normalizedName.localeCompare(right.normalizedName))
+          .map((category) => ({
+            name: category.name,
+            subcategories: [...categoryVocabulary.getSubcategories(category.id)]
+              .sort((left, right) => left.normalizedName.localeCompare(right.normalizedName))
+              .map((subcategory) => subcategory.name),
+          }))
       : [];
+    const subcategoryEnabled =
+      columnMappings.some(
+        (mapping) => mapping.GasttoField === 'subcategoria' && mapping.confirmedAt !== null,
+      ) || categoryHierarchy.some((category) => category.subcategories.length > 0);
 
     const userContext: UserContext = {
-      defaultCurrency: input.defaultCurrency,
+      defaultCurrency,
       categories,
+      categoryHierarchy,
+      subcategoryEnabled,
       channel: input.channel,
     };
 
-    // Calls the LLM (OpenAIAdapter or ClaudeAdapter based on configuration)
-    const extracted = await this.llm.extractExpense(input.rawMessage, userContext);
+    this.logger?.info({
+      event: 'expense_context_loaded',
+      correlationId: input.correlationId,
+      durationMs: Date.now() - contextStarted,
+    });
+    const observed = this.transitionState.currentState?.(input.userId);
+    const signal = this.transitionState.signal?.(input.userId);
+    let extracted: ExtractedExpense;
+    try {
+      extracted = await this.llm.extractExpense(
+        input.rawMessage,
+        userContext,
+        ...(signal || input.correlationId
+          ? [
+              {
+                ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+                ...(signal ? { signal } : {}),
+              },
+            ]
+          : []),
+      );
+      if (signal?.aborted) throw new StaleConversationStateError({ status: 'stale' });
+    } catch (error) {
+      if (signal?.aborted) throw new StaleConversationStateError({ status: 'stale' });
+      const initialAttempt =
+        activeState?.currentState === 'IDLE' || activeState?.currentState === 'EXPENSE_RECEIVING';
+      if (
+        error instanceof LLMExtractionError &&
+        error.code !== 'LLM_CANCELLED' &&
+        initialAttempt &&
+        observed?.currentState === 'EXPENSE_RECEIVING' &&
+        input.queueRegisteredCount === undefined
+      ) {
+        const recovery = await new RecoverExpenseExtraction(this.transitionState).execute(observed);
+        if (recovery === 'stale') throw new StaleConversationStateError({ status: 'stale' });
+        throw new RecoveredExpenseExtractionError(error.code);
+      }
+      throw error;
+    }
 
-    // Most blocking data first: amount > currency (E1-US-05)
-    if (extracted.monto === null) {
-      await this.conversationRepo.transition(
+    // Deterministic fallback when LLM misses amount or currency (E1-US-03)
+    let resolvedExtracted = extracted;
+    if (extracted.monto === null || extracted.moneda === null) {
+      const fallbackResult = this.fallbackExtractor.execute(input.rawMessage, defaultCurrency);
+
+      if (isSuccessAmountCurrencyResult(fallbackResult)) {
+        resolvedExtracted = {
+          ...extracted,
+          monto: fallbackResult.money.amount,
+          moneda: fallbackResult.money.currency,
+        };
+      } else if (
+        isAmountNotFoundResult(fallbackResult) ||
+        isInvalidAmountFormatResult(fallbackResult)
+      ) {
+        await this.transitionToClarifying(
+          input.userId,
+          'monto',
+          extracted,
+          input.rawMessage,
+          input.queueRegisteredCount,
+        );
+        return { status: 'needs_clarification', missingField: 'monto' };
+      } else if (
+        isCurrencyNotFoundResult(fallbackResult) ||
+        isAmbiguousCurrencyResult(fallbackResult)
+      ) {
+        await this.transitionToClarifying(
+          input.userId,
+          'moneda',
+          extracted,
+          input.rawMessage,
+          input.queueRegisteredCount,
+        );
+        return { status: 'needs_clarification', missingField: 'moneda' };
+      }
+    }
+
+    // Clarification priority: amount > currency > category (E1-US-05).
+    // Category ambiguity is not clarified here; it is shown as editable in EXPENSE_REVIEW.
+    if (resolvedExtracted.monto === null) {
+      await this.transitionToClarifying(
         input.userId,
-        'EXPENSE_CLARIFYING',
-        {
-          missingField: 'monto',
-          partialExtracted: extracted,
-          rawMessage: input.rawMessage,
-        },
-        new Date(Date.now() + 30 * 60 * 1000), // 30 min timeout
+        'monto',
+        extracted,
+        input.rawMessage,
+        input.queueRegisteredCount,
       );
       return { status: 'needs_clarification', missingField: 'monto' };
     }
 
-    const moneda = extracted.moneda ?? input.defaultCurrency;
+    const moneda = resolvedExtracted.moneda ?? defaultCurrency;
     if (!moneda) {
-      await this.conversationRepo.transition(
+      await this.transitionToClarifying(
         input.userId,
-        'EXPENSE_CLARIFYING',
-        {
-          missingField: 'moneda',
-          partialExtracted: extracted,
-          rawMessage: input.rawMessage,
-        },
-        new Date(Date.now() + 30 * 60 * 1000),
+        'moneda',
+        extracted,
+        input.rawMessage,
+        input.queueRegisteredCount,
       );
       return { status: 'needs_clarification', missingField: 'moneda' };
     }
 
-    // Resolve date: today if LLM didn't detect any
-    const resolvedDate = extracted.fechaRaw
-      ? new Date(extracted.fechaRaw).toISOString().slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
+    const finalExtracted = { ...resolvedExtracted, moneda };
 
-    // Normalize category against the user's actual vocabulary
-    const resolvedCategory = this.resolveCategory(extracted.categoriaRaw, categories);
+    // Resolve category through the keyword classifier (E1-US-04)
+    const classification = await this.classifier.execute({
+      userId: input.userId,
+      spreadsheetId: config?.id ?? null,
+      rawMessage: input.rawMessage,
+      llmCategory: finalExtracted.categoriaRaw,
+      llmConfidence: finalExtracted.confianzaCategoria,
+      llmSubcategory: finalExtracted.subcategoriaRaw,
+      llmSubcategoryConfidence: finalExtracted.confianzaSubcategoria,
+    });
+    const basePayload = this.buildReviewPayload(
+      finalExtracted,
+      input.rawMessage,
+      classification,
+      subcategoryEnabled,
+    );
+
+    // Zero-amount confirmation path (E1-US-03)
+    if (finalExtracted.monto === 0) {
+      const payload: ExpenseReviewPayload = {
+        ...basePayload,
+        awaitingZeroConfirmation: true,
+        ...(input.queueRegisteredCount === undefined
+          ? {}
+          : { queueRegisteredCount: input.queueRegisteredCount }),
+        ...(input.immediateUndoExpenseId === undefined
+          ? {}
+          : { immediateUndoExpenseId: input.immediateUndoExpenseId }),
+      };
+      await this.transitionState.execute({
+        userId: input.userId,
+        targetState: 'EXPENSE_REVIEW',
+        payload: {
+          ...payload,
+          reminderSent: false,
+          ...(input.queueRegisteredCount === undefined
+            ? {}
+            : { queueRegisteredCount: input.queueRegisteredCount }),
+        },
+        expiresAt: new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
+      });
+      return { status: 'needs_zero_confirmation', payload };
+    }
 
     const payload: ExpenseReviewPayload = {
-      extracted: { ...extracted, moneda },
-      rawMessage: input.rawMessage,
-      resolvedDate,
-      resolvedCategory,
-      resolvedCategoryId: null,
+      ...basePayload,
+      ...(input.queueRegisteredCount === undefined
+        ? {}
+        : { queueRegisteredCount: input.queueRegisteredCount }),
+      ...(input.immediateUndoExpenseId === undefined
+        ? {}
+        : { immediateUndoExpenseId: input.immediateUndoExpenseId }),
     };
 
     // Transiciona a EXPENSE_REVIEW con TTL de 10 min (E1-US-06)
-    await this.conversationRepo.transition(
-      input.userId,
-      'EXPENSE_REVIEW',
-      payload as unknown as Record<string, unknown>,
-      new Date(Date.now() + 10 * 60 * 1000),
-    );
+    await this.transitionState.execute({
+      userId: input.userId,
+      targetState: 'EXPENSE_REVIEW',
+      payload: { ...payload, reminderSent: false },
+      expiresAt: new Date(Date.now() + this.reviewTimeoutMinutes * 60 * 1000),
+    });
 
     return { status: 'ready_for_review', payload };
   }
@@ -128,59 +351,142 @@ export class RegisterExpenseUseCase {
     userId: string,
     payload: ExpenseReviewPayload,
     spreadsheetId: string,
-  ): Promise<{ sheetName: string; rowIndex: number }> {
+    claimId: string,
+  ): Promise<{ sheetName: string; rowIndex?: number | undefined; expenseId?: string }> {
     const _spreadsheetId = spreadsheetId; // TODO: use when implementing multi-spreadsheet support
     const config = await this.spreadsheetConfigRepo.findByUserId(userId);
-    if (!config) throw new Error('SpreadsheetConfig not found for user');
+    if (!config) {
+      throw new SpreadsheetError('Spreadsheet configuration not found for user', {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+
+    if (config.provider !== 'google') {
+      throw new SpreadsheetError(
+        `Spreadsheet provider ${config.provider} is not supported for expense saving`,
+        { code: 'STRUCTURE_ERROR' },
+      );
+    }
 
     const mappings = await this.columnMappingRepo.findBySpreadsheetId(config.id);
     const row = this.buildRow(payload, mappings);
+    await this.transitionState.assertCanStartFinancialEffect(userId, claimId);
+    const result = await executeWithOAuthAccessToken(
+      this.oauthAccessTokenService,
+      { userId, provider: config.provider },
+      (accessToken) =>
+        this.spreadsheetPortFactory
+          .create(accessToken)
+          .appendRow(config.fileId, config.sheetName, row),
+    );
 
-    // appendRow devuelve la referencia de fila (ADR-006)
-    const result = await this.spreadsheetPort.appendRow(config.fileId, config.sheetName, row);
+    try {
+      // Persists internally for auditing and for E1-US-11 (undo).
+      const savedExpense = await this.expenseRepo.create({
+        userId,
+        spreadsheetId: config.id,
+        concepto: payload.extracted.categoriaRaw ?? payload.rawMessage.slice(0, 100),
+        monto: payload.extracted.monto!,
+        moneda: payload.extracted.moneda!,
+        categoria: payload.resolvedCategory,
+        categoryId: payload.resolvedCategoryId,
+        subcategoryId: payload.resolvedSubcategoryId ?? null,
+        subcategoria: payload.resolvedSubcategory ?? null,
+        fechaGasto: new Date(payload.resolvedDate),
+        medioPago: payload.extracted.medioPago,
+        sheetName: result.sheet,
+        rowIndex: result.row ?? null,
+        categoriaConfidence: payload.extracted.confianzaCategoria,
+        rawMessage: payload.rawMessage,
+        isDeleted: false,
+        deletedAt: null,
+      });
 
-    // Persists internally for auditing and for E1-US-11 (undo)
-    await this.expenseRepo.create({
-      userId,
-      spreadsheetId: config.id,
-      concepto: payload.extracted.categoriaRaw ?? payload.rawMessage.slice(0, 100),
-      monto: payload.extracted.monto!,
-      moneda: payload.extracted.moneda!,
-      categoria: payload.resolvedCategory,
-      fechaGasto: new Date(payload.resolvedDate),
-      medioPago: payload.extracted.medioPago,
-      sheetName: result.sheet,
-      rowIndex: result.row,
-      categoriaConfidence: payload.extracted.confianzaCategoria,
-      rawMessage: payload.rawMessage,
-      isDeleted: false,
-      deletedAt: null,
-    });
+      await this.logRepo.create(userId, 'EXPENSE_SAVED', {
+        sheet: result.sheet,
+        ...(result.row === undefined ? {} : { row: result.row }),
+      });
 
-    await this.logRepo.create(userId, 'EXPENSE_SAVED', {
-      sheet: result.sheet,
-      row: result.row,
-    });
+      await this.transitionState.finalizeClaim({
+        userId,
+        targetState: 'IDLE',
+        payload: { immediateUndoExpenseId: savedExpense.id },
+        expiresAt: null,
+        claimId,
+      });
 
-    await this.conversationRepo.transition(userId, 'IDLE', null, null);
-
-    return { sheetName: result.sheet, rowIndex: result.row };
+      return result.row === undefined
+        ? { sheetName: result.sheet, expenseId: savedExpense.id }
+        : { sheetName: result.sheet, rowIndex: result.row, expenseId: savedExpense.id };
+    } catch (error) {
+      if (error instanceof StaleConversationStateError) throw error;
+      throw new SpreadsheetError('Expense append completed but local finalization failed', {
+        code: 'UNKNOWN',
+        outcomeUnknown: true,
+      });
+    }
   }
 
-  private resolveCategory(raw: string | null, availableCategories: string[]): string | null {
-    if (!raw || availableCategories.length === 0) return null;
-    const normalized = raw.toLowerCase().trim();
-    return (
-      availableCategories.find(
-        (c) => c.toLowerCase() === normalized || normalized.includes(c.toLowerCase()),
-      ) ?? null
+  private buildReviewPayload(
+    extracted: ExtractedExpense,
+    rawMessage: string,
+    classification: HierarchicalClassificationResult,
+    subcategoryEnabled: boolean,
+  ): ExpenseReviewPayload {
+    const resolvedDate = resolveExpenseCalendarDate(extracted.fechaRaw);
+
+    const canonicalExtracted =
+      classification.subcategory.id === null
+        ? { ...extracted, subcategoriaRaw: null, confianzaSubcategoria: 'nula' as const }
+        : extracted;
+
+    return {
+      extracted: canonicalExtracted,
+      rawMessage,
+      resolvedDate,
+      resolvedCategory: classification.category.name,
+      resolvedCategoryId: classification.category.id,
+      categoryStatus: classification.category.status,
+      resolvedSubcategory: classification.subcategory.name,
+      resolvedSubcategoryId: classification.subcategory.id,
+      subcategoryStatus: classification.subcategory.status,
+      subcategoryEnabled,
+      reminderSent: false,
+      reviewBinding: createExpenseReviewBinding(),
+    };
+  }
+
+  private async transitionToClarifying(
+    userId: string,
+    missingField: MissingClarificationField,
+    partialExtracted: ExtractedExpense,
+    rawMessage: string,
+    queueRegisteredCount?: number,
+  ): Promise<void> {
+    const state = ExpenseClarificationState.create(
+      missingField,
+      partialExtracted,
+      rawMessage,
+      queueRegisteredCount,
     );
+    await this.transitionState.execute({
+      userId,
+      targetState: 'EXPENSE_CLARIFYING',
+      payload: state.toPayload(),
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 min timeout
+    });
   }
 
   private buildRow(
     payload: ExpenseReviewPayload,
     mappings: ColumnMapping[],
   ): (string | number | null)[] {
+    if (mappings.length === 0 || mappings.some((mapping) => mapping.columnIndex < 0)) {
+      throw new SpreadsheetError('Spreadsheet column mappings are missing or invalid', {
+        code: 'STRUCTURE_ERROR',
+      });
+    }
+
     const MAX_COLS = Math.max(...mappings.map((m) => m.columnIndex)) + 1;
     const row: (string | number | null)[] = Array<string | number | null>(MAX_COLS).fill(null);
 
@@ -195,6 +501,9 @@ export class RegisterExpenseUseCase {
           break;
         case 'categoria':
           row[columnIndex] = payload.resolvedCategory;
+          break;
+        case 'subcategoria':
+          row[columnIndex] = payload.resolvedSubcategory ?? null;
           break;
         case 'fecha':
           row[columnIndex] = payload.resolvedDate;

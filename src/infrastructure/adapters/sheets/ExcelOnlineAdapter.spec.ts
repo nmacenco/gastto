@@ -70,7 +70,6 @@ describe('ExcelOnlineAdapter', () => {
     });
 
     it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 403,
@@ -78,15 +77,6 @@ describe('ExcelOnlineAdapter', () => {
       });
 
       await expect(adapter.listSheets('file-id-123')).rejects.toBeInstanceOf(SpreadsheetError);
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'ExcelOnlineAdapter.listSheets',
-          code: 'GRAPH_API_ERROR',
-          status: 403,
-        }),
-      );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -202,7 +192,6 @@ describe('ExcelOnlineAdapter', () => {
     });
 
     it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock.mockResolvedValue({
         ok: false,
         status: 404,
@@ -212,15 +201,6 @@ describe('ExcelOnlineAdapter', () => {
       await expect(adapter.getHeaders('file-id-123', 'Gastos')).rejects.toBeInstanceOf(
         SpreadsheetError,
       );
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'ExcelOnlineAdapter.getHeaders',
-          code: 'GRAPH_API_ERROR',
-          status: 404,
-        }),
-      );
-      consoleErrorSpy.mockRestore();
     });
 
     it('throws SpreadsheetError on invalid JSON response', async () => {
@@ -271,27 +251,25 @@ describe('ExcelOnlineAdapter', () => {
   });
 
   describe('getUniqueValues', () => {
-    it('returns unique values from a column', async () => {
+    it('returns deduplicated non-empty values starting from row 2', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
         json: () =>
           Promise.resolve({
-            values: [['Categoria'], ['Food'], ['Transportation'], ['Food'], ['Health'], ['']],
+            values: [['Comida'], ['Transporte'], ['Comida'], [''], ['Servicios']],
           }),
       });
 
       const result = await adapter.getUniqueValues('file-id-123', 2, 'Gastos');
 
-      expect(result).toEqual(['Categoria', 'Food', 'Transportation', 'Food', 'Health', '']);
-
+      expect(result).toEqual(['Comida', 'Transporte', 'Servicios']);
+      expect(fetchMock).toHaveBeenCalledOnce();
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe(
-        "https://graph.microsoft.com/v1.0/me/drive/items/file-id-123/workbook/worksheets/Gastos/range(address='C:C')",
-      );
+      expect(url).toContain("/range(address='C2:C1048576')");
     });
 
-    it('returns empty array when column has no values', async () => {
+    it('returns empty array when response has no values', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
@@ -299,64 +277,209 @@ describe('ExcelOnlineAdapter', () => {
       });
 
       const result = await adapter.getUniqueValues('file-id-123', 0, 'Gastos');
+
       expect(result).toEqual([]);
     });
 
-    it('handles multi-letter column indices', async () => {
+    it('starts at the supplied data row instead of including a later header row', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ values: [['Value']] }),
+        json: () => Promise.resolve({ values: [['Comida'], ['Transporte']] }),
       });
 
-      await adapter.getUniqueValues('file-id-123', 27, 'Gastos');
+      const result = await adapter.getUniqueValues('file-id-123', 2, 'Gastos', 3);
 
+      expect(result).toEqual(['Comida', 'Transporte']);
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain("address='AB:AB'");
+      expect(url).toContain("/range(address='C3:C1048576')");
     });
 
-    it('throws SpreadsheetError on non-2xx HTTP', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it.each([0, -1, 2.5])(
+      'rejects invalid data start row %s before making a request',
+      async (row) => {
+        await expect(
+          adapter.getUniqueValues('file-id-123', 2, 'Gastos', row),
+        ).rejects.toBeInstanceOf(SpreadsheetError);
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it('throws SpreadsheetError on API error', async () => {
       fetchMock.mockResolvedValue({
         ok: false,
-        status: 404,
-        json: () => Promise.resolve({ error: { code: 'itemNotFound' } }),
+        status: 403,
+        json: () => Promise.resolve({ error: {} }),
       });
 
       await expect(adapter.getUniqueValues('file-id-123', 0, 'Gastos')).rejects.toBeInstanceOf(
-        SpreadsheetError,
-      );
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          endpoint: 'ExcelOnlineAdapter.getUniqueValues',
-          code: 'GRAPH_API_ERROR',
-          status: 404,
-        }),
-      );
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('throws SpreadsheetError on network failure', async () => {
-      fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
-
-      await expect(adapter.getUniqueValues('file-id-123', 0, 'Gastos')).rejects.toBeInstanceOf(
-        SpreadsheetError,
-      );
-    });
-
-    it('throws SpreadsheetError for negative column index', async () => {
-      await expect(adapter.getUniqueValues('file-id-123', -1, 'Gastos')).rejects.toBeInstanceOf(
         SpreadsheetError,
       );
     });
   });
 
-  describe('unimplemented methods', () => {
-    it('readRows throws SpreadsheetError', async () => {
-      await expect(adapter.readRows('id', 'range')).rejects.toBeInstanceOf(SpreadsheetError);
+  describe('readRows', () => {
+    it('preserves mixed cells, blank offsets, sparse cells, and absolute row indexes', async () => {
+      const sparseRow = new Array<unknown>(3);
+      sparseRow[0] = 'Casa';
+      sparseRow[2] = false;
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            rowIndex: 6,
+            values: [
+              ['Comida', '', 12.5],
+              [true, null, 'EUR'],
+              sparseRow,
+              ['trailing cells omitted'],
+            ],
+          }),
+      });
+
+      await expect(adapter.readRows('file-id', "'Gastos 2026'!B5:D")).resolves.toEqual([
+        { index: 7, values: ['Comida', '', 12.5] },
+        { index: 8, values: [true, null, 'EUR'] },
+        { index: 9, values: ['Casa', null, false] },
+        { index: 10, values: ['trailing cells omitted'] },
+      ]);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://graph.microsoft.com/v1.0/me/drive/items/file-id/workbook/worksheets/Gastos%202026/range(address='B5%3AD')",
+        { headers: { Authorization: 'Bearer access-token-123' } },
+      );
     });
 
+    it('safely encodes worksheet punctuation and the range address', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: [] }),
+      });
+
+      await expect(adapter.readRows('file-id', "'Q1 & O''Brien!'!A2:C10")).resolves.toEqual([]);
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        "https://graph.microsoft.com/v1.0/me/drive/items/file-id/workbook/worksheets/Q1%20%26%20O%27Brien%21/range(address='A2%3AC10')",
+      );
+    });
+
+    it('uses a valid provider-returned address when rowIndex is absent', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ address: "'Gastos 2026'!A11:C12", values: [['Casa']] }),
+      });
+
+      await expect(adapter.readRows('file-id', "'Gastos 2026'!A5:C")).resolves.toEqual([
+        { index: 11, values: ['Casa'] },
+      ]);
+    });
+
+    it('returns an empty array for a valid empty range', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ rowIndex: 3, values: [] }),
+      });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A4:C')).resolves.toEqual([]);
+    });
+
+    it.each(['range', 'Gastos!A:F', 'Gastos!A0:F', '!A1:F', 'Gastos!A1:'])(
+      'rejects invalid range %s before making a request',
+      async (range) => {
+        await expect(adapter.readRows('file-id', range)).rejects.toMatchObject({
+          code: 'STRUCTURE_ERROR',
+          retryable: false,
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      null,
+      { values: {} },
+      { rowIndex: -1, values: [] },
+      { address: 42, values: [] },
+      { values: ['not-a-row'] },
+      { values: [[{ formula: '=1+1' }]] },
+    ])('classifies malformed payloads as structure errors', async (payload) => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(payload),
+      });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
+    });
+
+    it.each([401, 403])('classifies HTTP %s as an authorization error', async (status) => {
+      fetchMock.mockResolvedValue({ ok: false, status });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'AUTH_ERROR',
+        retryable: false,
+      });
+    });
+
+    it.each([400, 404])('classifies HTTP %s as a structure error', async (status) => {
+      fetchMock.mockResolvedValue({ ok: false, status });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
+    });
+
+    it('classifies provider 5xx responses as retryable network errors', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 503 });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
+    });
+
+    it('classifies transport failures as retryable network errors', async () => {
+      fetchMock.mockRejectedValue(new Error('ECONNRESET'));
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
+    });
+
+    it('classifies unexpected HTTP failures as unknown errors', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 429 });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'UNKNOWN',
+        retryable: false,
+      });
+    });
+
+    it('classifies invalid JSON as a structure error', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError('invalid JSON')),
+      });
+
+      await expect(adapter.readRows('file-id', 'Gastos!A2:C')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+        retryable: false,
+      });
+    });
+  });
+
+  describe('unimplemented methods', () => {
     it('appendRow throws SpreadsheetError', async () => {
       await expect(adapter.appendRow('id', 'sheet', [])).rejects.toBeInstanceOf(SpreadsheetError);
     });

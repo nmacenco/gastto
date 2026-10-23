@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Infer and Propose Column Mapping feature analyzes the headers and first rows of the user's selected spreadsheet and suggests which column corresponds to each Gastto field (date, amount, currency, category, description, payment method). It runs automatically after successful spreadsheet access validation (HU-4.04) and presents the proposal to the user while the conversation is in the `ONBOARDING_MAPPING` state. The goal is to remove manual configuration from onboarding and make the first expense recording as smooth as possible.
+The Infer and Propose Column Mapping feature analyzes the headers and first rows of the user's selected spreadsheet and suggests which column corresponds to each Gastto field (date, amount, currency, category, optional subcategory, description, payment method). It runs automatically after successful spreadsheet access validation (HU-4.04) and presents the proposal to the user while the conversation is in the `ONBOARDING_MAPPING` state. The goal is to remove manual configuration from onboarding and make the first expense recording as smooth as possible.
 
 This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — Infer and propose column mapping`](../user-stories/01-mvp/01-Vinculación%20de%20planilla%20%C2%B7%20Release%201%20MVP/HU-4.05-infer-and-propose-column-mapping/HU-4.05%20%E2%80%94%20Infer%20and%20propose%20column%20mapping.md).
 
@@ -10,13 +10,18 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 
 - **In scope:**
   - Header normalization (lowercase, trim, NFD unaccent, collapse whitespace).
+  - Header-row detection across the first 20 rows, with rule-based scanning and LLM fallback.
   - Rule-based column inference using multi-language synonym dictionaries (ES/EN/PT).
+  - Optional `subcategoria` inference without changing completeness for the six legacy fields.
+  - LLM-powered column inference fallback when rule-based inference has low confidence or unmapped fields.
+  - Hybrid merging that keeps high-confidence rule-based mappings and fills gaps with LLM proposals.
   - High-confidence (`alta`) proposals for exact and synonym matches.
   - Low-confidence (`baja`) proposals for fuzzy matches (Levenshtein ratio ≥ 0.75).
   - No-header detection when row 1 values look like data (numeric/date/currency).
   - Content-type validation on sample rows to boost or reduce confidence.
   - Reporting of unmapped Gastto fields.
-  - Persistence of inferred mappings in `column_mappings`.
+  - Atomic replacement of the spreadsheet's inferred mapping set in `column_mappings`, removing obsolete rows from earlier proposals.
+  - Proposal identity and spreadsheet context in the FSM payload, with stale Redis correction snapshots invalidated.
   - User-facing proposal messages with emoji indicators and uncertainty hints.
   - Error handling for token problems, missing config, and missing preview.
 
@@ -39,13 +44,15 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 1. The user enters `ONBOARDING_MAPPING` after `ValidateSpreadsheetAccess` succeeds.
 2. The message worker delegates to `InferColumnMapping.execute()` with the conversation state payload.
 3. `InferColumnMapping` retrieves and decrypts the OAuth token, loads the `SpreadsheetConfig`, and extracts the `SpreadsheetPreview` from the state payload.
-4. Headers (row 1) and sample rows (rows 2-10) are passed to `ColumnInferencePort.infer()`.
-5. `RuleBasedColumnInferenceAdapter` normalizes each header and matches it against the synonym dictionary.
-6. Exact or synonym matches produce mappings with `confidence: 'alta'`.
-7. Content-type validation on sample rows confirms the expected type (date, number, currency) and keeps confidence high.
-8. Mappings are persisted via `IColumnMappingRepository.upsertMany()` with `inferred: true` and `confirmedAt: null`.
-9. A proposal message is built with emoji indicators (📅💰🏷️📝💳💱) and column letters, ending with "Is this correct?".
-10. The message is sent via `MessagingOutputPort` and the FSM self-transitions to `ONBOARDING_MAPPING` with `mappings` and `unmappedFields` in the payload.
+4. `HeaderDetectionPort` scans the preview rows and returns the 1-based row index that contains the headers; if uncertain, `LLMHeaderDetectionAdapter` is used as fallback.
+5. Headers and sample rows below the detected header row are passed to `ColumnInferencePort.infer()`.
+6. `RuleBasedColumnInferenceAdapter` normalizes each header and matches it against the synonym dictionary.
+7. Exact or synonym matches produce mappings with `confidence: 'alta'`.
+8. Content-type validation on sample rows confirms the expected type (date, number, currency) and keeps confidence high.
+9. Because all mapped legacy fields have `confidence: 'alta'` and no legacy field is unmapped, the LLM inference fallback is skipped. An absent optional `subcategoria` does not invoke the LLM.
+10. Mappings replace the spreadsheet's prior set atomically via `IColumnMappingRepository.replaceBySpreadsheetId()`, with `inferred: true` and `confirmedAt: null`. A partial title-row or no-header result is never persisted as a proposal.
+11. A proposal message is built with distinct emoji indicators (including 🏷️ for category and 🔖 for subcategory) and column letters, ending with "Is this correct?".
+12. The correction cache is invalidated, the message is sent via `MessagingOutputPort`, and the FSM self-transitions to `ONBOARDING_MAPPING` with `proposalId`, spreadsheet identity, `mappings`, and `unmappedFields` in the payload.
 
 ### Scenario 2: Ambiguous headers - low-confidence mapping
 
@@ -56,35 +63,76 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 5. A proposal message is built with an uncertainty indicator ("I'm not sure about some fields, this is my best attempt").
 6. The message is sent and the FSM self-transitions to `ONBOARDING_MAPPING`.
 
-### Scenario 3: No headers detected
+### Scenario 3: LLM fallback for ambiguous or non-dictionary headers
 
-1. Steps 1-4 from Scenario 1 are executed.
-2. `RuleBasedColumnInferenceAdapter` detects that every value in row 1 looks like data (numeric, date, or currency) rather than labels.
-3. The adapter returns `noHeaderFound: true`, empty `mappings`, and all Gastto fields in `unmappedFields`.
-4. No mappings are persisted.
+1. Steps 1-6 from Scenario 1 are executed.
+2. `RuleBasedColumnInferenceAdapter` returns some mappings with `confidence: 'baja'` or leaves one or more legacy Gastto fields in `unmappedFields`. An absent `subcategoria` alone is not a fallback condition.
+3. `InferColumnMapping` invokes `LLMColumnInferenceAdapter` with the detected headers and sample rows.
+4. The LLM returns a JSON mapping for the columns it can identify.
+5. `InferColumnMapping` merges the rule-based and LLM results: high-confidence rule-based mappings are kept, low-confidence or missing fields are filled from the LLM proposal.
+6. The merged mappings are persisted and a proposal message is sent, using low-confidence copy if any mapping remains `baja`.
+7. The FSM self-transitions to `ONBOARDING_MAPPING` with the merged `mappings` and `unmappedFields`.
+
+### Scenario 4: No headers detected
+
+1. Steps 1-6 from Scenario 1 are executed.
+2. `RuleBasedColumnInferenceAdapter` detects that every value in the header row looks like data (numeric, date, or currency) rather than labels.
+3. `InferColumnMapping` invokes `LLMColumnInferenceAdapter` as a fallback.
+4. If the LLM also cannot identify headers or returns no mappings, no mappings are persisted.
 5. `InferColumnMapping` sends `onboardingCopies.noHeaderPrompt()`, asking the user which row the data starts at.
 6. The FSM self-transitions to `ONBOARDING_MAPPING` with `step: 'no-header'` in the payload.
+7. When the user replies with a row number, the message worker subtracts 1 to obtain the header row index and validates that the computed header row exists in the preview.
+8. If the reply is invalid or the computed header row is not present, the worker sends `onboardingCopies.invalidDataStartRowPrompt()` and keeps the FSM in `ONBOARDING_MAPPING` with `step: 'no-header'`.
+9. If valid, the worker delegates to `InferColumnMapping` with `headerRowIndex` in the state payload, which skips automatic detection and uses that row as the header row.
+10. `InferColumnMapping` proceeds with header/sample extraction and inference as in Scenario 1.
+11. If the inference produces mappings, the resulting FSM payload no longer contains `step: 'no-header'`; only `mappings`, `unmappedFields`, `provider`, `fileId`, `sheetName`, and `preview` are retained.
 
-### Scenario 4: Unmapped fields
+### Scenario 5: Unmapped fields
 
-1. Steps 1-4 from Scenario 1 are executed.
-2. Some Gastto fields have no matching column (exact, synonym, or fuzzy).
-3. The adapter returns those fields in `unmappedFields`.
+1. Steps 1-6 from Scenario 1 are executed.
+2. Some Gastto fields have no matching column (exact, synonym, fuzzy, or LLM).
+3. The final result returns those fields in `unmappedFields`.
 4. The matched mappings are persisted.
-5. The proposal message lists the unmapped fields and notes that they will be omitted during expense recording unless the user assigns a column manually.
+5. The proposal message lists unmapped legacy fields as omitted during expense recording unless assigned manually. An unmapped `subcategoria` is described separately as optional and does not block confirmation.
 6. The message is sent and the FSM self-transitions to `ONBOARDING_MAPPING`.
 
-### Scenario 5: Multi-language headers
+### Scenario 6: Multi-language headers
 
-1. Steps 1-4 from Scenario 1 are executed.
-2. Headers are in English (e.g., "Date", "Amount", "Category") or Portuguese (e.g., "Data", "Valor", "Categoria").
+1. Steps 1-6 from Scenario 1 are executed.
+2. Headers are in English (e.g., "Date", "Amount", "Category", "Subcategory") or Portuguese (e.g., "Data", "Valor", "Categoria", "Subcategoria").
 3. The synonym dictionary maps them to the corresponding Gastto fields with `confidence: 'alta'`.
-4. Mappings are persisted and a high-confidence proposal message is sent, identical to Scenario 1.
+4. Because all mapped fields are high-confidence and there are no unmapped fields, the LLM fallback is skipped.
+5. Mappings are persisted and a high-confidence proposal message is sent, identical to Scenario 1.
+
+### Scenario 7: Row 1 looks like a title and produces a partial mapping
+
+1. `ValidateSpreadsheetAccess` reads the preview rows and the rule-based header detector skips row 1 because it has only one non-empty cell (e.g., a sheet title).
+2. `LLMHeaderDetectionAdapter` also fails to locate a clear header row, so `headerRowIndex` remains `null`.
+3. `InferColumnMapping` sends `onboardingCopies.noHeaderPrompt()` and transitions to `ONBOARDING_MAPPING` with `step: 'no-header'`.
+4. Alternatively, if the rule-based or LLM detector incorrectly picks row 1 and the inference maps only one Gastto field (or none), `InferColumnMapping` treats it as a missing header row and sends the same prompt instead of proposing a partial mapping.
+
+### Scenario 8: Summary rows appear before the headers
+
+1. The preview contains title or summary rows before the real headers, such as a payment-method label next to a localized amount.
+2. The rule-based detector preserves the first label-like row as its generic fallback but continues scanning the complete preview.
+3. When a later row contains at least two distinct Gastto fields from the shared column vocabulary, that recognized row takes precedence over the generic fallback.
+4. Candidate strength is based first on the number of distinct recognized fields and then on the number of label-like cells; ties keep the earlier row.
+5. Signed localized amounts such as `-$2.787,56` are treated as data, not labels.
+6. The selected header row and all later rows are passed to column inference through the existing flow.
 
 ## Adapters
 
+- **RuleBasedHeaderDetectionAdapter** - Implements `HeaderDetectionPort` by scanning all preview rows. It preserves the first generic label-like row as a compatibility fallback while preferring a later row with at least two distinct fields from the shared Gastto header vocabulary. This prevents title and summary rows from hiding stronger headers below them.
+- **LLMHeaderDetectionAdapter** - Implements `HeaderDetectionPort` by asking an LLM to locate the header row when rule-based detection is uncertain.
 - **RuleBasedColumnInferenceAdapter** - Implements `ColumnInferencePort` using header normalization, multi-language synonym dictionaries, Levenshtein fuzzy matching, and content-type heuristics.
+- **LLMColumnInferenceAdapter** - Implements `ColumnInferencePort` by asking an LLM to map headers to Gastto fields when rule-based inference is incomplete or low-confidence.
 - **DrizzleColumnMappingRepository** - Implements `IColumnMappingRepository` using Drizzle ORM to persist and update `column_mappings` records.
+
+## LLM Trust Boundary
+
+When the LLM fallback is used, its task rules and JSON-output schema remain trusted instructions. Spreadsheet headers, preview rows, and sample cells are JSON-serialized inside `<untrusted-data>` markers in user-role content. Provider adapters instruct the model to treat those markers as data only and never as instructions. The adapters reject malformed structured output and discard mappings whose column index is outside the supplied headers or whose claimed header does not match that column, returning the existing safe fallback result instead.
+
+The structured schema accepts the seven supported fields, including optional `subcategoria`, and rejects any unknown field name. Safe fallback reports every supported field as unmapped; Application logic still evaluates completeness against only the six legacy fields.
 
 ## API Contracts
 
@@ -120,12 +168,25 @@ interface InferColumnMappingDeps {
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   columnMappingRepository: IColumnMappingRepository;
   columnInferencePort: ColumnInferencePort;
+  llmColumnInferencePort: ColumnInferencePort;
+  headerDetectionPort: HeaderDetectionPort;
+  llmHeaderDetectionPort: HeaderDetectionPort;
   messagingPort: MessagingOutputPort;
   transitionState: TransitionConversationState;
 }
 ```
 
-### Domain Port
+### Domain Ports
+
+#### `HeaderDetectionPort`
+
+```ts
+interface HeaderDetectionPort {
+  detectHeaderRow(rows: Row[]): Promise<number | null>;
+}
+```
+
+Returns the 1-based sheet row index that contains the headers, or `null` when no row can be confidently identified.
 
 #### `ColumnInferencePort`
 
@@ -164,6 +225,10 @@ interface ColumnInferenceMapping {
 interface IColumnMappingRepository {
   findBySpreadsheetId(spreadsheetId: string): Promise<ColumnMapping[]>;
   upsertMany(mappings: Omit<ColumnMapping, 'id'>[]): Promise<void>;
+  replaceBySpreadsheetId(
+    spreadsheetId: string,
+    mappings: Omit<ColumnMapping, 'id' | 'spreadsheetId'>[],
+  ): Promise<void>;
   confirm(id: string): Promise<void>;
 }
 ```
@@ -172,7 +237,7 @@ interface IColumnMappingRepository {
 
 - `column_mappings` table (see [`docs/architecture/data-model.md`](docs/architecture/data-model.md))
   - `spreadsheet_id` (FK → `spreadsheet_configs.id`, CASCADE)
-  - `gastto_field` (TEXT, CHECK: `monto`, `moneda`, `categoria`, `fecha`, `concepto`, `medio_pago`)
+  - `gastto_field` (TEXT, CHECK: `monto`, `moneda`, `categoria`, `fecha`, `concepto`, `medio_pago`, `subcategoria`)
   - `column_index` (SMALLINT)
   - `column_header` (TEXT)
   - `inferred` (BOOLEAN, default `true`)
@@ -191,17 +256,19 @@ interface IColumnMappingRepository {
 | Missing or empty preview in state payload     | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
 | Microsoft (`onedrive`) provider               | `comingSoon('OneDrive')` message sent; stays in `ONBOARDING_MAPPING`.    |
 | Inference adapter failure                     | Error propagated; no mappings persisted; no state transition is written. |
-| `columnMappingRepository.upsertMany` failure  | Error propagated; no message sent; state payload is not updated.         |
+| `columnMappingRepository.replaceBySpreadsheetId` failure | Transaction rolls back; no message is sent and the state payload is not updated. |
+| Malformed or invalid LLM mapping output       | Safe empty inference result; no mappings are persisted from that output. |
 
 ## QA Checklist
 
 ### RuleBasedColumnInferenceAdapter
 
-- [x] Exact header match returns `confidence: 'alta'` for all 6 `GasttoField` values.
+- [x] Exact header match returns `confidence: 'alta'` for all six legacy fields and optional `subcategoria`.
 - [x] Synonym match (e.g., "Fecha" → `fecha`, "Date" → `fecha`, "Data" → `fecha`) returns `confidence: 'alta'`.
 - [x] Fuzzy match (e.g., "Fcha" → `fecha` with Levenshtein ratio ≥ 0.75) returns `confidence: 'baja'`.
 - [x] No-header detection: when row 1 values are all numeric/date/currency, `noHeaderFound` is `true`.
 - [x] Multi-language: ES ("Fecha", "Monto", "Categoría"), EN ("Date", "Amount", "Category"), PT ("Data", "Valor", "Categoria") all resolve correctly.
+- [x] ES/EN/PT and fuzzy subcategory headers map to `subcategoria` without inferring a parent from cell contents.
 - [x] Unmapped fields are reported in `unmappedFields` when no column matches.
 - [x] Content-type validation: a column with date-like values in sample rows increases date mapping confidence.
 - [x] No imports from Application or Interfaces layers.
@@ -209,8 +276,8 @@ interface IColumnMappingRepository {
 ### DrizzleColumnMappingRepository
 
 - [x] `findBySpreadsheetId` returns mapped `ColumnMapping[]` with correct field types.
-- [x] `upsertMany` inserts new mappings in a single query.
-- [x] `upsertMany` updates existing mappings on conflict.
+- [x] `replaceBySpreadsheetId` validates unique fields and columns, removes obsolete mappings, and inserts the complete replacement within one transaction.
+- [x] Replacement is scoped to one spreadsheet and rolls back when insertion fails.
 - [x] `confirm(id)` sets `confirmedAt` to current timestamp.
 - [x] `confirm(id)` throws when mapping does not exist.
 
@@ -223,8 +290,18 @@ interface IColumnMappingRepository {
 ### InferColumnMapping use case
 
 - [x] High-confidence mapping: message includes emoji indicators, mappings persisted with `inferred: true` and `confirmedAt: null`.
-- [x] Low-confidence mapping: message includes uncertainty indicator.
+- [x] Low-confidence mapping: message includes uncertainty indicator and triggers LLM fallback.
+- [x] LLM fallback merges results while preserving high-confidence rule-based mappings.
+- [x] A mapped subcategory survives hybrid merging, while an absent subcategory alone does not invoke the LLM or produce a no-header outcome.
+- [x] Invalid LLM field names and invalid column/header claims are rejected at the structured boundary.
+- [x] Header-row detection works for headers beyond row 1.
+- [x] LLM header detection fallback runs when rule-based detection is uncertain.
+- [x] Rule-based detection skips rows with a single non-empty value (sheet titles).
+- [x] Rule-based detection prefers a recognized header row below title and summary rows, including summaries with signed localized amounts.
 - [x] No-header detection: self-transition to `ONBOARDING_MAPPING` with `step: 'no-header'`, message asks which row data starts at.
+- [x] A partial mapping on row 1 (≤1 field) falls back to the no-header prompt instead of proposing a misleading mapping.
+- [x] No-header reply: valid row number is converted to `headerRowIndex` and inference re-runs; invalid reply re-prompts with `invalidDataStartRowPrompt`.
+- [x] Header row index override: `headerRowIndex` in state payload skips detection and uses the specified row.
 - [x] Unmapped fields: message lists omitted fields.
 - [x] Multi-language headers: ES/EN/PT headers recognized and mapped correctly.
 - [x] Missing token: sends reconnect message and transitions to `ONBOARDING_START`.
@@ -247,9 +324,11 @@ interface IColumnMappingRepository {
 
 ## Notes
 
-- The inference algorithm is rule-based (no LLM) for the MVP to keep latency and cost low.
+- Rule-based inference runs first to keep latency and cost low for common headers.
+- LLM inference is used as a fallback for ambiguous, non-dictionary, or partially-mapped spreadsheets.
 - Levenshtein distance is implemented inline (~30 lines) to avoid adding a dependency.
 - The domain entity uses `GasttoField` (capital G) while the DB column uses `gastto_field` (lowercase). The repository handles the mapping.
 - Content-type validation uses regex patterns for dates (`\d{1,2}/\d{1,2}/\d{2,4}`), numbers (`^\d+([.,]\d+)?$`), and currency codes (ARS, EUR, USD, MXN, GBP, BRL).
+- Category and subcategory samples are treated as text only; mapping inference does not infer hierarchy relationships from sample values.
 - The confidence threshold for fuzzy match is Levenshtein ratio ≥ 0.75.
 - Future work (HU-4.06): allow the user to confirm or correct the mapping field by field and persist `confirmed_at`.

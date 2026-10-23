@@ -17,18 +17,64 @@ export const FSM_STATES = [
   'EXPENSE_CORRECTING',
   'EXPENSE_SAVING',
   'EXPENSE_SAVING_RETRY',
+  'EXPENSE_UNDO_CONFIRMING',
 ] as const;
 
 export type FsmState = (typeof FSM_STATES)[number];
 
 export interface ConversationState {
   userId: string;
+  /** Monotonic optimistic-concurrency token, serialized as decimal text. */
+  revision: string;
   currentState: FsmState;
   statePayload: Record<string, unknown> | null; // JSONB: datos del flujo activo
   enteredAt: Date;
   expiresAt: Date | null; // NULL = sin timeout
   updatedAt: Date;
 }
+
+export type ConversationStateExpiryPrecondition = 'unexpired' | 'expired' | 'any';
+
+export interface ConversationStatePrecondition {
+  revision: string;
+  currentState: string;
+  expiry: ConversationStateExpiryPrecondition;
+}
+
+export type FinancialExecutionKind = 'save' | 'retry' | 'undo';
+
+export interface FinancialExecutionClaim {
+  claimId: string;
+  kind: FinancialExecutionKind;
+  operationId: string;
+  sourceMessageId: string | null;
+  status: 'in_flight' | 'outcome_unknown';
+  target: Record<string, unknown>;
+}
+
+export function getFinancialExecutionClaim(
+  payload: Record<string, unknown> | null,
+): FinancialExecutionClaim | null {
+  const value = payload?.executionClaim;
+  if (typeof value !== 'object' || value === null) return null;
+  const claim = value as Record<string, unknown>;
+  if (
+    typeof claim.claimId !== 'string' ||
+    !['save', 'retry', 'undo'].includes(String(claim.kind)) ||
+    typeof claim.operationId !== 'string' ||
+    (claim.sourceMessageId !== null && typeof claim.sourceMessageId !== 'string') ||
+    !['in_flight', 'outcome_unknown'].includes(String(claim.status)) ||
+    typeof claim.target !== 'object' ||
+    claim.target === null
+  ) {
+    return null;
+  }
+  return claim as unknown as FinancialExecutionClaim;
+}
+
+export type ConversationStateWriteResult =
+  | { status: 'updated'; state: ConversationState }
+  | { status: 'stale' | 'expired' | 'missing' | 'operation_in_progress' };
 
 // Cola de gastos pendientes (máx. 2 posiciones, 1–2). ADR-003 + E1-US-13.
 export interface ExpenseQueueItem {
@@ -43,20 +89,31 @@ export interface ExpenseQueueItem {
 // Transiciones válidas de la FSM. La FSM rechaza cualquier transición
 // no listada aquí (principio de máquina de estados estricta).
 export const FSM_TRANSITIONS: Record<FsmState, FsmState[]> = {
-  IDLE: ['ONBOARDING_START', 'EXPENSE_RECEIVING'],
-  ONBOARDING_START: ['ONBOARDING_START', 'ONBOARDING_DRIVE'],
+  IDLE: ['IDLE', 'ONBOARDING_START', 'EXPENSE_RECEIVING', 'EXPENSE_UNDO_CONFIRMING'],
+  ONBOARDING_START: ['ONBOARDING_START', 'ONBOARDING_DRIVE', 'IDLE'],
   ONBOARDING_DRIVE: ['ONBOARDING_FILE', 'ONBOARDING_DRIVE', 'IDLE'],
-  ONBOARDING_FILE: ['ONBOARDING_FILE', 'ONBOARDING_SHEET', 'ONBOARDING_START'],
-  ONBOARDING_SHEET: ['ONBOARDING_SHEET', 'ONBOARDING_VALIDATING_ACCESS', 'ONBOARDING_START'],
-  ONBOARDING_VALIDATING_ACCESS: ['ONBOARDING_MAPPING', 'ONBOARDING_SHEET', 'ONBOARDING_START'],
-  ONBOARDING_MAPPING: ['ONBOARDING_MAPPING', 'ONBOARDING_CATEGORIES', 'ONBOARDING_START'],
-  ONBOARDING_CATEGORIES: ['IDLE'],
-  EXPENSE_RECEIVING: ['EXPENSE_CLARIFYING', 'EXPENSE_REVIEW'],
-  EXPENSE_CLARIFYING: ['EXPENSE_REVIEW', 'IDLE'],
-  EXPENSE_REVIEW: ['EXPENSE_SAVING', 'EXPENSE_CORRECTING', 'IDLE'],
-  EXPENSE_CORRECTING: ['EXPENSE_REVIEW'],
-  EXPENSE_SAVING: ['IDLE', 'EXPENSE_SAVING_RETRY'],
-  EXPENSE_SAVING_RETRY: ['IDLE'],
+  ONBOARDING_FILE: ['ONBOARDING_FILE', 'ONBOARDING_SHEET', 'ONBOARDING_START', 'IDLE'],
+  ONBOARDING_SHEET: [
+    'ONBOARDING_SHEET',
+    'ONBOARDING_VALIDATING_ACCESS',
+    'ONBOARDING_START',
+    'IDLE',
+  ],
+  ONBOARDING_VALIDATING_ACCESS: [
+    'ONBOARDING_MAPPING',
+    'ONBOARDING_SHEET',
+    'ONBOARDING_START',
+    'IDLE',
+  ],
+  ONBOARDING_MAPPING: ['ONBOARDING_MAPPING', 'ONBOARDING_CATEGORIES', 'ONBOARDING_START', 'IDLE'],
+  ONBOARDING_CATEGORIES: ['IDLE', 'ONBOARDING_CATEGORIES', 'ONBOARDING_START'],
+  EXPENSE_RECEIVING: ['EXPENSE_CLARIFYING', 'EXPENSE_REVIEW', 'IDLE', 'ONBOARDING_START'],
+  EXPENSE_CLARIFYING: ['EXPENSE_REVIEW', 'IDLE', 'ONBOARDING_START'],
+  EXPENSE_REVIEW: ['EXPENSE_REVIEW', 'EXPENSE_SAVING', 'EXPENSE_CORRECTING', 'IDLE'],
+  EXPENSE_CORRECTING: ['EXPENSE_REVIEW', 'EXPENSE_CORRECTING', 'IDLE'],
+  EXPENSE_SAVING: ['EXPENSE_SAVING', 'IDLE', 'EXPENSE_SAVING_RETRY', 'ONBOARDING_START'],
+  EXPENSE_SAVING_RETRY: ['EXPENSE_SAVING_RETRY', 'IDLE', 'ONBOARDING_VALIDATING_ACCESS'],
+  EXPENSE_UNDO_CONFIRMING: ['EXPENSE_UNDO_CONFIRMING', 'IDLE'],
 };
 
 export function canTransition(from: FsmState, to: FsmState): boolean {

@@ -15,6 +15,12 @@ const rootLogger = createLogger({
 
 The factory lives at `src/infrastructure/logger.ts`. It creates a Pino logger instance configured with the given log level and optional pretty-print transport.
 
+## Sensitive-data redaction
+
+`src/infrastructure/observability/sensitiveData.ts` defines the shared sensitive-field policy used by both the root Pino logger and Fastify's request logger. Authorization headers, cookies, tokens, secrets, OAuth state, raw messages and webhook payloads, job data, and provider error bodies are replaced with `[REDACTED]` before logging. Error logs retain safe operational metadata such as endpoint, queue, job ID, HTTP status, and error code.
+
+Sentry is initialized with the same module's `beforeSend` scrubber. It creates a bounded, cycle-safe copy of the event and redacts matching keys in request data, breadcrumbs, contexts, extras, tags, and exception metadata before transmission. The scrubber never throws, so error reporting cannot disrupt application error handling.
+
 ## Logger lifecycle
 
 - **Bootstrap (`main.ts`)**: A single root logger is created via `createLogger()` at the top of `bootstrap()`. It is injected into all downstream components (workers, use cases, adapters) via constructor dependency injection.
@@ -71,3 +77,51 @@ const mockLogger = {} as unknown as Logger;
 ```
 
 Verify logger calls in worker/use case tests by asserting on the mock's method calls.
+
+## Semantic routing observations
+
+Runtime shadow processing emits one schema-validated
+`semantic_router_observation` for each state-bearing processing attempt. The event
+contains only mode, state/substep, deterministic decision kind, proposed action,
+policy outcome, provider/model, prompt/contract/policy versions, bounded latency,
+and a stable error code. It excludes raw text, full state payloads, option and
+operation identifiers, revisions, credentials, provider bodies, hidden reasoning,
+and raw user or external-message identifiers.
+
+The allowed outcomes distinguish shadow agreement, `allowed_enabled`, forbidden
+actions, router failure, invalid/stale context, deterministic bypass,
+sampling/disabled state, and the fail-closed `enabled_capability_unavailable`
+guard. Enabled events are finalized after typed dispatch: safe business outcomes use
+`allowed_enabled`, rejected/stale/unsupported outcomes use `dispatch_rejected`, and
+contained dispatcher exceptions use `dispatch_failed`. Exactly one event is emitted
+for a finalized turn. File/sheet selection authorization is therefore separate from
+downstream file access, config persistence, sheet access validation, and eager probes;
+telemetry still excludes option labels, provider file/sheet identifiers, snapshot
+revisions, and user identifiers. A malformed provider result is reduced to
+`INVALID_OUTPUT` before metadata access. If the telemetry sink
+throws, the adapter attempts a metadata-only `SEMANTIC_TELEMETRY_FAILED` error
+record and never propagates the failure into deterministic or enabled processing.
+
+`semantic-evaluation-v4` separately reports control action agreement, control ambiguity
+handling, deterministic-policy rejection, and proposal-level false-authorization counts.
+The effect-free evaluator leaves unauthorized-effect and call-count fields unavailable;
+worker and PostgreSQL/Redis suites verify those runtime properties. Successful cancellation,
+undo-presentation, request-only retry, and bounded reconfiguration handoffs finalize as
+`allowed_enabled`; stale,
+malformed, unsupported, or unbound outcomes finalize as `dispatch_rejected`, and contained
+dispatcher exceptions finalize as `dispatch_failed`. Exactly one observation is emitted and
+it contains no control provenance, source ID, expense ID, binding, revision, user ID, or raw text.
+
+## Semantic release observations
+
+`semantic-rollout-observation-v1` is a separate strict aggregate contract for release acceptance. Its event kinds cover one eligible task start, terminal completion/cancellation/timeout/failure/unknown outcome, router/extraction/correction usage, and observed critical authorization or unauthorized effects. It carries only release/deployment versions, environment, mode, aggregate cohort, state/substep, capability, bounded outcome code, model versions, latency, and token counts. Unknown fields are rejected, so identity, message, option label, amount, operation ID, revision, provider body, credential, and hidden-reasoning fields cannot enter the event.
+
+`RecordSemanticRolloutObservation` validates this allowlist before calling the telemetry port, and `PinoSemanticRoutingTelemetry.recordRollout` validates it again at the infrastructure boundary. Sink failures are contained and never change routing or business behavior. Router, extraction, and correction usage remain distinct; incomplete usage makes full expense cost unavailable. Phase 1 defines and tests the contract but does not claim production collection: runtime release metadata and authorized observation windows are supplied only by a later rollout stage.
+
+## Expense extraction telemetry
+
+Extraction adapters emit `llm_extraction_started` and one `llm_extraction_completed` event per call. Both include provider, model, operation `extract_expense`, and correlation ID. Completion includes duration and outcome, plus a typed error code on failure. HTTP status, allowlisted finish reason, and nonnegative integer `inputTokens`/`outputTokens` appear only when available; absent usage is not reported as zero. Unknown finish reasons become `unknown`.
+
+Error codes are `LLM_TIMEOUT`, `LLM_CANCELLED`, `LLM_EMPTY_RESPONSE`, `LLM_OUTPUT_TRUNCATED`, `LLM_INVALID_JSON`, `LLM_INVALID_SCHEMA`, and `LLM_PROVIDER_ERROR`. Exceptions crossing the adapter boundary retain only their code, never provider bodies, SDK causes, validation inputs, or reasoning content.
+
+The deterministic initial-message path uses `<channel>:<externalMessageId>` as correlation ID. `expense_context_loading`/`expense_context_loaded` mark context loading; the latter records its duration. `expense_summary_presented` records successful initial summary presentation duration. Other extraction callers receive a generated correlation ID if they supply none. Provider time excludes surrounding database and presentation work. Recovery errors are logged with `endpoint: processMessageJob` and the typed code; a recovered failure is not a BullMQ retry.

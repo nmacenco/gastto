@@ -31,6 +31,12 @@ describe('DrizzleColumnMappingRepository', () => {
           columnIndex: 0,
           columnHeader: 'Date',
         }),
+        buildColumnMappingRow({
+          id: 'mapping-789',
+          gasttoField: 'subcategoria',
+          columnIndex: 2,
+          columnHeader: 'Subcategory',
+        }),
       ];
       const db = {
         select: vi.fn().mockReturnValue({
@@ -59,6 +65,15 @@ describe('DrizzleColumnMappingRepository', () => {
           GasttoField: 'fecha',
           columnIndex: 0,
           columnHeader: 'Date',
+          inferred: true,
+          confirmedAt: null,
+        },
+        {
+          id: 'mapping-789',
+          spreadsheetId: 'config-123',
+          GasttoField: 'subcategoria',
+          columnIndex: 2,
+          columnHeader: 'Subcategory',
           inferred: true,
           confirmedAt: null,
         },
@@ -193,6 +208,70 @@ describe('DrizzleColumnMappingRepository', () => {
 
       const repo = new DrizzleColumnMappingRepository(db);
       await expect(repo.confirm('mapping-999')).rejects.toThrow('Column mapping not found');
+    });
+  });
+
+  describe('replaceBySpreadsheetId', () => {
+    it('deletes and inserts the complete replacement inside one transaction', async () => {
+      const where = vi.fn().mockResolvedValue(undefined);
+      const values = vi.fn().mockResolvedValue(undefined);
+      const tx = {
+        delete: vi.fn().mockReturnValue({ where }),
+        insert: vi.fn().mockReturnValue({ values }),
+      };
+      const transaction = vi.fn(async (callback: (value: typeof tx) => Promise<void>) =>
+        callback(tx),
+      );
+      const repo = new DrizzleColumnMappingRepository({
+        transaction,
+      } as unknown as PostgresJsDatabase<typeof schema>);
+
+      await repo.replaceBySpreadsheetId('config-123', [
+        {
+          GasttoField: 'medio_pago',
+          columnIndex: 0,
+          columnHeader: '',
+          inferred: false,
+          confirmedAt: null,
+        },
+      ]);
+
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(tx.delete).toHaveBeenCalledWith(schema.columnMappings);
+      expect(values).toHaveBeenCalledWith([
+        expect.objectContaining({
+          spreadsheetId: 'config-123',
+          gasttoField: 'medio_pago',
+          columnIndex: 0,
+        }),
+      ]);
+    });
+
+    it('rejects duplicate columns before starting a transaction', async () => {
+      const transaction = vi.fn();
+      const repo = new DrizzleColumnMappingRepository({
+        transaction,
+      } as unknown as PostgresJsDatabase<typeof schema>);
+
+      await expect(
+        repo.replaceBySpreadsheetId('config-123', [
+          {
+            GasttoField: 'moneda',
+            columnIndex: 0,
+            columnHeader: '',
+            inferred: true,
+            confirmedAt: null,
+          },
+          {
+            GasttoField: 'medio_pago',
+            columnIndex: 0,
+            columnHeader: '',
+            inferred: false,
+            confirmedAt: null,
+          },
+        ]),
+      ).rejects.toThrow('Duplicate spreadsheet column');
+      expect(transaction).not.toHaveBeenCalled();
     });
   });
 

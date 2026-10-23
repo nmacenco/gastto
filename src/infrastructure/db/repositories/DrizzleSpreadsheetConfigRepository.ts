@@ -44,6 +44,37 @@ export class DrizzleSpreadsheetConfigRepository implements ISpreadsheetConfigRep
     return this.mapSpreadsheetConfig(row);
   }
 
+  async upsertByUserId(
+    config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<SpreadsheetConfig> {
+    const [row] = await this.db
+      .insert(schema.spreadsheetConfigs)
+      .values({
+        userId: config.userId,
+        provider: config.provider,
+        fileId: config.fileId,
+        fileName: config.fileName,
+        sheetName: config.sheetName,
+        accessVerifiedAt: config.accessVerifiedAt,
+      })
+      .onConflictDoUpdate({
+        target: schema.spreadsheetConfigs.userId,
+        set: {
+          provider: config.provider,
+          fileId: config.fileId,
+          fileName: config.fileName,
+          sheetName: config.sheetName,
+          accessVerifiedAt: config.accessVerifiedAt,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    if (!row) throw new Error('Failed to upsert spreadsheet config');
+
+    return this.mapSpreadsheetConfig(row);
+  }
+
   async updateAccessVerified(id: string): Promise<void> {
     const [row] = await this.db
       .update(schema.spreadsheetConfigs)
@@ -55,6 +86,19 @@ export class DrizzleSpreadsheetConfigRepository implements ISpreadsheetConfigRep
       .returning();
 
     if (!row) throw new Error('Failed to update access verified timestamp');
+  }
+
+  async updateCategoriesConfirmed(id: string): Promise<void> {
+    const [row] = await this.db
+      .update(schema.spreadsheetConfigs)
+      .set({
+        categoriesConfirmedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.spreadsheetConfigs.id, id))
+      .returning();
+
+    if (!row) throw new Error('Failed to update categories confirmed timestamp');
   }
 
   // ── Mappers ────────────────────────────────────────────────────────────────
@@ -70,6 +114,7 @@ export class DrizzleSpreadsheetConfigRepository implements ISpreadsheetConfigRep
       fileName: row.fileName,
       sheetName: row.sheetName,
       accessVerifiedAt: row.accessVerifiedAt,
+      categoriesConfirmedAt: row.categoriesConfirmedAt ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

@@ -1,8 +1,8 @@
 # ── Builder stage ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
-# Install pnpm globally
-RUN npm install -g pnpm
+# Install the exact pnpm version declared in package.json
+RUN npm install -g pnpm@10.33.4
 
 WORKDIR /app
 
@@ -17,8 +17,8 @@ RUN pnpm build
 # ── Runner stage ─────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
-# Install pnpm globally (needed for production install)
-RUN npm install -g pnpm
+# Install the exact pnpm version declared in package.json
+RUN npm install -g pnpm@10.33.4
 
 WORKDIR /app
 

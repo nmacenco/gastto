@@ -2,6 +2,7 @@
 
 > **Why this document exists:** The FSM is the operational heart of the system. An agent that generates message-handling code without knowing the valid states and their transitions will produce incoherent logic. ADR-003 mentions the FSM but is not the right place to consult transitions during development.
 > **Related:**
+>
 > - [ADR-003 · Estado Conversacional: FSM Persistida en PostgreSQL](../adr/adr.md#adr-003--estado-conversacional-fsm-persistida-en-postgresql)
 > - [ADR-014 · FSM Eager Advance](../adr/ADR-014-fsm-eager-advance.md)
 
@@ -9,22 +10,22 @@
 
 ## State table
 
-| State                   | Description                             | Valid outgoing transitions                           | Timeout |
-| ----------------------- | --------------------------------------- | ---------------------------------------------------- | ------- |
-| `IDLE`                  | No active flow                          | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`          | —       |
-| `ONBOARDING_START`      | First contact, no spreadsheet linked    | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` | 30 min  |
-| `ONBOARDING_DRIVE`      | Waiting for OAuth connection            | → `ONBOARDING_FILE`                                  | 30 min  |
-| `ONBOARDING_FILE`       | Waiting for file selection              | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` | 30 min  |
-| `ONBOARDING_SHEET`      | Waiting for sheet selection             | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` | 30 min  |
-| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` | 30 min  |
-| `ONBOARDING_MAPPING`    | Waiting for column-mapping confirmation | → `ONBOARDING_CATEGORIES`                            | 30 min  |
-| `ONBOARDING_CATEGORIES` | Waiting for category confirmation       | → `IDLE`                                             | 30 min  |
-| `EXPENSE_RECEIVING`     | Message received, processing NLP        | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW`           | —       |
-| `EXPENSE_CLARIFYING`    | Waiting for user clarification          | → `EXPENSE_REVIEW` \| `IDLE`                         | 10 min  |
-| `EXPENSE_REVIEW`        | Summary sent, waiting for confirmation  | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE` | 10 min  |
-| `EXPENSE_CORRECTING`    | Applying user correction                | → `EXPENSE_REVIEW`                                   | —       |
-| `EXPENSE_SAVING`        | Writing to the spreadsheet              | → `IDLE` \| `EXPENSE_SAVING_RETRY`                   | —       |
-| `EXPENSE_SAVING_RETRY`  | Retrying a failed save (TTL: 10 min)    | → `IDLE`                                             | 10 min  |
+| State                          | Description                                                 | Valid outgoing transitions                                                                    | Timeout |
+| ------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------- |
+| `IDLE`                         | No active flow                                              | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`                                                   | —       |
+| `ONBOARDING_START`             | First contact, no spreadsheet linked                        | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` \| `IDLE`                      | 30 min  |
+| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                                | → `ONBOARDING_DRIVE` \| `ONBOARDING_FILE` \| `IDLE`                                           | 30 min  |
+| `ONBOARDING_FILE`              | Waiting for file selection                                  | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` \| `IDLE`               | 30 min  |
+| `ONBOARDING_SHEET`             | Waiting for sheet selection                                 | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` \| `IDLE` | 30 min  |
+| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet              | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` \| `IDLE`                  | 30 min  |
+| `ONBOARDING_MAPPING`           | Waiting for column-mapping confirmation                     | → `ONBOARDING_MAPPING` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START` \| `IDLE`             | 30 min  |
+| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation                           | → `IDLE` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START`                                     | 30 min  |
+| `EXPENSE_RECEIVING`            | Message received, processing NLP                            | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW` \| `IDLE` \| `ONBOARDING_START`                    | —       |
+| `EXPENSE_CLARIFYING`           | Waiting for user clarification                              | → `EXPENSE_REVIEW` \| `IDLE` \| `ONBOARDING_START`                                            | 10 min  |
+| `EXPENSE_REVIEW`               | Summary sent, waiting for confirmation                      | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`                                          | 10 min  |
+| `EXPENSE_CORRECTING`           | Applying user correction                                    | → `EXPENSE_REVIEW` \| `IDLE`                                                                  | —       |
+| `EXPENSE_SAVING`               | Writing to the spreadsheet or retaining an unresolved claim | → `EXPENSE_SAVING` \| `IDLE` \| `EXPENSE_SAVING_RETRY` \| `ONBOARDING_START`                  | —       |
+| `EXPENSE_SAVING_RETRY`         | Waiting for a user decision after a retryable failed save   | → `EXPENSE_SAVING_RETRY` \| `IDLE` \| `ONBOARDING_VALIDATING_ACCESS`                          | 10 min  |
 
 ---
 
@@ -36,12 +37,16 @@ Current and planned eager-advance transitions:
 
 - `ONBOARDING_DRIVE` → `ONBOARDING_FILE`: OAuth callback triggers file discovery.
 - `ONBOARDING_FILE` → `ONBOARDING_SHEET`: file selection triggers sheet discovery.
-- `ONBOARDING_SHEET` → `ONBOARDING_VALIDATING_ACCESS`: single-sheet auto-confirmation triggers access validation.
+- `ONBOARDING_SHEET` → `ONBOARDING_VALIDATING_ACCESS`: sheet confirmation (single-sheet auto-confirm, number, or name match) triggers access validation.
 - `ONBOARDING_VALIDATING_ACCESS` → `ONBOARDING_MAPPING`: successful access validation triggers column-mapping inference.
 - `EXPENSE_REVIEW` → `EXPENSE_SAVING`: user confirmation triggers save.
-- `EXPENSE_SAVING` → `IDLE`: successful save triggers final confirmation.
+- `EXPENSE_SAVING` → `IDLE`: a confirmed save persists the record and triggers final confirmation.
+- `EXPENSE_REVIEW` with pending queue entries: confirmation, cancellation, or second-stage timeout deterministically advances exactly one oldest queued message after the active outcome is delivered.
+- `EXPENSE_SAVING_RETRY` → `ONBOARDING_VALIDATING_ACCESS`: `reconfigurar` restarts validation and eager column inference for the active Google spreadsheet.
 
 Transitions that present a list or require explicit confirmation (e.g., `ONBOARDING_FILE` self-transition, `ONBOARDING_MAPPING` self-transition) do **not** use eager advance.
+
+An authorization failure during `EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, or `EXPENSE_SAVING` transitions to `ONBOARDING_START` with `promptShown: true` and `reauthorizationOnly: true`. The recovery copy instructs the user to reply `empezar`, which starts OAuth. A completed Google spreadsheet configuration returns directly from `ONBOARDING_DRIVE` to `IDLE` after the callback. The interrupted expense is not retained or replayed automatically.
 
 ---
 
@@ -55,6 +60,7 @@ flowchart TD
     ONBOARDING_START -->|first prompt| ONBOARDING_START
     ONBOARDING_START -->|OAuth initiated| ONBOARDING_DRIVE
     ONBOARDING_DRIVE -->|drive linked| ONBOARDING_FILE
+    ONBOARDING_DRIVE -->|reauthorized with configured sheet| IDLE
     ONBOARDING_FILE -->|store fileList| ONBOARDING_FILE
     ONBOARDING_FILE -->|file picked| ONBOARDING_SHEET
     ONBOARDING_SHEET -->|store sheetList| ONBOARDING_SHEET
@@ -64,23 +70,39 @@ flowchart TD
     ONBOARDING_VALIDATING_ACCESS -->|persistent error| ONBOARDING_START
     ONBOARDING_MAPPING -->|mapping confirmed| ONBOARDING_CATEGORIES
     ONBOARDING_CATEGORIES -->|categories confirmed| IDLE
+    ONBOARDING_CATEGORIES -->|spreadsheet configuration missing| ONBOARDING_START
+
+    ONBOARDING_START -->|session expired| IDLE
+    ONBOARDING_DRIVE -->|session expired| IDLE
+    ONBOARDING_FILE -->|session expired| IDLE
+    ONBOARDING_SHEET -->|session expired| IDLE
+    ONBOARDING_VALIDATING_ACCESS -->|session expired| IDLE
+    ONBOARDING_MAPPING -->|session expired| IDLE
+    ONBOARDING_CATEGORIES -->|session expired| IDLE
 
     EXPENSE_RECEIVING -->|needs clarification| EXPENSE_CLARIFYING
     EXPENSE_RECEIVING -->|complete| EXPENSE_REVIEW
+    EXPENSE_RECEIVING -->|cancelled| IDLE
+    EXPENSE_RECEIVING -->|authorization lost| ONBOARDING_START
 
     EXPENSE_CLARIFYING -->|clarified| EXPENSE_REVIEW
     EXPENSE_CLARIFYING -->|cancelled| IDLE
+    EXPENSE_CLARIFYING -->|authorization lost| ONBOARDING_START
 
     EXPENSE_REVIEW -->|confirmed| EXPENSE_SAVING
     EXPENSE_REVIEW -->|correction requested| EXPENSE_CORRECTING
     EXPENSE_REVIEW -->|cancelled| IDLE
 
     EXPENSE_CORRECTING -->|corrected| EXPENSE_REVIEW
+    EXPENSE_CORRECTING -->|cancelled| IDLE
 
     EXPENSE_SAVING -->|success| IDLE
+    EXPENSE_SAVING -->|outcome unknown| EXPENSE_SAVING
     EXPENSE_SAVING -->|failure| EXPENSE_SAVING_RETRY
+    EXPENSE_SAVING -->|authorization failure| ONBOARDING_START
 
-    EXPENSE_SAVING_RETRY -->|success or exhausted| IDLE
+    EXPENSE_SAVING_RETRY -->|successful retry, fallback, or expiry| IDLE
+    EXPENSE_SAVING_RETRY -->|reconfigurar| ONBOARDING_VALIDATING_ACCESS
 ```
 
 ---
@@ -89,22 +111,70 @@ flowchart TD
 
 The `state_payload` column in the `conversation_states` table is a `JSONB` blob whose shape depends on the current state. Fields that are not relevant to the current state must be `null` or absent.
 
-| State                   | Relevant `state_payload` fields                                                                                                             | Meaning                                                    |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `IDLE`                  | _(empty or `{}`)_                                                                                                                           | Nothing to persist                                         |
-| `ONBOARDING_START`      | `promptShown: boolean`, `provider?: 'google' \| 'microsoft'`                                                                                | `promptShown` tracks whether the welcome/provider prompt has been displayed; `provider` may be present transiently |
-| `ONBOARDING_DRIVE`      | `oauth_state: string`                                                                                                                       | PKCE / OAuth state token for CSRF protection               |
-| `ONBOARDING_FILE`       | `drive_folder_id?: string`, `files: Array<{id, name}>`                                                                                      | List of candidate files to show the user                   |
-| `ONBOARDING_SHEET`      | `file_id: string`, `sheets: Array<{name, id}>`                                                                                              | Selected file and its internal sheets                      |
-| `ONBOARDING_VALIDATING_ACCESS` | `selectedFileId: string`, `selectedFileName: string`, `selectedSheetName: string`, `provider: SpreadsheetProvider`, `sheetList?: SheetInfo[]`, `step?: 'empty-sheet-confirm'` | File and sheet being validated; `step` and `sheetList` present when transitioning back to `ONBOARDING_SHEET` after empty-sheet |
-| `ONBOARDING_MAPPING`    | `file_id`, `sheet_id`, `headers: string[]`, `mapping: Record<string, string>`                                                               | Detected column mapping waiting for confirmation           |
-| `ONBOARDING_CATEGORIES` | `file_id`, `sheet_id`, `mapping`, `categories: string[]`                                                                                    | Detected category list waiting for confirmation            |
-| `EXPENSE_RECEIVING`     | `raw_message: string`, `extracted?: ExtractedExpense`                                                                                       | The incoming message and any partial NLP result            |
-| `EXPENSE_CLARIFYING`    | `raw_message`, `missing_fields: string[]`, `partial: ExtractedExpense`                                                                      | Which fields the user still needs to provide               |
-| `EXPENSE_REVIEW`        | `expense: ExpenseEntity`, `summary_text: string`                                                                                            | The fully formed expense and the summary shown to the user |
-| `EXPENSE_CORRECTING`    | `expense: ExpenseEntity`, `correction_field: string`                                                                                        | Which field the user wants to correct                      |
-| `EXPENSE_SAVING`        | `expense: ExpenseEntity`, `attempt: number`                                                                                                 | Current save attempt count                                 |
-| `EXPENSE_SAVING_RETRY`  | `expense: ExpenseEntity`, `attempt: number`, `error_type: 'NETWORK_ERROR' \| 'AUTH_ERROR' \| 'STRUCTURE_ERROR'`, `last_error_at: ISOString` | Why the save failed and when                               |
+| State                          | Relevant `state_payload` fields                                                                                                                                               | Meaning                                                                                                                                           |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IDLE`                         | _(empty or `{}`)_                                                                                                                                                             | Nothing to persist                                                                                                                                |
+| `ONBOARDING_START`             | `promptShown: boolean`, `reauthorizationOnly?: boolean`, `provider?: 'google' \| 'microsoft'`                                                                                 | Recovery sets `promptShown` and `reauthorizationOnly` to `true` so the next `empezar` reconnects without replacing a completed configuration.     |
+| `ONBOARDING_DRIVE`             | `provider: 'google'`, `state: string`, `reauthorizationOnly?: boolean`                                                                                                        | OAuth state token for CSRF protection and the recovery flag carried to the callback.                                                              |
+| `ONBOARDING_FILE`              | `drive_folder_id?: string`, `files: Array<{id, name}>`                                                                                                                        | List of candidate files to show the user                                                                                                          |
+| `ONBOARDING_SHEET`             | `file_id: string`, `sheets: Array<{name, id}>`                                                                                                                                | Selected file and its internal sheets                                                                                                             |
+| `ONBOARDING_VALIDATING_ACCESS` | `selectedFileId: string`, `selectedFileName: string`, `selectedSheetName: string`, `provider: SpreadsheetProvider`, `sheetList?: SheetInfo[]`, `step?: 'empty-sheet-confirm'` | File and sheet being validated; `step` and `sheetList` present when transitioning back to `ONBOARDING_SHEET` after empty-sheet                    |
+| `ONBOARDING_MAPPING`           | `file_id`, `sheet_id`, `headers: string[]`, `mapping: Record<string, string>`                                                                                                 | Detected column mapping waiting for confirmation                                                                                                  |
+| `ONBOARDING_CATEGORIES`        | `file_id`, `sheet_id`, `mapping`, `categories: string[]`                                                                                                                      | Detected category list waiting for confirmation                                                                                                   |
+| `EXPENSE_RECEIVING`            | `raw_message: string`, `extracted?: ExtractedExpense`                                                                                                                         | The incoming message and any partial NLP result                                                                                                   |
+| `EXPENSE_CLARIFYING`           | `raw_message`, `missing_fields: string[]`, `partial: ExtractedExpense`                                                                                                        | Which fields the user still needs to provide                                                                                                      |
+| `EXPENSE_REVIEW`               | normalized review fields; `reviewBinding: { operationId: string, revision: number, presentedAt: string \| null }`; `reminderSent`; stage flags                                | The persisted reviewed expense and exact presented version. Missing legacy binding is unbound until persisted and re-presented.                   |
+| `EXPENSE_CORRECTING`           | `expense: ExpenseEntity`, `correction_field: string`                                                                                                                          | Which field the user wants to correct                                                                                                             |
+| `EXPENSE_SAVING`               | `expense: ExpenseEntity`, `attempt: number`                                                                                                                                   | Current save attempt count                                                                                                                        |
+| `EXPENSE_SAVING_RETRY`         | `expense: ExpenseReviewPayload`, `failureCode`, `firstAttemptAt`, `attemptCount: 1`, `actionBinding: { operationId, revision, presentedAt } \| null`                          | Confirmed expense retained for one exact, successfully presented user-initiated retry. Legacy missing bindings remain unbound until re-presented. |
+| `EXPENSE_UNDO_CONFIRMING`      | `pendingExpenseId`, `actionBinding: { operationId, revision, presentedAt } \| null`                                                                                           | Latest expense offered for delayed undo. Requires a non-null future expiry and a reply captured strictly after successful presentation.           |
+
+Save, retry, and undo execution may additionally carry `executionClaim: { claimId, kind, operationId, sourceMessageId, status, target }`. The immutable target binds the external effect. `in_flight` and `outcome_unknown` claims block unrelated transitions and are never released or replayed automatically after lease expiry or restart. Append/delete transport failures after the mutation request is sent, provider 5xx responses, and local finalization failures after remote success retain `outcome_unknown`; failures proven to occur before the mutation may clear or enter the existing explicit retry flow.
+
+## Semantic observation by state
+
+Semantic routing does not add a state or transition. Runtime projection supports
+only the state/substep pairs enumerated by `semantic-policy-v3`; unsupported states,
+unknown substeps, malformed payloads, expired snapshots, and unresolved financial
+claims produce metadata-only failure/stale observations. Projection allowlists the
+current question, missing amount/currency fields, bounded expense summary, and
+displayed option positions/labels. It never exposes the full `state_payload`,
+operation bindings, claims, revisions, or provider identifiers. `EXPENSE_CORRECTING/default`
+is projected only after `ExpenseCorrectionState` validation and exposes only bounded amount,
+currency, and date context.
+
+The FSM remains authoritative in every mode. `shadow` records a proposal and
+executes the deterministic handler. `off` skips the model. `enabled` may execute
+validated expense proposals in the delivered expense states and revision-bound
+option selection in `ONBOARDING_FILE/default` plus `ONBOARDING_SHEET/default|idk`.
+The option dispatcher revalidates revision, state, substep, expiry, execution
+ownership, ordered positions/labels, selected-file context, and payload shape, then
+hands one application-owned position to the existing guarded file- or sheet-selection
+boundary. Sheet `empty-sheet-confirm`, numeric replies, IDK/header descriptions, and
+single-sheet auto-selection remain deterministic.
+
+Recognition and clarification completion can reach the existing
+`EXPENSE_CLARIFYING` or `EXPENSE_REVIEW` states. Clarification replacement commits
+only through the new interpretation result, so extractor failure preserves the old
+draft. Review correction advances the review binding and requires a fresh
+presentation and explicit confirmation. Review `register_expense` admits only a raw
+pending-queue item and leaves the active review unchanged. Semantic expense/option
+dispatch has no save, retry, delete, confirmation, reconfiguration, or arbitrary-transition
+authority. The separate control dispatcher may cancel only a validated active draft or
+present a delayed undo offer; it cannot confirm or execute a deletion. All other enabled
+state/action pairs fail closed.
+
+The control capability matrix permits proposals only for inferred undo in `IDLE`,
+cancellation in the four active expense-draft states, and request-only retry or bounded
+reconfiguration in `EXPENSE_SAVING_RETRY`. `EXPENSE_UNDO_CONFIRMING` is guidance-only.
+Unknown substeps and all processing/onboarding states outside this matrix reject control
+capabilities. Phase 2 dispatches only cancellation and inferred-undo presentation. Retry and
+reconfiguration proposals remain unavailable pending the recovery slice.
+
+Conversation-level PostgreSQL/Redis tests exercise recognition, clarification,
+review correction, queue overflow/advancement, explicit save, cancellation, duplicate
+delivery, lock contention, lease loss, revision races, and flag-only rollback. These
+tests require no new state, queue payload, or JSONB migration.
 
 ---
 
@@ -114,6 +184,8 @@ The `state_payload` column in the `conversation_states` table is a `JSONB` blob 
 
 Timeouts are **BullMQ jobs with a `delay`**, never cron jobs.
 
+Every `ONBOARDING_*` state has an explicit transition to `IDLE`. Generic onboarding expiration uses the strict `TransitionConversationState` validator, clears `state_payload` and `expires_at`, and sends the existing timeout notification.
+
 1. When entering a state that has a timeout, the FSM enqueues a BullMQ job of type `fsm-timeout` with `delay` equal to the state's TTL.
 2. The job payload contains the `userId` and the `expectedState` at the time of enqueueing.
 3. When the delayed job fires, the worker checks whether the user is **still** in `expectedState`.
@@ -122,16 +194,24 @@ Timeouts are **BullMQ jobs with a `delay`**, never cron jobs.
 
 ### Timeout values
 
-| State group                        | Timeout    | Job type                                   |
-| ---------------------------------- | ---------- | ------------------------------------------ |
-| Onboarding states (`ONBOARDING_*`) | 30 minutes | `fsm-timeout` with `delay: 30 * 60 * 1000` |
-| `EXPENSE_CLARIFYING`               | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000` |
-| `EXPENSE_REVIEW`                   | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000` |
-| `EXPENSE_SAVING_RETRY`             | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000` |
+| State group                        | Timeout    | Job type                                                                                                                                                            |
+| ---------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Onboarding states (`ONBOARDING_*`) | 30 minutes | `fsm-timeout` with `delay: 30 * 60 * 1000`                                                                                                                          |
+| `EXPENSE_CLARIFYING`               | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000`                                                                                                                          |
+| `EXPENSE_REVIEW`                   | 10 minutes | First expiry advances the review binding and grants one presentation grace period; second expiry cancels the active draft and advances the exact oldest queue item. |
+| `EXPENSE_SAVING_RETRY`             | 10 minutes | `fsm-timeout` with `delay: 10 * 60 * 1000`                                                                                                                          |
 
 ---
 
 ## Rule: FSM exclusivity
+
+### Semantic recovery boundary
+
+`EXPENSE_SAVING_RETRY` accepts semantic proposals only as revision-bound requests. `request_save_retry` leaves the state, expiry, binding, queue, and retained expense unchanged and asks for the exact deterministic `reintentar` command. `request_reconfiguration` may transition only the captured unexpired, claim-free retry revision through the existing Google recovery path to `ONBOARDING_VALIDATING_ACCESS`; it never replays the retained expense. Switching semantic routing to `shadow` or `off` requires no payload rewrite or migration.
+
+### Release outcome taxonomy
+
+Release measurement does not add an FSM state or transition. Expense eligibility starts at the same application-owned admission boundary for deterministic and candidate cohorts. Clarification, correction, queue advancement, and retry continue the original task; they do not create a second denominator entry. Save is the only completed-expense terminal. Cancellation, timeout, failure, and unknown outcome are distinct non-completed terminals. Displayed-option selection and control actions are measured under separate capabilities, so neither can count as a completed expense.
 
 > **Never add conditional conversational flow logic outside the FSM.**
 

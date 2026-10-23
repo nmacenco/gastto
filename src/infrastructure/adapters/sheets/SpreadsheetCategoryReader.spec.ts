@@ -1,127 +1,64 @@
 // LAYER: Infrastructure / Tests
 // Unit tests for SpreadsheetCategoryReader.
-// Mocks SpreadsheetPortFactory so no real spreadsheet calls are made.
+// Mocks SpreadsheetPort to avoid external API calls.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { SpreadsheetCategoryReader } from './SpreadsheetCategoryReader';
-import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
-import type { SpreadsheetPortFactory, SpreadsheetPort } from '../../../domain/ports/services';
-import type { ReadUniqueCategoriesInput } from '../../../domain/ports/categoryVocabulary';
-import type { Logger } from 'pino';
+import type { SpreadsheetPort } from '../../../domain/ports/services';
+
+function buildMockPort(values: string[]): {
+  port: SpreadsheetPort;
+  getUniqueValues: ReturnType<typeof vi.fn>;
+} {
+  const getUniqueValues = vi.fn().mockResolvedValue(values);
+  return {
+    port: { getUniqueValues } as unknown as SpreadsheetPort,
+    getUniqueValues,
+  };
+}
 
 describe('SpreadsheetCategoryReader', () => {
-  const mockGetUniqueValues = vi.fn();
-  const mockLoggerError = vi.fn();
-
-  const mockSpreadsheetPort: SpreadsheetPort = {
-    getUniqueValues: mockGetUniqueValues,
-  } as unknown as SpreadsheetPort;
-
-  const mockCreatePort = vi.fn().mockReturnValue(mockSpreadsheetPort);
-
-  const mockFactory: SpreadsheetPortFactory = {
-    create: mockCreatePort,
-  };
-
-  const mockLogger = { error: mockLoggerError } as unknown as Logger;
-
-  let reader: SpreadsheetCategoryReader;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    reader = new SpreadsheetCategoryReader(mockFactory, mockLogger);
-  });
-
-  const baseInput: ReadUniqueCategoriesInput = {
-    provider: 'google',
-    fileId: 'spreadsheet-123',
-    sheetName: 'Gastos',
-    accessToken: 'token',
-    columnIndex: 2,
-  };
-
-  it('creates a provider-specific port and reads unique values', async () => {
-    mockGetUniqueValues.mockResolvedValue(['Food', 'Transportation', 'Health']);
-
-    const result = await reader.readUniqueCategories(baseInput);
-
-    expect(mockCreatePort).toHaveBeenCalledWith('google', 'token');
-    expect(mockGetUniqueValues).toHaveBeenCalledWith('spreadsheet-123', 2, 'Gastos');
-    expect(result).toEqual(['Food', 'Health', 'Transportation']);
-  });
-
-  it('normalizes whitespace and deduplicates case-insensitively', async () => {
-    mockGetUniqueValues.mockResolvedValue([
-      '  Food  ',
-      '  food  ',
-      'Transportation',
-      '  TRANSPORTATION  ',
-      'Health',
+  it('normalizes and deduplicates values from the spreadsheet port', async () => {
+    const { port, getUniqueValues } = buildMockPort([
+      '  Comida  ',
+      'TRANSPORTE',
+      'comida',
+      'Servicios',
+      '',
     ]);
+    const reader = new SpreadsheetCategoryReader(port);
 
-    const result = await reader.readUniqueCategories(baseInput);
+    const result = await reader.readCategories('file-123', 2, 'Gastos');
 
-    expect(result).toEqual(['Food', 'Health', 'Transportation']);
+    expect(result).toEqual(['comida', 'transporte', 'servicios']);
+    expect(getUniqueValues).toHaveBeenCalledWith('file-123', 2, 'Gastos', 2);
   });
 
-  it('filters empty values', async () => {
-    mockGetUniqueValues.mockResolvedValue(['Food', '', '   ', 'Health', '']);
+  it('forwards a dynamic data start row while keeping normalization and deduplication', async () => {
+    const { port, getUniqueValues } = buildMockPort(['  Comida  ', 'COMIDA', 'Transporte']);
+    const reader = new SpreadsheetCategoryReader(port);
 
-    const result = await reader.readUniqueCategories(baseInput);
+    const result = await reader.readCategories('file-123', 2, 'Gastos', 3);
 
-    expect(result).toEqual(['Food', 'Health']);
+    expect(getUniqueValues).toHaveBeenCalledWith('file-123', 2, 'Gastos', 3);
+    expect(result).toEqual(['comida', 'transporte']);
   });
 
-  it('returns empty array when column has no values', async () => {
-    mockGetUniqueValues.mockResolvedValue([]);
+  it('returns empty array when no values are found', async () => {
+    const { port } = buildMockPort([]);
+    const reader = new SpreadsheetCategoryReader(port);
 
-    const result = await reader.readUniqueCategories(baseInput);
+    const result = await reader.readCategories('file-123', 0, 'Gastos');
 
     expect(result).toEqual([]);
   });
 
-  it('supports Microsoft provider', async () => {
-    mockGetUniqueValues.mockResolvedValue(['Food', 'Transportation']);
+  it('filters values that become empty after trimming', async () => {
+    const { port } = buildMockPort(['   ', 'Comida', '', 'Transporte']);
+    const reader = new SpreadsheetCategoryReader(port);
 
-    const result = await reader.readUniqueCategories({
-      ...baseInput,
-      provider: 'microsoft',
-      accessToken: 'ms-token',
-    });
+    const result = await reader.readCategories('file-123', 0, 'Gastos');
 
-    expect(mockCreatePort).toHaveBeenCalledWith('microsoft', 'ms-token');
-    expect(result).toEqual(['Food', 'Transportation']);
-  });
-
-  it('logs and rethrows SpreadsheetError from the port', async () => {
-    const error = new SpreadsheetError('permission denied');
-    mockGetUniqueValues.mockRejectedValue(error);
-
-    await expect(reader.readUniqueCategories(baseInput)).rejects.toBe(error);
-
-    expect(mockLoggerError).toHaveBeenCalledWith(
-      expect.objectContaining({
-        endpoint: 'SpreadsheetCategoryReader.readUniqueCategories',
-        code: 'UNIQUE_VALUES_READ_ERROR',
-        provider: 'google',
-        fileId: 'spreadsheet-123',
-        sheetName: 'Gastos',
-        columnIndex: 2,
-        error: 'permission denied',
-      }),
-    );
-  });
-
-  it('logs and wraps non-SpreadsheetError exceptions', async () => {
-    mockGetUniqueValues.mockRejectedValue(new Error('network timeout'));
-
-    await expect(reader.readUniqueCategories(baseInput)).rejects.toBeInstanceOf(SpreadsheetError);
-
-    expect(mockLoggerError).toHaveBeenCalledWith(
-      expect.objectContaining({
-        endpoint: 'SpreadsheetCategoryReader.readUniqueCategories',
-        code: 'UNIQUE_VALUES_READ_ERROR',
-      }),
-    );
+    expect(result).toEqual(['comida', 'transporte']);
   });
 });

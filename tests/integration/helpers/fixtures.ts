@@ -74,8 +74,12 @@ export async function createOAuthToken(
       accessTokenEnc: Buffer.from('encrypted-access-token'),
       refreshTokenEnc: Buffer.from('encrypted-refresh-token'),
       iv: Buffer.from('initialization-vector'),
+      refreshIv: Buffer.from('refresh-initialization-vector'),
       accessTokenExpiresAt: new Date(Date.now() + 3600_000),
-      scope: ['https://www.googleapis.com/auth/drive.file'],
+      scope: [
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/spreadsheets',
+      ],
       grantedAt: new Date(),
       lastRefreshedAt: null,
       revokedAt: null,

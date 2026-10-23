@@ -11,7 +11,7 @@ async function buildApp() {
   const app = Fastify({ logger: false });
 
   app.post('/webhook/telegram', {
-    preHandler: [validateTelegramOrigin(SECRET)],
+    onRequest: [validateTelegramOrigin(SECRET)],
     handler: async (_req, reply) => {
       return reply.status(200).send({ ok: true });
     },
@@ -64,5 +64,19 @@ describe('validateTelegramOrigin middleware', () => {
 
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({ ok: true });
+  });
+
+  it('rejects an invalid origin before body validation', async () => {
+    const app = await buildApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      payload: '{not valid JSON',
+      headers: { 'content-type': 'application/json' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.payload)).toEqual({ error: 'Forbidden' });
   });
 });

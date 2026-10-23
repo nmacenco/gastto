@@ -5,17 +5,29 @@
 // port, persists the inferred mappings, and sends a proposal message to the user.
 
 import type {
-  IOAuthTokenRepository,
   ISpreadsheetConfigRepository,
   IColumnMappingRepository,
+  IMappingCorrectionStateRepository,
 } from '../../../domain/ports/repositories';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
-import type { ColumnInferencePort } from '../../../domain/ports/columnInference';
+import { randomUUID } from 'node:crypto';
+import type {
+  ColumnInferencePort,
+  ColumnInferenceResult,
+  ColumnInferenceMapping,
+} from '../../../domain/ports/columnInference';
+import type { HeaderDetectionPort } from '../../../domain/ports/headerDetection';
+import {
+  LEGACY_GASTTO_FIELDS,
+  SUPPORTED_GASTTO_FIELDS,
+  type GasttoField,
+} from '../../../domain/entities/SpreadsheetConfig';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import type { OAuthAccessTokenProvider } from '../../services/OAuthAccessTokenService';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 
 export interface InferColumnMappingInput {
   userId: string;
@@ -31,17 +43,16 @@ export interface InferColumnMappingOutput {
 }
 
 export interface InferColumnMappingDeps {
-  tokenRepository: IOAuthTokenRepository;
-  tokenEncryption: TokenEncryptionPort;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   columnMappingRepository: IColumnMappingRepository;
+  correctionStateRepository: IMappingCorrectionStateRepository;
   columnInferencePort: ColumnInferencePort;
+  llmColumnInferencePort: ColumnInferencePort;
+  headerDetectionPort: HeaderDetectionPort;
+  llmHeaderDetectionPort: HeaderDetectionPort;
   messagingPort: MessagingOutputPort;
   transitionState: TransitionConversationState;
-}
-
-function isExpiredToken(expiresAt: Date): boolean {
-  return expiresAt.getTime() <= Date.now();
 }
 
 function cellToString(value: unknown): string {
@@ -64,19 +75,13 @@ export class InferColumnMapping {
       return { nextState: 'ONBOARDING_MAPPING', message };
     }
 
-    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
-    if (!token) {
-      return this.handleReconnect(externalId, userId);
-    }
-
-    if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      return this.handleReconnect(externalId, userId);
-    }
-
     try {
-      this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
-    } catch {
-      return this.handleReconnect(externalId, userId);
+      await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
+    } catch (error) {
+      if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId);
+      }
+      throw error;
     }
 
     const config = await this.deps.spreadsheetConfigRepository.findByUserId(userId);
@@ -104,25 +109,23 @@ export class InferColumnMapping {
       return { nextState: 'ONBOARDING_START', message };
     }
 
-    const headers = preview.rows[0]!.values.map((v) => cellToString(v));
-    const sampleRows = preview.rows
-      .slice(1, 10)
-      .map((row) => row.values.map((v) => cellToString(v)));
+    const previewRows = preview.rows.map((r) => ({
+      index: r.index,
+      values: r.values as (string | number | boolean | null)[],
+    }));
 
-    const result = await this.deps.columnInferencePort.infer(headers, sampleRows);
+    let headerRowIndex: number | null =
+      typeof statePayload?.headerRowIndex === 'number' ? statePayload.headerRowIndex : null;
 
-    await this.deps.columnMappingRepository.upsertMany(
-      result.mappings.map((m) => ({
-        spreadsheetId: config.id,
-        GasttoField: m.gasttoField,
-        columnIndex: m.columnIndex,
-        columnHeader: m.columnHeader,
-        inferred: true,
-        confirmedAt: null,
-      })),
-    );
+    if (headerRowIndex === null) {
+      headerRowIndex = await this.deps.headerDetectionPort.detectHeaderRow(previewRows);
+    }
 
-    if (result.noHeaderFound) {
+    if (headerRowIndex === null) {
+      headerRowIndex = await this.deps.llmHeaderDetectionPort.detectHeaderRow(previewRows);
+    }
+
+    if (headerRowIndex === null) {
       const message = onboardingCopies.noHeaderPrompt();
       await this.deps.messagingPort.sendMessage(externalId, message);
 
@@ -140,6 +143,71 @@ export class InferColumnMapping {
       return { nextState: 'ONBOARDING_MAPPING', message, payload };
     }
 
+    const headerRow = preview.rows.find((r) => r.index === headerRowIndex);
+    if (!headerRow) {
+      const message = onboardingCopies.reconnectAccount();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      await this.deps.transitionState.execute({
+        userId,
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+      return { nextState: 'ONBOARDING_START', message };
+    }
+
+    const headers = headerRow.values.map((v) => cellToString(v));
+    const sampleRows = preview.rows
+      .filter((row) => row.index > headerRowIndex)
+      .slice(0, 9)
+      .map((row) => row.values.map((v) => cellToString(v)));
+
+    let result = await this.deps.columnInferencePort.infer(headers, sampleRows);
+
+    const shouldRunLLM =
+      result.noHeaderFound ||
+      result.unmappedFields.some((field) =>
+        LEGACY_GASTTO_FIELDS.some((legacyField) => legacyField === field),
+      ) ||
+      result.mappings.some((m) => m.confidence === 'baja');
+
+    if (shouldRunLLM) {
+      const llmResult = await this.deps.llmColumnInferencePort.infer(headers, sampleRows);
+      result = this.mergeResults(result, llmResult);
+    }
+
+    const looksLikePartialTitleRow =
+      headerRowIndex === 1 && result.mappings.length <= 1 && preview.rows.length > 1;
+
+    if (result.mappings.length === 0 || looksLikePartialTitleRow) {
+      const message = onboardingCopies.noHeaderPrompt();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+
+      const payload: Record<string, unknown> = {
+        ...statePayload,
+        step: 'no-header',
+      };
+
+      await this.deps.transitionState.execute({
+        userId,
+        targetState: 'ONBOARDING_MAPPING',
+        payload,
+      });
+
+      return { nextState: 'ONBOARDING_MAPPING', message, payload };
+    }
+
+    await this.deps.columnMappingRepository.replaceBySpreadsheetId(
+      config.id,
+      result.mappings.map((mapping) => ({
+        GasttoField: mapping.gasttoField,
+        columnIndex: mapping.columnIndex,
+        columnHeader: mapping.columnHeader,
+        inferred: true,
+        confirmedAt: null,
+      })),
+    );
+    await this.deps.correctionStateRepository.clear(userId);
+
     const hasLowConfidence = result.mappings.some((m) => m.confidence === 'baja');
     const message =
       result.unmappedFields.length > 0
@@ -150,12 +218,18 @@ export class InferColumnMapping {
           ? onboardingCopies.mappingProposalLowConfidence(result.mappings, result.unmappedFields)
           : onboardingCopies.mappingProposalHighConfidence(result.mappings, result.unmappedFields);
 
-    await this.deps.messagingPort.sendMessage(externalId, message);
-
+    const { step: _step, ...restState } = statePayload ?? {};
+    const proposalId = randomUUID();
     const payload: Record<string, unknown> = {
-      ...statePayload,
-      mappings: result.mappings,
+      ...restState,
+      provider: config.provider,
+      fileId: config.fileId,
+      sheetName: config.sheetName,
+      spreadsheetId: config.id,
+      proposalId,
+      mappings: result.mappings.map((mapping) => ({ ...mapping, inferred: true })),
       unmappedFields: result.unmappedFields,
+      headerRowIndex,
     };
 
     await this.deps.transitionState.execute({
@@ -163,6 +237,8 @@ export class InferColumnMapping {
       targetState: 'ONBOARDING_MAPPING',
       payload,
     });
+
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     return { nextState: 'ONBOARDING_MAPPING', message, payload };
   }
@@ -181,6 +257,63 @@ export class InferColumnMapping {
     });
 
     return { nextState: 'ONBOARDING_START', message };
+  }
+
+  private mergeResults(
+    ruleBased: ColumnInferenceResult,
+    llm: ColumnInferenceResult,
+  ): ColumnInferenceResult {
+    const llmByField = new Map(llm.mappings.map((m) => [m.gasttoField, m]));
+
+    const mergedMappings: ColumnInferenceMapping[] = [];
+    const usedColumns = new Set<number>();
+    const mappedFields = new Set<GasttoField>();
+
+    // First pass: keep high-confidence rule-based mappings in their original order.
+    for (const mapping of ruleBased.mappings) {
+      if (mapping.confidence === 'alta' && !usedColumns.has(mapping.columnIndex)) {
+        mergedMappings.push(mapping);
+        usedColumns.add(mapping.columnIndex);
+        mappedFields.add(mapping.gasttoField);
+      }
+    }
+
+    // Second pass: override low-confidence rule-based mappings with LLM where available,
+    // preserving the original rule-based order.
+    for (const mapping of ruleBased.mappings) {
+      if (mapping.confidence === 'alta') continue;
+
+      const llmMapping = llmByField.get(mapping.gasttoField);
+      if (llmMapping && !usedColumns.has(llmMapping.columnIndex)) {
+        mergedMappings.push(llmMapping);
+        usedColumns.add(llmMapping.columnIndex);
+        mappedFields.add(llmMapping.gasttoField);
+      } else if (!usedColumns.has(mapping.columnIndex)) {
+        mergedMappings.push(mapping);
+        usedColumns.add(mapping.columnIndex);
+        mappedFields.add(mapping.gasttoField);
+      }
+    }
+
+    // Third pass: add LLM mappings for fields that rule-based did not map at all.
+    for (const field of SUPPORTED_GASTTO_FIELDS) {
+      if (mappedFields.has(field)) continue;
+
+      const llmMapping = llmByField.get(field);
+      if (llmMapping && !usedColumns.has(llmMapping.columnIndex)) {
+        mergedMappings.push(llmMapping);
+        usedColumns.add(llmMapping.columnIndex);
+        mappedFields.add(llmMapping.gasttoField);
+      }
+    }
+
+    const unmappedFields = SUPPORTED_GASTTO_FIELDS.filter((f) => !mappedFields.has(f));
+
+    return {
+      mappings: mergedMappings,
+      noHeaderFound: ruleBased.noHeaderFound && llm.noHeaderFound,
+      unmappedFields,
+    };
   }
 
   private resolveProvider(statePayload: Record<string, unknown> | null): SpreadsheetProvider {

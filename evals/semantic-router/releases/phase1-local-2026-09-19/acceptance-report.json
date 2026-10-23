@@ -1,0 +1,373 @@
+{
+  "schemaVersion": "semantic-acceptance-report-v1",
+  "releaseId": "phase1-local-2026-09-19",
+  "generatedAt": "2026-09-19T20:02:02.306Z",
+  "sourceVersion": "7e9df3bee9c64b8b1d6b7f10c50b159a17e9e6eb9a0de975e44651b2c98080be",
+  "thresholdVersion": "pending",
+  "evidenceDigests": {
+    "implementation": "c51751a8f1e133f52ea2ff5b85534a83fa4ca350ac7655f672e40357a55c007a",
+    "offline_development": "0c8ed1a3c82cd570d2d4a7087adca99c4df679862a777a247b99399d98e87d0d",
+    "offline_held_out": "88432ea019ba5e264d1aad614a67bbc021c08e4c17c457129a9e43505acade7c"
+  },
+  "candidate": {
+    "provider": "openai",
+    "model": "gpt-4o-mini-2024-07-18",
+    "promptVersion": "semantic-openai-v3",
+    "contractVersion": "semantic-contract-v2",
+    "policyVersion": "semantic-policy-v3",
+    "datasetVersion": "semantic-corpus-v6",
+    "labelVersion": "semantic-labels-v6"
+  },
+  "evidence": {
+    "implementation": "passed",
+    "offlineDevelopment": "passed",
+    "offlineHeldOut": "passed",
+    "liveHeldOut": "blocked_missing_evidence",
+    "shadow": "blocked_missing_evidence",
+    "controlledRollout": "blocked_missing_evidence",
+    "rollbackExercise": "blocked_missing_evidence"
+  },
+  "metrics": {
+    "perScopeActionAccuracy": {
+      "EXPENSE_CLARIFYING/default": {
+        "numerator": 7,
+        "denominator": 7
+      },
+      "EXPENSE_CORRECTING/default": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "EXPENSE_RECEIVING/default": {
+        "numerator": 3,
+        "denominator": 3
+      },
+      "EXPENSE_REVIEW/default": {
+        "numerator": 10,
+        "denominator": 10
+      },
+      "EXPENSE_SAVING_RETRY/default": {
+        "numerator": 6,
+        "denominator": 6
+      },
+      "EXPENSE_UNDO_CONFIRMING/default": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "IDLE/default": {
+        "numerator": 11,
+        "denominator": 11
+      },
+      "ONBOARDING_FILE/default": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "ONBOARDING_SHEET/default": {
+        "numerator": 8,
+        "denominator": 8
+      },
+      "ONBOARDING_SHEET/empty-sheet-confirm": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "ONBOARDING_SHEET/idk": {
+        "numerator": 2,
+        "denominator": 2
+      }
+    },
+    "ambiguityDetection": {
+      "EXPENSE_CLARIFYING/default": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "EXPENSE_CORRECTING/default": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "EXPENSE_RECEIVING/default": {
+        "numerator": 0,
+        "denominator": 0
+      },
+      "EXPENSE_REVIEW/default": {
+        "numerator": 3,
+        "denominator": 3
+      },
+      "EXPENSE_SAVING_RETRY/default": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "EXPENSE_UNDO_CONFIRMING/default": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "IDLE/default": {
+        "numerator": 4,
+        "denominator": 4
+      },
+      "ONBOARDING_FILE/default": {
+        "numerator": 0,
+        "denominator": 0
+      },
+      "ONBOARDING_SHEET/default": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "ONBOARDING_SHEET/empty-sheet-confirm": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "ONBOARDING_SHEET/idk": {
+        "numerator": 0,
+        "denominator": 0
+      }
+    },
+    "unnecessaryClarification": {
+      "EXPENSE_CLARIFYING/default": {
+        "numerator": 0,
+        "denominator": 5
+      },
+      "EXPENSE_CORRECTING/default": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "EXPENSE_RECEIVING/default": {
+        "numerator": 0,
+        "denominator": 3
+      },
+      "EXPENSE_REVIEW/default": {
+        "numerator": 0,
+        "denominator": 7
+      },
+      "EXPENSE_SAVING_RETRY/default": {
+        "numerator": 0,
+        "denominator": 4
+      },
+      "EXPENSE_UNDO_CONFIRMING/default": {
+        "numerator": 0,
+        "denominator": 0
+      },
+      "IDLE/default": {
+        "numerator": 0,
+        "denominator": 7
+      },
+      "ONBOARDING_FILE/default": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "ONBOARDING_SHEET/default": {
+        "numerator": 0,
+        "denominator": 6
+      },
+      "ONBOARDING_SHEET/empty-sheet-confirm": {
+        "numerator": 0,
+        "denominator": 0
+      },
+      "ONBOARDING_SHEET/idk": {
+        "numerator": 0,
+        "denominator": 2
+      }
+    },
+    "schemaFailures": {
+      "numerator": 0,
+      "denominator": 53
+    },
+    "p95RouterLatencyMsByScope": {
+      "EXPENSE_CLARIFYING/default": {
+        "value": null,
+        "samples": 0
+      },
+      "EXPENSE_CORRECTING/default": {
+        "value": null,
+        "samples": 0
+      },
+      "EXPENSE_RECEIVING/default": {
+        "value": null,
+        "samples": 0
+      },
+      "EXPENSE_REVIEW/default": {
+        "value": null,
+        "samples": 0
+      },
+      "EXPENSE_SAVING_RETRY/default": {
+        "value": null,
+        "samples": 0
+      },
+      "EXPENSE_UNDO_CONFIRMING/default": {
+        "value": null,
+        "samples": 0
+      },
+      "IDLE/default": {
+        "value": null,
+        "samples": 0
+      },
+      "ONBOARDING_FILE/default": {
+        "value": null,
+        "samples": 0
+      },
+      "ONBOARDING_SHEET/default": {
+        "value": null,
+        "samples": 0
+      },
+      "ONBOARDING_SHEET/empty-sheet-confirm": {
+        "value": null,
+        "samples": 0
+      },
+      "ONBOARDING_SHEET/idk": {
+        "value": null,
+        "samples": 0
+      }
+    },
+    "acknowledgmentP95Ms": {
+      "value": null,
+      "samples": 0
+    },
+    "taskCompletionByCohort": {
+      "deterministic": {
+        "completed": 0,
+        "eligible": 0
+      },
+      "candidate": {
+        "completed": 0,
+        "eligible": 0
+      }
+    },
+    "costPerCompletedExpense": {
+      "value": null,
+      "currency": null,
+      "usageComplete": false
+    },
+    "criticalFalseAuthorizationCount": 0,
+    "unauthorizedEffectCount": null
+  },
+  "uncertainty": {
+    "perScopeActionAccuracy": {
+      "EXPENSE_CLARIFYING/default": {
+        "lower": 0.6456611570247934,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "EXPENSE_CORRECTING/default": {
+        "lower": 0.34237195288961925,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "EXPENSE_RECEIVING/default": {
+        "lower": 0.43849391955098227,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "EXPENSE_REVIEW/default": {
+        "lower": 0.7224598312333834,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "EXPENSE_SAVING_RETRY/default": {
+        "lower": 0.6096569663469354,
+        "upper": 0.9999999999999999,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "EXPENSE_UNDO_CONFIRMING/default": {
+        "lower": 0.20654329147389294,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "IDLE/default": {
+        "lower": 0.7411599827511859,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "ONBOARDING_FILE/default": {
+        "lower": 0.20654329147389294,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "ONBOARDING_SHEET/default": {
+        "lower": 0.6755843804891231,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "ONBOARDING_SHEET/empty-sheet-confirm": {
+        "lower": 0.20654329147389294,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      },
+      "ONBOARDING_SHEET/idk": {
+        "lower": 0.34237195288961925,
+        "upper": 1,
+        "confidence": 0.95,
+        "method": "wilson-descriptive"
+      }
+    }
+  },
+  "gates": [
+    {
+      "name": "thresholds",
+      "status": "blocked_missing_evidence",
+      "reasonCodes": [
+        "thresholds_unapproved",
+        "threshold_version",
+        "product_owner_approval",
+        "tech_lead_approval",
+        "numeric_minimums",
+        "numeric_gates",
+        "pricing"
+      ]
+    },
+    {
+      "name": "implementation",
+      "status": "passed",
+      "reasonCodes": []
+    },
+    {
+      "name": "offline_development",
+      "status": "passed",
+      "reasonCodes": []
+    },
+    {
+      "name": "offline_held_out",
+      "status": "passed",
+      "reasonCodes": []
+    },
+    {
+      "name": "live_held_out",
+      "status": "blocked_missing_evidence",
+      "reasonCodes": [
+        "evidence_missing",
+        "thresholds_unapproved"
+      ]
+    },
+    {
+      "name": "shadow",
+      "status": "blocked_missing_evidence",
+      "reasonCodes": [
+        "evidence_missing",
+        "thresholds_unapproved"
+      ]
+    },
+    {
+      "name": "controlled_rollout",
+      "status": "blocked_missing_evidence",
+      "reasonCodes": [
+        "evidence_missing",
+        "thresholds_unapproved"
+      ]
+    },
+    {
+      "name": "rollback_exercise",
+      "status": "blocked_missing_evidence",
+      "reasonCodes": [
+        "evidence_missing"
+      ]
+    }
+  ],
+  "decision": "hold"
+}

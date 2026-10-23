@@ -19,4 +19,14 @@ export interface OAuthServicePort {
     expiresAt: Date;
     scope: string[];
   }>;
+
+  /** Exchanges a persisted refresh token for a new short-lived access token. */
+  refreshAccessToken(
+    provider: SpreadsheetProvider,
+    refreshToken: string,
+  ): Promise<{
+    accessToken: string;
+    expiresAt: Date;
+    scope: string[];
+  }>;
 }

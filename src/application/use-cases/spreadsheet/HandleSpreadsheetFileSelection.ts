@@ -5,16 +5,23 @@
 
 import type { Logger } from 'pino';
 import type { CloudStoragePort } from '../../../domain/ports/cloudStorage';
-import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
-import type { TokenEncryptionPort } from '../../../domain/ports/tokenEncryption';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
-import type { FsmState } from '../../../domain/entities/ConversationState';
+import type {
+  ConversationStatePrecondition,
+  FsmState,
+} from '../../../domain/entities/ConversationState';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
-import type { CloudFile } from '../../../domain/entities/CloudFile';
+import { CloudFile } from '../../../domain/entities/CloudFile';
 import type { HandleSheetSelection } from './HandleSheetSelection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import {
+  executeWithOAuthAccessToken,
+  type OAuthAccessTokenProvider,
+} from '../../services/OAuthAccessTokenService';
+import { onboardingFilePayloadSchema } from '../../services/semantic-router/ResolveOptionReference';
 
 export interface HandleSpreadsheetFileSelectionInput {
   userId: string;
@@ -30,12 +37,19 @@ export interface HandleSpreadsheetFileSelectionOutput {
   payload?: Record<string, unknown>;
 }
 
+export interface SelectDisplayedFileInput extends Omit<
+  HandleSpreadsheetFileSelectionInput,
+  'rawMessage'
+> {
+  readonly position: number;
+  readonly expected: ConversationStatePrecondition;
+}
+
 export interface HandleSpreadsheetFileSelectionDeps {
   cloudStorage: CloudStoragePort;
-  tokenRepository: IOAuthTokenRepository;
+  oauthAccessTokenService: OAuthAccessTokenProvider;
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
-  tokenEncryption: TokenEncryptionPort;
   logger: Logger;
   handleSheetSelection: HandleSheetSelection;
 }
@@ -71,10 +85,6 @@ function extractGoogleDriveFileId(url: string): string | null {
   return null;
 }
 
-function isExpiredToken(expiresAt: Date): boolean {
-  return expiresAt.getTime() <= Date.now();
-}
-
 export class HandleSpreadsheetFileSelection {
   constructor(private readonly deps: HandleSpreadsheetFileSelectionDeps) {}
 
@@ -90,33 +100,25 @@ export class HandleSpreadsheetFileSelection {
       return { nextState: 'ONBOARDING_FILE', message };
     }
 
-    // 1. Retrieve and decrypt OAuth token
-    const token = await this.deps.tokenRepository.findByUserAndProvider(userId, provider);
-    if (!token) {
-      return this.handleReconnect(externalId, userId, 'TOKEN_MISSING');
-    }
-
-    if (token.revokedAt || isExpiredToken(token.accessTokenExpiresAt)) {
-      return this.handleReconnect(externalId, userId, 'TOKEN_EXPIRED_OR_REVOKED');
-    }
-
-    let accessToken: string;
     try {
-      accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
+      await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
-      return this.handleReconnect(externalId, userId, 'TOKEN_DECRYPTION_FAILED', err);
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
+      }
+      throw err;
     }
 
     // 2. Handle search step
     const step = statePayload?.step;
     if (step === 'searching') {
-      return this.handleSearch(userId, externalId, accessToken, provider, rawMessage);
+      return this.handleSearch(userId, externalId, provider, rawMessage);
     }
 
     // 3. If no fileList yet, show initial listing
     const fileList = statePayload?.fileList;
     if (!Array.isArray(fileList) || fileList.length === 0) {
-      return this.handleInitialListing(userId, externalId, accessToken, provider);
+      return this.handleInitialListing(userId, externalId, provider);
     }
 
     // 4. Parse user reply against the displayed list
@@ -124,15 +126,7 @@ export class HandleSpreadsheetFileSelection {
     const choice = parseInt(rawMessage.trim(), 10);
 
     if (!Number.isNaN(choice) && choice >= 1 && choice <= files.length) {
-      return this.handleNumberSelection(
-        userId,
-        externalId,
-        channel,
-        accessToken,
-        provider,
-        files,
-        choice,
-      );
+      return this.handleNumberSelection(userId, externalId, channel, provider, files, choice);
     }
 
     if (choice === files.length + 1 || isNoneOfThese(rawMessage)) {
@@ -146,7 +140,6 @@ export class HandleSpreadsheetFileSelection {
         userId,
         externalId,
         channel,
-        accessToken,
         provider,
         fileIdFromUrl,
         rawMessage.trim(),
@@ -159,6 +152,46 @@ export class HandleSpreadsheetFileSelection {
     return { nextState: 'ONBOARDING_FILE', message };
   }
 
+  async selectDisplayedFile(
+    input: SelectDisplayedFileInput,
+  ): Promise<HandleSpreadsheetFileSelectionOutput> {
+    const { userId, externalId, channel, statePayload, position, expected } = input;
+    const provider = this.resolveProvider(statePayload);
+    if (provider === 'microsoft') {
+      const message = onboardingCopies.comingSoon('OneDrive');
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_FILE', message };
+    }
+
+    try {
+      await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
+    } catch (err) {
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
+      }
+      throw err;
+    }
+
+    const parsed = onboardingFilePayloadSchema.safeParse(statePayload);
+    if (!parsed.success) {
+      const message = onboardingCopies.invalidSelectionRePrompt(0);
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_FILE', message };
+    }
+    const files = parsed.data.fileList.map(
+      (file) => new CloudFile({ ...file, modifiedAt: new Date(file.modifiedAt) }),
+    );
+    return this.handleNumberSelection(
+      userId,
+      externalId,
+      channel,
+      provider,
+      files,
+      position,
+      expected,
+    );
+  }
+
   private resolveProvider(statePayload: Record<string, unknown> | null): SpreadsheetProvider {
     const p = statePayload?.provider;
     if (p === 'microsoft') return 'microsoft';
@@ -168,11 +201,14 @@ export class HandleSpreadsheetFileSelection {
   private async handleInitialListing(
     userId: string,
     externalId: string,
-    accessToken: string,
     provider: SpreadsheetProvider,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
     try {
-      const files = await this.deps.cloudStorage.listRecentSpreadsheets(accessToken, provider);
+      const files = await executeWithOAuthAccessToken(
+        this.deps.oauthAccessTokenService,
+        { userId, provider },
+        (accessToken) => this.deps.cloudStorage.listRecentSpreadsheets(accessToken, provider),
+      );
 
       if (files.length === 0) {
         const message = onboardingCopies.noFilesFoundPrompt();
@@ -193,6 +229,9 @@ export class HandleSpreadsheetFileSelection {
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'FILE_DISCOVERY_AUTH_ERROR', err);
+      }
       if (err instanceof FileDiscoveryError) {
         this.deps.logger.error({
           endpoint: 'HandleSpreadsheetFileSelection',
@@ -222,10 +261,10 @@ export class HandleSpreadsheetFileSelection {
     userId: string,
     externalId: string,
     channel: 'telegram' | 'whatsapp',
-    accessToken: string,
     provider: SpreadsheetProvider,
     files: CloudFile[],
     choice: number,
+    expected?: ConversationStatePrecondition,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
     const selected = files[choice - 1];
     if (!selected) {
@@ -235,10 +274,12 @@ export class HandleSpreadsheetFileSelection {
     }
 
     try {
-      const hasAccess = await this.deps.cloudStorage.validateFileAccess(
-        selected.id,
-        accessToken,
-        provider,
+      this.deps.transitionState.assertExecutionIsValid?.(userId);
+      const hasAccess = await executeWithOAuthAccessToken(
+        this.deps.oauthAccessTokenService,
+        { userId, provider },
+        (accessToken) =>
+          this.deps.cloudStorage.validateFileAccess(selected.id, accessToken, provider),
       );
 
       if (!hasAccess) {
@@ -246,8 +287,12 @@ export class HandleSpreadsheetFileSelection {
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
+      this.deps.transitionState.assertExecutionIsValid?.(userId);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'FILE_ACCESS_AUTH_ERROR', err);
+      }
       if (err instanceof FileDiscoveryError) {
         this.deps.logger.error({
           endpoint: 'HandleSpreadsheetFileSelection',
@@ -274,9 +319,6 @@ export class HandleSpreadsheetFileSelection {
       return { nextState: 'ONBOARDING_FILE', message };
     }
 
-    const message = onboardingCopies.fileSelectedConfirmation(selected.name);
-    await this.deps.messagingPort.sendMessage(externalId, message);
-
     const payload = {
       selectedFileId: selected.id,
       selectedFileName: selected.name,
@@ -287,7 +329,11 @@ export class HandleSpreadsheetFileSelection {
       userId,
       targetState: 'ONBOARDING_SHEET',
       payload,
+      ...(expected === undefined ? {} : { expected }),
     });
+
+    const message = onboardingCopies.fileSelectedConfirmation(selected.name);
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     await this.triggerSheetSelection(
       userId,
@@ -321,12 +367,15 @@ export class HandleSpreadsheetFileSelection {
   private async handleSearch(
     userId: string,
     externalId: string,
-    accessToken: string,
     provider: SpreadsheetProvider,
     query: string,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
     try {
-      const files = await this.deps.cloudStorage.searchSpreadsheets(accessToken, provider, query);
+      const files = await executeWithOAuthAccessToken(
+        this.deps.oauthAccessTokenService,
+        { userId, provider },
+        (accessToken) => this.deps.cloudStorage.searchSpreadsheets(accessToken, provider, query),
+      );
 
       if (files.length === 0) {
         const message = onboardingCopies.noFilesFoundPrompt();
@@ -347,6 +396,9 @@ export class HandleSpreadsheetFileSelection {
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'FILE_SEARCH_AUTH_ERROR', err);
+      }
       if (err instanceof FileDiscoveryError) {
         this.deps.logger.error({
           endpoint: 'HandleSpreadsheetFileSelection',
@@ -378,16 +430,15 @@ export class HandleSpreadsheetFileSelection {
     userId: string,
     externalId: string,
     channel: 'telegram' | 'whatsapp',
-    accessToken: string,
     provider: SpreadsheetProvider,
     fileId: string,
     rawUrl: string,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
     try {
-      const hasAccess = await this.deps.cloudStorage.validateFileAccess(
-        fileId,
-        accessToken,
-        provider,
+      const hasAccess = await executeWithOAuthAccessToken(
+        this.deps.oauthAccessTokenService,
+        { userId, provider },
+        (accessToken) => this.deps.cloudStorage.validateFileAccess(fileId, accessToken, provider),
       );
 
       if (!hasAccess) {
@@ -397,6 +448,9 @@ export class HandleSpreadsheetFileSelection {
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'URL_ACCESS_AUTH_ERROR', err);
+      }
       if (err instanceof FileDiscoveryError) {
         this.deps.logger.error({
           endpoint: 'HandleSpreadsheetFileSelection',

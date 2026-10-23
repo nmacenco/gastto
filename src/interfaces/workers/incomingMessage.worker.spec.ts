@@ -11,6 +11,7 @@ import type { RouteIncomingMessage } from '../../application/use-cases/conversat
 import type { IncomingMessageJobData } from '../../application/ports/IncomingMessageJob';
 import type { NormalizedPayload } from '../../domain/ports/messaging';
 import { processIncomingMessageJob, createIncomingMessageWorker } from './incomingMessage.worker';
+import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 
 vi.mock('bullmq', () => ({
   Worker: vi.fn().mockImplementation(() => {
@@ -58,6 +59,7 @@ describe('processIncomingMessageJob', () => {
       text: 'Cafe con leche 850',
       timestamp: '2026-05-20T12:00:00.000Z',
       channel: 'telegram',
+      externalMessageId: '42',
     };
 
     const mockJob = { data: jobData } as Job<IncomingMessageJobData>;
@@ -72,6 +74,7 @@ describe('processIncomingMessageJob', () => {
       userId: '999',
       text: 'Cafe con leche 850',
       channel: 'telegram',
+      externalMessageId: '42',
     });
     expect(normalizedPayload.timestamp).toBeInstanceOf(Date);
     expect(normalizedPayload.timestamp.toISOString()).toBe('2026-05-20T12:00:00.000Z');
@@ -84,6 +87,7 @@ describe('processIncomingMessageJob', () => {
       chatId: '123456789',
       timestamp: '2026-05-20T12:00:00.000Z',
       channel: 'telegram',
+      externalMessageId: '42',
       rawPayload,
     };
 
@@ -106,6 +110,7 @@ describe('processIncomingMessageJob', () => {
             text,
             timestamp: `2026-05-20T12:0${index}:00.000Z`,
             channel: 'telegram',
+            externalMessageId: `message-${index}`,
           },
         }) as Job<IncomingMessageJobData>,
     );
@@ -129,6 +134,7 @@ describe('processIncomingMessageJob', () => {
       chatId: '123456789',
       timestamp: '2026-05-20T12:00:00.000Z',
       channel: 'telegram',
+      externalMessageId: '42',
     };
 
     const mockJob = { data: jobData, id: 'job-42' } as Job<IncomingMessageJobData>;
@@ -136,6 +142,17 @@ describe('processIncomingMessageJob', () => {
     await expect(
       processIncomingMessageJob(mockJob, buildMockRouteIncomingMessage()),
     ).rejects.toThrow('Routing failed');
+  });
+
+  it('rejects malformed and unknown job fields before routing', async () => {
+    const job = {
+      data: { messageType: 'INVALID', unexpected: true },
+    } as unknown as Job<IncomingMessageJobData>;
+
+    await expect(processIncomingMessageJob(job, buildMockRouteIncomingMessage())).rejects.toThrow(
+      InvalidJobPayloadError,
+    );
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });
 
@@ -145,7 +162,7 @@ describe('createIncomingMessageWorker', () => {
     mockExecute.mockResolvedValue(undefined);
   });
 
-  it('creates a Worker with concurrency: 1', () => {
+  it('creates a Worker with concurrency: 1 and drainDelay: 30', () => {
     createIncomingMessageWorker({
       redis: buildMockRedis(),
       routeIncomingMessage: buildMockRouteIncomingMessage(),
@@ -157,9 +174,10 @@ describe('createIncomingMessageWorker', () => {
     const [, , opts] = WorkerMock.mock.calls[0] as unknown as [
       unknown,
       unknown,
-      { concurrency: number },
+      { concurrency: number; drainDelay: number },
     ];
     expect(opts.concurrency).toBe(1);
+    expect(opts.drainDelay).toBe(30);
   });
 
   it('processor delegates to processIncomingMessageJob', async () => {
@@ -181,6 +199,7 @@ describe('createIncomingMessageWorker', () => {
       chatId: '123',
       timestamp: '2026-05-20T12:00:00.000Z',
       channel: 'telegram',
+      externalMessageId: '42',
     };
     const mockJob = { data: jobData } as Job<IncomingMessageJobData>;
 
@@ -188,7 +207,7 @@ describe('createIncomingMessageWorker', () => {
     expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
-  it('logs structured error on worker failed events', () => {
+  it('logs retryable worker failures with the attempt and sanitized cause', () => {
     const mockLogger = buildMockLogger();
 
     const worker = createIncomingMessageWorker({
@@ -197,8 +216,13 @@ describe('createIncomingMessageWorker', () => {
       logger: mockLogger,
     });
 
-    const mockJob = { id: 'job-99', data: { messageType: 'TEXT' } } as Job<IncomingMessageJobData>;
-    const error = new Error('Queue connection lost');
+    const mockJob = {
+      id: 'job-99',
+      attemptsMade: 1,
+      opts: { attempts: 3 },
+      data: { messageType: 'TEXT' },
+    } as Job<IncomingMessageJobData>;
+    const error = new Error('redis://user:password@example.test:6379 connection lost');
 
     // Simulate BullMQ emitting the 'failed' event
     (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
@@ -209,10 +233,73 @@ describe('createIncomingMessageWorker', () => {
 
     expect(mockLoggerError).toHaveBeenCalledTimes(1);
     expect(mockLoggerError).toHaveBeenCalledWith({
-      msg: 'Incoming message worker failed permanently',
+      msg: 'Incoming message worker failed; retry scheduled',
       jobId: 'job-99',
+      queue: 'incoming-message',
+      code: 'JOB_FAILED',
+      attemptsMade: 1,
+      maxAttempts: 3,
+      errorType: 'Error',
+      error: '[REDACTED] connection lost',
+    });
+  });
+
+  it('logs the final worker failure with the attempt and cause', () => {
+    const mockLogger = buildMockLogger();
+
+    const worker = createIncomingMessageWorker({
+      redis: buildMockRedis(),
+      routeIncomingMessage: buildMockRouteIncomingMessage(),
+      logger: mockLogger,
+    });
+
+    const mockJob = {
+      id: 'job-100',
+      attemptsMade: 3,
+      opts: { attempts: 3 },
       data: { messageType: 'TEXT' },
-      error: 'Queue connection lost',
+    } as Job<IncomingMessageJobData>;
+    const error = new Error('Routing failed');
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'failed',
+      mockJob,
+      error,
+    );
+
+    expect(mockLoggerError).toHaveBeenCalledWith({
+      msg: 'Incoming message worker failed permanently',
+      jobId: 'job-100',
+      queue: 'incoming-message',
+      code: 'JOB_FAILED',
+      attemptsMade: 3,
+      maxAttempts: 3,
+      errorType: 'Error',
+      error: 'Routing failed',
+    });
+  });
+
+  it('logs a sanitized structured error once on worker error events', () => {
+    const worker = createIncomingMessageWorker({
+      redis: buildMockRedis(),
+      routeIncomingMessage: buildMockRouteIncomingMessage(),
+      logger: buildMockLogger(),
+    });
+    const error = Object.assign(new Error('Connection lost'), { code: 'ECONNRESET' });
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'error',
+      error,
+    );
+
+    expect(mockLoggerError).toHaveBeenCalledOnce();
+    expect(mockLoggerError).toHaveBeenCalledWith({
+      msg: 'BullMQ worker error',
+      endpoint: 'bullmq',
+      code: 'BULLMQ_WORKER_ERROR',
+      queue: 'incoming-message',
+      error: 'Connection lost',
+      causeCode: 'ECONNRESET',
     });
   });
 });

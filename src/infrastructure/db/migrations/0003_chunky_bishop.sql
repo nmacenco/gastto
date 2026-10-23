@@ -1,0 +1,1 @@
+ALTER TABLE "oauth_tokens" ADD COLUMN "refresh_iv" "bytea" NOT NULL;

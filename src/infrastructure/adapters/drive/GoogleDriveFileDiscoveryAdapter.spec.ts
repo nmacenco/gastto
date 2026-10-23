@@ -111,7 +111,6 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
           endpoint: 'GoogleDriveFileDiscovery',
           code: 'DRIVE_API_ERROR',
           status: 401,
-          errorBody: { error: 'unauthorized' },
         }),
       );
     });
@@ -194,14 +193,15 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
       expect(init.headers).toEqual({ Authorization: 'Bearer token' });
     });
 
-    it('returns false on HTTP 403', async () => {
+    it('classifies HTTP 403 as an authorization failure', async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 403,
       });
 
-      const result = await adapter.validateFileAccess('file-123', 'token', 'google');
-      expect(result).toBe(false);
+      await expect(adapter.validateFileAccess('file-123', 'token', 'google')).rejects.toMatchObject(
+        { code: 'AUTH_ERROR', retryable: false },
+      );
     });
 
     it('returns false on HTTP 404', async () => {
@@ -227,16 +227,15 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
         json: () => Promise.resolve({ error: 'internal_error' }),
       });
 
-      await expect(
-        adapter.validateFileAccess('file-123', 'token', 'google'),
-      ).rejects.toBeInstanceOf(FileDiscoveryError);
+      await expect(adapter.validateFileAccess('file-123', 'token', 'google')).rejects.toMatchObject(
+        { code: 'NETWORK_ERROR', retryable: true },
+      );
 
       expect(mockLoggerError).toHaveBeenCalledWith(
         expect.objectContaining({
           endpoint: 'GoogleDriveFileDiscovery',
           code: 'DRIVE_API_ERROR',
           status: 500,
-          errorBody: { error: 'internal_error' },
         }),
       );
     });

@@ -5,12 +5,19 @@
 // No imports of Drizzle, postgres, or any ORM here.
 
 import type { User, MessagingIdentity } from '../entities/User';
-import type { ConversationState, ExpenseQueueItem } from '../entities/ConversationState';
+import type {
+  ConversationState,
+  ConversationStatePrecondition,
+  ConversationStateWriteResult,
+  ExpenseQueueItem,
+} from '../entities/ConversationState';
 import type { ExpenseRecord } from '../entities/ExpenseRecord';
 import type {
   SpreadsheetConfig,
   ColumnMapping,
+  GasttoField,
   UserCategory,
+  UserSubcategory,
   OAuthToken,
 } from '../entities/SpreadsheetConfig';
 import type {
@@ -18,6 +25,7 @@ import type {
   MappingCorrectionStatus,
 } from '../value-objects/ColumnMappingCorrectionState';
 import type { OperationLog, OperationType, ErrorType } from '../entities/OperationLog';
+import type { CategoryVocabulary } from '../entities/CategoryVocabulary';
 
 // ── Usuario ─────────────────────────────────────────────────────────────────
 
@@ -49,16 +57,18 @@ export interface IUserRepository {
 export interface IConversationStateRepository {
   findByUserId(userId: string): Promise<ConversationState | null>;
 
-  // Crea el estado inicial IDLE para un usuario recién creado
+  // Idempotently creates the initial IDLE state without resetting an existing row.
   create(userId: string): Promise<ConversationState>;
 
-  // Actualiza estado y payload en una sola operación atómica
-  transition(
-    userId: string,
-    nextState: ConversationState['currentState'],
-    payload: Record<string, unknown> | null,
-    expiresAt: Date | null,
-  ): Promise<ConversationState>;
+  // Optimistic state mutation. Every writer must present the snapshot it observed.
+  transition(input: {
+    userId: string;
+    expected: ConversationStatePrecondition;
+    nextState: ConversationState['currentState'];
+    payload: Record<string, unknown> | null;
+    expiresAt: Date | null;
+    claimId?: string;
+  }): Promise<ConversationStateWriteResult>;
 
   // Encuentra estados expirados (para el job BullMQ de timeout)
   findExpired(): Promise<ConversationState[]>;
@@ -73,7 +83,7 @@ export interface IExpenseQueueRepository {
     rawMessage: string,
     channel: 'telegram' | 'whatsapp',
   ): Promise<ExpenseQueueItem>;
-  dequeueFirst(userId: string): Promise<ExpenseQueueItem | null>;
+  dequeueFirst(userId: string, expectedItemId: string): Promise<ExpenseQueueItem | null>;
   countByUserId(userId: string): Promise<number>;
   clearByUserId(userId: string): Promise<void>;
 }
@@ -105,12 +115,20 @@ export interface ISpreadsheetConfigRepository {
   create(
     config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<SpreadsheetConfig>;
+  upsertByUserId(
+    config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<SpreadsheetConfig>;
   updateAccessVerified(id: string): Promise<void>;
+  updateCategoriesConfirmed(id: string): Promise<void>;
 }
 
 export interface IColumnMappingRepository {
   findBySpreadsheetId(spreadsheetId: string): Promise<ColumnMapping[]>;
   upsertMany(mappings: Omit<ColumnMapping, 'id'>[]): Promise<void>;
+  replaceBySpreadsheetId(
+    spreadsheetId: string,
+    mappings: Omit<ColumnMapping, 'id' | 'spreadsheetId'>[],
+  ): Promise<void>;
   confirm(id: string): Promise<void>;
 
   // Marks every mapping for a spreadsheet as confirmed (e.g. user said "yes"/"ok")
@@ -125,7 +143,13 @@ export interface IColumnMappingRepository {
 export interface MappingCorrectionStateSnapshot {
   originalMapping: ColumnMapping[];
   corrections: MappingCorrection[];
+  unmappedFields?: GasttoField[];
   status: MappingCorrectionStatus;
+  proposalId?: string;
+  spreadsheetId?: string;
+  provider?: SpreadsheetConfig['provider'];
+  fileId?: string;
+  sheetName?: string;
 }
 
 export interface IMappingCorrectionStateRepository {
@@ -136,8 +160,19 @@ export interface IMappingCorrectionStateRepository {
 
 export interface IUserCategoryRepository {
   findActiveBySpreadsheetId(spreadsheetId: string): Promise<UserCategory[]>;
-  upsertMany(categories: Omit<UserCategory, 'id' | 'createdAt'>[]): Promise<void>;
+  upsertMany(categories: Omit<UserCategory, 'createdAt'>[]): Promise<void>;
   incrementUsage(id: string): Promise<void>;
+}
+
+export interface IUserSubcategoryRepository {
+  findActiveByCategoryId(categoryId: string): Promise<UserSubcategory[]>;
+  upsertMany(subcategories: Omit<UserSubcategory, 'createdAt'>[]): Promise<void>;
+  incrementUsage(id: string): Promise<void>;
+}
+
+export interface ICategoryVocabularyRepository {
+  findBySpreadsheetId(spreadsheetId: string): Promise<CategoryVocabulary | null>;
+  save(vocabulary: CategoryVocabulary): Promise<void>;
 }
 
 // ── Registros de gasto ────────────────────────────────────────────────────────
@@ -148,8 +183,18 @@ export interface IExpenseRecordRepository {
   // Último registro no eliminado del usuario (para deshacer — E1-US-11)
   findLatestByUserId(userId: string): Promise<ExpenseRecord | null>;
 
+  // Distinct currencies recently used by the user, ordered by most recent (E1-US-05)
+  findRecentCurrenciesByUserId(userId: string, limit: number): Promise<ExpenseRecord['moneda'][]>;
+
+  // Average amount of non-deleted expenses for the user, or null if no history (E1-US-06)
+  findAverageAmountByUserId(userId: string): Promise<number | null>;
+
   // Soft delete (ADR-006): marca is_deleted = true, deleted_at = now()
   softDelete(id: string): Promise<void>;
+
+  // Keeps the local undo mutation and its audit record consistent after the
+  // spreadsheet provider has confirmed the external deletion.
+  softDeleteWithAudit(id: string, userId: string, payload: Record<string, unknown>): Promise<void>;
 }
 
 // ── Auditoría ─────────────────────────────────────────────────────────────────

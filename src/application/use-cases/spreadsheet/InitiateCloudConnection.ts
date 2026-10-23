@@ -18,6 +18,7 @@ export interface InitiateCloudConnectionInput {
   rawMessage: string;
   externalId: string;
   channel: 'telegram' | 'whatsapp';
+  reauthorizationOnly?: boolean;
 }
 
 export interface InitiateCloudConnectionOutput {
@@ -39,7 +40,7 @@ export interface InitiateCloudConnectionDeps {
 function parseProviderChoice(raw: string): 'google' | 'onedrive' | 'invalid' {
   const normalized = raw.toLowerCase().trim().replace(/\s+/g, ' ');
 
-  const googleVariants = ['1', 'google drive', 'google', 'drive', 'gdrive'];
+  const googleVariants = ['1', 'google drive', 'google', 'drive', 'gdrive', 'empezar'];
   const onedriveVariants = ['2', 'onedrive', 'one drive', 'microsoft', 'office365', 'office 365'];
 
   if (googleVariants.includes(normalized)) return 'google';
@@ -86,20 +87,33 @@ export class InitiateCloudConnection {
 
     const reminderJobId = reminderJob.id ?? `fallback-${Date.now()}`;
 
+    const transition = await this.deps.transitionState.execute({
+      userId,
+      targetState: 'ONBOARDING_DRIVE',
+      payload: {
+        provider: 'google',
+        state,
+        ...(input.reauthorizationOnly ? { reauthorizationOnly: true } : {}),
+      },
+    });
+    if (transition.status !== 'updated')
+      throw new Error('OAuth state transition was not committed');
+
     await this.deps.redis.setex(
       `oauth:state:${state}`,
-      15 * 60, // 15 minutes
-      JSON.stringify({ userId, provider: 'google', externalId, channel, reminderJobId }),
+      15 * 60,
+      JSON.stringify({
+        userId,
+        provider: 'google',
+        externalId,
+        channel,
+        reminderJobId,
+        revision: transition.state.revision,
+      }),
     );
 
     const message = onboardingCopies.authLink(authUrl);
     await this.deps.messagingPort.sendMessage(externalId, message);
-
-    await this.deps.transitionState.execute({
-      userId,
-      targetState: 'ONBOARDING_DRIVE',
-      payload: { provider: 'google', state },
-    });
 
     return {
       nextState: 'ONBOARDING_DRIVE',

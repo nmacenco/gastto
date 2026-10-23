@@ -20,6 +20,11 @@ describe('MessageType', () => {
     expect(type).toBe('MALFORMED');
   });
 
+  it('accepts "CALLBACK" as a valid value', () => {
+    const type: MessageType = 'CALLBACK';
+    expect(type).toBe('CALLBACK');
+  });
+
   it('narrows correctly in a switch statement', () => {
     function getLabel(type: MessageType): string {
       switch (type) {
@@ -29,6 +34,8 @@ describe('MessageType', () => {
           return 'unsupported';
         case 'MALFORMED':
           return 'malformed';
+        case 'CALLBACK':
+          return 'callback';
         default:
           // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
           return `unknown: ${type}`;
@@ -38,5 +45,6 @@ describe('MessageType', () => {
     expect(getLabel('TEXT')).toBe('text message');
     expect(getLabel('UNSUPPORTED')).toBe('unsupported');
     expect(getLabel('MALFORMED')).toBe('malformed');
+    expect(getLabel('CALLBACK')).toBe('callback');
   });
 });

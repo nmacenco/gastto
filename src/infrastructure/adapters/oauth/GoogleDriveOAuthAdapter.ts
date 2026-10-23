@@ -12,6 +12,8 @@ import { InvalidProviderError } from '../../../domain/errors/InvalidProviderErro
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+const GOOGLE_OAUTH_SCOPES = [DRIVE_READONLY_SCOPE, GOOGLE_SHEETS_SCOPE].join(' ');
 
 export interface GoogleDriveOAuthAdapterConfig {
   clientId: string;
@@ -31,7 +33,7 @@ export class GoogleDriveOAuthAdapter implements OAuthServicePort {
       client_id: this.config.clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: DRIVE_READONLY_SCOPE,
+      scope: GOOGLE_OAUTH_SCOPES,
       access_type: 'offline',
       prompt: 'consent',
       state,
@@ -105,11 +107,18 @@ export class GoogleDriveOAuthAdapter implements OAuthServicePort {
     };
   }
 
-  async refreshToken(refreshToken: string): Promise<{
+  async refreshAccessToken(
+    provider: SpreadsheetProvider,
+    refreshToken: string,
+  ): Promise<{
     accessToken: string;
     expiresAt: Date;
     scope: string[];
   }> {
+    if (provider !== 'google') {
+      throw new InvalidProviderError(provider);
+    }
+
     const body = new URLSearchParams({
       refresh_token: refreshToken,
       client_id: this.config.clientId,
@@ -139,6 +148,9 @@ export class GoogleDriveOAuthAdapter implements OAuthServicePort {
 
     if (!response.ok) {
       const errorCode = extractGoogleErrorCode(data);
+      if (errorCode === 'invalid_grant') {
+        throw new OAuthDeniedError('Google OAuth refresh credential was rejected');
+      }
       throw new OAuthNetworkError(
         `Google OAuth refresh error (${errorCode}): HTTP ${response.status}`,
       );

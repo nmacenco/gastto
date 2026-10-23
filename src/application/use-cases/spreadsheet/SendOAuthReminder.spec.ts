@@ -1,6 +1,6 @@
 // LAYER: Application / Tests
 // Unit tests for SendOAuthReminder use case.
-// Mocks OAuthServicePort, IOAuthTokenRepository, Redis, BullMQ Queue,
+// Mocks OAuthServicePort, OAuthAccessTokenProvider, Redis, BullMQ Queue,
 // TransitionConversationState, and MessagingOutputPort.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -9,14 +9,19 @@ import {
   type SendOAuthReminderDeps,
   type SendOAuthReminderInput,
 } from './SendOAuthReminder';
-import type { IOAuthTokenRepository } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { Redis } from 'ioredis';
 import type { Queue, Job } from 'bullmq';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import type {
+  ConversationState,
+  ConversationStateExpiryPrecondition,
+} from '../../../domain/entities/ConversationState';
 
 const mockBuildAuthUrl = vi.fn();
-const mockTokenFind = vi.fn();
+const mockGetValidAccessToken = vi.fn();
+const mockForceRefreshAccessToken = vi.fn();
 const mockConversationFind = vi.fn();
 const mockRedisSetex = vi.fn().mockResolvedValue('OK');
 const mockQueueAdd = vi.fn();
@@ -29,13 +34,27 @@ function buildMockDeps(overrides: Partial<SendOAuthReminderDeps> = {}): SendOAut
     oauthService: {
       buildAuthUrl: mockBuildAuthUrl,
       exchangeCode: vi.fn(),
+      refreshAccessToken: vi.fn(),
     },
-    tokenRepository: { findByUserAndProvider: mockTokenFind } as unknown as IOAuthTokenRepository,
+    oauthAccessTokenService: {
+      getValidAccessToken: mockGetValidAccessToken,
+      forceRefreshAccessToken: mockForceRefreshAccessToken,
+    },
     conversationRepo: {
       findByUserId: mockConversationFind,
     } as unknown as SendOAuthReminderDeps['conversationRepo'],
     reminderQueue: { add: mockQueueAdd } as unknown as Queue,
-    transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
+    transitionState: {
+      execute: mockTransitionExecute,
+      precondition: (
+        state: ConversationState,
+        expiry: ConversationStateExpiryPrecondition = 'any',
+      ) => ({
+        revision: state.revision,
+        currentState: state.currentState,
+        expiry,
+      }),
+    } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
     generateState: () => 'fresh-state-789',
     ...overrides,
@@ -52,30 +71,47 @@ const baseInput: SendOAuthReminderInput = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetValidAccessToken.mockRejectedValue(
+    new SpreadsheetError('No token', { code: 'AUTH_ERROR' }),
+  );
   mockBuildAuthUrl.mockReturnValue(
     'https://accounts.google.com/o/oauth2/v2/auth?state=fresh-state-789',
   );
   mockQueueAdd.mockResolvedValue({ id: 'job-789' } as Job);
   mockConversationFind.mockResolvedValue({
     userId: 'user-123',
+    revision: '0',
     currentState: 'ONBOARDING_DRIVE',
     statePayload: null,
     enteredAt: new Date(),
     expiresAt: null,
     updatedAt: new Date(),
   });
+  mockTransitionExecute.mockResolvedValue({
+    status: 'updated',
+    state: {
+      userId: 'user-123',
+      revision: '1',
+      currentState: 'ONBOARDING_DRIVE',
+      statePayload: { provider: 'google', state: 'fresh-state-789' },
+      enteredAt: new Date(),
+      expiresAt: null,
+      updatedAt: new Date(),
+    },
+  });
 });
 
 describe('SendOAuthReminder', () => {
   describe('reminder sent with fresh state', () => {
     it('generates new state, stores in Redis, schedules job, updates FSM payload, and sends message', async () => {
-      mockTokenFind.mockResolvedValue(null);
-
       const deps = buildMockDeps();
       const useCase = new SendOAuthReminder(deps);
       const result = await useCase.execute(baseInput);
 
-      expect(mockTokenFind).toHaveBeenCalledWith('user-123', 'google');
+      expect(mockGetValidAccessToken).toHaveBeenCalledWith({
+        userId: 'user-123',
+        provider: 'google',
+      });
       expect(mockBuildAuthUrl).toHaveBeenCalledWith(
         'google',
         'fresh-state-789',
@@ -95,12 +131,14 @@ describe('SendOAuthReminder', () => {
           externalId: '987654321',
           channel: 'telegram',
           reminderJobId: 'job-789',
+          revision: '1',
         }),
       );
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_DRIVE',
         payload: { provider: 'google', state: 'fresh-state-789' },
+        expected: { revision: '0', currentState: 'ONBOARDING_DRIVE', expiry: 'any' },
       });
       expect(mockSendMessage).toHaveBeenCalledWith(
         '987654321',
@@ -120,7 +158,11 @@ describe('SendOAuthReminder', () => {
 
   describe('tokens already exist', () => {
     it('skips reminder and returns empty message with no side effects', async () => {
-      mockTokenFind.mockResolvedValue({ id: 'token-123' });
+      mockGetValidAccessToken.mockResolvedValue({
+        accessToken: 'active-access-token',
+        expiresAt: new Date(Date.now() + 60_000),
+        refreshed: false,
+      });
 
       const deps = buildMockDeps();
       const useCase = new SendOAuthReminder(deps);
@@ -138,7 +180,6 @@ describe('SendOAuthReminder', () => {
 
   describe('stale reminder', () => {
     it('skips when user is no longer in ONBOARDING_DRIVE', async () => {
-      mockTokenFind.mockResolvedValue(null);
       mockConversationFind.mockResolvedValue({
         userId: 'user-123',
         currentState: 'IDLE',
@@ -164,7 +205,6 @@ describe('SendOAuthReminder', () => {
 
   describe('fallback job id when BullMQ returns undefined id', () => {
     it('uses a fallback job id when BullMQ job id is missing', async () => {
-      mockTokenFind.mockResolvedValue(null);
       mockQueueAdd.mockResolvedValue({ id: undefined });
 
       const deps = buildMockDeps();
@@ -180,7 +220,6 @@ describe('SendOAuthReminder', () => {
 
   describe('buildAuthUrl failure', () => {
     it('propagates error and performs no side effects', async () => {
-      mockTokenFind.mockResolvedValue(null);
       mockBuildAuthUrl.mockImplementation(() => {
         throw new Error('Invalid provider');
       });
@@ -199,7 +238,6 @@ describe('SendOAuthReminder', () => {
 
   describe('BullMQ queue.add failure', () => {
     it('propagates error and does not call Redis, transition, or messaging', async () => {
-      mockTokenFind.mockResolvedValue(null);
       mockQueueAdd.mockRejectedValue(new Error('Queue unreachable'));
 
       const deps = buildMockDeps();

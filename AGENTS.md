@@ -24,6 +24,36 @@ pnpm db:migrate       # Run pending migrations
 pnpm db:studio        # Open Drizzle Studio
 ```
 
+# Codebase Knowledge Graph (codebase-memory-mcp)
+
+This project uses codebase-memory-mcp to maintain a knowledge graph of the codebase.
+Use it for structural discovery and relationships. If the exact path is already known,
+read the source directly.
+
+## Token-efficient decision order
+
+1. Known path → direct read of the relevant range.
+2. Unknown symbol → narrow `search_graph` (`limit: 5-10`; add path/label filters).
+3. Callers, callees, or impact → `trace_path` after resolving the exact symbol; start
+   with one direction and `depth: 1-2`.
+4. Exact implementation → `get_code_snippet`; omit neighbors unless needed.
+5. Complex relationships → bounded `query_graph`.
+6. Broad architecture request → scoped `get_architecture`.
+
+Use `rg`/direct reads for literals, errors, config, non-code files, docs, known tests,
+insufficient graph results, and reported coverage gaps.
+
+## Default evidence level
+
+- Default to **Scout**: small positive lookup, no full pagination.
+- Use **Verify** for material cross-file claims; **Auditor** only when exhaustive analysis
+  is requested.
+- Run `list_projects`/`index_status` only before the session's first graph query, after
+  compaction, or when freshness matters.
+- Run `check_index_coverage` once for graph-discovered material code paths. Add scopes
+  only for negative/exhaustive claims; inspect any reported gaps directly.
+- Source is authoritative. Do not fetch the same code through both graph and direct reads.
+
 # Architecture
 
 See `docs/adr/adr.md` for the full Architecture Decision Records (ADRs) covering the stack, patterns, and runtime choices.

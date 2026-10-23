@@ -5,6 +5,9 @@
 // respond 200 to Telegram without propagating exceptions.
 
 import type { NormalizedPayload } from '../../../domain/ports/messaging';
+import { parseExpenseReviewCallback } from '../../../domain/value-objects/expense-review-callback';
+
+export type TelegramChatScope = 'private' | 'non-private' | 'unknown' | 'not-applicable';
 
 /**
  * Validates whether a value is a non-null object.
@@ -14,15 +17,61 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Classifies the chat scope from an already authenticated Telegram update.
+ * This deliberately performs only structural inspection; payload normalization
+ * remains the responsibility of parseTelegramPayload.
+ */
+export function getTelegramChatScope(payload: unknown): TelegramChatScope {
+  if (!isObject(payload)) {
+    return 'not-applicable';
+  }
+
+  const message = isObject(payload.message) ? payload.message : undefined;
+  const callbackQuery = isObject(payload.callback_query) ? payload.callback_query : undefined;
+  const callbackMessage =
+    callbackQuery && isObject(callbackQuery.message) ? callbackQuery.message : undefined;
+  const candidate = message ?? callbackMessage;
+
+  if (candidate === undefined) {
+    return callbackQuery === undefined ? 'not-applicable' : 'unknown';
+  }
+
+  const chat = candidate.chat;
+  if (!isObject(chat) || typeof chat.type !== 'string') {
+    return 'unknown';
+  }
+
+  if (chat.type === 'private') {
+    return 'private';
+  }
+
+  if (chat.type === 'group' || chat.type === 'supergroup' || chat.type === 'channel') {
+    return 'non-private';
+  }
+
+  return 'unknown';
+}
+
+type TelegramMessageLike = {
+  message_id: number | string;
+  chat: { id: number | string };
+  from?: { id: number | string } | undefined;
+  text?: string | undefined;
+  date: number;
+};
+
+type TelegramCallbackQueryLike = {
+  id: string;
+  from: { id: number | string };
+  message?: TelegramMessageLike | undefined;
+  data?: string | undefined;
+};
+
+/**
  * Checks whether the given payload looks like a Telegram Update with a message.
  */
 function looksLikeTelegramUpdate(payload: unknown): payload is {
-  message: {
-    chat: { id: number | string };
-    from?: { id: number | string } | undefined;
-    text?: string | undefined;
-    date: number;
-  };
+  message: TelegramMessageLike;
 } {
   if (!isObject(payload)) {
     return false;
@@ -30,6 +79,11 @@ function looksLikeTelegramUpdate(payload: unknown): payload is {
 
   const message = payload.message;
   if (!isObject(message)) {
+    return false;
+  }
+
+  const messageId = message.message_id;
+  if (typeof messageId !== 'number' && typeof messageId !== 'string') {
     return false;
   }
 
@@ -66,14 +120,120 @@ function extractUserId(from: unknown): string | undefined {
 }
 
 /**
+ * Checks whether the given payload looks like a Telegram Update with a callback query.
+ */
+function looksLikeTelegramCallbackQuery(payload: unknown): payload is {
+  callback_query: TelegramCallbackQueryLike;
+} {
+  if (!isObject(payload)) {
+    return false;
+  }
+
+  const callbackQuery = payload.callback_query;
+  if (!isObject(callbackQuery)) {
+    return false;
+  }
+
+  const id = callbackQuery.id;
+  if (typeof id !== 'string') {
+    return false;
+  }
+
+  const from = callbackQuery.from;
+  if (!isObject(from)) {
+    return false;
+  }
+
+  const fromId = from.id;
+  if (typeof fromId !== 'number' && typeof fromId !== 'string') {
+    return false;
+  }
+
+  const data = callbackQuery.data;
+  if (typeof data !== 'string') {
+    return false;
+  }
+
+  const message = callbackQuery.message;
+  if (message !== undefined && !looksLikeTelegramMessage(message)) {
+    return false;
+  }
+
+  return true;
+}
+
+function looksLikeTelegramMessage(message: unknown): message is TelegramMessageLike {
+  if (!isObject(message)) {
+    return false;
+  }
+
+  const messageId = message.message_id;
+  if (typeof messageId !== 'number' && typeof messageId !== 'string') {
+    return false;
+  }
+
+  const chat = message.chat;
+  if (!isObject(chat)) {
+    return false;
+  }
+
+  const chatId = chat.id;
+  if (typeof chatId !== 'number' && typeof chatId !== 'string') {
+    return false;
+  }
+
+  const date = message.date;
+  if (typeof date !== 'number') {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Parses a raw Telegram webhook payload into a domain NormalizedPayload.
  *
  * Rules:
- *   - Valid text message  → messageType: 'TEXT'
- *   - Valid payload, no text (photo, audio, sticker, etc.) → messageType: 'UNSUPPORTED'
- *   - Anything else       → messageType: 'MALFORMED'
+ *   - Valid text message      → messageType: 'TEXT'
+ *   - Valid callback query    → messageType: 'CALLBACK'
+ *   - Valid payload, no text or unknown callback data → messageType: 'UNSUPPORTED'
+ *   - Anything else           → messageType: 'MALFORMED'
  */
 export function parseTelegramPayload(payload: unknown): NormalizedPayload {
+  if (looksLikeTelegramCallbackQuery(payload)) {
+    const callbackQuery = payload.callback_query;
+    const message = callbackQuery.message;
+    const chatId = message !== undefined ? String(message.chat.id) : 'unknown';
+    const externalMessageId = callbackQuery.id;
+    const userId = extractUserId(callbackQuery.from);
+    // Telegram callbacks do not carry their occurrence time. Use receipt time,
+    // never the timestamp of the older message that owns the keyboard.
+    const timestamp = new Date();
+    const callbackData = parseExpenseReviewCallback(callbackQuery.data as string);
+
+    if (callbackData === null) {
+      return {
+        messageType: 'UNSUPPORTED',
+        chatId,
+        userId,
+        timestamp,
+        channel: 'telegram',
+        externalMessageId,
+      };
+    }
+
+    return {
+      messageType: 'CALLBACK',
+      chatId,
+      userId,
+      callbackData,
+      timestamp,
+      channel: 'telegram',
+      externalMessageId,
+      rawPayload: payload,
+    };
+  }
+
   if (!looksLikeTelegramUpdate(payload)) {
     return {
       messageType: 'MALFORMED',
@@ -86,6 +246,7 @@ export function parseTelegramPayload(payload: unknown): NormalizedPayload {
 
   const { message } = payload;
   const chatId = String(message.chat.id);
+  const externalMessageId = String(message.message_id);
   const userId = extractUserId(message.from);
   const timestamp = new Date(message.date * 1000);
 
@@ -101,6 +262,7 @@ export function parseTelegramPayload(payload: unknown): NormalizedPayload {
       userId,
       timestamp,
       channel: 'telegram',
+      externalMessageId,
     };
   }
 
@@ -111,5 +273,6 @@ export function parseTelegramPayload(payload: unknown): NormalizedPayload {
     text,
     timestamp,
     channel: 'telegram',
+    externalMessageId,
   };
 }

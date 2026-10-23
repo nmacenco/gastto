@@ -1,0 +1,244 @@
+# Feature: Semantic Router Evaluation
+
+## Purpose
+
+Evaluate ADR-023's constrained proposals through reproducible offline checks and explicitly budgeted OpenAI calls, without enabling chatbot routing or business effects.
+
+## Behavior (Implemented)
+
+- `pnpm eval:semantic-router` runs 12 development smoke cases without credentials, dotenv, network, database, queues, messaging, or spreadsheet operations.
+- The provider-neutral `SemanticRouterPort` accepts a bounded message, FSM state/substep, caller-narrowed action list, and a strict context projection. Domain types have no validation-library dependency.
+- Strict Zod schemas reject unknown fields/actions, invalid dates/currencies, oversized inputs, duplicate positions and caller attempts to widen the policy. Source text is preserved, including the Mercadona notification's newlines and non-breaking space.
+- The `semantic-policy-v3` policy enumerates every current FSM state. Normal input steps support expense proposals, missing-data replies, review corrections, validated correction-state cancellation proposals, file/sheet selections, and request-only recovery. Unknown substeps and processing-only/unsupported states reject semantic input. Sheet `idk` permits selection; `empty-sheet-confirm` and bound undo confirmation permit guidance only. Other onboarding configuration states remain unsupported.
+- A valid proposal outside the input allowlist produces `forbidden_action`, distinct from `router_failure/INVALID_OUTPUT`. No proposal constitutes authority to execute an operation.
+- The offline adapter reads a separate response map keyed by message/state/substep hash and never accesses expected labels. Its results measure protocol fixture agreement, not model accuracy.
+- Cases identify language, protocol rejection/failure, or deterministic-only handling. Reports compare relevant decision fields, including clarification reasons and selector strings. Zero denominators are null.
+- Baseline observation runs current pure classifiers. For `IDLE`/`EXPENSE_RECEIVING` it reports actual ingress admission or guidance, including command bypass. For normal review text it observes explicit confirmation/cancellation; remaining model-dependent replies and unsupported scopes are not evaluated. It does not claim complete worker simulation or baseline semantic accuracy.
+- A source hash identifies the current lexical helper/dispatch files used for baseline interpretation. Reports include dataset, contract, policy and fixture-router versions, per-scope checks, baseline coverage and mismatch IDs.
+- Raw messages, selectors, model reasoning and provider response bodies are excluded from reports. The CLI uses the injected Pino logger for bounded operational errors.
+- The Mercadona case expects a registration proposal and observes that the current lexical filter already admits the message. PostgreSQL/Redis webhook-to-worker coverage now proves extraction of amount/date/merchant, review presentation, original-text retention, and bound confirmation before saving.
+- Runtime semantic turn resolution is implemented separately from the evaluator. It projects validated current state under the processing lock, calls the router at most once, revalidates the snapshot, and records one schema-bounded metadata event. Off/shadow retain deterministic behavior; enabled dispatch covers the delivered expense states plus exact revision-bound option selection in `ONBOARDING_FILE/default` and `ONBOARDING_SHEET/default|idk`.
+- `option-reference-v1` derives application-owned snapshots only from validated, unexpired `ONBOARDING_FILE/default`, `ONBOARDING_SHEET/default`, and `ONBOARDING_SHEET/idk` payloads. Snapshots contain the monotonic revision, allowed state/substep, and ordered `{ position, label }` entries; provider IDs and payload details remain outside the model boundary.
+- The pure resolver accepts whole numeric positions, Spanish cardinal/ordinal phrases, and exact full labels normalized with lowercase, Unicode NFD accent removal, and collapsed whitespace. It never uses substring, prefix, edit-distance, or first-match fallback. Duplicate normalized labels and position/label collisions are ambiguous; unavailable references are not found; any revision, state, substep, order, or label change is stale.
+- The effect-free evaluator resolves only allowed `select_option` proposals and reports proposed-action agreement, unique-resolution accuracy, ambiguity handling, not-found rejection, and stale rejection separately. Runtime integration evidence reports selection authorization separately from config/access persistence and the eager validation probe; offline task completion remains null because fixture replay performs no effects.
+
+## API / Interface
+
+- `SemanticRouterPort.decide(input): Promise<SemanticRouterResult>` returns a typed proposal or safe error with provider-independent metadata.
+- `assessSemanticProposal(input, result)` returns `allowed`, `forbidden_action`, or `router_failure`; it performs no business effects.
+- `EvaluateSemanticRouter.execute(input)` accepts a validated dataset and injected router/baseline observer and returns a report. Offline and explicit live execution share this use case.
+- CLI options: `--mode offline`, `--dataset <json>`, `--responses <json>`, `--split development|held_out`, `--max-cases <1..1000>`, `--output <new.json>`. Custom offline datasets require a response file; live mode forbids one. Unknown or incompatible options and empty selections fail.
+- Exit `0`: all selected decision checks passed in a complete run; this is not an activation gate. Exit `1`: completed checks contain mismatches. Exit `2`: invalid configuration/data, incomplete run, or output failure. Existing report files are never overwritten.
+
+## Measurement limits
+
+No real-provider evidence has been collected. Offline model accuracy, provider latency, usage and cost remain null. Live runs can measure decision agreement, router-call latency and usage. The Phase 3 integration suite separately verifies that webhook acknowledgment completes before shadow processing and remains below the existing one-second acceptance bound in the test environment; this is test-observed timing, not a production latency percentile. Shadow agreement is not action accuracy or task-completion evidence. Fixture timings and expected-output replay are not production evidence. Per-scope agreement includes declared protocol checks; language and protocol totals are reported separately.
+
+The control-flow rerun uses `semantic-corpus-v6` and `semantic-labels-v6`: development completed 224/224 and held-out completed 53/53 checks. Control action agreement was 18/18 and 12/12, ambiguity handling was 8/8 and 5/5, development policy rejection was 3/3, and proposal-level false authorization was zero. Unauthorized downstream effects remain null because this phase executes no control effect. Labels were frozen before either split was run; independent review and live evidence remain pending. These fixture checks are not model-accuracy evidence.
+
+The input ceiling is 8,000 message characters, 20,000 serialized input characters, 20 options and 200 characters per option label. Dataset/response files are bounded at 2 MB and datasets at 1,000 cases. These limits reject input rather than silently rewriting it.
+
+## Tests
+
+- `contracts.spec.ts`: decision/schema rejection, context bounds, date/currency validation, action expansion, unsupported states/substeps, and forbidden versus malformed output.
+- `EvaluateSemanticRouter.spec.ts`: smoke outcomes, bank admission baseline, no financial-text reporting, deterministic reports, field-aware equality, independent labels/responses, invalid datasets, null denominators and incomplete runs.
+- `evaluateSemanticRouter.spec.ts`: offline/no-network execution, argument validation, safe exit codes, missing split, report persistence and overwrite protection.
+
+## Behavior (TODO)
+
+- Live quality evidence remains pending explicit execution; Phase 2 implementation is available below.
+- Independent human label adjudication and explicitly initiated live held-out comparisons remain pending; the expanded corpus is implemented below.
+- Real-provider sampling and controlled rollout remain in [master Phase 7](../../ai/plans/2026_09_11-master_constrained_semantic_router/2026_09_11-master_constrained_semantic_router-plan.md). The deterministic resolver, offline evaluation slice, and guarded file/sheet selection dispatch are implemented; production cohort activation remains disabled.
+
+## Related Decisions
+
+- [ADR-023](../adr/ADR-023-constrained-llm-semantic-router.md).
+- [Fixture instructions](../../evals/semantic-router/README.md).
+
+## Release acceptance evidence
+
+`pnpm eval:semantic-router:release` is an offline-only, fail-closed release evaluator. It requires explicit `--thresholds`, `--manifest`, and new `--output` paths plus an argument for every artifact listed in the manifest. It verifies raw SHA-256 checksums, strict schemas, the exact provider/model/prompt/contract/policy/dataset/label tuple, source and deployment compatibility, evidence class, sample sufficiency, and requested-stage gates. It does not import dotenv, application bootstrap, provider clients, database, Redis, queues, or messaging adapters.
+
+The report preserves numerators, denominators, sample counts, null measurements, and descriptive Wilson intervals. Missing thresholds, approvals, samples, usage, prices, latency, task outcomes, or evidence stay `blocked_missing_evidence`; they are never converted to zero. A breached gate is `failed`. Any observed critical false authorization or unauthorized effect forces `rollback`. `approved_for_next_stage` applies only to the manifest's requested stage.
+
+The Phase 1 bundle is `evals/semantic-router/releases/phase1-local-2026-09-19/`. Its complete run covered 170 files and 2,268 tests: 2,239 passed and 29 unrelated/optional tests were skipped; all 41 semantic PostgreSQL/Redis scenarios passed. Frozen fixture replay remains 224/224 development and 53/53 held-out, explicitly classified as `protocol_fixture_replay`, not model accuracy. The generated acceptance report is `hold`: implementation and both offline evidence classes pass, while numeric owner-approved thresholds, pricing, independent label review, live held-out evidence, shadow evidence, enabled task completion/full expense cost, and rollback evidence remain pending. No provider call or routing activation occurred.
+
+Artifact formats and accounting rules are documented in [release evidence instructions](../../evals/semantic-router/releases/README.md). The repository ships a valid pending-threshold artifact, not fabricated budgets or approver identities. An approved threshold artifact must define the same complete scope set for accuracy, ambiguity, unnecessary clarification, and router latency, and must include pricing for the exact candidate model.
+
+## Phase 2: explicit live evaluation
+
+The evaluator now supports `--mode live --provider openai` with all of `--model`,
+`--max-cases` (1..1000), `--timeout-ms` (1..60000) and `--max-output-tokens`
+(64..4096) explicitly supplied. Offline remains the default. Live excludes protocol
+injections and deterministic-only checks; each selected language case makes at most
+one request, sequentially, with no SDK retries or repair calls. Failures make the
+live report incomplete (exit 2); label mismatches without failures return 1.
+
+Supported configurations are Chat Completions with snapshots
+`gpt-4o-mini-2024-07-18`, `gpt-4o-2024-08-06`, and `gpt-4o-2024-11-20`.
+No alias, endpoint override, provider substitution or implicit model is selected.
+The CLI takes `OPENAI_API_KEY` from the caller's environment without dotenv or app
+bootstrap. No credentials are needed for offline mode or automated tests.
+
+The installed SDK is **openai 4.104.0** (verified 2026-09-12). Its
+`resources/shared.d.ts` exposes `ResponseFormatJSONSchema.strict`,
+`resources/chat/completions/completions.d.ts` exposes `max_completion_tokens`,
+refusal and finish reasons; `core.d.ts` and the installed README document request
+`signal`, timeout and `maxRetries: 0`. No dependency upgrade was needed.
+
+The adapter sends a strict JSON Schema object containing `decision`, with a nested
+`anyOf` for the closed union. Every branch prohibits extra fields; local Zod
+validation additionally enforces reference bounds. This follows the official
+[Structured Outputs contract](https://developers.openai.com/api/docs/guides/structured-outputs),
+including the root-object restriction, refusal field and truncated-output handling.
+[GPT-4o mini](https://developers.openai.com/api/docs/models/gpt-4o-mini) and
+[GPT-4o](https://developers.openai.com/api/docs/models/gpt-4o) document structured
+output support and the listed snapshots. Account availability is unverified.
+
+`semantic-openai-v3` treats messages, questions, concepts and option labels as
+untrusted data. It receives only validated router input, never expected labels.
+No tools, business ports or generated source-text replacements are available.
+A separate deadline aborts the request, even if the transport remains pending.
+Output is limited to 4,000 characters as well as the selected token ceiling.
+Refusal/filtering maps to `MODEL_REFUSAL`, truncation to `OUTPUT_TOO_LARGE`,
+malformed/missing/tool output to `INVALID_OUTPUT`, HTTP 400/404/422 to
+`UNSUPPORTED_CONFIGURATION`, timeout to `TIMEOUT`, and other transport errors to
+`PROVIDER_ERROR`. Only safe codes leave the boundary.
+
+Live reports identify their mode, settings and provider/prompt versions, record
+provider usage when available, and leave incomplete usage totals null. Latency is
+router-call timing including failures, not acknowledgment latency. Cost estimation
+is not enabled: no unverified prices are embedded. No live evaluation has been run;
+SDK/schema tests are implementation evidence, not measured model quality.
+
+Optional user-initiated smoke procedure, after approving the dataset and arranging
+the API key in the process environment (do not put its value in shell history):
+
+```bash
+pnpm eval:semantic-router --mode live --provider openai \
+  --model gpt-4o-mini-2024-07-18 --max-cases 1 \
+  --timeout-ms 10000 --max-output-tokens 256 \
+  --output /tmp/semantic-live-smoke.json
+```
+
+This budget permits at most one call and 256 generated tokens; input and prompt
+also incur usage. The output path must be new. Automated adapter and CLI tests use
+fake SDK/HTTP boundaries, including deadline, refusal, truncation and retry checks.
+
+## Versioned corpus and comparative reporting
+
+The default remains the original 12-case smoke regression. `corpus.json` adds a
+separate 277-case corpus: 224 development cases (97 language, 123 protocol, four
+deterministic-only) and 53 held-out cases (52 language and one protocol). Every one of the eleven eligible
+state/substep scopes has language coverage in both splits. A 100-case development
+protocol matrix injects every action into every eligible scope, testing both
+allowed and forbidden proposals; these rows never count as language quality.
+
+Corpus `semantic-corpus-v6`, labels `semantic-labels-v6`, and `family-split-v5`
+are pinned by `evals/semantic-router/manifest.json`. Labels were authored and
+reviewed from the specification and scenario meaning before response fixtures,
+without candidate predictions. Human independent review is **pending**. This is a
+synthetic engineering corpus, not a representative or externally adjudicated
+Spanish-language benchmark. Held-out examples have not been used to tune a model
+or prompt; replaying protocol fixtures is not a model evaluation.
+
+Validation rejects duplicate IDs, inconsistent versions, incompatible allowed or
+forbidden expectations, missing family IDs in a provenance-bearing corpus, and
+family/normalized-message overlap across splits. Split-check normalization is
+NFKC, Spanish lowercase, whitespace collapsing and trimming. It does not modify
+router messages. Selector decision comparison uses the schema-trimmed reference
+exactly; cases with an application-owned `optionResolution` expectation additionally
+exercise `option-reference-v1` without exposing snapshots to the router.
+The checks cannot detect undeclared semantic paraphrase relationships: family
+assignment still requires review. Any later label correction requires a new
+corpus/label version, a refreshed manifest and a recorded rationale.
+
+`semantic-evaluation-v4` reports versions, whole parsed-artifact SHA-256 digests,
+selected split and exclusions, per-scope counts, decision agreement, clarification
+confusion/precision/recall, unnecessary clarification, schema/policy rejection,
+critical-case check failures, safe failure counts and mismatch IDs. Live agreement
+has a descriptive Wilson 95% interval; it does not establish population confidence
+because these examples are small, synthetic and related. Timing is nearest-rank
+p50/p95 over available router-call metadata, including typed failures; sample counts
+and missing token totals remain visible. Complete totals and observed partial
+usage are separate. Cost estimates are disabled, and no current prices are assumed.
+
+Lexical comparisons are restricted to a common measurable projection: ingress
+admission versus guidance for unambiguous eligible actions, and explicit review
+cancellation where observed. Candidate admission agreement is **not** semantic
+accuracy: enqueueing says nothing about which action eventually executes. Other
+baseline scopes remain `not_evaluated`, with `model_dependent` or
+`unsupported_scope` reasons. The evaluator does not import external baseline
+observations; current observations are executed from local code and identified by
+the source digest. Do not substitute an imported/mock result under that provenance.
+
+### Reproduced offline observations (control-policy rerun, 2026-09-18)
+
+| Evidence                                        | Development |   Held-out |
+| ----------------------------------------------- | ----------: | ---------: |
+| Completed offline case checks                   |     224/224 |      53/53 |
+| Language fixture agreement (not model accuracy) |       97/97 |      52/52 |
+| Protocol checks                                 |     123/123 |        1/1 |
+| Control action agreement                        |       18/18 |      12/12 |
+| Control ambiguity handling                      |         8/8 |        5/5 |
+| Control policy rejection                        |         3/3 |        0/0 |
+| Proposal-level false authorizations             |           0 |          0 |
+| Unauthorized downstream effects                 |  unmeasured | unmeasured |
+
+These paired counts compare fixture projections with actual lexical execution.
+They do not demonstrate model improvement. The exact bank notification already
+produces lexical `enqueued`; no claim of fixing its existing admission is made.
+Baseline source digest:
+`7e9df3bee9c64b8b1d6b7f10c50b159a17e9e6eb9a0de975e44651b2c98080be`.
+Reproduce the observations with the commands in the
+[dataset instructions](../../evals/semantic-router/README.md). Runtime reports are
+written only to an explicitly selected new path, never automatically committed.
+
+### Remaining integration evidence
+
+The unsupported states are `EXPENSE_SAVING`,
+`ONBOARDING_START`, `ONBOARDING_DRIVE`, `ONBOARDING_VALIDATING_ACCESS`,
+`ONBOARDING_MAPPING`, and `ONBOARDING_CATEGORIES`. All unknown substeps reject
+semantic input. Explicit save/delete/retry authorization stays deterministic.
+`EXPENSE_UNDO_CONFIRMING` and sheet `empty-sheet-confirm` permit guidance only;
+the evaluator's confirmation examples merely test the absence of semantic authority.
+
+The bank family covers spacing, CRLF, casing, reordered/missing labels, duplicate
+merchant values, conflicting amounts, distinct transactions, state changes,
+corrections, missing-field answers, ambiguous references, negation, questions,
+declines, refunds and injected instructions. Held-out wallet notifications and
+receipt/settlement compositions use separate families. Original text remains intact.
+The enabled dispatcher now preserves the complete Mercadona notification and reaches
+review with `16.55 EUR`, date `2026-09-11`, and merchant concept `Mercadona`; the
+card/bank label remains payment context and the date stays date-only. Stateful
+clarification/review dispatch now preserves retained source text, queued-batch progress,
+review bindings, the two-item FIFO limit, and explicit-confirmation authority.
+The PostgreSQL/Redis suites now cover canonical webhook delivery, deduplication,
+recognition, clarification completion/replacement, correction, queue admission and
+overflow, cancellation/advancement, bound save, lock contention, lease loss, stale
+revision, provider failures, and enabled-to-shadow/off rollback with active payloads.
+The canonical completed review uses one router call and one extraction call; the
+corrected flow uses two router calls, one extraction, and one correction call before
+the single accepted save. The clarification/queue/cancellation flow uses three router
+calls and three extraction calls because the queued item is extracted only when
+advanced. These are test call counts, not provider cost measurements.
+
+Integration tests now exercise zero unauthorized append, retry, or delete effects
+across allowed, forbidden, failed, stale, off, and fail-closed enabled outcomes.
+The completed control-flow slice additionally proves request-only natural retry,
+one later exact append, bounded Google reconfiguration, and one typed control handoff
+per accepted Telegram or WhatsApp proposal. Offline unauthorized-effect and call-count
+fields remain unavailable; worker and PostgreSQL/Redis suites supply those runtime results.
+Local webhook acknowledgment remains below the one-second acceptance bound; the
+fixture router reports a bounded 11 ms metadata sample, neither of which is a
+production percentile. Development and held-out fixture ambiguity checks are 24/24
+and 11/11, with unnecessary clarification 0/46 and 0/22 respectively. Production
+latency, model accuracy, task completion, full expense cost, numeric activation
+thresholds, real held-out comparisons, controlled rollout, and human label review
+remain pending Phase 7. Green fixture and integration checks authorize no activation.
+
+Additional tests: `comparison.spec.ts` verifies hand-computable confusion and
+paired denominators, partial provider failures, missing usage and uncertainty;
+`corpus.spec.ts` verifies matrix/split contracts and the exact bank input;
+`semanticCorpusManifest.spec.ts` pins provenance artifacts. CLI tests run both
+splits, verify exclusion-before-budget, and prevent calls when output already exists.

@@ -5,6 +5,16 @@
 import { describe, it, expect } from 'vitest';
 import { canTransition, FSM_TRANSITIONS, type FsmState } from './ConversationState';
 
+const ONBOARDING_STATES = [
+  'ONBOARDING_START',
+  'ONBOARDING_DRIVE',
+  'ONBOARDING_FILE',
+  'ONBOARDING_SHEET',
+  'ONBOARDING_VALIDATING_ACCESS',
+  'ONBOARDING_MAPPING',
+  'ONBOARDING_CATEGORIES',
+] as const satisfies readonly FsmState[];
+
 describe('ConversationState FSM', () => {
   describe('canTransition', () => {
     it('allows ONBOARDING_MAPPING self-transition', () => {
@@ -21,17 +31,35 @@ describe('ConversationState FSM', () => {
 
     it('rejects invalid transitions from ONBOARDING_MAPPING', () => {
       expect(canTransition('ONBOARDING_MAPPING', 'EXPENSE_RECEIVING')).toBe(false);
-      expect(canTransition('ONBOARDING_MAPPING', 'IDLE')).toBe(false);
+      expect(canTransition('ONBOARDING_MAPPING', 'EXPENSE_SAVING')).toBe(false);
     });
+
+    it('allows category-stage reconnection without permitting unrelated transitions', () => {
+      expect(canTransition('ONBOARDING_CATEGORIES', 'ONBOARDING_START')).toBe(true);
+      expect(canTransition('ONBOARDING_CATEGORIES', 'EXPENSE_RECEIVING')).toBe(false);
+      expect(canTransition('ONBOARDING_CATEGORIES', 'ONBOARDING_MAPPING')).toBe(false);
+    });
+
+    it.each(ONBOARDING_STATES)('allows %s to exit to IDLE on timeout', (from) => {
+      expect(canTransition(from, 'IDLE')).toBe(true);
+    });
+
+    it.each(ONBOARDING_STATES)(
+      'continues to reject unrelated %s → EXPENSE_RECEIVING transitions',
+      (from) => {
+        expect(canTransition(from, 'EXPENSE_RECEIVING')).toBe(false);
+      },
+    );
 
     it.each([
       ['IDLE', 'ONBOARDING_START'],
       ['IDLE', 'EXPENSE_RECEIVING'],
+      ['IDLE', 'IDLE'],
+      ['IDLE', 'EXPENSE_UNDO_CONFIRMING'],
       ['ONBOARDING_START', 'ONBOARDING_START'],
       ['ONBOARDING_START', 'ONBOARDING_DRIVE'],
       ['ONBOARDING_DRIVE', 'ONBOARDING_FILE'],
       ['ONBOARDING_DRIVE', 'ONBOARDING_DRIVE'],
-      ['ONBOARDING_DRIVE', 'IDLE'],
       ['ONBOARDING_FILE', 'ONBOARDING_FILE'],
       ['ONBOARDING_FILE', 'ONBOARDING_SHEET'],
       ['ONBOARDING_FILE', 'ONBOARDING_START'],
@@ -42,18 +70,25 @@ describe('ConversationState FSM', () => {
       ['ONBOARDING_VALIDATING_ACCESS', 'ONBOARDING_SHEET'],
       ['ONBOARDING_VALIDATING_ACCESS', 'ONBOARDING_START'],
       ['ONBOARDING_MAPPING', 'ONBOARDING_START'],
-      ['ONBOARDING_CATEGORIES', 'IDLE'],
+      ['ONBOARDING_CATEGORIES', 'ONBOARDING_CATEGORIES'],
+      ['ONBOARDING_CATEGORIES', 'ONBOARDING_START'],
       ['EXPENSE_RECEIVING', 'EXPENSE_CLARIFYING'],
       ['EXPENSE_RECEIVING', 'EXPENSE_REVIEW'],
+      ['EXPENSE_RECEIVING', 'IDLE'],
       ['EXPENSE_CLARIFYING', 'EXPENSE_REVIEW'],
+      ['EXPENSE_REVIEW', 'EXPENSE_REVIEW'],
       ['EXPENSE_CLARIFYING', 'IDLE'],
       ['EXPENSE_REVIEW', 'EXPENSE_SAVING'],
       ['EXPENSE_REVIEW', 'EXPENSE_CORRECTING'],
       ['EXPENSE_REVIEW', 'IDLE'],
       ['EXPENSE_CORRECTING', 'EXPENSE_REVIEW'],
+      ['EXPENSE_CORRECTING', 'IDLE'],
       ['EXPENSE_SAVING', 'IDLE'],
       ['EXPENSE_SAVING', 'EXPENSE_SAVING_RETRY'],
+      ['EXPENSE_SAVING', 'ONBOARDING_START'],
       ['EXPENSE_SAVING_RETRY', 'IDLE'],
+      ['EXPENSE_SAVING_RETRY', 'ONBOARDING_VALIDATING_ACCESS'],
+      ['EXPENSE_UNDO_CONFIRMING', 'IDLE'],
     ] as const)('allows %s → %s', (from, to) => {
       expect(canTransition(from, to)).toBe(true);
     });
@@ -61,8 +96,8 @@ describe('ConversationState FSM', () => {
     it.each([
       ['IDLE', 'EXPENSE_SAVING'],
       ['IDLE', 'ONBOARDING_MAPPING'],
-      ['EXPENSE_RECEIVING', 'IDLE'],
       ['EXPENSE_SAVING', 'EXPENSE_RECEIVING'],
+      ['EXPENSE_SAVING', 'ONBOARDING_DRIVE'],
     ] as const)('rejects %s → %s', (from, to) => {
       expect(canTransition(from, to)).toBe(false);
     });
@@ -85,6 +120,7 @@ describe('ConversationState FSM', () => {
         'EXPENSE_CORRECTING',
         'EXPENSE_SAVING',
         'EXPENSE_SAVING_RETRY',
+        'EXPENSE_UNDO_CONFIRMING',
       ];
 
       for (const state of allStates) {

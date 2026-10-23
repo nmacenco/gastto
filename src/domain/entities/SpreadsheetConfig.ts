@@ -4,8 +4,20 @@
 
 export type SpreadsheetProvider = 'google' | 'microsoft';
 
-// Campos que Gastto mapea a columnas de la planilla del usuario
-export type GasttoField = 'monto' | 'moneda' | 'categoria' | 'fecha' | 'concepto' | 'medio_pago';
+// Campos históricos usados para evaluar completitud y decidir el fallback de inferencia.
+export const LEGACY_GASTTO_FIELDS = [
+  'monto',
+  'moneda',
+  'categoria',
+  'fecha',
+  'concepto',
+  'medio_pago',
+] as const;
+
+// Todos los campos que Gastto puede mapear a columnas de la planilla del usuario.
+export const SUPPORTED_GASTTO_FIELDS = [...LEGACY_GASTTO_FIELDS, 'subcategoria'] as const;
+
+export type GasttoField = (typeof SUPPORTED_GASTTO_FIELDS)[number];
 
 export interface SpreadsheetConfig {
   id: string;
@@ -15,6 +27,7 @@ export interface SpreadsheetConfig {
   fileName: string;
   sheetName: string;
   accessVerifiedAt: Date; // last permission verification (ADR-004)
+  categoriesConfirmedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -39,6 +52,16 @@ export interface UserCategory {
   createdAt: Date;
 }
 
+export interface UserSubcategory {
+  id: string;
+  categoryId: string;
+  rawValue: string;
+  normalizedValue: string;
+  usageCount: number;
+  isActive: boolean;
+  createdAt: Date;
+}
+
 // Tokens OAuth. access_token_enc y refresh_token_enc son BYTEA en BD
 // (cifrados con AES-256-GCM, ADR-007). En el dominio los representamos
 // como Buffer para que la capa de infraestructura gestione el cifrado.
@@ -48,7 +71,8 @@ export interface OAuthToken {
   provider: SpreadsheetProvider;
   accessTokenEnc: Buffer; // BYTEA — cifrado en reposo
   refreshTokenEnc: Buffer; // BYTEA — cifrado en reposo
-  iv: Buffer; // BYTEA — initialization vector AES-256-GCM
+  iv: Buffer; // BYTEA — initialization vector AES-256-GCM for access token
+  refreshIv: Buffer; // BYTEA — initialization vector AES-256-GCM for refresh token
   accessTokenExpiresAt: Date;
   scope: string[];
   grantedAt: Date;
