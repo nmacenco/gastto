@@ -2,7 +2,9 @@
 // Barrel export for domain value objects. Keeps imports stable across refactors.
 
 export * from './AmountCurrencyExtractionResult';
+export * from './Category';
 export * from './CategoryKeywordVocabulary';
+export * from './CategoryVocabulary';
 export * from './ClassificationResult';
 export * from './Currency';
 export * from './expense-clarification-state';

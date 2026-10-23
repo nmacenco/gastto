@@ -72,6 +72,8 @@ The reminder owns the per-user lease, commits a guarded nonce/revision self-tran
 - Refresh timeouts, network failures, and provider 5xx responses are retryable `NETWORK_ERROR` outcomes. They do not revoke the credential or restart onboarding.
 - Successful refresh preserves the user's FSM state, spreadsheet selection, mappings, categories, and user status.
 
+> **TODO (future work):** HU-4.01 Scenario 4 specifies a **maximum of 3 reminder attempts**, after which the system should suggest reconnecting or aborting onboarding. The current `SendOAuthReminder` implementation reschedules indefinitely with no cap. Implement the attempt counter (e.g. in the FSM payload or Redis) and the cap-exceeded transition in `src/application/use-cases/spreadsheet/SendOAuthReminder.ts`.
+
 ### Cancellation (`CancelCloudConnection`)
 
 10. If the user types "cancelar" while in `ONBOARDING_DRIVE`:

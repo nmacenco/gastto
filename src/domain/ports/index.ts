@@ -4,6 +4,7 @@
 export * from './categoryModificationParser';
 export * from './categoryReader';
 export * from './categoryHierarchyReader';
+export * from './categoryVocabulary';
 export * from './cloudStorage';
 export * from './columnInference';
 export * from './headerDetection';

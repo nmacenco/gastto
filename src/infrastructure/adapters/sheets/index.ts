@@ -5,6 +5,7 @@ export { GoogleSheetsAdapter } from './GoogleSheetsAdapter';
 export { GoogleSheetsAdapterFactory } from './GoogleSheetsAdapterFactory';
 export { ExcelOnlineAdapter } from './ExcelOnlineAdapter';
 export { ExcelOnlineAdapterFactory } from './ExcelOnlineAdapterFactory';
+export { SpreadsheetPortAdapterFactory } from './SpreadsheetPortAdapterFactory';
 export { SpreadsheetAccessAdapterFactory } from './SpreadsheetAccessAdapterFactory';
 export { SpreadsheetCategoryReader } from './SpreadsheetCategoryReader';
 export { SpreadsheetCategoryReaderFactory } from './SpreadsheetCategoryReaderFactory';
