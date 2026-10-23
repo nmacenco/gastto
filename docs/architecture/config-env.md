@@ -54,10 +54,12 @@ or provider precedence. Direct `NvidiaAdapter` construction also defaults to
 Groq uses `https://api.groq.com/openai/v1` and its own `GROQ_API_KEY`. An
 operator may set `LLM_PROVIDER=groq` for the whole shared LLM port or
 `LLM_FALLBACK_PROVIDER=groq` for initial expense extraction only. Merely setting
-`GROQ_API_KEY` does not change either `auto` priority in Phase 1. The extraction
-request uses JSON object mode and the existing local schema validation; a valid
-JSON object alone does not establish valid expense fields. Fly connectivity and
-broader live quality validation remain pending.
+`GROQ_API_KEY` does not change either `auto` priority. The GPT-OSS extraction
+request uses strict JSON Schema mode and existing local schema validation; a
+valid JSON object alone does not establish valid expense fields. Development
+currently selects Groq as primary and NVIDIA as extraction fallback. Functional
+Telegram and spreadsheet validation passed on 2026-10-23; live fault injection
+and production promotion remain separate decisions.
 
 `LLM_PROVIDER` also selects the adapter for correction, column inference, and
 other shared LLM-port calls. Set it explicitly to use another configured provider
