@@ -35,13 +35,15 @@ operator can instead set `LLM_PROVIDER` to another configured primary provider;
 in development before promotion. A fallback does not enable semantic routing or
 replay a failed expense. Keep former settings for rollback; do not print API keys.
 
-Groq is opt-in in Phase 1. Set `GROQ_API_KEY` through Fly secrets, then select
+Groq requires explicit selection. Set `GROQ_API_KEY` through Fly secrets, then select
 `LLM_FALLBACK_PROVIDER=groq` for extraction backup or `LLM_PROVIDER=groq` for
 the shared LLM port. `GROQ_MODEL` defaults to `openai/gpt-oss-20b`. Do not put
 the Groq credential in `OPENAI_API_KEY`: the services have separate endpoints
 and credentials. Adding only `GROQ_API_KEY` does not alter `auto` selection.
-Development Fly network and multi-expense validation are still pending; do not
-promote Groq into automatic selection until that evidence is recorded.
+Development uses `LLM_PROVIDER=groq` and `LLM_FALLBACK_PROVIDER=nvidia`.
+Representative Telegram extraction and one confirmed spreadsheet save passed on
+2026-10-23; see the [validation record](../../ai/plans/2026_10_22-integrate_groq_expense_extraction/validation.md).
+Automatic priority and production settings remain unchanged.
 
 All environment-specific configuration (sensitive and non-sensitive) lives in Fly.io secrets per app. The only values stored in GitHub are the Fly.io API tokens required by GitHub Actions to trigger deploys.
 

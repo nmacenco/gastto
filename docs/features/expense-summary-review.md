@@ -60,8 +60,11 @@ Groq is available by explicit `LLM_PROVIDER=groq` or
 `LLM_FALLBACK_PROVIDER=groq` with its own `GROQ_API_KEY` and optional
 `GROQ_MODEL` (default `openai/gpt-oss-20b`). The primary setting also directs
 correction and response generation to Groq; the fallback setting applies only
-to initial extraction. Both `auto` priorities remain unchanged until Fly
-connectivity and representative expense quality are validated. For the exact
+to initial extraction. Development uses Groq as explicit primary with NVIDIA
+as extraction fallback. Representative expense reviews and one confirmed save
+passed in development; both `auto` priorities remain unchanged. See the
+[validation record](../../ai/plans/2026_10_22-integrate_groq_expense_extraction/validation.md)
+for evidence and limits. For the exact
 `openai/gpt-oss-20b` and `openai/gpt-oss-120b` models, expense extraction requests
 use Groq's strict JSON Schema mode with all eight fields required, nullable
 unknown values, low reasoning effort, and a 1024-token completion cap. Other
