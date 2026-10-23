@@ -656,7 +656,7 @@ Cada app tiene su propio conjunto de secretos en Fly.io, su propio bot de Telegr
 
 **Despliegue automático vía GitHub Actions**
 
-El workflow `.github/workflows/fly-deploy.yml` se actualiza para escuchar pushes en `main` y `develop`. Cada rama dispara el despliegue correspondiente mediante pasos condicionales (`if: github.ref == 'refs/heads/...'`), utilizando tokens de API de Fly.io distintos (`FLY_API_TOKEN` y `FLY_API_TOKEN_DEVELOP`). Se mantiene `concurrency: deploy-group` para evitar deploys concurrentes.
+El workflow `.github/workflows/ci.yml` valida pull requests y pushes a `main` y `develop`. En los pushes, el job de despliegue depende de que `quality` termine correctamente (`needs: quality`); si falla o se omite, no despliega. Cada rama selecciona su aplicación mediante pasos condicionales (`if: github.ref == 'refs/heads/...'`) y usa un token de Fly.io distinto (`FLY_API_TOKEN` o `FLY_API_TOKEN_DEVELOP`). Se mantiene `concurrency: deploy-group` para evitar despliegues concurrentes.
 
 **Configuración y secretos en Fly.io, no en GitHub**
 

@@ -109,7 +109,7 @@ The production bot keeps its existing webhook pointing to `https://gastto.fly.de
 
 ## GitHub Actions Secrets
 
-The repository needs two secrets so the workflow in `.github/workflows/fly-deploy.yml` can authenticate with Fly.io:
+The repository needs two secrets so the deploy job in `.github/workflows/ci.yml` can authenticate with Fly.io:
 
 | Secret                  | Purpose                                                  |
 | ----------------------- | -------------------------------------------------------- |
@@ -120,19 +120,21 @@ Generate tokens via [Fly.io tokens dashboard](https://fly.io/user/personal_acces
 
 ## Branch-to-Environment Mapping
 
-| Branch    | GitHub Workflow Trigger | Fly.io App       | Fly.io Config      |
-| --------- | ----------------------- | ---------------- | ------------------ |
-| `main`    | Push to `main`          | `gastto`         | `fly.toml`         |
-| `develop` | Push to `develop`       | `gastto-develop` | `fly.develop.toml` |
+| Branch    | GitHub Workflow Trigger     | Fly.io App       | Fly.io Config      |
+| --------- | --------------------------- | ---------------- | ------------------ |
+| `main`    | Successful push quality job | `gastto`         | `fly.toml`         |
+| `develop` | Successful push quality job | `gastto-develop` | `fly.develop.toml` |
 
 Pushes to any other branch do not trigger automatic deploys.
 
-The deployment workflow listens only for `push` events. Opening or updating a
-pull request, including a `synchronize` event caused by pushing another commit to
-the PR branch, does not deploy either environment. A push workflow cannot
-distinguish a merge commit from a direct push, so the merge-only guarantee comes
-from the repository protections described below, not from the workflow trigger
-alone.
+The `ci.yml` workflow runs `quality` on pull requests and on pushes to `main`
+and `develop`. Its `deploy` job depends on a successful `quality` job and runs
+only for those branch pushes. A failed, cancelled, or skipped quality job cannot
+start a deployment. The deploy job checks out the same `github.sha` that passed
+quality. Opening or updating a pull request, including a
+`synchronize` event, runs quality checks without deploying either environment.
+The push trigger cannot distinguish a merge commit from a direct push, so the
+merge-only guarantee comes from the repository protections described below.
 
 Each deploy command includes `--ha=false`. If an app ever has zero Machines, this
 prevents the deployment from creating redundant Machines and preserves the
@@ -230,7 +232,7 @@ The `ci.yml` workflow runs the following quality gates on every pull request and
 ### When it runs
 
 - **On pull requests**: Runs automatically when a PR is opened or updated. Checks appear at the bottom of the PR conversation.
-- **On push to `main` or `develop`**: Runs after the merge is completed, validating the resulting state of the branch.
+- **On push to `main` or `develop`**: Runs after the merge is completed, validating the resulting state of the branch. The deployment job starts only after all quality steps pass for that push.
 
 ### Viewing results
 
@@ -285,6 +287,8 @@ With this configuration:
   deployment.
 
 This prevents incidents like the Fastify plugin version mismatch from reaching the deployable branches.
+The deploy job also has its own dependency on push quality, so a failed branch
+check cannot deploy even if a branch protection setting is changed later.
 
 Protection is an external repository setting and must be inspected periodically
 for both branches. Required state is: pull requests required, `Quality gates`
