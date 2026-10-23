@@ -620,6 +620,22 @@ describe('RegisterExpenseUseCase', () => {
   });
 
   describe('interpret()', () => {
+    it('keeps a day-first numeric date from a Spanish expense message', async () => {
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ fechaRaw: '20/10/2026' }));
+      const { useCase } = buildUseCase();
+
+      const result = await useCase.interpret(
+        buildInput({
+          rawMessage: 'El 20/10/2026 pagué 18,90 € de taxi al aeropuerto con tarjeta de débito.',
+        }),
+      );
+
+      expect(result.status).toBe('ready_for_review');
+      if (result.status === 'ready_for_review') {
+        expect(result.payload.resolvedDate).toBe('2026-10-20');
+      }
+    });
+
     it('keeps the printed calendar date from a Spanish card notification', async () => {
       mockLLMExtractExpense.mockResolvedValue(
         buildExtractedExpense({

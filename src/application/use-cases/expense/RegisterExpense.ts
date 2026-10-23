@@ -58,6 +58,18 @@ function resolveExpenseCalendarDate(rawDate: string | null): string {
   const value = rawDate?.trim();
   if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
 
+  const spanishNumericDate = value?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (spanishNumericDate) {
+    const day = Number(spanishNumericDate[1]);
+    const month = Number(spanishNumericDate[2]);
+    const year = Number(spanishNumericDate[3]);
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+      throw new RangeError('Invalid extracted expense date');
+    }
+    return [year, String(month).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
+  }
+
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) throw new RangeError('Invalid extracted expense date');
   // The review records the calendar day stated by the user. Converting local

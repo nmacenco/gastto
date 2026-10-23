@@ -76,7 +76,7 @@ Extraction completion logs include the configured deadline. NVIDIA extraction al
 
 For the exact NVIDIA model `z-ai/glm-5.3-flash`, initial extraction requests use streaming. The adapter assembles only final-answer content from SSE events, discards reasoning text, and waits for the completion marker before validating the JSON. It records the first event latency and counts of stream/reasoning events without recording their text. The same configured deadline bounds the entire stream; receiving early events does not extend it. Other NVIDIA model IDs retain their JSON response path.
 
-The initial review preserves the calendar date extracted from a written receipt (for example, `21 oct 2026` becomes `2026-10-21`). It does not convert a local date-only value through UTC, which could move it to the previous day.
+The initial review preserves the calendar date extracted from a written receipt (for example, `21 oct 2026` becomes `2026-10-21`) or a Spanish numeric date (`20/10/2026` becomes `2026-10-20`). It does not convert a local date-only value through UTC, which could move it to the previous day.
 
 A failed initial attempt from `IDLE` or `EXPENSE_RECEIVING` resets only its owned receiving revision to `IDLE`, clearing its failed payload and expiry before notifying the user. Queued-batch interpretation, clarification, and correction do not use this reset. No expense record or spreadsheet row is written on this path. The user can resend the expense and must still confirm its review before saving.
 
