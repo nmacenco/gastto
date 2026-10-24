@@ -221,6 +221,18 @@ function createHarness(options: HarnessOptions) {
       createdAt: now,
       updatedAt: now,
     }),
+    findById: vi.fn().mockResolvedValue({
+      id: spreadsheetId,
+      userId,
+      provider: 'google',
+      fileId: 'file-1',
+      fileName: 'Expenses',
+      sheetName: 'Gastos',
+      accessVerifiedAt: now,
+      categoriesConfirmedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }),
   };
   const logRepo = { create: vi.fn().mockResolvedValue({}) };
   const messagingPort = {

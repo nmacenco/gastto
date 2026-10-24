@@ -125,6 +125,8 @@ const mockConfig: SpreadsheetConfig = {
   fileId: 'file-123',
   fileName: 'Mi Planilla',
   sheetName: 'Gastos',
+  isActive: true,
+  headerRowIndex: null,
   accessVerifiedAt: new Date(),
   categoriesConfirmedAt: null,
   createdAt: new Date(),

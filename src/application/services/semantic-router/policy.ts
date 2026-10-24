@@ -13,6 +13,12 @@ export const STATE_ACTION_POLICY: Readonly<
   Record<FsmState, Readonly<Record<string, readonly Action[]>>>
 > = {
   IDLE: { default: ['register_expense', 'undo_last_expense', ...guidance] },
+  SETTINGS_MENU: {},
+  SETTINGS_OAUTH: {},
+  SETTINGS_FILE: {},
+  SETTINGS_SHEET: {},
+  SETTINGS_MAPPING: {},
+  SETTINGS_CATEGORIES: {},
   EXPENSE_RECEIVING: { default: expense },
   EXPENSE_CLARIFYING: { default: ['provide_missing_expense_data', ...expense] },
   EXPENSE_REVIEW: { default: ['correct_expense', ...expense] },

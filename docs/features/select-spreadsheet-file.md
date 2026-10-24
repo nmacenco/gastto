@@ -9,6 +9,12 @@ The Select Spreadsheet File feature enables users to choose which spreadsheet fi
 - **In scope:** Google Drive file discovery, search by name, direct URL validation, file selection, and access validation.
 - **Out of scope:** OneDrive file discovery (MVP returns "coming soon"), sheet selection (handled by HU-4.03), column mapping (handled by HU-4.04).
 
+## Settings file change
+
+From `SETTINGS_MENU`, option `3` starts an owned `SETTINGS_FILE` candidate for a completed Google destination. The bot lists recent spreadsheets. Users select a displayed number, search by name with `buscar`, or paste a supported HTTPS Google Sheets or Drive link. A search replaces the displayed list under the observed state revision. Unsupported links and invalid choices show the selection prompt. Drive discovery requires both the Sheets and Drive read-only OAuth scopes.
+
+The selected file is checked for access and its sheets are listed. The candidate moves to `SETTINGS_SHEET` only after the guarded transition succeeds; an inaccessible file or a file without sheets leaves the current destination active. The later sheet check requires read/write access. Mapping and category review use only the candidate; confirmation activates a new version atomically. Cancellation, expiry, and stale replies cannot overwrite the active destination or clear a newer flow. A direct link not present in the displayed list has the generic label `Planilla del enlace` in status after activation.
+
 ## FSM States
 
 | State             | Description                                                   | Next                                                                |

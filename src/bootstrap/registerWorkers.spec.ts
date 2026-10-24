@@ -140,6 +140,8 @@ function buildGoogleOAuthFeature(): GoogleOAuthFeature {
     initiateCloudConnection: {} as GoogleOAuthFeature['initiateCloudConnection'],
     handleOAuthCallback: {} as GoogleOAuthFeature['handleOAuthCallback'],
     sendOAuthReminder: { execute: vi.fn() } as unknown as GoogleOAuthFeature['sendOAuthReminder'],
+    startSettingsReauthorization: {} as GoogleOAuthFeature['startSettingsReauthorization'],
+    settingsOAuthCleanup: {} as GoogleOAuthFeature['settingsOAuthCleanup'],
     cancelCloudConnection: {} as GoogleOAuthFeature['cancelCloudConnection'],
     driveFileDiscovery: {} as GoogleOAuthFeature['driveFileDiscovery'],
     sheetsAdapterFactory: {} as GoogleOAuthFeature['sheetsAdapterFactory'],

@@ -7,7 +7,7 @@
 // numbered list selection, normalized exact-name matching, header-based description for
 // "I don't know", and re-prompt for invalid names. After confirmation, it
 // persists the spreadsheet_configs record via
-// ISpreadsheetConfigRepository.upsertByUserId (idempotent on re-onboarding),
+// ISpreadsheetConfigRepository.createOrResumeInitial (idempotent on initial onboarding),
 // transitions the FSM to ONBOARDING_VALIDATING_ACCESS, sends the user the
 // confirmation copy, and eagerly invokes ValidateSpreadsheetAccess.
 
@@ -476,9 +476,21 @@ export class HandleSheetSelection {
     expected?: ConversationStatePrecondition,
   ): Promise<HandleSheetSelectionOutput> {
     this.deps.transitionState.assertExecutionIsValid?.(userId);
-    // Persist spreadsheet config (idempotent on re-onboarding via upsert on
-    // the per-user unique constraint uq_user_spreadsheet).
-    await this.deps.spreadsheetConfigRepository.upsertByUserId({
+    const current = await this.deps.spreadsheetConfigRepository.findByUserId(userId);
+    if (
+      current?.categoriesConfirmedAt &&
+      (current.provider !== provider ||
+        current.fileId !== fileId ||
+        current.sheetName !== sheet.name)
+    ) {
+      const message =
+        'Tu planilla actual ya está configurada. Escribí configuración para cambiar el destino sin perder el historial.';
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+    // A configured user's destination is immutable here; settings activation
+    // creates a new version after validation and review.
+    await this.deps.spreadsheetConfigRepository.createOrResumeInitial({
       userId,
       provider,
       fileId,

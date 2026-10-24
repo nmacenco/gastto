@@ -105,7 +105,7 @@ function buildMockDependencies() {
     spreadsheetConfigRepo: {
       findByUserId: mockSpreadsheetConfigFindByUserId,
       create: vi.fn(),
-      upsertByUserId: vi.fn(),
+      createOrResumeInitial: vi.fn(),
       updateAccessVerified: vi.fn(),
       updateCategoriesConfirmed: vi.fn(),
     } as unknown as ISpreadsheetConfigRepository,

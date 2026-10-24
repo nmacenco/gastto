@@ -94,7 +94,7 @@ export const conversationStates = pgTable(
     stateIdx: index('idx_conversation_states_current').on(t.currentState),
     stateCheck: check(
       'chk_conversation_state',
-      sql`${t.currentState} IN ('IDLE','ONBOARDING_START','ONBOARDING_DRIVE','ONBOARDING_FILE','ONBOARDING_SHEET','ONBOARDING_VALIDATING_ACCESS','ONBOARDING_MAPPING','ONBOARDING_CATEGORIES','EXPENSE_RECEIVING','EXPENSE_CLARIFYING','EXPENSE_REVIEW','EXPENSE_CORRECTING','EXPENSE_SAVING','EXPENSE_SAVING_RETRY','EXPENSE_UNDO_CONFIRMING')`,
+      sql`${t.currentState} IN ('IDLE','SETTINGS_MENU','SETTINGS_OAUTH','SETTINGS_FILE','SETTINGS_SHEET','SETTINGS_MAPPING','SETTINGS_CATEGORIES','ONBOARDING_START','ONBOARDING_DRIVE','ONBOARDING_FILE','ONBOARDING_SHEET','ONBOARDING_VALIDATING_ACCESS','ONBOARDING_MAPPING','ONBOARDING_CATEGORIES','EXPENSE_RECEIVING','EXPENSE_CLARIFYING','EXPENSE_REVIEW','EXPENSE_CORRECTING','EXPENSE_SAVING','EXPENSE_SAVING_RETRY','EXPENSE_UNDO_CONFIRMING')`,
     ),
   }),
 );
@@ -163,6 +163,8 @@ export const spreadsheetConfigs = pgTable(
     fileId: text('file_id').notNull(),
     fileName: text('file_name').notNull(),
     sheetName: text('sheet_name').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    headerRowIndex: integer('header_row_index'),
     accessVerifiedAt: timestamp('access_verified_at').notNull(),
     categoriesConfirmedAt: timestamp('categories_confirmed_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -170,7 +172,9 @@ export const spreadsheetConfigs = pgTable(
   },
   (t) => ({
     userIdx: index('idx_spreadsheet_configs_user').on(t.userId),
-    uniqueUser: uniqueIndex('uq_user_spreadsheet').on(t.userId),
+    uniqueActiveUser: uniqueIndex('uq_user_active_spreadsheet')
+      .on(t.userId)
+      .where(sql`${t.isActive} = true`),
     providerCheck: check('chk_sp_provider', sql`${t.provider} IN ('google', 'microsoft')`),
   }),
 );

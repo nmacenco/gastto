@@ -9,6 +9,8 @@ const config: SpreadsheetConfig = {
   fileId: 'file-1',
   fileName: 'Expenses',
   sheetName: 'T 6',
+  isActive: true,
+  headerRowIndex: null,
   accessVerifiedAt: new Date('2026-10-03T08:00:00Z'),
   categoriesConfirmedAt: null,
   createdAt: new Date('2026-10-03T08:00:00Z'),

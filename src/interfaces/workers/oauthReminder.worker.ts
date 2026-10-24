@@ -37,7 +37,7 @@ export async function processOAuthReminderJob(
       parsed.error.issues.map((issue) => issue.path.join('.')),
     );
   }
-  const { userId, externalId, channel } = parsed.data;
+  const { userId, externalId, channel, state } = parsed.data;
   const identity = await deps.userRepo.findByMessagingIdentity(channel, externalId);
   if (identity?.userId !== userId) {
     throw new Error('Messaging identity does not match job user');
@@ -51,6 +51,7 @@ export async function processOAuthReminderJob(
       channel,
       provider,
       redirectUri: deps.redirectUri,
+      ...(state === undefined ? {} : { state }),
     });
   } catch (err) {
     if (err instanceof InvalidStateTransitionError) {

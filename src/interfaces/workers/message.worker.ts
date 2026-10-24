@@ -81,6 +81,13 @@ import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProce
 import { StaleConversationStateError } from '../../domain/errors/StaleConversationStateError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
+import { settingsCopies } from '../../application/copies/settings.copies';
+import type { GetSpreadsheetSettings } from '../../application/use-cases/spreadsheet/GetSpreadsheetSettings';
+import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
+import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
+import type { SettingsDestinationFlow } from '../../application/use-cases/spreadsheet/SettingsDestinationFlow';
+import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadsheet/SettingsOAuthFlow';
+import { randomUUID } from 'node:crypto';
 import {
   isConfirmIntent,
   isCancelIntent,
@@ -152,6 +159,10 @@ export interface MessageWorkerDeps {
   confirmCategories?: ConfirmCategories | null;
   modifyCategoryVocabulary?: ModifyCategoryVocabulary | null;
   startSpreadsheetReconfiguration?: StartSpreadsheetReconfigurationUseCase | null;
+  getSpreadsheetSettings?: GetSpreadsheetSettings | null;
+  startSettingsReauthorization?: StartSettingsReauthorization | null;
+  settingsOAuthCleanup?: SettingsOAuthCleanup | null;
+  settingsDestinationFlow?: SettingsDestinationFlow | null;
 }
 
 export async function processMessageJob(
@@ -232,6 +243,18 @@ export async function processMessageJob(
     // re-send the same messages on every attempt (ADR-005).
     try {
       const route = async () => {
+        if (
+          currentState === 'SETTINGS_MENU' ||
+          currentState === 'SETTINGS_OAUTH' ||
+          currentState === 'SETTINGS_FILE' ||
+          currentState === 'SETTINGS_SHEET' ||
+          currentState === 'SETTINGS_MAPPING' ||
+          currentState === 'SETTINGS_CATEGORIES' ||
+          (data.callbackData === undefined && isSettingsCommand(data.rawMessage))
+        ) {
+          await routeByState(currentState, data, conversationState, opts, messaging);
+          return;
+        }
         let semanticTurn: Awaited<ReturnType<ObserveSemanticRouting['execute']>> | undefined;
         if (conversationState) {
           try {
@@ -515,6 +538,154 @@ async function routeByState(
     !isImmediateUndoCommand
   ) {
     await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
+  }
+
+  if (
+    currentState === 'SETTINGS_MENU' &&
+    (conversationState?.expiresAt === null ||
+      conversationState?.expiresAt === undefined ||
+      conversationState.expiresAt.getTime() <= Date.now())
+  ) {
+    if (conversationState) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(
+          conversationState,
+          conversationState.expiresAt === null ? 'any' : 'expired',
+        ),
+      });
+    }
+    await messaging.sendMessage(externalId, settingsCopies.expired());
+    return;
+  }
+
+  if (currentState === 'SETTINGS_OAUTH') {
+    if (!conversationState) throw new Error('Settings OAuth state is missing');
+    const payload = parseSettingsOAuthPayload(conversationState);
+    if (
+      conversationState.expiresAt === null ||
+      conversationState.expiresAt.getTime() <= Date.now()
+    ) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(
+          conversationState,
+          conversationState.expiresAt ? 'expired' : 'any',
+        ),
+      });
+      if (payload) await opts.settingsOAuthCleanup?.execute(payload);
+      await messaging.sendMessage(externalId, settingsCopies.expired());
+      return;
+    }
+    if (isCancelIntent(rawMessage)) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(conversationState, 'unexpired'),
+      });
+      if (payload) await opts.settingsOAuthCleanup?.execute(payload);
+      await messaging.sendMessage(externalId, settingsCopies.cancelled());
+      return;
+    }
+    await messaging.sendMessage(externalId, settingsCopies.waitForAuth());
+    return;
+  }
+
+  if (jobData.callbackData === undefined && isSettingsCommand(rawMessage)) {
+    if (currentState !== 'IDLE' && currentState !== 'SETTINGS_MENU') {
+      await messaging.sendMessage(
+        externalId,
+        currentState.startsWith('ONBOARDING_')
+          ? settingsCopies.finishOnboarding()
+          : settingsCopies.finishExpense(),
+      );
+      return;
+    }
+    if (currentState === 'IDLE') {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'SETTINGS_MENU',
+        payload: { flowId: randomUUID() },
+        expiresAt: new Date(Date.now() + SETTINGS_TIMEOUT_MS),
+      });
+    } else {
+      await refreshSettingsDeadline(userId, conversationState, opts);
+    }
+    await messaging.sendMessage(externalId, settingsCopies.menu());
+    return;
+  }
+
+  if (currentState === 'SETTINGS_MENU') {
+    if (!conversationState) throw new Error('Settings state is missing');
+    if (isCancelIntent(rawMessage)) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(conversationState, 'unexpired'),
+      });
+      await messaging.sendMessage(externalId, settingsCopies.cancelled());
+      return;
+    }
+    const choice = rawMessage.trim();
+    if (choice === '2') {
+      if (!opts.startSettingsReauthorization) {
+        await refreshSettingsDeadline(userId, conversationState, opts);
+        await messaging.sendMessage(externalId, settingsCopies.authUnavailable());
+        return;
+      }
+      await opts.startSettingsReauthorization.execute({
+        state: conversationState,
+        externalId,
+        channel,
+      });
+      return;
+    }
+    if (choice === '4' && opts.settingsDestinationFlow) {
+      await opts.settingsDestinationFlow.startSheet(conversationState, externalId);
+      return;
+    }
+    if (choice === '3' && opts.settingsDestinationFlow) {
+      await opts.settingsDestinationFlow.startFile(conversationState, externalId);
+      return;
+    }
+    await refreshSettingsDeadline(userId, conversationState, opts);
+    if (choice === '1') {
+      if (!opts.getSpreadsheetSettings) throw new Error('Settings summary is not configured');
+      const summary = await opts.getSpreadsheetSettings.execute({ userId });
+      await messaging.sendMessage(externalId, settingsCopies.status(summary));
+    } else if (['3', '4'].includes(choice)) {
+      await messaging.sendMessage(externalId, settingsCopies.unavailable());
+    } else {
+      await messaging.sendMessage(externalId, settingsCopies.choose());
+    }
+    return;
+  }
+
+  if (
+    ['SETTINGS_FILE', 'SETTINGS_SHEET', 'SETTINGS_MAPPING', 'SETTINGS_CATEGORIES'].includes(
+      currentState,
+    )
+  ) {
+    if (!conversationState || !opts.settingsDestinationFlow) return;
+    if (conversationState.expiresAt && conversationState.expiresAt.getTime() <= Date.now()) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expiresAt: null,
+        expected: opts.transitionState.precondition(conversationState, 'expired'),
+      });
+      await messaging.sendMessage(externalId, settingsCopies.expired());
+      return;
+    }
+    await opts.settingsDestinationFlow.reply(conversationState, rawMessage, externalId);
+    return;
   }
 
   const cancellationSource = isCancelIntent(rawMessage) ? 'text' : null;
@@ -910,6 +1081,33 @@ async function routeByState(
       }
     }
   }
+}
+
+const SETTINGS_TIMEOUT_MS = 30 * 60 * 1000;
+
+function isSettingsCommand(rawMessage: string): boolean {
+  return (
+    rawMessage
+      .toLocaleLowerCase('es')
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') === 'configuracion'
+  );
+}
+
+async function refreshSettingsDeadline(
+  userId: string,
+  state: ConversationState | null,
+  opts: MessageWorkerDeps,
+): Promise<void> {
+  if (!state) throw new Error('Settings state is missing');
+  await opts.transitionState.execute({
+    userId,
+    targetState: 'SETTINGS_MENU',
+    payload: state.statePayload,
+    expiresAt: new Date(Date.now() + SETTINGS_TIMEOUT_MS),
+    expected: opts.transitionState.precondition(state, 'unexpired'),
+  });
 }
 
 function shouldQueueAdditionalExpense(

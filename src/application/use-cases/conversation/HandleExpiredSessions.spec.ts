@@ -15,6 +15,8 @@ import type { Logger } from 'pino';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
 import type { MessagingIdentity } from '../../../domain/entities/User';
 import type { IUserProcessingLock } from '../../ports/UserProcessingLock';
+import { settingsCopies } from '../../copies/settings.copies';
+import type { SettingsOAuthCleanup } from '../spreadsheet/SettingsOAuthCleanup';
 
 const mockFindExpired = vi.fn();
 const mockTransitionExecute = vi.fn();
@@ -107,6 +109,7 @@ function buildUseCase(
   transitionState: TransitionConversationState,
   messagingPort: MessagingOutputPort,
   userProcessingLock?: IUserProcessingLock,
+  settingsOAuthCleanup?: SettingsOAuthCleanup,
 ) {
   return new HandleExpiredSessions(
     conversationRepo,
@@ -119,6 +122,8 @@ function buildUseCase(
     undefined,
     undefined,
     userProcessingLock,
+    undefined,
+    settingsOAuthCleanup,
   );
 }
 
@@ -230,6 +235,67 @@ describe('HandleExpiredSessions', () => {
     );
     expect(mockShowTimeoutWarning).not.toHaveBeenCalled();
     expect(mockNotifyCancellation).not.toHaveBeenCalled();
+  });
+
+  it('expires the owned settings flow and sends settings guidance', async () => {
+    const state = buildConversationState({
+      currentState: 'SETTINGS_MENU',
+      revision: '4',
+      statePayload: { flowId: 'flow-1' },
+    });
+    mockFindExpired.mockResolvedValue([state]);
+    mockFindMessagingIdentities.mockResolvedValue([buildMessagingIdentity()]);
+    await buildUseCase(
+      buildMockConversationRepo(),
+      buildMockUserRepo(),
+      buildMockTransitionState(),
+      buildMockMessagingPort(),
+    ).execute();
+    expect(mockTransitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'IDLE',
+      payload: null,
+      expiresAt: null,
+      expected: { revision: '4', currentState: 'SETTINGS_MENU', expiry: 'expired' },
+    });
+    expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.expired());
+  });
+
+  it('cleans up the settings OAuth nonce only after the guarded expiry transition', async () => {
+    const state = buildConversationState({
+      currentState: 'SETTINGS_OAUTH',
+      revision: '9',
+      statePayload: {
+        origin: 'settings',
+        flowId: 'flow-1',
+        provider: 'google',
+        sourceConfigId: 'config-1',
+        fileId: 'file-1',
+        sheetName: 'Gastos',
+        state: 'nonce-1',
+        reminderJobId: 'job-1',
+      },
+    });
+    mockFindExpired.mockResolvedValue([state]);
+    mockFindMessagingIdentities.mockResolvedValue([buildMessagingIdentity()]);
+    const cleanup = vi.fn();
+    const useCase = buildUseCase(
+      buildMockConversationRepo(),
+      buildMockUserRepo(),
+      buildMockTransitionState(),
+      buildMockMessagingPort(),
+      undefined,
+      { execute: cleanup } as unknown as SettingsOAuthCleanup,
+    );
+    await useCase.execute();
+    expect(mockTransitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetState: 'IDLE',
+        expected: { revision: '9', currentState: 'SETTINGS_OAUTH', expiry: 'expired' },
+      }),
+    );
+    expect(cleanup).toHaveBeenCalledWith(state.statePayload);
+    expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.expired());
   });
 
   it('expires onboarding through the real transition validator and clears session data', async () => {

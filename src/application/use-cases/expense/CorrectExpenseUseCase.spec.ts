@@ -111,6 +111,8 @@ function buildDeps(
       fileId: 'file-1',
       fileName: 'Gastos.xlsx',
       sheetName: 'Gastos',
+      isActive: true,
+      headerRowIndex: null,
       accessVerifiedAt: new Date(),
       categoriesConfirmedAt: new Date(),
       createdAt: new Date(),

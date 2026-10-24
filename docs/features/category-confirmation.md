@@ -1,5 +1,9 @@
 # Category confirmation
 
+## Settings destination changes
+
+`SETTINGS_CATEGORIES` reads the candidate sheet using its reviewed `categoria` column and optional `subcategoria` column. It keeps the flat or linked hierarchy in the guarded conversation payload, scoped to the candidate flow and proposal. The user confirms with `confirmar` or replaces the reviewed list with `categorías: Nombre; Otra > Subcategoría`. Confirmation persists the new version's hierarchy in the same transaction that activates its configuration and mapping. Cancellation, expiry, and failed activation leave the previous hierarchy unchanged.
+
 ## Purpose
 
 After column mapping, Gastto proposes the spreadsheet's active category vocabulary for review. Category-only spreadsheets retain the flat HU-4.07 behavior, while spreadsheets with a confirmed subcategory mapping use the linked hierarchy behavior documented in [`subcategory-hierarchy.md`](./subcategory-hierarchy.md).

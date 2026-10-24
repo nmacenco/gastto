@@ -73,7 +73,9 @@ describe('DetectCategories', () => {
           sheetName: 'Gastos',
         }),
         create: vi.fn(),
-        upsertByUserId: vi.fn(),
+        createOrResumeInitial: vi.fn(),
+        findById: vi.fn(),
+        updateHeaderRowIndex: vi.fn(),
         updateAccessVerified: vi.fn(),
         updateCategoriesConfirmed: vi.fn(),
       },
@@ -202,9 +204,11 @@ describe('DetectCategories', () => {
     const { deps, sendMessage, saveVocabulary } = buildDeps({
       spreadsheetConfigRepository: {
         findByUserId: vi.fn().mockResolvedValue(null),
+        findById: vi.fn(),
         create: vi.fn(),
-        upsertByUserId: vi.fn(),
+        createOrResumeInitial: vi.fn(),
         updateAccessVerified: vi.fn(),
+        updateHeaderRowIndex: vi.fn(),
         updateCategoriesConfirmed: vi.fn(),
       },
     });
