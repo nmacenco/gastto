@@ -402,7 +402,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router option sel
       sheetList: sheets,
     });
     const before = (await harness.stateRepo.findByUserId(harness.userId))!;
-    vi.spyOn(harness.configRepo, 'upsertByUserId').mockRejectedValueOnce(new Error('db down'));
+    vi.spyOn(harness.configRepo, 'createOrResumeInitial').mockRejectedValueOnce(new Error('db down'));
 
     await expect(dispatchCurrent(harness, 'Movimientos')).rejects.toThrow('db down');
     await expect(harness.configRepo.findByUserId(harness.userId)).resolves.toBeNull();
