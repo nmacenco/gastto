@@ -944,8 +944,7 @@ async function routeByState(
         await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
         break;
       }
-      const lower = rawMessage.toLowerCase().trim();
-      if (lower === 'cancelar') {
+      if (isCancelIntent(rawMessage)) {
         const state = conversationState?.statePayload?.state;
         if (typeof state === 'string') {
           await opts.cancelCloudConnection.execute({ userId, state, externalId, channel });

@@ -3554,7 +3554,7 @@ describe('processMessageJob', () => {
     });
 
     describe('ONBOARDING_DRIVE', () => {
-      it('triggers CancelCloudConnection when user types cancelar', async () => {
+      it.each(['cancelar', 'cancel'])('triggers CancelCloudConnection for %s', async (message) => {
         const deps = buildMockDeps();
         mockGetConversationStateExecute.mockResolvedValue(
           buildConversationState({
@@ -3567,7 +3567,7 @@ describe('processMessageJob', () => {
           message: onboardingCopies.cancelledMessage(),
         });
 
-        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: message }), deps);
 
         expect(mockCancelCloudConnectionExecute).toHaveBeenCalledWith({
           userId: 'user-123',
