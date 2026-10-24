@@ -83,6 +83,9 @@ import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { settingsCopies } from '../../application/copies/settings.copies';
 import type { GetSpreadsheetSettings } from '../../application/use-cases/spreadsheet/GetSpreadsheetSettings';
+import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
+import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
+import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadsheet/SettingsOAuthFlow';
 import { randomUUID } from 'node:crypto';
 import {
   isConfirmIntent,
@@ -156,6 +159,8 @@ export interface MessageWorkerDeps {
   modifyCategoryVocabulary?: ModifyCategoryVocabulary | null;
   startSpreadsheetReconfiguration?: StartSpreadsheetReconfigurationUseCase | null;
   getSpreadsheetSettings?: GetSpreadsheetSettings | null;
+  startSettingsReauthorization?: StartSettingsReauthorization | null;
+  settingsOAuthCleanup?: SettingsOAuthCleanup | null;
 }
 
 export async function processMessageJob(
@@ -238,6 +243,7 @@ export async function processMessageJob(
       const route = async () => {
         if (
           currentState === 'SETTINGS_MENU' ||
+          currentState === 'SETTINGS_OAUTH' ||
           (data.callbackData === undefined && isSettingsCommand(data.rawMessage))
         ) {
           await routeByState(currentState, data, conversationState, opts, messaging);
@@ -549,6 +555,41 @@ async function routeByState(
     return;
   }
 
+  if (currentState === 'SETTINGS_OAUTH') {
+    if (!conversationState) throw new Error('Settings OAuth state is missing');
+    const payload = parseSettingsOAuthPayload(conversationState);
+    if (
+      conversationState.expiresAt === null ||
+      conversationState.expiresAt.getTime() <= Date.now()
+    ) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(
+          conversationState,
+          conversationState.expiresAt ? 'expired' : 'any',
+        ),
+      });
+      if (payload) await opts.settingsOAuthCleanup?.execute(payload);
+      await messaging.sendMessage(externalId, settingsCopies.expired());
+      return;
+    }
+    if (isCancelIntent(rawMessage)) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(conversationState, 'unexpired'),
+      });
+      if (payload) await opts.settingsOAuthCleanup?.execute(payload);
+      await messaging.sendMessage(externalId, settingsCopies.cancelled());
+      return;
+    }
+    await messaging.sendMessage(externalId, settingsCopies.waitForAuth());
+    return;
+  }
+
   if (jobData.callbackData === undefined && isSettingsCommand(rawMessage)) {
     if (currentState !== 'IDLE' && currentState !== 'SETTINGS_MENU') {
       await messaging.sendMessage(
@@ -585,13 +626,26 @@ async function routeByState(
       await messaging.sendMessage(externalId, settingsCopies.cancelled());
       return;
     }
-    await refreshSettingsDeadline(userId, conversationState, opts);
     const choice = rawMessage.trim();
+    if (choice === '2') {
+      if (!opts.startSettingsReauthorization) {
+        await refreshSettingsDeadline(userId, conversationState, opts);
+        await messaging.sendMessage(externalId, settingsCopies.authUnavailable());
+        return;
+      }
+      await opts.startSettingsReauthorization.execute({
+        state: conversationState,
+        externalId,
+        channel,
+      });
+      return;
+    }
+    await refreshSettingsDeadline(userId, conversationState, opts);
     if (choice === '1') {
       if (!opts.getSpreadsheetSettings) throw new Error('Settings summary is not configured');
       const summary = await opts.getSpreadsheetSettings.execute({ userId });
       await messaging.sendMessage(externalId, settingsCopies.status(summary));
-    } else if (['2', '3', '4'].includes(choice)) {
+    } else if (['3', '4'].includes(choice)) {
       await messaging.sendMessage(externalId, settingsCopies.unavailable());
     } else {
       await messaging.sendMessage(externalId, settingsCopies.choose());

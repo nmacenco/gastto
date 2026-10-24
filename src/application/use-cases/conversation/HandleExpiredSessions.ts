@@ -22,6 +22,8 @@ import type { GenerateExpenseSummaryUseCase } from '../expense/GenerateExpenseSu
 import { tryNormalizeExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { advanceExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
 import { settingsCopies } from '../../copies/settings.copies';
+import type { SettingsOAuthCleanup } from '../spreadsheet/SettingsOAuthCleanup';
+import { parseSettingsOAuthPayload } from '../spreadsheet/SettingsOAuthFlow';
 
 export class HandleExpiredSessions {
   constructor(
@@ -39,6 +41,7 @@ export class HandleExpiredSessions {
     private readonly advancePendingExpense?: AdvancePendingExpense,
     private readonly userProcessingLock?: IUserProcessingLock,
     private readonly generateExpenseSummary?: GenerateExpenseSummaryUseCase,
+    private readonly settingsOAuthCleanup?: SettingsOAuthCleanup,
   ) {}
 
   async execute(): Promise<void> {
@@ -148,6 +151,7 @@ export class HandleExpiredSessions {
       expiresAt: null,
       expected: this.transitionState.precondition(state, 'expired'),
     });
+
     await this.notifyCancellation(userId);
     if ((pendingCount ?? 0) > 0 && this.advancePendingExpense) {
       const identities = await this.userRepo.findMessagingIdentitiesByUserId(userId);
@@ -185,13 +189,18 @@ export class HandleExpiredSessions {
       expected: this.transitionState.precondition(state, 'expired'),
     });
 
+    if (state.currentState === 'SETTINGS_OAUTH') {
+      const payload = parseSettingsOAuthPayload(state);
+      if (payload) await this.settingsOAuthCleanup?.execute(payload);
+    }
+
     const identities = await this.userRepo.findMessagingIdentitiesByUserId(userId);
 
     for (const identity of identities) {
       try {
         await this.messagingPort.sendMessage(
           identity.externalId,
-          state.currentState === 'SETTINGS_MENU'
+          state.currentState === 'SETTINGS_MENU' || state.currentState === 'SETTINGS_OAUTH'
             ? settingsCopies.expired()
             : 'Tu sesion expiro. Queres continuar o empezar de nuevo?',
         );

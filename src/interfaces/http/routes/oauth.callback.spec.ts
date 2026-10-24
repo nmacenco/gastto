@@ -80,6 +80,44 @@ describe('GET /auth/google/callback', () => {
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
+  it('accepts provider denial with state and never reflects provider text into HTML', async () => {
+    mockExecute.mockResolvedValue({
+      success: false,
+      nextState: 'IDLE',
+      message: 'No se autorizó Google.',
+    });
+    const { app } = buildApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/auth/google/callback?error=access_denied&state=csrf-state-456&error_description=%3Cscript%3E',
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.payload).not.toContain('<script>');
+    expect(mockExecute).toHaveBeenCalledWith({ error: 'access_denied', state: 'csrf-state-456' });
+  });
+
+  it('rejects callback without state even on provider denial', async () => {
+    const { app } = buildApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/auth/google/callback?error=access_denied',
+    });
+    expect(response.statusCode).toBe(400);
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty state and ambiguous success/denial query', async () => {
+    const { app } = buildApp();
+    const empty = await app.inject({ method: 'GET', url: '/auth/google/callback?code=x&state=' });
+    const ambiguous = await app.inject({
+      method: 'GET',
+      url: '/auth/google/callback?code=x&error=access_denied&state=y',
+    });
+    expect(empty.statusCode).toBe(400);
+    expect(ambiguous.statusCode).toBe(400);
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when state query param is missing', async () => {
     const { app } = buildApp();
     const response = await app.inject({

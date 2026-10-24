@@ -14,6 +14,7 @@ export const STATE_ACTION_POLICY: Readonly<
 > = {
   IDLE: { default: ['register_expense', 'undo_last_expense', ...guidance] },
   SETTINGS_MENU: {},
+  SETTINGS_OAUTH: {},
   EXPENSE_RECEIVING: { default: expense },
   EXPENSE_CLARIFYING: { default: ['provide_missing_expense_data', ...expense] },
   EXPENSE_REVIEW: { default: ['correct_expense', ...expense] },

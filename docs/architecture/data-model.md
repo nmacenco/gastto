@@ -54,7 +54,7 @@ Persisted finite-state machine (FSM) state for each user. One row per user.
 | Column          | Type          | Constraints                        | Description                                                      |
 | --------------- | ------------- | ---------------------------------- | ---------------------------------------------------------------- |
 | `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | 1:1 with the user.                                               |
-| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 16 FSM states, including `SETTINGS_MENU`.                 |
+| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 17 FSM states, including `SETTINGS_MENU` and `SETTINGS_OAUTH`. |
 | `revision`      | `BIGINT`      | NOT NULL, default `0`              | Monotonic optimistic-concurrency token; exposed as decimal text. |
 | `state_payload` | `JSONB`       | NULL                               | State context: expense in progress, onboarding data, etc.        |
 | `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.                              |
@@ -62,6 +62,8 @@ Persisted finite-state machine (FSM) state for each user. One row per user.
 | `updated_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | Last state mutation.                                             |
 
 `SETTINGS_MENU` stores a unique `flowId` in `state_payload` and a 30-minute inactivity deadline in `expires_at`. Deploy migration `0010_add_settings_menu_state` before starting workers that write this state. The migration was generated as a Drizzle custom migration because this Drizzle Kit version does not detect CHECK expression changes.
+
+`SETTINGS_OAUTH` retains the settings flow ID, source configuration ID, file and sheet identity, current OAuth nonce, and reminder job ID. Its `expires_at` remains fixed through reminder rotations. Deploy generated custom migration `0011_add_settings_oauth_state` before starting Phase 2 workers or accepting OAuth callbacks that write this state. The encrypted `oauth_tokens` replacement and transition to `IDLE` commit together in one PostgreSQL transaction after provider validation; a failure rolls both back. Migration `0011` must precede the coordinated worker release because older workers cannot recognize the new state.
 
 ### expense_queue
 

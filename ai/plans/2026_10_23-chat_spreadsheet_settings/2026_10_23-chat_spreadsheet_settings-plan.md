@@ -32,25 +32,25 @@ Let users inspect their Google connection and spreadsheet destination, reauthori
 Deliver a usable `configuración` command from `IDLE`. Show connection status, provider, file name, and sheet name. Menu actions scheduled for later phases give a clear availability message until implemented.
 
 - [x] Add `SETTINGS_MENU`, its allowed transitions, deterministic routing, and Spanish menu, status, unavailable-action, and cancellation copy.
-- [ ] Update the schema's state CHECK and generate the Phase 1 migration with `pnpm db:generate`. Document migration-before-worker deployment and update `docs/architecture/data-model.md`. Apply locally through the project's authorized migration workflow; when database credentials are required, have the user run the command as required by `AGENTS.md`. (Schema and Drizzle custom migration generated; local application awaits the user's `DATABASE_URL`-configured migration command.)
+- [x] Update the schema's state CHECK and generate the Phase 1 migration with `pnpm db:generate`. Document migration-before-worker deployment and update `docs/architecture/data-model.md`. Apply locally through the project's authorized migration workflow; when database credentials are required, have the user run the command as required by `AGENTS.md`. (User confirmed the migration is ready.)
 - [x] Implement the settings summary with the stored-credential semantics above, including expired access tokens, missing configuration, and incomplete onboarding.
 - [x] Implement the 30-minute inactivity deadline and guarded cancellation/expiry behavior. Route settings commands before expense interpretation while preserving financial-claim protection and existing immediate-undo invalidation behavior.
 - [x] Test menu routing, status variants, cancellation, expiry, active-expense and unresolved-claim protection, and each new FSM transition. Add a PostgreSQL migration test that persists `SETTINGS_MENU`. Add the canonical settings feature doc and update `docs/features/README.md`. (PostgreSQL integration is skipped in this environment because Docker is unavailable.)
 - [x] Run `pnpm test` and fix failures. (The `pnpm` launcher could not open its local database; the equivalent local Vitest binary passed 2,342 tests, with 114 Docker-dependent tests skipped.)
 - [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any. (Equivalent local binaries passed.)
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase. (User chose Phase 2.)
 
 ### Phase 2: Voluntary Google reauthorization
 
 Reuse the existing OAuth link and callback with a settings origin. Validate the newly authorized access to the current file and sheet before replacing the stored token.
 
-- [ ] Add `SETTINGS_MENU` → `SETTINGS_OAUTH`, nonce-rotation self-transitions, and guarded exits to `IDLE`. Update the domain FSM and database CHECK through a generated migration and document deployment order in the data model.
-- [ ] Extend the existing callback Zod schema and input DTO to accept success or provider denial with a required state. Validate nonce, revision, and expiry before handling either variant; never exchange a code on denial or reflect untrusted provider error text into HTML.
-- [ ] Preserve settings origin, flow ID, destination identity, and deadline through OAuth initiation and reminder rotations. Send settings reminders even when the prior token is valid. Keep onboarding reminder behavior separate and retain nonce, per-user lease, revision, and cancellation safeguards.
-- [ ] Validate the current destination with the candidate credential, then implement an application port and infrastructure transaction for encrypted token replacement plus the guarded final transition. No database transaction spans a provider call. Return to `IDLE` on owned success, denial, expiry, or failed access validation; a transient exchange or persistence failure may remain in `SETTINGS_OAUTH` for retry/cancellation until its deadline, preserving the prior credential. Stale callbacks perform no token/state writes or successor cleanup.
-- [ ] Test success, denial through the real HTTP route, missing/invalid state, stale callback, expired flow, inaccessible/read-only destination, cancellation, reminder rotation with an existing valid token, preserved origin/deadline, and failed cleanup. Use PostgreSQL integration tests to prove token and state rollback on persistence or final-transition failure. Update settings, cloud connection, data-model documentation, and `docs/features/README.md`.
-- [ ] Run `pnpm test` and fix failures.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Add `SETTINGS_MENU` → `SETTINGS_OAUTH`, nonce-rotation self-transitions, and guarded exits to `IDLE`. Update the domain FSM and database CHECK through a generated migration and document deployment order in the data model.
+- [x] Extend the existing callback Zod schema and input DTO to accept success or provider denial with a required state. Validate nonce, revision, and expiry before handling either variant; never exchange a code on denial or reflect untrusted provider error text into HTML.
+- [x] Preserve settings origin, flow ID, destination identity, and deadline through OAuth initiation and reminder rotations. Send settings reminders even when the prior token is valid. Keep onboarding reminder behavior separate and retain nonce, per-user lease, revision, and cancellation safeguards.
+- [x] Validate the current destination with the candidate credential, then implement an application port and infrastructure transaction for encrypted token replacement plus the guarded final transition. No database transaction spans a provider call. Return to `IDLE` on owned success, denial, expiry, or failed access validation; a transient exchange or persistence failure may remain in `SETTINGS_OAUTH` for retry/cancellation until its deadline, preserving the prior credential. Stale callbacks perform no token/state writes or successor cleanup.
+- [ ] Test success, denial through the real HTTP route, missing/invalid state, stale callback, expired flow, inaccessible/read-only destination, cancellation, reminder rotation with an existing valid token, preserved origin/deadline, and failed cleanup. Use PostgreSQL integration tests to prove token and state rollback on persistence or final-transition failure. Update settings, cloud connection, data-model documentation, and `docs/features/README.md`. (Tests and docs added; PostgreSQL rollback tests await a Docker-enabled environment.)
+- [x] Run `pnpm test` and fix failures. (`pnpm` launcher failed to open its local database; the equivalent Vitest binary passed 2,364 tests with 118 Docker-dependent tests skipped.)
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any. (Equivalent local binaries passed.)
 - [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Safe change of sheet
@@ -81,4 +81,4 @@ Use file and sheet discovery to prepare a new destination, then apply the same g
 
 ## Next step
 
-Apply and verify the Phase 1 migration locally, then review Phase 1 before beginning Phase 2 reauthorization.
+Apply migration `0011_add_settings_oauth_state` in the credentialed environment, run the PostgreSQL rollback tests with Docker available, and review Phase 2 before beginning Phase 3.

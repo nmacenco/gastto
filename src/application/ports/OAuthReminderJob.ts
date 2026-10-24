@@ -8,6 +8,7 @@ export const OAuthReminderJobDataSchema = z
     userId: z.string().min(1),
     externalId: z.string().min(1),
     channel: z.enum(['telegram', 'whatsapp']),
+    state: z.string().min(1).optional(),
   })
   .strict();
 

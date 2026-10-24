@@ -26,6 +26,8 @@ import {
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
+import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
+import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import { expenseCopies } from '../../application/copies/expense.copies';
@@ -77,6 +79,7 @@ const mockCancelExpenseRegistrationExecute = vi.fn();
 const mockUndoLastExpenseExecute = vi.fn();
 const mockRetryExpenseSaveExecute = vi.fn();
 const mockStartSpreadsheetReconfigurationExecute = vi.fn();
+const mockStartSettingsReauthorizationExecute = vi.fn();
 const mockObserveSemanticRoutingExecute = vi.fn();
 const mockDispatchExpenseSemanticActionExecute = vi.fn();
 const mockDispatchControlSemanticActionExecute = vi.fn();
@@ -297,6 +300,9 @@ function buildMockDeps(): MessageWorkerDeps {
     startSpreadsheetReconfiguration: {
       execute: mockStartSpreadsheetReconfigurationExecute,
     } as unknown as StartSpreadsheetReconfigurationUseCase,
+    startSettingsReauthorization: {
+      execute: mockStartSettingsReauthorizationExecute,
+    } as unknown as StartSettingsReauthorization,
   };
 }
 
@@ -441,14 +447,12 @@ describe('processMessageJob', () => {
       mockGetConversationStateExecute.mockResolvedValue(settingsState());
       const deps = buildMockDeps();
       deps.getSpreadsheetSettings = {
-        execute: vi
-          .fn()
-          .mockResolvedValue({
-            credentialStatus: 'available',
-            provider: 'google',
-            fileName: 'Gastos',
-            sheetName: 'Octubre',
-          }),
+        execute: vi.fn().mockResolvedValue({
+          credentialStatus: 'available',
+          provider: 'google',
+          fileName: 'Gastos',
+          sheetName: 'Octubre',
+        }),
       } as unknown as NonNullable<MessageWorkerDeps['getSpreadsheetSettings']>;
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), deps);
       expect(mockTransitionStateExecute).toHaveBeenCalledWith(
@@ -464,7 +468,19 @@ describe('processMessageJob', () => {
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
     });
 
-    it.each(['2', '3', '4'])('reports option %s as unavailable', async (rawMessage) => {
+    it('starts Google reauthorization from option 2', async () => {
+      const state = settingsState();
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '2' }), buildMockDeps());
+      expect(mockStartSettingsReauthorizationExecute).toHaveBeenCalledWith({
+        state,
+        externalId: '123456789',
+        channel: 'telegram',
+      });
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it.each(['3', '4'])('reports option %s as unavailable', async (rawMessage) => {
       mockGetConversationStateExecute.mockResolvedValue(settingsState());
       await processMessageJob(buildJob({ ...baseJobData, rawMessage }), buildMockDeps());
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.unavailable());
@@ -482,6 +498,38 @@ describe('processMessageJob', () => {
         payload: null,
         expected: { revision: '7', currentState: 'SETTINGS_MENU', expiry: 'unexpired' },
       });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.cancelled());
+    });
+
+    it('cancels an owned OAuth flow before cleaning up its nonce and reminder', async () => {
+      const cleanup = vi.fn();
+      const deps = buildMockDeps();
+      deps.settingsOAuthCleanup = { execute: cleanup } as unknown as SettingsOAuthCleanup;
+      const state = buildConversationState({
+        currentState: 'SETTINGS_OAUTH',
+        revision: '9',
+        statePayload: {
+          origin: 'settings',
+          flowId: 'flow-1',
+          provider: 'google',
+          sourceConfigId: 'config-1',
+          fileId: 'file-1',
+          sheetName: 'Gastos',
+          state: 'nonce-1',
+          reminderJobId: 'job-1',
+        },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'IDLE',
+          payload: null,
+          expected: { revision: '9', currentState: 'SETTINGS_OAUTH', expiry: 'unexpired' },
+        }),
+      );
+      expect(cleanup).toHaveBeenCalledWith(state.statePayload);
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.cancelled());
     });
 
@@ -4647,7 +4695,7 @@ describe('processMessageJob', () => {
         expect(FSM_STATES.filter((state) => state === 'ONBOARDING_CATEGORIES')).toEqual([
           'ONBOARDING_CATEGORIES',
         ]);
-        expect(FSM_STATES).toHaveLength(16);
+        expect(FSM_STATES).toHaveLength(17);
       });
 
       it('passes canonical confirmation through WhatsApp unchanged', async () => {

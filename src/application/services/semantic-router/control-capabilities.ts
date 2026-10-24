@@ -24,6 +24,7 @@ export const CONTROL_SEMANTIC_CAPABILITY_MATRIX: Readonly<
 > = {
   IDLE: { default: ['undo_last_expense'] },
   SETTINGS_MENU: {},
+  SETTINGS_OAUTH: {},
   EXPENSE_RECEIVING: { default: ['cancel_current_flow'] },
   EXPENSE_CLARIFYING: { default: ['cancel_current_flow'] },
   EXPENSE_REVIEW: { default: ['cancel_current_flow'] },

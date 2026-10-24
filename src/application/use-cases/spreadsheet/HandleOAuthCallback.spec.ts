@@ -25,6 +25,11 @@ import { OAuthDeniedError } from '../../../domain/errors/OAuthDeniedError';
 import { OAuthNetworkError } from '../../../domain/errors/OAuthNetworkError';
 import { OAuthStateMismatchError } from '../../../domain/errors/OAuthStateMismatchError';
 import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import type { SettingsCredentialCommit } from '../../ports/SettingsCredentialCommit';
+import type { ValidateSpreadsheetAccessPortFactory } from '../../../domain/ports/spreadsheetAccess';
+import type { SettingsOAuthCleanup } from './SettingsOAuthCleanup';
+import { settingsCopies } from '../../copies/settings.copies';
+import type { ConversationState } from '../../../domain/entities/ConversationState';
 
 const mockRedisGet = vi.fn();
 const mockRedisDel = vi.fn();
@@ -122,6 +127,197 @@ beforeEach(() => {
 });
 
 describe('HandleOAuthCallback', () => {
+  describe('settings reauthorization', () => {
+    const nonce = 'settings-nonce';
+    const metadata = JSON.stringify({
+      userId: 'user-123',
+      provider: 'google',
+      externalId: '987654321',
+      channel: 'telegram',
+      reminderJobId: 'job-1',
+      revision: '7',
+      origin: 'settings',
+      flowId: 'flow-1',
+    });
+    const observed: ConversationState = {
+      userId: 'user-123',
+      revision: '7',
+      currentState: 'SETTINGS_OAUTH',
+      statePayload: {
+        origin: 'settings',
+        flowId: 'flow-1',
+        provider: 'google',
+        sourceConfigId: 'config-1',
+        fileId: 'file-1',
+        sheetName: 'Gastos',
+        state: nonce,
+        reminderJobId: 'job-1',
+      },
+      enteredAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+    };
+
+    function settingsDeps(state: ConversationState = observed) {
+      const commit = vi.fn().mockResolvedValue('committed');
+      const validate = vi.fn().mockResolvedValue({ kind: 'success', preview: {} });
+      const cleanup = vi.fn().mockResolvedValue(undefined);
+      mockRedisGet.mockResolvedValue(metadata);
+      mockFindSpreadsheetConfig.mockResolvedValue({
+        id: 'config-1',
+        provider: 'google',
+        fileId: 'file-1',
+        sheetName: 'Gastos',
+      });
+      mockExchangeCode.mockResolvedValue({
+        accessToken: 'new-access',
+        refreshToken: 'new-refresh',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        scope: ['https://www.googleapis.com/auth/spreadsheets'],
+      });
+      const deps = buildMockDeps({
+        conversationRepo: {
+          findByUserId: vi.fn().mockResolvedValue(state),
+        } as unknown as IConversationStateRepository,
+        transitionState: {
+          execute: mockTransitionExecute,
+          runWithState: <T>(_state: ConversationState, operation: () => Promise<T>) => operation(),
+          assertExecutionIsValid: mockAssertExecutionIsValid,
+          precondition: (current: ConversationState, expiry: 'unexpired' | 'expired' | 'any') => ({
+            revision: current.revision,
+            currentState: current.currentState,
+            expiry,
+          }),
+        } as unknown as TransitionConversationState,
+        settingsCredentialCommit: { execute: commit } as unknown as SettingsCredentialCommit,
+        settingsAccessFactory: {
+          create: vi.fn().mockReturnValue({ validateSpreadsheetAccess: validate }),
+        } as unknown as ValidateSpreadsheetAccessPortFactory,
+        settingsOAuthCleanup: { execute: cleanup } as unknown as SettingsOAuthCleanup,
+      });
+      return { deps, commit, validate, cleanup };
+    }
+
+    it('validates the candidate before an atomic credential and state commit', async () => {
+      const { deps, commit, validate, cleanup } = settingsDeps();
+      const result = await new HandleOAuthCallback(deps).execute({
+        code: 'new-code',
+        state: nonce,
+      });
+      expect(result).toMatchObject({ success: true, nextState: 'IDLE' });
+      expect(validate).toHaveBeenCalledWith('file-1', 'Gastos');
+      expect(commit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          flowId: 'flow-1',
+          sourceConfigId: 'config-1',
+          expected: { revision: '7', currentState: 'SETTINGS_OAUTH', expiry: 'unexpired' },
+        }),
+      );
+      expect(mockTokenUpsert).not.toHaveBeenCalled();
+      expect(cleanup).toHaveBeenCalledOnce();
+      expect(mockSendMessage).toHaveBeenCalledWith('987654321', settingsCopies.reauthorized());
+    });
+
+    it('exits on provider denial without exchanging or replacing a token', async () => {
+      const { deps, commit, cleanup } = settingsDeps();
+      const result = await new HandleOAuthCallback(deps).execute({
+        error: 'access_denied',
+        state: nonce,
+      });
+      expect(result).toMatchObject({ success: false, nextState: 'IDLE' });
+      expect(mockExchangeCode).not.toHaveBeenCalled();
+      expect(commit).not.toHaveBeenCalled();
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'IDLE',
+          expected: { revision: '7', currentState: 'SETTINGS_OAUTH', expiry: 'unexpired' },
+        }),
+      );
+      expect(cleanup).toHaveBeenCalledOnce();
+    });
+
+    it('rejects a stale nonce without exchange or cleanup', async () => {
+      const { deps, commit, cleanup } = settingsDeps({ ...observed, revision: '8' });
+      const result = await new HandleOAuthCallback(deps).execute({
+        code: 'new-code',
+        state: nonce,
+      });
+      expect(result.success).toBe(false);
+      expect(mockExchangeCode).not.toHaveBeenCalled();
+      expect(commit).not.toHaveBeenCalled();
+      expect(cleanup).not.toHaveBeenCalled();
+    });
+
+    it('rejects a flow replaced while candidate access validation was pending', async () => {
+      const { deps, commit, cleanup } = settingsDeps();
+      const replacement = {
+        ...observed,
+        revision: '8',
+        statePayload: { ...observed.statePayload, state: 'newer-nonce' },
+      };
+      const findByUserId = vi
+        .fn()
+        .mockResolvedValueOnce(observed)
+        .mockResolvedValueOnce(replacement);
+      deps.conversationRepo = { findByUserId } as unknown as IConversationStateRepository;
+      const result = await new HandleOAuthCallback(deps).execute({
+        code: 'new-code',
+        state: nonce,
+      });
+      expect(result.success).toBe(false);
+      expect(mockExchangeCode).toHaveBeenCalledOnce();
+      expect(commit).not.toHaveBeenCalled();
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalledWith('987654321', settingsCopies.reauthorized());
+    });
+
+    it('expires an owned flow and preserves the old token', async () => {
+      const { deps, commit } = settingsDeps({
+        ...observed,
+        expiresAt: new Date(Date.now() - 1000),
+      });
+      const result = await new HandleOAuthCallback(deps).execute({
+        code: 'new-code',
+        state: nonce,
+      });
+      expect(result).toMatchObject({ success: false, nextState: 'IDLE' });
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'IDLE',
+          expected: { revision: '7', currentState: 'SETTINGS_OAUTH', expiry: 'expired' },
+        }),
+      );
+      expect(commit).not.toHaveBeenCalled();
+    });
+
+    it.each(['read-only', 'access-error'])(
+      'rejects %s access to the existing destination',
+      async (kind) => {
+        const { deps, commit, validate } = settingsDeps();
+        validate.mockResolvedValue({ kind });
+        const result = await new HandleOAuthCallback(deps).execute({
+          code: 'new-code',
+          state: nonce,
+        });
+        expect(result).toMatchObject({ success: false, nextState: 'IDLE' });
+        expect(commit).not.toHaveBeenCalled();
+        expect(mockSendMessage).toHaveBeenCalledWith('987654321', settingsCopies.accessFailed());
+      },
+    );
+
+    it('keeps the old credential and flow when persistence fails', async () => {
+      const { deps, commit, cleanup } = settingsDeps();
+      commit.mockRejectedValue(new Error('database unavailable'));
+      const result = await new HandleOAuthCallback(deps).execute({
+        code: 'new-code',
+        state: nonce,
+      });
+      expect(result).toMatchObject({ success: false, nextState: 'SETTINGS_OAUTH' });
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalledWith('987654321', settingsCopies.reauthorized());
+    });
+  });
   describe('valid callback', () => {
     it('restores a completed spreadsheet configuration after reauthorization', async () => {
       mockRedisGet.mockResolvedValue(baseRedisPayload);

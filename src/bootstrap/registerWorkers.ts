@@ -105,6 +105,8 @@ export async function registerWorkers(
     getConversationState: deps.getConversationState,
     transitionState: deps.transitionState,
     getSpreadsheetSettings: new GetSpreadsheetSettings(deps.tokenRepo, deps.spreadsheetConfigRepo),
+    startSettingsReauthorization: deps.googleOAuth?.startSettingsReauthorization ?? null,
+    settingsOAuthCleanup: deps.googleOAuth?.settingsOAuthCleanup ?? null,
     recoverCorruptedState: deps.recoverCorruptedState,
     userRepo: deps.userRepo,
     messagingAdapters: {
@@ -185,6 +187,7 @@ export async function registerWorkers(
       deps.advancePendingExpense,
       deps.userProcessingLock,
       deps.generateExpenseSummary,
+      deps.googleOAuth?.settingsOAuthCleanup,
     );
 
     const sessionTimeoutWorker = createSessionTimeoutWorker({

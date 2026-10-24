@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, stored connection status, and guarded cancellation and expiry.
+- [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, stored connection status, voluntary Google reauthorization, and guarded cancellation and expiry.
 
 - [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone proposal evaluator plus checksum-pinned, fail-closed release reports, aggregate-safe rollout evidence, guarded enabled dispatch, and migration-free rollback boundaries.
 

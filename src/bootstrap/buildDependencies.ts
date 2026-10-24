@@ -12,6 +12,7 @@ import { DrizzleUserProfileRepository } from '../infrastructure/db/repositories/
 import { DrizzleConversationStateRepository } from '../infrastructure/db/repositories/DrizzleConversationStateRepository';
 import { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import { DrizzleSettingsCredentialCommit } from '../infrastructure/db/repositories/DrizzleSettingsCredentialCommit';
 import { DrizzleSpreadsheetConfigRepository } from '../infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
 import { DrizzleColumnMappingRepository } from '../infrastructure/db/repositories/DrizzleColumnMappingRepository';
 import { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
@@ -82,6 +83,8 @@ import { ResolveUserIdentityUseCase } from '../application/use-cases/user/Resolv
 import { InitiateCloudConnection } from '../application/use-cases/spreadsheet/InitiateCloudConnection';
 import { HandleOAuthCallback } from '../application/use-cases/spreadsheet/HandleOAuthCallback';
 import { SendOAuthReminder } from '../application/use-cases/spreadsheet/SendOAuthReminder';
+import { StartSettingsReauthorization } from '../application/use-cases/spreadsheet/StartSettingsReauthorization';
+import { SettingsOAuthCleanup } from '../application/use-cases/spreadsheet/SettingsOAuthCleanup';
 import { CancelCloudConnection } from '../application/use-cases/spreadsheet/CancelCloudConnection';
 import { HandleSpreadsheetFileSelection } from '../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import { DispatchOptionSelection } from '../application/use-cases/spreadsheet/DispatchOptionSelection';
@@ -291,6 +294,23 @@ function buildGoogleOAuthFeature(
   const adapter = core.oauthAdapter;
 
   const messagingPort = core.telegramAdapter;
+  const settingsOAuthCleanup = new SettingsOAuthCleanup(
+    infra.redis,
+    core.reminderQueue,
+    infra.rootLogger,
+  );
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const settingsCredentialCommit = new DrizzleSettingsCredentialCommit(infra.db);
+
+  const startSettingsReauthorization = new StartSettingsReauthorization({
+    oauthService: adapter,
+    configRepository: core.spreadsheetConfigRepo,
+    redis: infra.redis,
+    reminderQueue: core.reminderQueue,
+    transitionState: core.transitionState,
+    messagingPort,
+    redirectUri: env.GOOGLE_REDIRECT_URI,
+  });
 
   const initiateCloudConnection = new InitiateCloudConnection({
     oauthService: adapter,
@@ -311,6 +331,7 @@ function buildGoogleOAuthFeature(
     messagingPort,
     userProcessingLock: new RedisUserProcessingLock(infra.redis),
     logger: infra.rootLogger,
+    settingsOAuthCleanup,
   });
 
   const cancelCloudConnection = new CancelCloudConnection({
@@ -392,6 +413,9 @@ function buildGoogleOAuthFeature(
     userProcessingLock: new RedisUserProcessingLock(infra.redis),
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     columnMappingRepository: core.columnMappingRepo,
+    settingsCredentialCommit,
+    settingsAccessFactory: new SpreadsheetAccessAdapterFactory(),
+    settingsOAuthCleanup,
   });
 
   const confirmColumnMapping = new ConfirmColumnMapping({
@@ -447,6 +471,8 @@ function buildGoogleOAuthFeature(
   return {
     adapter,
     initiateCloudConnection,
+    startSettingsReauthorization,
+    settingsOAuthCleanup,
     handleOAuthCallback,
     sendOAuthReminder,
     cancelCloudConnection,

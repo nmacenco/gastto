@@ -20,6 +20,9 @@ import type { OAuthAccessTokenProvider } from '../../services/OAuthAccessTokenSe
 import type { IUserProcessingLock } from '../../ports/UserProcessingLock';
 import { startUserProcessingLeaseRenewal } from '../../services/UserProcessingLease';
 import type { Logger } from 'pino';
+import { parseSettingsOAuthPayload } from './SettingsOAuthFlow';
+import type { SettingsOAuthCleanup } from './SettingsOAuthCleanup';
+import { settingsCopies } from '../../copies/settings.copies';
 
 export interface SendOAuthReminderInput {
   userId: string;
@@ -27,6 +30,7 @@ export interface SendOAuthReminderInput {
   channel: 'telegram' | 'whatsapp';
   provider: SpreadsheetProvider;
   redirectUri: string;
+  state?: string;
 }
 
 export interface SendOAuthReminderOutput {
@@ -45,6 +49,7 @@ export interface SendOAuthReminderDeps {
   generateState?: () => string;
   userProcessingLock?: IUserProcessingLock;
   logger?: Logger;
+  settingsOAuthCleanup?: SettingsOAuthCleanup;
 }
 
 export class SendOAuthReminder {
@@ -84,6 +89,64 @@ export class SendOAuthReminder {
 
   private async executeOwned(input: SendOAuthReminderInput): Promise<SendOAuthReminderOutput> {
     const { userId, externalId, channel, provider, redirectUri } = input;
+    const observed = await this.deps.conversationRepo.findByUserId(userId);
+    if (observed?.currentState === 'SETTINGS_OAUTH') {
+      const payload = parseSettingsOAuthPayload(observed);
+      if (
+        !payload ||
+        !input.state ||
+        input.state !== payload.state ||
+        !observed.expiresAt ||
+        observed.expiresAt.getTime() <= Date.now()
+      ) {
+        return { message: '', nextState: 'SETTINGS_OAUTH' };
+      }
+      const nonce = (this.deps.generateState ?? (() => randomBytes(32).toString('hex')))();
+      const authUrl = this.deps.oauthService.buildAuthUrl('google', nonce, redirectUri);
+      const job = await this.deps.reminderQueue.add(
+        'oauth-reminder',
+        {
+          userId,
+          externalId,
+          channel,
+          state: nonce,
+        },
+        { delay: 10 * 60 * 1000 },
+      );
+      const reminderJobId = job.id ?? `fallback-${Date.now()}`;
+      let transition;
+      try {
+        transition = await this.deps.transitionState.execute({
+          userId,
+          targetState: 'SETTINGS_OAUTH',
+          payload: { ...payload, state: nonce, reminderJobId },
+          expiresAt: observed.expiresAt,
+          expected: this.deps.transitionState.precondition(observed, 'unexpired'),
+        });
+      } catch (error) {
+        await this.deps.reminderQueue.remove(reminderJobId).catch(() => undefined);
+        throw error;
+      }
+      if (transition.status !== 'updated') return { message: '', nextState: 'SETTINGS_OAUTH' };
+      await this.deps.redis.setex(
+        `oauth:state:${nonce}`,
+        15 * 60,
+        JSON.stringify({
+          userId,
+          provider: 'google',
+          externalId,
+          channel,
+          reminderJobId,
+          revision: transition.state.revision,
+          origin: 'settings',
+          flowId: payload.flowId,
+        }),
+      );
+      await this.deps.settingsOAuthCleanup?.execute(payload);
+      const message = settingsCopies.reminder(authUrl);
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { message, nextState: 'SETTINGS_OAUTH' };
+    }
 
     try {
       await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
