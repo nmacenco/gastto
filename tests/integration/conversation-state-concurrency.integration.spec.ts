@@ -61,6 +61,15 @@ describe.skipIf(!isDockerAvailable())('Integration :: conversation state concurr
     return (await repo.findByUserId(user.userId))!;
   }
 
+  it('persists SETTINGS_MENU after applying the generated migration', async () => {
+    const current = await state('SETTINGS_MENU');
+    expect(current.currentState).toBe('SETTINGS_MENU');
+    const [row] = await sql<{ current_state: string }[]>`
+      select current_state from conversation_states where user_id = ${current.userId}
+    `;
+    expect(row?.current_state).toBe('SETTINGS_MENU');
+  });
+
   it('applies the additive migration on fresh and legacy NULL/JSONB rows', async () => {
     const freshUser = await createUser(drizzle(sql, { schema }));
     await createConversationState(drizzle(sql, { schema }), { userId: freshUser.userId });
@@ -204,7 +213,9 @@ describe.skipIf(!isDockerAvailable())('Integration :: conversation state concurr
     const user = await createUser(db);
     const queue = new DrizzleExpenseQueueRepository(db);
     const first = await queue.enqueue(user.userId, 'Taxi 12 EUR', 'telegram');
-    await expect(queue.dequeueFirst(user.userId, first.id)).resolves.toMatchObject({ id: first.id });
+    await expect(queue.dequeueFirst(user.userId, first.id)).resolves.toMatchObject({
+      id: first.id,
+    });
     const successor = await queue.enqueue(user.userId, 'Lunch 15 EUR', 'telegram');
 
     await expect(queue.dequeueFirst(user.userId, first.id)).resolves.toBeNull();

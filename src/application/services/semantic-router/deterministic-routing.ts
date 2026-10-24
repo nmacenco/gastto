@@ -9,7 +9,14 @@ export type DeterministicRoutingDecision =
   | { readonly kind: 'typed_callback' }
   | {
       readonly kind: 'sensitive_command';
-      readonly command: 'save' | 'retry' | 'undo' | 'undo_confirmation' | 'cancel' | 'reconfigure';
+      readonly command:
+        | 'save'
+        | 'retry'
+        | 'undo'
+        | 'undo_confirmation'
+        | 'cancel'
+        | 'reconfigure'
+        | 'settings';
     }
   | { readonly kind: 'unsupported' };
 
@@ -30,6 +37,16 @@ export class CurrentDeterministicRoutingPolicy implements DeterministicRoutingPo
     readonly hasCallback: boolean;
   }): DeterministicRoutingDecision {
     if (input.hasCallback) return { kind: 'typed_callback' };
+    if (
+      input.rawMessage
+        .toLocaleLowerCase('es')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') === 'configuracion'
+    ) {
+      return { kind: 'sensitive_command', command: 'settings' };
+    }
+    if (input.state === 'SETTINGS_MENU') return { kind: 'fsm_handler' };
     if (isUndoIntent(input.rawMessage)) {
       return { kind: 'sensitive_command', command: 'undo' };
     }

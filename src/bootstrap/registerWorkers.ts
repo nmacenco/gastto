@@ -13,6 +13,7 @@ import { createMessageWorker } from '../interfaces/workers/message.worker';
 import { createSessionTimeoutWorker } from '../interfaces/workers/sessionTimeout.worker';
 import { createOAuthReminderWorker } from '../interfaces/workers/oauthReminder.worker';
 import { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
+import { GetSpreadsheetSettings } from '../application/use-cases/spreadsheet/GetSpreadsheetSettings';
 import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
 
 interface CloseableBullMqResource {
@@ -103,6 +104,7 @@ export async function registerWorkers(
     retryExpenseSave: deps.retryExpenseSave,
     getConversationState: deps.getConversationState,
     transitionState: deps.transitionState,
+    getSpreadsheetSettings: new GetSpreadsheetSettings(deps.tokenRepo, deps.spreadsheetConfigRepo),
     recoverCorruptedState: deps.recoverCorruptedState,
     userRepo: deps.userRepo,
     messagingAdapters: {

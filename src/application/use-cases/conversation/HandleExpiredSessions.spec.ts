@@ -15,6 +15,7 @@ import type { Logger } from 'pino';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
 import type { MessagingIdentity } from '../../../domain/entities/User';
 import type { IUserProcessingLock } from '../../ports/UserProcessingLock';
+import { settingsCopies } from '../../copies/settings.copies';
 
 const mockFindExpired = vi.fn();
 const mockTransitionExecute = vi.fn();
@@ -230,6 +231,30 @@ describe('HandleExpiredSessions', () => {
     );
     expect(mockShowTimeoutWarning).not.toHaveBeenCalled();
     expect(mockNotifyCancellation).not.toHaveBeenCalled();
+  });
+
+  it('expires the owned settings flow and sends settings guidance', async () => {
+    const state = buildConversationState({
+      currentState: 'SETTINGS_MENU',
+      revision: '4',
+      statePayload: { flowId: 'flow-1' },
+    });
+    mockFindExpired.mockResolvedValue([state]);
+    mockFindMessagingIdentities.mockResolvedValue([buildMessagingIdentity()]);
+    await buildUseCase(
+      buildMockConversationRepo(),
+      buildMockUserRepo(),
+      buildMockTransitionState(),
+      buildMockMessagingPort(),
+    ).execute();
+    expect(mockTransitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'IDLE',
+      payload: null,
+      expiresAt: null,
+      expected: { revision: '4', currentState: 'SETTINGS_MENU', expiry: 'expired' },
+    });
+    expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.expired());
   });
 
   it('expires onboarding through the real transition validator and clears session data', async () => {

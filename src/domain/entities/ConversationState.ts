@@ -4,6 +4,7 @@
 
 export const FSM_STATES = [
   'IDLE',
+  'SETTINGS_MENU',
   'ONBOARDING_START',
   'ONBOARDING_DRIVE',
   'ONBOARDING_FILE',
@@ -89,7 +90,14 @@ export interface ExpenseQueueItem {
 // Transiciones válidas de la FSM. La FSM rechaza cualquier transición
 // no listada aquí (principio de máquina de estados estricta).
 export const FSM_TRANSITIONS: Record<FsmState, FsmState[]> = {
-  IDLE: ['IDLE', 'ONBOARDING_START', 'EXPENSE_RECEIVING', 'EXPENSE_UNDO_CONFIRMING'],
+  IDLE: [
+    'IDLE',
+    'SETTINGS_MENU',
+    'ONBOARDING_START',
+    'EXPENSE_RECEIVING',
+    'EXPENSE_UNDO_CONFIRMING',
+  ],
+  SETTINGS_MENU: ['SETTINGS_MENU', 'IDLE'],
   ONBOARDING_START: ['ONBOARDING_START', 'ONBOARDING_DRIVE', 'IDLE'],
   ONBOARDING_DRIVE: ['ONBOARDING_FILE', 'ONBOARDING_DRIVE', 'IDLE'],
   ONBOARDING_FILE: ['ONBOARDING_FILE', 'ONBOARDING_SHEET', 'ONBOARDING_START', 'IDLE'],

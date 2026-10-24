@@ -56,6 +56,9 @@ describe('ConversationState FSM', () => {
       ['IDLE', 'EXPENSE_RECEIVING'],
       ['IDLE', 'IDLE'],
       ['IDLE', 'EXPENSE_UNDO_CONFIRMING'],
+      ['IDLE', 'SETTINGS_MENU'],
+      ['SETTINGS_MENU', 'SETTINGS_MENU'],
+      ['SETTINGS_MENU', 'IDLE'],
       ['ONBOARDING_START', 'ONBOARDING_START'],
       ['ONBOARDING_START', 'ONBOARDING_DRIVE'],
       ['ONBOARDING_DRIVE', 'ONBOARDING_FILE'],
@@ -96,6 +99,7 @@ describe('ConversationState FSM', () => {
     it.each([
       ['IDLE', 'EXPENSE_SAVING'],
       ['IDLE', 'ONBOARDING_MAPPING'],
+      ['SETTINGS_MENU', 'EXPENSE_RECEIVING'],
       ['EXPENSE_SAVING', 'EXPENSE_RECEIVING'],
       ['EXPENSE_SAVING', 'ONBOARDING_DRIVE'],
     ] as const)('rejects %s → %s', (from, to) => {
@@ -107,6 +111,7 @@ describe('ConversationState FSM', () => {
     it('defines transitions for every FSM state', () => {
       const allStates: FsmState[] = [
         'IDLE',
+        'SETTINGS_MENU',
         'ONBOARDING_START',
         'ONBOARDING_DRIVE',
         'ONBOARDING_FILE',

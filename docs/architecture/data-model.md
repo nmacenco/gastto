@@ -54,12 +54,14 @@ Persisted finite-state machine (FSM) state for each user. One row per user.
 | Column          | Type          | Constraints                        | Description                                                      |
 | --------------- | ------------- | ---------------------------------- | ---------------------------------------------------------------- |
 | `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | 1:1 with the user.                                               |
-| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 14 FSM states defined in ADR-003.                         |
+| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 16 FSM states, including `SETTINGS_MENU`.                 |
 | `revision`      | `BIGINT`      | NOT NULL, default `0`              | Monotonic optimistic-concurrency token; exposed as decimal text. |
 | `state_payload` | `JSONB`       | NULL                               | State context: expense in progress, onboarding data, etc.        |
 | `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.                              |
 | `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute expiration for timed states (e.g., `EXPENSE_REVIEW`).   |
 | `updated_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | Last state mutation.                                             |
+
+`SETTINGS_MENU` stores a unique `flowId` in `state_payload` and a 30-minute inactivity deadline in `expires_at`. Deploy migration `0010_add_settings_menu_state` before starting workers that write this state. The migration was generated as a Drizzle custom migration because this Drizzle Kit version does not detect CHECK expression changes.
 
 ### expense_queue
 
@@ -303,7 +305,7 @@ Aggregate-generated UUIDs are supplied explicitly for new category and subcatego
 
 ## Related ADRs
 
-- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/ADR-003-fsm-postgresql.md) and [ADR-017: Require Confirmation for Delayed Expense Undo](../adr/ADR-017-undo-confirmation-fsm.md) — Define the 15 FSM states stored in `conversation_states`, including `EXPENSE_UNDO_CONFIRMING`.
+- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/ADR-003-fsm-postgresql.md) and [ADR-017: Require Confirmation for Delayed Expense Undo](../adr/ADR-017-undo-confirmation-fsm.md) define the original states and undo confirmation. `SETTINGS_MENU` is documented in [chat spreadsheet settings](../features/chat-spreadsheet-settings.md).
 - [ADR-004: Spreadsheet Integration — Adapter Pattern](../adr/adr.md#adr-004--integración-con-planillas-adapter-pattern) — Motivates `spreadsheet_configs`, `column_mappings`, and dynamic column mapping.
 - [ADR-007: Security — OAuth Token Storage with AES-256](../adr/adr.md#adr-007--seguridad-almacenamiento-de-tokens-oauth-con-aes-256) — Describes the encryption strategy for `oauth_tokens`.
 - [ADR-008: User Identity — Local Registration with Own userId](../adr/adr.md#adr-008--identidad-de-usuario-registro-local-con-userid-propio) — Explains the `users` / `messaging_identities` split and the internal `user_id` anchor.

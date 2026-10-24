@@ -21,6 +21,7 @@ import { startUserProcessingLeaseRenewal } from '../../services/UserProcessingLe
 import type { GenerateExpenseSummaryUseCase } from '../expense/GenerateExpenseSummaryUseCase';
 import { tryNormalizeExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { advanceExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
+import { settingsCopies } from '../../copies/settings.copies';
 
 export class HandleExpiredSessions {
   constructor(
@@ -190,7 +191,9 @@ export class HandleExpiredSessions {
       try {
         await this.messagingPort.sendMessage(
           identity.externalId,
-          'Tu sesion expiro. Queres continuar o empezar de nuevo?',
+          state.currentState === 'SETTINGS_MENU'
+            ? settingsCopies.expired()
+            : 'Tu sesion expiro. Queres continuar o empezar de nuevo?',
         );
       } catch (err) {
         this.logger.error({

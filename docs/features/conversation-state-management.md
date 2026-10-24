@@ -7,7 +7,7 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 ## Behavior (Implemented)
 
 - Each user has exactly one row in `conversation_states`, referenced by `user_id` with `ON DELETE CASCADE`.
-- The FSM defines **15 states** and valid transitions between them (see ADR-003 and ADR-017).
+- The FSM defines **16 states** and valid transitions between them (see ADR-003, ADR-017, and [chat spreadsheet settings](./chat-spreadsheet-settings.md)).
 - State transitions are atomic compare-and-swap writes over user ID, decimal-string `revision`, observed state, and database-time expiry. Each successful mutation increments the `BIGINT` revision, including self-transitions.
 - `TransitionConversationState` requires an explicit observed precondition unless a shared async execution context owns the latest committed snapshot. Nested use cases reuse that context; it is invalidated if lease renewal fails.
 - Per-user Redis leases are renewed every 30 seconds with token-safe comparison. Timeout, OAuth callback/reminder, recovery, onboarding, and message-processing entries share this ownership boundary.
@@ -59,7 +59,7 @@ Primary table: `conversation_states` (1:1 with `users`).
 | Column          | Type          | Constraints                        | Description                              |
 | --------------- | ------------- | ---------------------------------- | ---------------------------------------- |
 | `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | Owner of the state.                      |
-| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 15 FSM states.                    |
+| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 16 FSM states.                    |
 | `revision`      | `BIGINT`      | NOT NULL, default `0`              | Monotonic CAS token serialized as text.  |
 | `state_payload` | `JSONB`       | NULL                               | Contextual data for the active flow.     |
 | `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.      |
@@ -77,7 +77,8 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 
 | State                          | Description                                                     | Valid Transitions                                                              |
 | ------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `IDLE`                         | No active flow                                                  | `ONBOARDING_START`, `EXPENSE_RECEIVING`                                        |
+| `IDLE`                         | No active flow                                                  | `SETTINGS_MENU`, `ONBOARDING_START`, `EXPENSE_RECEIVING`                       |
+| `SETTINGS_MENU`                | Chat spreadsheet settings with an inactivity deadline          | `SETTINGS_MENU`, `IDLE`                                                        |
 | `ONBOARDING_START`             | First contact, no spreadsheet linked                            | `ONBOARDING_START`, `ONBOARDING_DRIVE`, `IDLE`                                 |
 | `ONBOARDING_DRIVE`             | Waiting for OAuth connection                                    | `ONBOARDING_DRIVE`, `ONBOARDING_FILE`, `IDLE`                                  |
 | `ONBOARDING_FILE`              | Waiting for file selection                                      | `ONBOARDING_FILE`, `ONBOARDING_SHEET`, `ONBOARDING_START`, `IDLE`              |

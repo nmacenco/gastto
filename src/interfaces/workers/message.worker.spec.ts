@@ -30,6 +30,7 @@ import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProce
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
+import { settingsCopies } from '../../application/copies/settings.copies';
 import { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionInput } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import { SpreadsheetCategoryReader } from '../../infrastructure/adapters/sheets/SpreadsheetCategoryReader';
@@ -405,6 +406,134 @@ describe('processMessageJob', () => {
     mockDispatchOptionSelectionExecute.mockResolvedValue({ status: 'selected', target: 'file' });
     mockSendGuidanceExecute.mockResolvedValue(undefined);
     mockDeterministicRoutingDecide.mockReturnValue({ kind: 'fsm_handler' });
+  });
+
+  describe('spreadsheet settings', () => {
+    const settingsState = () =>
+      buildConversationState({
+        currentState: 'SETTINGS_MENU',
+        revision: '7',
+        statePayload: { flowId: 'flow-1' },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+    it('opens the menu from IDLE before semantic routing and invalidates immediate undo', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ statePayload: { immediateUndoExpenseId: 'old' } }),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'Configuración' }),
+        buildMockDeps(),
+      );
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'IDLE', payload: null }),
+      );
+      const opening = mockTransitionStateExecute.mock.calls.find(
+        ([input]) => input.targetState === 'SETTINGS_MENU',
+      )?.[0];
+      expect(typeof opening?.payload?.flowId).toBe('string');
+      expect(opening?.expiresAt).toBeInstanceOf(Date);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.menu());
+    });
+
+    it('shows stored status and refreshes the deadline', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(settingsState());
+      const deps = buildMockDeps();
+      deps.getSpreadsheetSettings = {
+        execute: vi
+          .fn()
+          .mockResolvedValue({
+            credentialStatus: 'available',
+            provider: 'google',
+            fileName: 'Gastos',
+            sheetName: 'Octubre',
+          }),
+      } as unknown as NonNullable<MessageWorkerDeps['getSpreadsheetSettings']>;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), deps);
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'SETTINGS_MENU',
+          expected: { revision: '7', currentState: 'SETTINGS_MENU', expiry: 'unexpired' },
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expect.stringContaining('El acceso actual no se verificó'),
+      );
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it.each(['2', '3', '4'])('reports option %s as unavailable', async (rawMessage) => {
+      mockGetConversationStateExecute.mockResolvedValue(settingsState());
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage }), buildMockDeps());
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.unavailable());
+    });
+
+    it('cancels only the observed unexpired flow', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(settingsState());
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'cancelar' }),
+        buildMockDeps(),
+      );
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: null,
+        expected: { revision: '7', currentState: 'SETTINGS_MENU', expiry: 'unexpired' },
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.cancelled());
+    });
+
+    it('expires only the observed flow', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ ...settingsState(), expiresAt: new Date(Date.now() - 1000) }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), buildMockDeps());
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'IDLE',
+          payload: null,
+          expected: { revision: '7', currentState: 'SETTINGS_MENU', expiry: 'expired' },
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.expired());
+    });
+
+    it('keeps an active expense and unresolved financial claim protected', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_REVIEW' }),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'configuración' }),
+        buildMockDeps(),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.finishExpense());
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      mockSendMessage.mockClear();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          statePayload: {
+            executionClaim: {
+              claimId: 'claim',
+              kind: 'save',
+              operationId: 'op',
+              sourceMessageId: null,
+              status: 'outcome_unknown',
+              target: {},
+            },
+          },
+        }),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'configuración' }),
+        buildMockDeps(),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.financialOutcomeUnknown(),
+      );
+    });
   });
 
   it('rejects malformed payloads before identity lookup or lock acquisition', async () => {
@@ -4518,7 +4647,7 @@ describe('processMessageJob', () => {
         expect(FSM_STATES.filter((state) => state === 'ONBOARDING_CATEGORIES')).toEqual([
           'ONBOARDING_CATEGORIES',
         ]);
-        expect(FSM_STATES).toHaveLength(15);
+        expect(FSM_STATES).toHaveLength(16);
       });
 
       it('passes canonical confirmation through WhatsApp unchanged', async () => {
