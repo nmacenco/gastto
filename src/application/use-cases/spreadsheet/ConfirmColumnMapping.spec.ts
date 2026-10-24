@@ -43,6 +43,7 @@ function buildMockDeps(
     } as unknown as IMappingCorrectionStateRepository,
     spreadsheetConfigRepository: {
       findByUserId: mockFindByUserId,
+      updateHeaderRowIndex: vi.fn().mockResolvedValue(undefined),
     } as unknown as ISpreadsheetConfigRepository,
     messagingPort: { sendMessage: mockSendMessage },
     transitionState: {

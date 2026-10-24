@@ -13,6 +13,7 @@ import { DrizzleConversationStateRepository } from '../infrastructure/db/reposit
 import { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
 import { DrizzleSettingsCredentialCommit } from '../infrastructure/db/repositories/DrizzleSettingsCredentialCommit';
+import { DrizzleSettingsConfigurationActivation } from '../infrastructure/db/repositories/DrizzleSettingsConfigurationActivation';
 import { DrizzleSpreadsheetConfigRepository } from '../infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
 import { DrizzleColumnMappingRepository } from '../infrastructure/db/repositories/DrizzleColumnMappingRepository';
 import { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
@@ -85,6 +86,7 @@ import { HandleOAuthCallback } from '../application/use-cases/spreadsheet/Handle
 import { SendOAuthReminder } from '../application/use-cases/spreadsheet/SendOAuthReminder';
 import { StartSettingsReauthorization } from '../application/use-cases/spreadsheet/StartSettingsReauthorization';
 import { SettingsOAuthCleanup } from '../application/use-cases/spreadsheet/SettingsOAuthCleanup';
+import { SettingsDestinationFlow } from '../application/use-cases/spreadsheet/SettingsDestinationFlow';
 import { CancelCloudConnection } from '../application/use-cases/spreadsheet/CancelCloudConnection';
 import { HandleSpreadsheetFileSelection } from '../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import { DispatchOptionSelection } from '../application/use-cases/spreadsheet/DispatchOptionSelection';
@@ -349,6 +351,22 @@ function buildGoogleOAuthFeature(
     sheetsAdapterFactory,
   );
   const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const settingsActivation = new DrizzleSettingsConfigurationActivation(infra.db);
+  const settingsDestinationFlow = new SettingsDestinationFlow({
+    configRepository: core.spreadsheetConfigRepo,
+    mappingRepository: core.columnMappingRepo,
+    spreadsheetPortFactory: sheetsAdapterFactory,
+    accessPortFactory: new SpreadsheetAccessAdapterFactory(),
+    headerDetector: core.ruleBasedHeaderDetectionAdapter,
+    columnInference: core.ruleBasedColumnInferenceAdapter,
+    categoryReaderFactory,
+    categoryHierarchyReaderFactory,
+    tokenService: core.oauthAccessTokenService,
+    activation: settingsActivation,
+    transitionState: core.transitionState,
+    messaging: messagingPort,
+  });
 
   const inferColumnMapping = new InferColumnMapping({
     oauthAccessTokenService: core.oauthAccessTokenService,
@@ -473,6 +491,7 @@ function buildGoogleOAuthFeature(
     initiateCloudConnection,
     startSettingsReauthorization,
     settingsOAuthCleanup,
+    settingsDestinationFlow,
     handleOAuthCallback,
     sendOAuthReminder,
     cancelCloudConnection,

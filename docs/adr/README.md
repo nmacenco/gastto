@@ -35,6 +35,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-026](./2026-09-23-bound-expense-extraction.md) | Bound expense extraction and recover owned initial attempts | Accepted |
 | [ADR-027](./2026-10-09-stream-nvidia-expense-extraction.md) | Stream NVIDIA GLM expense extraction | Accepted |
 | [ADR-028](./ADR-028-bound-expense-extraction-fallback.md) | Bound expense extraction fallback across providers | Accepted |
+| [ADR-029](./ADR-029-version-spreadsheet-destinations.md) | Version spreadsheet destinations for safe settings changes | Accepted |
 
 ## Template
 

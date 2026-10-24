@@ -19,6 +19,9 @@ export const EXPENSE_SEMANTIC_CAPABILITY_MATRIX: Readonly<
   IDLE: ['register_expense', 'request_clarification', 'out_of_scope'],
   SETTINGS_MENU: [],
   SETTINGS_OAUTH: [],
+  SETTINGS_SHEET: [],
+  SETTINGS_MAPPING: [],
+  SETTINGS_CATEGORIES: [],
   EXPENSE_RECEIVING: ['register_expense', 'request_clarification', 'out_of_scope'],
   EXPENSE_CLARIFYING: [
     'provide_missing_expense_data',

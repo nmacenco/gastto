@@ -480,6 +480,41 @@ describe('processMessageJob', () => {
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
     });
 
+    it('starts a sheet candidate from option 4 before semantic routing', async () => {
+      const state = settingsState();
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const startSheet = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = {
+        startSheet,
+      } as unknown as NonNullable<MessageWorkerDeps['settingsDestinationFlow']>;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '4' }), deps);
+      expect(startSheet).toHaveBeenCalledWith(state, '123456789');
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it('routes an owned sheet choice directly to settings review', async () => {
+      const state = buildConversationState({
+        currentState: 'SETTINGS_SHEET',
+        statePayload: {
+          flowId: 'flow-1',
+          sourceConfigId: 'config-1',
+          fileId: 'file-1',
+          fileName: 'Expenses',
+        },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const reply = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['settingsDestinationFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '2' }), deps);
+      expect(reply).toHaveBeenCalledWith(state, '2', '123456789');
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
     it.each(['3', '4'])('reports option %s as unavailable', async (rawMessage) => {
       mockGetConversationStateExecute.mockResolvedValue(settingsState());
       await processMessageJob(buildJob({ ...baseJobData, rawMessage }), buildMockDeps());
@@ -4695,7 +4730,7 @@ describe('processMessageJob', () => {
         expect(FSM_STATES.filter((state) => state === 'ONBOARDING_CATEGORIES')).toEqual([
           'ONBOARDING_CATEGORIES',
         ]);
-        expect(FSM_STATES).toHaveLength(17);
+        expect(FSM_STATES).toHaveLength(20);
       });
 
       it('passes canonical confirmation through WhatsApp unchanged', async () => {

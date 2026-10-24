@@ -107,6 +107,7 @@ export async function registerWorkers(
     getSpreadsheetSettings: new GetSpreadsheetSettings(deps.tokenRepo, deps.spreadsheetConfigRepo),
     startSettingsReauthorization: deps.googleOAuth?.startSettingsReauthorization ?? null,
     settingsOAuthCleanup: deps.googleOAuth?.settingsOAuthCleanup ?? null,
+    settingsDestinationFlow: deps.googleOAuth?.settingsDestinationFlow ?? null,
     recoverCorruptedState: deps.recoverCorruptedState,
     userRepo: deps.userRepo,
     messagingAdapters: {

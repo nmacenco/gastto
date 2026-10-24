@@ -127,7 +127,7 @@ export class UndoLastExpenseUseCase {
       return { status: 'not_found' };
     }
 
-    const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
+    const config = await this.spreadsheetConfigRepo.findById(last.spreadsheetId);
     if (!config || last.rowIndex === null || config.provider !== 'google') {
       await this.transitionState.finalizeClaim({
         userId: input.userId,

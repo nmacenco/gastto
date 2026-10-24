@@ -85,6 +85,7 @@ import { settingsCopies } from '../../application/copies/settings.copies';
 import type { GetSpreadsheetSettings } from '../../application/use-cases/spreadsheet/GetSpreadsheetSettings';
 import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
 import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
+import type { SettingsDestinationFlow } from '../../application/use-cases/spreadsheet/SettingsDestinationFlow';
 import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadsheet/SettingsOAuthFlow';
 import { randomUUID } from 'node:crypto';
 import {
@@ -161,6 +162,7 @@ export interface MessageWorkerDeps {
   getSpreadsheetSettings?: GetSpreadsheetSettings | null;
   startSettingsReauthorization?: StartSettingsReauthorization | null;
   settingsOAuthCleanup?: SettingsOAuthCleanup | null;
+  settingsDestinationFlow?: SettingsDestinationFlow | null;
 }
 
 export async function processMessageJob(
@@ -244,6 +246,9 @@ export async function processMessageJob(
         if (
           currentState === 'SETTINGS_MENU' ||
           currentState === 'SETTINGS_OAUTH' ||
+          currentState === 'SETTINGS_SHEET' ||
+          currentState === 'SETTINGS_MAPPING' ||
+          currentState === 'SETTINGS_CATEGORIES' ||
           (data.callbackData === undefined && isSettingsCommand(data.rawMessage))
         ) {
           await routeByState(currentState, data, conversationState, opts, messaging);
@@ -640,6 +645,10 @@ async function routeByState(
       });
       return;
     }
+    if (choice === '4' && opts.settingsDestinationFlow) {
+      await opts.settingsDestinationFlow.startSheet(conversationState, externalId);
+      return;
+    }
     await refreshSettingsDeadline(userId, conversationState, opts);
     if (choice === '1') {
       if (!opts.getSpreadsheetSettings) throw new Error('Settings summary is not configured');
@@ -650,6 +659,23 @@ async function routeByState(
     } else {
       await messaging.sendMessage(externalId, settingsCopies.choose());
     }
+    return;
+  }
+
+  if (['SETTINGS_SHEET', 'SETTINGS_MAPPING', 'SETTINGS_CATEGORIES'].includes(currentState)) {
+    if (!conversationState || !opts.settingsDestinationFlow) return;
+    if (conversationState.expiresAt && conversationState.expiresAt.getTime() <= Date.now()) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expiresAt: null,
+        expected: opts.transitionState.precondition(conversationState, 'expired'),
+      });
+      await messaging.sendMessage(externalId, settingsCopies.expired());
+      return;
+    }
+    await opts.settingsDestinationFlow.reply(conversationState, rawMessage, externalId);
     return;
   }
 

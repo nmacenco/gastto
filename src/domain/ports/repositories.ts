@@ -111,14 +111,23 @@ export interface IOAuthTokenRepository {
 // ── Configuración de planilla ─────────────────────────────────────────────────
 
 export interface ISpreadsheetConfigRepository {
+  /** Returns only the active destination. */
   findByUserId(userId: string): Promise<SpreadsheetConfig | null>;
+  findById(id: string): Promise<SpreadsheetConfig | null>;
   create(
-    config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>,
+    config: Omit<
+      SpreadsheetConfig,
+      'id' | 'createdAt' | 'updatedAt' | 'isActive' | 'headerRowIndex'
+    >,
   ): Promise<SpreadsheetConfig>;
-  upsertByUserId(
-    config: Omit<SpreadsheetConfig, 'id' | 'createdAt' | 'updatedAt'>,
+  createOrResumeInitial(
+    config: Omit<
+      SpreadsheetConfig,
+      'id' | 'createdAt' | 'updatedAt' | 'isActive' | 'headerRowIndex'
+    >,
   ): Promise<SpreadsheetConfig>;
   updateAccessVerified(id: string): Promise<void>;
+  updateHeaderRowIndex(id: string, headerRowIndex: number): Promise<void>;
   updateCategoriesConfirmed(id: string): Promise<void>;
 }
 

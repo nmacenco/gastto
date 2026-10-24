@@ -29,7 +29,9 @@ function buildMockDeps(
     spreadsheetConfigRepository: {
       findByUserId: mockFindConfigByUserId,
       create: vi.fn(),
-      upsertByUserId: vi.fn(),
+      createOrResumeInitial: vi.fn(),
+      findById: vi.fn(),
+      updateHeaderRowIndex: vi.fn(),
       updateAccessVerified: vi.fn(),
       updateCategoriesConfirmed: vi.fn(),
     },

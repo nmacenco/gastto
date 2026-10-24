@@ -42,6 +42,7 @@ const mockReconnectTransitionExecute = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockCreateConfig = vi.fn();
 const mockUpsertConfig = vi.fn();
+const mockFindConfig = vi.fn().mockResolvedValue(null);
 const mockLoggerError = vi.fn();
 const mockCreatePort = vi.fn().mockReturnValue({
   listSheets: mockListSheets,
@@ -66,8 +67,9 @@ function buildMockDeps(
     transitionState: { execute: mockTransitionExecute } as unknown as TransitionConversationState,
     messagingPort: { sendMessage: mockSendMessage },
     spreadsheetConfigRepository: {
+      findByUserId: mockFindConfig,
       create: mockCreateConfig,
-      upsertByUserId: mockUpsertConfig,
+      createOrResumeInitial: mockUpsertConfig,
     } as unknown as HandleSheetSelectionDeps['spreadsheetConfigRepository'],
     validateSpreadsheetAccess: {
       execute: mockValidateAccess,
@@ -900,7 +902,7 @@ describe('HandleSheetSelection', () => {
   });
 
   describe('confirmSheet ordering and re-onboarding (upsert)', () => {
-    it('persists via upsertByUserId, transitions, then sends confirmation message', async () => {
+    it('persists via createOrResumeInitial, transitions, then sends confirmation message', async () => {
       const deps = buildMockDeps();
       const useCase = new HandleSheetSelection(deps);
 
@@ -973,7 +975,7 @@ describe('HandleSheetSelection', () => {
       expect(mockTransitionExecute).not.toHaveBeenCalled();
     });
 
-    it('invokes upsertByUserId (not create) on re-onboarding when a config already exists', async () => {
+    it('invokes createOrResumeInitial (not create) on re-onboarding when a config already exists', async () => {
       const deps = buildMockDeps();
       const useCase = new HandleSheetSelection(deps);
 
@@ -998,14 +1000,15 @@ describe('HandleSheetSelection', () => {
       expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
     });
 
-    it('upserts again when re-selecting a sheet after a previous onboarding completed', async () => {
-      mockUpsertConfig.mockResolvedValueOnce({
+    it('keeps a completed destination unchanged during re-onboarding', async () => {
+      mockFindConfig.mockResolvedValueOnce({
         id: 'config-existing',
         userId: 'user-123',
         provider: 'google',
         fileId: 'file-old',
         fileName: 'Old Planilla',
         sheetName: 'Gastos',
+        categoriesConfirmedAt: new Date('2026-01-01T00:00:00Z'),
         accessVerifiedAt: new Date('2026-01-01T00:00:00Z'),
         createdAt: new Date('2026-01-01T00:00:00Z'),
         updatedAt: new Date('2026-06-01T00:00:00Z'),
@@ -1020,8 +1023,8 @@ describe('HandleSheetSelection', () => {
         statePayload: { ...mockFilePayload, sheetList: mockSheets },
       });
 
-      expect(mockUpsertConfig).toHaveBeenCalledTimes(1);
-      expect(result.nextState).toBe('ONBOARDING_VALIDATING_ACCESS');
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
     });
   });
 

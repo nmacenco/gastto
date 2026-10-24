@@ -23,7 +23,7 @@ function buildUseCase() {
   return new UndoLastExpenseUseCase(
     { create: createPort },
     { findLatestByUserId: findLatest, softDeleteWithAudit } as unknown as IExpenseRecordRepository,
-    { findByUserId: findConfig } as unknown as ISpreadsheetConfigRepository,
+    { findById: findConfig } as unknown as ISpreadsheetConfigRepository,
     { create: logCreate },
     { getValidAccessToken, forceRefreshAccessToken },
     {
@@ -49,6 +49,7 @@ beforeEach(() => {
   });
   findLatest.mockResolvedValue({
     id: 'expense-1',
+    spreadsheetId: 'historical-config-1',
     concepto: 'Café',
     monto: 4.5,
     moneda: 'EUR',
@@ -70,6 +71,19 @@ beforeEach(() => {
 });
 
 describe('UndoLastExpenseUseCase', () => {
+  it('uses the historical configuration ID even when the active destination differs', async () => {
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        action: 'request',
+        provenance: 'deterministic_command',
+        immediateExpenseId: 'expense-1',
+      }),
+    ).resolves.toMatchObject({ status: 'deleted' });
+    expect(findConfig).toHaveBeenCalledWith('historical-config-1');
+    expect(deleteRow).toHaveBeenCalledWith('file-1', 'Gastos', 8);
+  });
+
   it('rejects an expired delayed confirmation before claiming or deleting', async () => {
     currentState.mockReturnValue({
       currentState: 'EXPENSE_UNDO_CONFIRMING',

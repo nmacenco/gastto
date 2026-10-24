@@ -200,7 +200,7 @@ export class HandleExpiredSessions {
       try {
         await this.messagingPort.sendMessage(
           identity.externalId,
-          state.currentState === 'SETTINGS_MENU' || state.currentState === 'SETTINGS_OAUTH'
+          state.currentState.startsWith('SETTINGS_')
             ? settingsCopies.expired()
             : 'Tu sesion expiro. Queres continuar o empezar de nuevo?',
         );

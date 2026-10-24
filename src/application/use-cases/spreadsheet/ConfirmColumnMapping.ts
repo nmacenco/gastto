@@ -64,6 +64,16 @@ export class ConfirmColumnMapping {
         confirmedAt,
       })),
     );
+    if (
+      typeof input.statePayload?.headerRowIndex === 'number' &&
+      Number.isInteger(input.statePayload.headerRowIndex) &&
+      input.statePayload.headerRowIndex > 0
+    ) {
+      await this.deps.spreadsheetConfigRepository.updateHeaderRowIndex(
+        config.id,
+        input.statePayload.headerRowIndex,
+      );
+    }
     await this.deps.correctionStateRepository.clear(userId);
 
     const payload: Record<string, unknown> = {

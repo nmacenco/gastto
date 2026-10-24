@@ -55,6 +55,7 @@ import type { HandleOAuthCallback } from '../application/use-cases/spreadsheet/H
 import type { SendOAuthReminder } from '../application/use-cases/spreadsheet/SendOAuthReminder';
 import type { StartSettingsReauthorization } from '../application/use-cases/spreadsheet/StartSettingsReauthorization';
 import type { SettingsOAuthCleanup } from '../application/use-cases/spreadsheet/SettingsOAuthCleanup';
+import type { SettingsDestinationFlow } from '../application/use-cases/spreadsheet/SettingsDestinationFlow';
 import type { CancelCloudConnection } from '../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import type { HandleSheetSelection } from '../application/use-cases/spreadsheet/HandleSheetSelection';
@@ -120,6 +121,7 @@ export interface GoogleOAuthFeature {
   sendOAuthReminder: SendOAuthReminder;
   startSettingsReauthorization: StartSettingsReauthorization;
   settingsOAuthCleanup: SettingsOAuthCleanup;
+  settingsDestinationFlow?: SettingsDestinationFlow;
   /** Cancels an in-flight OAuth connection attempt. */
   cancelCloudConnection: CancelCloudConnection;
   /** Lists Google Drive spreadsheet files for the user. */

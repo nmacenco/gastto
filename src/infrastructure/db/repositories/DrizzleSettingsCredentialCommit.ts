@@ -45,6 +45,7 @@ export class DrizzleSettingsCredentialCommit implements SettingsCredentialCommit
           .for('update');
         if (
           !config ||
+          !config.isActive ||
           config.provider !== 'google' ||
           config.fileId !== input.fileId ||
           config.sheetName !== input.sheetName
