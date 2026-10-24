@@ -68,18 +68,17 @@ Introduce configuration versions, then let users choose another sheet in the cur
 - [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
 - [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
-
 ### Phase 4: Safe change of spreadsheet
 
 Use file and sheet discovery to prepare a new destination, then apply the same guarded activation.
 
-- [ ] Add `SETTINGS_FILE` selection by displayed choice, search, or supported direct link; then select a sheet in that file without changing the active version. Add its domain transitions and generated database CHECK migration, with migration-before-worker deployment and data-model updates.
-- [ ] Validate access, remap columns, reread and confirm categories, and atomically activate the new version. Keep the prior version on cancellation or failure.
-- [ ] Test file-selection errors, inaccessible and read-only files, stale selections, candidate cache isolation across files, cancellation/expiry cleanup, activation rollback, new expense routing, and undo against the previous file. Assert a stale file response cannot replace or clear a newer selection. Update settings, file selection, data model, and related feature docs and indexes.
-- [ ] Run `pnpm test` and fix failures.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add `SETTINGS_FILE` selection by displayed choice, search, or supported direct link; then select a sheet in that file without changing the active version. Add its domain transitions and generated database CHECK migration, with migration-before-worker deployment and data-model updates. (Migration `0014` is generated and awaits application in a credentialed environment.)
+- [x] Validate access, remap columns, reread and confirm categories, and atomically activate the new version. Keep the prior version on cancellation or failure.
+- [x] Test file-selection errors, inaccessible and read-only files, stale selections, candidate cache isolation across files, cancellation/expiry cleanup, activation rollback, new expense routing, and undo against the previous file. Assert a stale file response cannot replace or clear a newer selection. Update settings, file selection, data model, and related feature docs and indexes. (Existing activation and historical undo tests cover the shared versioned configuration path; PostgreSQL integration tests remain skipped without Docker.)
+- [x] Run `pnpm test` and fix failures. (The `pnpm` launcher could not open its local database; the equivalent local Vitest binary passed 2,392 tests, with 122 Docker-dependent tests skipped. Bootstrap tests needed local socket permission.)
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any. (Equivalent local binaries passed.)
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase. (The user explicitly requested completion and a separate Phase 4 commit.)
 
 ## Next step
 
-Apply generated Phase 3 migrations `0012_friendly_omega_flight` and `0013_add_settings_sheet_states` in the credentialed environment before deploying the new workers. Run the PostgreSQL activation and migration tests with Docker available. Continue with Phase 4 file selection and its own migration and commit.
+Apply migrations `0012_friendly_omega_flight`, `0013_add_settings_sheet_states`, and `0014_add_settings_file_state` in order in a credentialed environment before deploying Phase 4 workers, then run the PostgreSQL integration tests with Docker available.

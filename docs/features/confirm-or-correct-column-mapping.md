@@ -1,8 +1,8 @@
 # Confirm or Correct Column Mapping
 
-## Settings sheet changes
+## Settings destination changes
 
-The `SETTINGS_MAPPING` path keeps its candidate mapping in the guarded conversation payload, scoped by flow ID and proposal ID. It asks whether column positions are unchanged. “Sí” reuses saved positions only when the recorded header row and normalized headers match the new sheet; otherwise it infers a fresh proposal. “No” starts fresh inference. The user may correct a field with `campo=número` and confirm with `confirmar`. Corrections replace ownership of the selected column within the candidate; they never write the active configuration or the onboarding correction cache. The confirmed candidate advances to `SETTINGS_CATEGORIES`, where activation persists the full new version.
+The `SETTINGS_MAPPING` path keeps its candidate mapping in the guarded conversation payload, scoped by flow ID and proposal ID. It asks whether column positions are unchanged. For a sheet change within the same file, “Sí” reuses saved positions only when the recorded header row and normalized headers match the new sheet; otherwise it infers a fresh proposal. A different file always gets fresh inference. “No” also starts fresh inference. The user may correct a field with `campo=número` and confirm with `confirmar`. Corrections replace ownership of the selected column within the candidate; they never write the active configuration or the onboarding correction cache. The confirmed candidate advances to `SETTINGS_CATEGORIES`, where activation persists the full new version.
 
 ## Overview
 

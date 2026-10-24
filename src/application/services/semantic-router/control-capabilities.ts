@@ -25,6 +25,7 @@ export const CONTROL_SEMANTIC_CAPABILITY_MATRIX: Readonly<
   IDLE: { default: ['undo_last_expense'] },
   SETTINGS_MENU: {},
   SETTINGS_OAUTH: {},
+  SETTINGS_FILE: {},
   SETTINGS_SHEET: {},
   SETTINGS_MAPPING: {},
   SETTINGS_CATEGORIES: {},

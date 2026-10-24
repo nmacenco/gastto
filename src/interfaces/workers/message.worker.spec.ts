@@ -493,6 +493,19 @@ describe('processMessageJob', () => {
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
     });
 
+    it('starts a file candidate from option 3 before semantic routing', async () => {
+      const state = settingsState();
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const startFile = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = { startFile } as unknown as NonNullable<
+        MessageWorkerDeps['settingsDestinationFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '3' }), deps);
+      expect(startFile).toHaveBeenCalledWith(state, '123456789');
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
     it('routes an owned sheet choice directly to settings review', async () => {
       const state = buildConversationState({
         currentState: 'SETTINGS_SHEET',
@@ -512,6 +525,28 @@ describe('processMessageJob', () => {
       >;
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: '2' }), deps);
       expect(reply).toHaveBeenCalledWith(state, '2', '123456789');
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it('routes an owned file choice directly to settings review', async () => {
+      const state = buildConversationState({
+        currentState: 'SETTINGS_FILE',
+        statePayload: {
+          flowId: 'flow-1',
+          sourceConfigId: 'config-1',
+          fileId: 'file-1',
+          fileName: 'Expenses',
+        },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const reply = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['settingsDestinationFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), deps);
+      expect(reply).toHaveBeenCalledWith(state, '1', '123456789');
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
     });
 
@@ -4730,7 +4765,7 @@ describe('processMessageJob', () => {
         expect(FSM_STATES.filter((state) => state === 'ONBOARDING_CATEGORIES')).toEqual([
           'ONBOARDING_CATEGORIES',
         ]);
-        expect(FSM_STATES).toHaveLength(20);
+        expect(FSM_STATES).toHaveLength(21);
       });
 
       it('passes canonical confirmation through WhatsApp unchanged', async () => {

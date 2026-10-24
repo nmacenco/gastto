@@ -51,7 +51,7 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
     }
 
     const params = new URLSearchParams({
-      q: `${buildMimeTypeQuery()} and name contains '${query}'`,
+      q: `(${buildMimeTypeQuery()}) and name contains '${query.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`,
       orderBy: 'modifiedTime desc',
       pageSize: '5',
       fields: 'files(id,name,mimeType,modifiedTime)',

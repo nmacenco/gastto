@@ -12,6 +12,7 @@ import type { HeaderDetectionPort } from '../../../domain/ports/headerDetection'
 import type { ColumnInferencePort } from '../../../domain/ports/columnInference';
 import type { ICategoryReaderPortFactory } from '../../../domain/ports/categoryReader';
 import type { ICategoryHierarchyReaderPortFactory } from '../../../domain/ports/categoryHierarchyReader';
+import type { CloudStoragePort } from '../../../domain/ports/cloudStorage';
 import type { OAuthAccessTokenProvider } from '../../services/OAuthAccessTokenService';
 import type {
   SettingsConfigurationActivation,
@@ -27,6 +28,8 @@ type Payload = Record<string, unknown> & {
   sourceConfigId: string;
   fileId: string;
   fileName: string;
+  origin?: 'sheet' | 'file';
+  files?: Array<{ id: string; name: string }>;
   sheetName?: string;
   proposalId?: string;
   step?: string;
@@ -40,6 +43,7 @@ type Payload = Record<string, unknown> & {
 
 export interface SettingsDestinationFlowDeps {
   configRepository: ISpreadsheetConfigRepository;
+  cloudStorage: CloudStoragePort;
   mappingRepository: IColumnMappingRepository;
   spreadsheetPortFactory: SpreadsheetPortFactory;
   accessPortFactory: ValidateSpreadsheetAccessPortFactory;
@@ -67,8 +71,50 @@ function cellToString(value: unknown): string {
   return '';
 }
 
+export function parseGoogleSpreadsheetLink(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return null;
+    if (url.hostname === 'docs.google.com') {
+      const match = url.pathname.match(/^\/spreadsheets\/d\/([A-Za-z0-9_-]+)(?:\/|$)/);
+      return match?.[1] ?? null;
+    }
+    if (url.hostname === 'drive.google.com') {
+      const match = url.pathname.match(/^\/file\/d\/([A-Za-z0-9_-]+)(?:\/|$)/);
+      const id = match?.[1] ?? (url.pathname === '/open' ? url.searchParams.get('id') : null);
+      return id && /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export class SettingsDestinationFlow {
   constructor(private readonly deps: SettingsDestinationFlowDeps) {}
+
+  async startFile(state: ConversationState, externalId: string): Promise<void> {
+    const config = await this.deps.configRepository.findByUserId(state.userId);
+    if (!config || config.provider !== 'google' || !config.fileId || !config.sheetName) {
+      await this.deps.messaging.sendMessage(
+        externalId,
+        'Primero completá la configuración de una planilla y una hoja de Google.',
+      );
+      return;
+    }
+    const token = await this.token(state.userId, true);
+    const files = await this.deps.cloudStorage.listRecentSpreadsheets(token, 'google');
+    const payload: Payload = {
+      flowId: randomUUID(),
+      sourceConfigId: config.id,
+      origin: 'file',
+      fileId: config.fileId,
+      fileName: config.fileName,
+      files: files.map(({ id, name }) => ({ id, name })),
+    };
+    await this.move(state, 'SETTINGS_FILE', payload);
+    await this.deps.messaging.sendMessage(externalId, this.filePrompt(payload.files ?? []));
+  }
 
   async startSheet(state: ConversationState, externalId: string): Promise<void> {
     const config = await this.deps.configRepository.findByUserId(state.userId);
@@ -93,6 +139,7 @@ export class SettingsDestinationFlow {
       sourceConfigId: config.id,
       fileId: config.fileId,
       fileName: config.fileName,
+      origin: 'sheet',
       sheets: sheets.map(({ name, index }) => ({ name, index })),
     };
     await this.move(state, 'SETTINGS_SHEET', payload);
@@ -111,6 +158,9 @@ export class SettingsDestinationFlow {
       return;
     }
     switch (state.currentState) {
+      case 'SETTINGS_FILE':
+        await this.selectFile(state, payload, rawMessage, externalId);
+        break;
       case 'SETTINGS_SHEET':
         await this.selectSheet(state, payload, rawMessage, externalId);
         break;
@@ -121,6 +171,81 @@ export class SettingsDestinationFlow {
         await this.reviewCategories(state, payload, rawMessage, externalId);
         break;
     }
+  }
+
+  private async selectFile(
+    state: ConversationState,
+    payload: Payload,
+    reply: string,
+    externalId: string,
+  ): Promise<void> {
+    const trimmed = reply.trim();
+    const directId = parseGoogleSpreadsheetLink(trimmed);
+    if (!directId && (payload.step === 'searching' || /^buscar\s+\S/i.test(trimmed))) {
+      const query = trimmed.replace(/^buscar\s+/i, '');
+      if (query.length < 2) {
+        await this.deps.messaging.sendMessage(
+          externalId,
+          'Escribí al menos dos letras para buscar una planilla.',
+        );
+        return;
+      }
+      const token = await this.token(state.userId, true);
+      const files = await this.deps.cloudStorage.searchSpreadsheets(token, 'google', query);
+      const next: Payload = { ...payload, files: files.map(({ id, name }) => ({ id, name })) };
+      delete next.step;
+      await this.move(state, 'SETTINGS_FILE', next);
+      await this.deps.messaging.sendMessage(externalId, this.filePrompt(next.files ?? []));
+      return;
+    }
+    if (normalize(trimmed) === 'buscar') {
+      await this.move(state, 'SETTINGS_FILE', { ...payload, step: 'searching' });
+      await this.deps.messaging.sendMessage(
+        externalId,
+        'Escribí el nombre de la planilla que querés buscar.',
+      );
+      return;
+    }
+    const index = Number(trimmed);
+    const displayed = Number.isInteger(index) ? payload.files?.[index - 1] : undefined;
+    const selected =
+      displayed ??
+      (directId
+        ? (payload.files?.find((file) => file.id === directId) ?? {
+            id: directId,
+            name: 'Planilla del enlace',
+          })
+        : null);
+    if (!selected) {
+      await this.deps.messaging.sendMessage(externalId, this.filePrompt(payload.files ?? []));
+      return;
+    }
+    const token = await this.token(state.userId, true);
+    if (!(await this.deps.cloudStorage.validateFileAccess(selected.id, token, 'google'))) {
+      await this.deps.messaging.sendMessage(
+        externalId,
+        'No tenés acceso a esa planilla. Elegí otra o escribí cancelar.',
+      );
+      return;
+    }
+    const sheets = await this.deps.spreadsheetPortFactory.create(token).listSheets(selected.id);
+    if (!sheets.length) {
+      await this.deps.messaging.sendMessage(
+        externalId,
+        'La planilla no tiene hojas disponibles. Elegí otra.',
+      );
+      return;
+    }
+    const next: Payload = {
+      flowId: payload.flowId,
+      sourceConfigId: payload.sourceConfigId,
+      origin: 'file',
+      fileId: selected.id,
+      fileName: selected.name,
+      sheets: sheets.map(({ name, index: sheetIndex }) => ({ name, index: sheetIndex })),
+    };
+    await this.move(state, 'SETTINGS_SHEET', next);
+    await this.deps.messaging.sendMessage(externalId, this.sheetPrompt(sheets));
   }
 
   private async selectSheet(
@@ -198,7 +323,11 @@ export class SettingsDestinationFlow {
       const headerRow = rows.find((row) => row.index === headerRowIndex);
       const headers = (headerRow?.values ?? []).map(cellToString);
       let mappings: Mapping[] | null = null;
-      if (answer === 'si' && source.headerRowIndex === headerRowIndex) {
+      if (
+        answer === 'si' &&
+        payload.origin !== 'file' &&
+        source.headerRowIndex === headerRowIndex
+      ) {
         const saved = await this.deps.mappingRepository.findBySpreadsheetId(source.id);
         if (
           saved.length &&
@@ -356,7 +485,9 @@ export class SettingsDestinationFlow {
       if (outcome === 'activated')
         await this.deps.messaging.sendMessage(
           externalId,
-          'La nueva hoja quedó activa. Tus gastos anteriores conservan su hoja original.',
+          payload.origin === 'file'
+            ? 'La nueva planilla quedó activa. Tus gastos anteriores conservan su planilla original.'
+            : 'La nueva hoja quedó activa. Tus gastos anteriores conservan su hoja original.',
         );
       return;
     }
@@ -410,12 +541,15 @@ export class SettingsDestinationFlow {
     return config?.id === payload.sourceConfigId ? config : null;
   }
 
-  private async token(userId: string): Promise<string> {
+  private async token(userId: string, drive = false): Promise<string> {
     return (
       await this.deps.tokenService.getValidAccessToken({
         userId,
         provider: 'google',
-        requiredScopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        requiredScopes: [
+          'https://www.googleapis.com/auth/spreadsheets',
+          ...(drive ? ['https://www.googleapis.com/auth/drive.readonly'] : []),
+        ],
       })
     ).accessToken;
   }
@@ -436,6 +570,10 @@ export class SettingsDestinationFlow {
 
   private sheetPrompt(sheets: ReadonlyArray<{ name: string }>): string {
     return `Elegí una hoja:\n${sheets.map((sheet, index) => `${index + 1}. ${sheet.name}`).join('\n')}\nEscribí el número o cancelar.`;
+  }
+
+  private filePrompt(files: ReadonlyArray<{ name: string }>): string {
+    return `Elegí una planilla:\n${files.length ? files.map((file, index) => `${index + 1}. ${file.name}`).join('\n') : 'No encontramos planillas recientes.'}\nEscribí el número, buscar, buscar seguido del nombre, un enlace de Google Sheets o cancelar.`;
   }
 
   private mappingPrompt(mappings: Mapping[]): string {

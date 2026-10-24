@@ -3,6 +3,7 @@ import type { ConversationState, FsmState } from '../../../domain/entities/Conve
 import type { SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
 import {
   SettingsDestinationFlow,
+  parseGoogleSpreadsheetLink,
   type SettingsDestinationFlowDeps,
 } from './SettingsDestinationFlow';
 
@@ -44,6 +45,17 @@ const payload = {
   preview: preview.rows,
   accessVerifiedAt: new Date().toISOString(),
 };
+const filePayload = {
+  flowId: 'flow-file',
+  sourceConfigId: 'config-old',
+  origin: 'file',
+  fileId: 'file-old',
+  fileName: 'Expenses',
+  files: [
+    { id: 'file-new', name: 'New Expenses' },
+    { id: 'file-other', name: 'Other Expenses' },
+  ],
+};
 
 function state(
   currentState: FsmState,
@@ -78,10 +90,19 @@ function setup() {
     unmappedFields: [],
   });
   const activate = vi.fn().mockResolvedValue('activated');
+  const listRecentSpreadsheets = vi.fn().mockResolvedValue([
+    { id: 'file-new', name: 'New Expenses' },
+    { id: 'file-other', name: 'Other Expenses' },
+  ]);
+  const searchSpreadsheets = vi.fn().mockResolvedValue([{ id: 'file-searched', name: 'Searched' }]);
+  const validateFileAccess = vi.fn().mockResolvedValue(true);
+  const listSheets = vi.fn().mockResolvedValue(sheets);
+  const getValidAccessToken = vi.fn().mockResolvedValue({ accessToken: 'token' });
   const deps = {
     configRepository: { findByUserId },
+    cloudStorage: { listRecentSpreadsheets, searchSpreadsheets, validateFileAccess },
     mappingRepository: { findBySpreadsheetId },
-    spreadsheetPortFactory: { create: () => ({ listSheets: vi.fn().mockResolvedValue(sheets) }) },
+    spreadsheetPortFactory: { create: () => ({ listSheets }) },
     accessPortFactory: { create: () => ({ validateSpreadsheetAccess }) },
     headerDetector: { detectHeaderRow: vi.fn().mockResolvedValue(1) },
     columnInference: { infer },
@@ -89,7 +110,7 @@ function setup() {
       create: () => ({ readCategories: vi.fn().mockResolvedValue(['Food']) }),
     },
     categoryHierarchyReaderFactory: { create: () => ({ readHierarchy: vi.fn() }) },
-    tokenService: { getValidAccessToken: vi.fn().mockResolvedValue({ accessToken: 'token' }) },
+    tokenService: { getValidAccessToken },
     activation: { execute: activate },
     transitionState: {
       execute: transition,
@@ -110,10 +131,175 @@ function setup() {
     validateSpreadsheetAccess,
     infer,
     activate,
+    listRecentSpreadsheets,
+    searchSpreadsheets,
+    validateFileAccess,
+    listSheets,
+    tokenService: { getValidAccessToken },
   };
 }
 
+describe('parseGoogleSpreadsheetLink', () => {
+  it('accepts supported Google spreadsheet links and rejects other hosts', () => {
+    expect(parseGoogleSpreadsheetLink('https://docs.google.com/spreadsheets/d/abc_123/edit')).toBe(
+      'abc_123',
+    );
+    expect(parseGoogleSpreadsheetLink('https://drive.google.com/file/d/xyz-7/view')).toBe('xyz-7');
+    expect(parseGoogleSpreadsheetLink('https://drive.google.com/open?id=xyz-7')).toBe('xyz-7');
+    expect(parseGoogleSpreadsheetLink('https://drive.google.com/other?id=xyz-7')).toBeNull();
+    expect(parseGoogleSpreadsheetLink('https://evil.example/spreadsheets/d/abc_123')).toBeNull();
+    expect(
+      parseGoogleSpreadsheetLink('http://docs.google.com/spreadsheets/d/abc_123/edit'),
+    ).toBeNull();
+  });
+});
+
 describe('SettingsDestinationFlow', () => {
+  it('lists recent files in a guarded settings candidate', async () => {
+    const t = setup();
+    await t.flow.startFile(state('SETTINGS_MENU', { flowId: 'menu' }), 'chat-1');
+    expect(t.listRecentSpreadsheets).toHaveBeenCalledWith('token', 'google');
+    const write = t.transition.mock.calls[0]?.[0] as unknown as {
+      targetState: string;
+      payload: Record<string, unknown>;
+    };
+    expect(write.targetState).toBe('SETTINGS_FILE');
+    expect(write.payload).toMatchObject({ sourceConfigId: config.id, origin: 'file' });
+    expect(t.sendMessage).toHaveBeenCalledWith('chat-1', expect.stringContaining('New Expenses'));
+  });
+
+  it('requires Drive discovery and Sheets scopes when starting a file change', async () => {
+    const t = setup();
+    await t.flow.startFile(state('SETTINGS_MENU', { flowId: 'menu' }), 'chat-1');
+    expect(t.tokenService.getValidAccessToken).toHaveBeenCalledWith({
+      userId: 'user-1',
+      provider: 'google',
+      requiredScopes: [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive.readonly',
+      ],
+    });
+  });
+
+  it('searches files and replaces the displayed list under the observed revision', async () => {
+    const t = setup();
+    await t.flow.reply(state('SETTINGS_FILE', filePayload), 'buscar viaje', 'chat-1');
+    expect(t.searchSpreadsheets).toHaveBeenCalledWith('token', 'google', 'viaje');
+    const write = t.transition.mock.calls[0]?.[0] as unknown as {
+      targetState: string;
+      expected: { revision: string };
+      payload: { files: unknown[] };
+    };
+    expect(write).toMatchObject({ targetState: 'SETTINGS_FILE', expected: { revision: '3' } });
+    expect(write.payload.files).toEqual([{ id: 'file-searched', name: 'Searched' }]);
+  });
+
+  it('selects a displayed file and lists its sheets without changing the active configuration', async () => {
+    const t = setup();
+    await t.flow.reply(state('SETTINGS_FILE', filePayload), '2', 'chat-1');
+    expect(t.validateFileAccess).toHaveBeenCalledWith('file-other', 'token', 'google');
+    expect(t.listSheets).toHaveBeenCalledWith('file-other');
+    const write = t.transition.mock.calls[0]?.[0] as unknown as {
+      targetState: string;
+      payload: Record<string, unknown>;
+    };
+    expect(write.targetState).toBe('SETTINGS_SHEET');
+    expect(write.payload).toMatchObject({ fileId: 'file-other', fileName: 'Other Expenses' });
+    expect(t.activate).not.toHaveBeenCalled();
+  });
+
+  it('discards proposal data when moving from file discovery to another file', async () => {
+    const t = setup();
+    await t.flow.reply(
+      state('SETTINGS_FILE', {
+        ...filePayload,
+        proposalId: 'older-proposal',
+        mappings: [{ field: 'monto', columnIndex: 0, columnHeader: 'Amount' }],
+        categories: [{ name: 'Old', subcategories: [] }],
+      }),
+      '2',
+      'chat-1',
+    );
+    const write = t.transition.mock.calls[0]?.[0] as unknown as {
+      payload: Record<string, unknown>;
+    };
+    const next = write.payload;
+    expect(next).not.toHaveProperty('proposalId');
+    expect(next).not.toHaveProperty('mappings');
+    expect(next).not.toHaveProperty('categories');
+  });
+
+  it('keeps the file candidate when the selected file has no sheets', async () => {
+    const t = setup();
+    t.listSheets.mockResolvedValue([]);
+    await t.flow.reply(state('SETTINGS_FILE', filePayload), '1', 'chat-1');
+    expect(t.transition).not.toHaveBeenCalled();
+    expect(t.sendMessage).toHaveBeenCalledWith('chat-1', expect.stringContaining('no tiene hojas'));
+  });
+
+  it('accepts a direct Sheets link but rejects an inaccessible file', async () => {
+    const t = setup();
+    t.validateFileAccess.mockResolvedValue(false);
+    await t.flow.reply(
+      state('SETTINGS_FILE', filePayload),
+      'https://docs.google.com/spreadsheets/d/link_7/edit',
+      'chat-1',
+    );
+    expect(t.validateFileAccess).toHaveBeenCalledWith('link_7', 'token', 'google');
+    expect(t.transition).not.toHaveBeenCalled();
+    expect(t.activate).not.toHaveBeenCalled();
+  });
+
+  it('does not send a sheet list when a stale file selection loses its revision', async () => {
+    const t = setup();
+    t.transition.mockRejectedValue(new Error('stale'));
+    await expect(t.flow.reply(state('SETTINGS_FILE', filePayload), '1', 'chat-1')).rejects.toThrow(
+      'stale',
+    );
+    expect(t.sendMessage).not.toHaveBeenCalled();
+    expect(t.activate).not.toHaveBeenCalled();
+  });
+
+  it('always remaps a different file even when the user answers yes', async () => {
+    const t = setup();
+    await t.flow.reply(
+      state('SETTINGS_MAPPING', {
+        ...payload,
+        origin: 'file',
+        fileId: 'file-new',
+        step: 'same-columns',
+      }),
+      'sí',
+      'chat-1',
+    );
+    expect(t.infer).toHaveBeenCalledOnce();
+    expect(t.findBySpreadsheetId).not.toHaveBeenCalled();
+  });
+
+  it('rejects a read-only sheet in a different file before activation', async () => {
+    const t = setup();
+    t.validateSpreadsheetAccess.mockResolvedValue({ kind: 'read-only', preview });
+    await t.flow.reply(
+      state('SETTINGS_SHEET', { ...filePayload, sheets, fileId: 'file-new' }),
+      '1',
+      'chat-1',
+    );
+    expect(t.transition).not.toHaveBeenCalled();
+    expect(t.activate).not.toHaveBeenCalled();
+  });
+
+  it('cancels a file candidate with a guarded payload clear', async () => {
+    const t = setup();
+    await t.flow.reply(state('SETTINGS_FILE', filePayload), 'cancelar', 'chat-1');
+    expect(t.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetState: 'IDLE',
+        payload: null,
+        expected: { revision: '3', currentState: 'SETTINGS_FILE', expiry: 'unexpired' },
+      }),
+    );
+  });
+
   it('lists sheets without mutating the active configuration', async () => {
     const t = setup();
     await t.flow.startSheet(state('SETTINGS_MENU', { flowId: 'menu' }), 'chat-1');
@@ -215,6 +401,33 @@ describe('SettingsDestinationFlow', () => {
     t.sendMessage.mockClear();
     await t.flow.reply(state('SETTINGS_CATEGORIES', reviewed), 'confirmar', 'chat-1');
     expect(t.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('activates a reviewed file candidate without changing the historical source', async () => {
+    const t = setup();
+    const reviewed = {
+      ...payload,
+      origin: 'file',
+      fileId: 'file-new',
+      fileName: 'New Expenses',
+      headerRowIndex: 1,
+      mappings: [{ field: 'categoria', columnIndex: 1, columnHeader: 'Category' }],
+      categories: [{ name: 'Food', subcategories: [] }],
+    };
+    await t.flow.reply(state('SETTINGS_CATEGORIES', reviewed), 'confirmar', 'chat-1');
+    const call = t.activate.mock.calls[0]?.[0] as unknown as {
+      candidate: { sourceConfigId: string; fileId: string; fileName: string };
+    };
+    expect(call.candidate).toMatchObject({
+      sourceConfigId: 'config-old',
+      fileId: 'file-new',
+      fileName: 'New Expenses',
+    });
+    expect(config.fileId).toBe('file-old');
+    expect(t.sendMessage).toHaveBeenCalledWith(
+      'chat-1',
+      expect.stringContaining('planilla original'),
+    );
   });
 
   it('cancels only the observed flow and clears its payload', async () => {

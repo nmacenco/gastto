@@ -15,6 +15,7 @@ export const STATE_ACTION_POLICY: Readonly<
   IDLE: { default: ['register_expense', 'undo_last_expense', ...guidance] },
   SETTINGS_MENU: {},
   SETTINGS_OAUTH: {},
+  SETTINGS_FILE: {},
   SETTINGS_SHEET: {},
   SETTINGS_MAPPING: {},
   SETTINGS_CATEGORIES: {},

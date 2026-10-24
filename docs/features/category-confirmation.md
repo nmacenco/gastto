@@ -1,6 +1,6 @@
 # Category confirmation
 
-## Settings sheet changes
+## Settings destination changes
 
 `SETTINGS_CATEGORIES` reads the candidate sheet using its reviewed `categoria` column and optional `subcategoria` column. It keeps the flat or linked hierarchy in the guarded conversation payload, scoped to the candidate flow and proposal. The user confirms with `confirmar` or replaces the reviewed list with `categorías: Nombre; Otra > Subcategoría`. Confirmation persists the new version's hierarchy in the same transaction that activates its configuration and mapping. Cancellation, expiry, and failed activation leave the previous hierarchy unchanged.
 

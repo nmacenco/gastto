@@ -246,6 +246,7 @@ export async function processMessageJob(
         if (
           currentState === 'SETTINGS_MENU' ||
           currentState === 'SETTINGS_OAUTH' ||
+          currentState === 'SETTINGS_FILE' ||
           currentState === 'SETTINGS_SHEET' ||
           currentState === 'SETTINGS_MAPPING' ||
           currentState === 'SETTINGS_CATEGORIES' ||
@@ -649,6 +650,10 @@ async function routeByState(
       await opts.settingsDestinationFlow.startSheet(conversationState, externalId);
       return;
     }
+    if (choice === '3' && opts.settingsDestinationFlow) {
+      await opts.settingsDestinationFlow.startFile(conversationState, externalId);
+      return;
+    }
     await refreshSettingsDeadline(userId, conversationState, opts);
     if (choice === '1') {
       if (!opts.getSpreadsheetSettings) throw new Error('Settings summary is not configured');
@@ -662,7 +667,11 @@ async function routeByState(
     return;
   }
 
-  if (['SETTINGS_SHEET', 'SETTINGS_MAPPING', 'SETTINGS_CATEGORIES'].includes(currentState)) {
+  if (
+    ['SETTINGS_FILE', 'SETTINGS_SHEET', 'SETTINGS_MAPPING', 'SETTINGS_CATEGORIES'].includes(
+      currentState,
+    )
+  ) {
     if (!conversationState || !opts.settingsDestinationFlow) return;
     if (conversationState.expiresAt && conversationState.expiresAt.getTime() <= Date.now()) {
       await opts.transitionState.execute({

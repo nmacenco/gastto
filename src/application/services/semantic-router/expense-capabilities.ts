@@ -19,6 +19,7 @@ export const EXPENSE_SEMANTIC_CAPABILITY_MATRIX: Readonly<
   IDLE: ['register_expense', 'request_clarification', 'out_of_scope'],
   SETTINGS_MENU: [],
   SETTINGS_OAUTH: [],
+  SETTINGS_FILE: [],
   SETTINGS_SHEET: [],
   SETTINGS_MAPPING: [],
   SETTINGS_CATEGORIES: [],

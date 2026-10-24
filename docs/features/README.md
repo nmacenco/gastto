@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, stored connection status, Google reauthorization, safe sheet changes, and guarded cancellation and expiry.
+- [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, stored connection status, Google reauthorization, safe file and sheet changes, and guarded cancellation and expiry.
 
 - [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone proposal evaluator plus checksum-pinned, fail-closed release reports, aggregate-safe rollout evidence, guarded enabled dispatch, and migration-free rollback boundaries.
 
@@ -15,8 +15,8 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`select-sheet.md`](./select-sheet.md) — Deterministic and revision-bound sheet selection, IDK header guidance, safe initial config persistence, and eager access validation within the chosen file.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation before expense recording, with one transparent OAuth refresh/replay for provider authorization failures.
 - [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference with complete atomic replacement, proposal identity, untrusted-data boundaries, optional multilingual subcategory mapping, and category-only compatibility.
-- [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — Proposal-bound onboarding confirmation and settings candidate mapping, with header checks and isolated corrections.
-- [`category-confirmation.md`](./category-confirmation.md) — Confirms flat or linked category vocabulary for onboarding and settings candidates, preserving legacy payloads and category-only row layouts.
+- [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — Proposal-bound onboarding confirmation and settings file or sheet candidate mapping, with header checks and isolated corrections.
+- [`category-confirmation.md`](./category-confirmation.md) — Confirms flat or linked category vocabulary for onboarding and settings file or sheet candidates, preserving legacy payloads and category-only row layouts.
 - [`category-vocabulary.md`](./category-vocabulary.md) — Category vocabulary foundation introduced on `main`; the active confirmation flow is documented in `category-confirmation.md`.
 - [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, manages, classifies, reviews, saves, retries, and undoes parent-scoped subcategories with stable references, immutable snapshots, and legacy compatibility.
 - [`incoming-message-routing.md`](./incoming-message-routing.md) — Strict BullMQ ingestion with correlated, recoverable extraction failures and bounded lock-contention retries, accurate failure logs, sensitive-command bypasses and snapshot-bound enabled expense, option, cancellation, undo-offer, request-only retry, and recovery dispatch shared by Telegram and WhatsApp.

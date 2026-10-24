@@ -355,6 +355,7 @@ function buildGoogleOAuthFeature(
   const settingsActivation = new DrizzleSettingsConfigurationActivation(infra.db);
   const settingsDestinationFlow = new SettingsDestinationFlow({
     configRepository: core.spreadsheetConfigRepo,
+    cloudStorage: driveFileDiscovery,
     mappingRepository: core.columnMappingRepo,
     spreadsheetPortFactory: sheetsAdapterFactory,
     accessPortFactory: new SpreadsheetAccessAdapterFactory(),
