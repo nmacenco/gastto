@@ -186,8 +186,11 @@ export class GoogleSheetsAdapter
   }
 
   async appendRow(fileId: string, sheetName: string, values: CellValue[]): Promise<AppendResult> {
-    const encodedSheetName = encodeURIComponent(sheetName);
-    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodedSheetName}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+    // Restrict table detection to the mapped columns. A sheet-wide append can
+    // select unrelated cells to the right and shift the whole expense row.
+    const lastColumn = columnIndexToLetter(Math.max(values.length - 1, 0));
+    const range = `'${sheetName.replace(/'/g, "''")}'!A1:${lastColumn}`;
+    const url = `${GOOGLE_SHEETS_API_URL}/${fileId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
 
     let response: Response;
     try {

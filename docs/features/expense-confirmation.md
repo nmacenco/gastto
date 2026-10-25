@@ -24,6 +24,7 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - Accepting a zero-amount stage advances the review binding and presents the full summary; a second explicit confirmation is required to save.
 - A Google Sheets append is successful only after the provider confirms it. Only then does the system persist the expense record and send the E1-US-10 save confirmation.
 - When a confirmed `subcategoria` mapping exists, the append writes the reviewed child snapshot at that exact column index, or `null` for a valid no-child selection. Without the mapping, the row length and every existing mapped position remain unchanged.
+- Google Sheets searches for the append table only within columns A through the last mapped column. Data elsewhere on the sheet cannot shift the saved expense into columns to the right.
 - The local record written after provider confirmation stores nullable category/subcategory stable IDs and immutable display snapshots. A configured hierarchy may therefore be retained locally even when the spreadsheet has no mapped child column.
 - Normal OAuth access-token expiration is recovered silently before the append. If Google returns `AUTH_ERROR` for a token considered valid, the save forces one refresh and replays the append exactly once; only the single provider-confirmed append is persisted.
 - Transparent refresh does not restart onboarding, replay expense interpretation/NLP, alter spreadsheet/category configuration, or emit authorization-failure copy.

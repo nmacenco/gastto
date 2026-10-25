@@ -470,7 +470,7 @@ describe('GoogleSheetsAdapter', () => {
       });
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/Gastos:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
+        "https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-123/values/'Gastos'!A1%3AB:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
         {
           method: 'POST',
           headers: {
@@ -480,6 +480,42 @@ describe('GoogleSheetsAdapter', () => {
           body: JSON.stringify({ values: [['Taxi', 500]] }),
         },
       );
+    });
+
+    it('anchors a mapped A:F row away from unrelated data to the right', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: { updatedRange: 'Gastos!A8:F8' } }),
+      });
+
+      await adapter.appendRow('spreadsheet-123', 'Gastos', [
+        'TC',
+        null,
+        'GastosDia',
+        'Comida',
+        40,
+        'Cena',
+      ]);
+
+      const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain("/values/'Gastos'!A1%3AF:append?");
+      expect(request.body).toBe(
+        JSON.stringify({ values: [['TC', null, 'GastosDia', 'Comida', 40, 'Cena']] }),
+      );
+    });
+
+    it('quotes apostrophes in the selected sheet name', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ updates: { updatedRange: "'Chef''s Expenses'!A8:B8" } }),
+      });
+
+      await adapter.appendRow('spreadsheet-123', "Chef's Expenses", ['TC', 40]);
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain("/values/'Chef''s%20Expenses'!A1%3AB:append?");
     });
 
     it('uses the selected sheet and returns no row when the response lacks one', async () => {

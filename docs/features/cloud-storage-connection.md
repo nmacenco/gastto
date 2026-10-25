@@ -78,7 +78,7 @@ The reminder owns the per-user lease, commits a guarded nonce/revision self-tran
 
 ### Cancellation (`CancelCloudConnection`)
 
-10. If the user types "cancelar" while in `ONBOARDING_DRIVE`:
+10. If the user types a cancellation intent such as "cancelar" or "cancel" while in `ONBOARDING_DRIVE`:
     - `CancelCloudConnection` removes the Redis CSRF key and cancels the pending reminder job.
     - Transitions FSM to `IDLE`.
     - Sends a friendly cancellation message.
