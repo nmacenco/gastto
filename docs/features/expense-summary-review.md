@@ -6,7 +6,8 @@ After the user describes an expense in natural language, the system interprets t
 
 ## Behavior (Implemented)
 
-- The summary always includes the five minimum fields: concept, amount, currency, category, and date.
+- The summary includes concept, amount, currency, category, date, and payment method (`Sin medio de pago` when absent).
+- A configured catalog resolves exact normalized payment names to stable IDs. Unknown names remain visible as unresolved and hide **Confirmar** until the user chooses an existing method, explicitly adds the displayed unknown name, or clears the payment. Resolution advances the review binding and requires a new successful presentation. Legacy reviews retain their original payment text without an ID.
 - Initial extraction infers category and optional subcategory from the expense concept or merchant against the user's configured vocabulary; it is not limited to category names written literally by the user. When configured vocabulary exists, provider suggestions must use its exact names or remain unclassified.
 - Category classification recognizes an explicitly mentioned active category (including multi-word names), uses the LLM category as additional keyword evidence, and gives fallback mapping the complete active category list rather than only canonical-looking labels.
 - Exact active LLM suggestions with low confidence are retained as ambiguous selections, including custom names such as `Gastos diarios`. Without a usable provider suggestion, negations and multiple alternative category mentions remain unclassified; contained names prefer the longer phrase unless the shorter name is also mentioned separately.

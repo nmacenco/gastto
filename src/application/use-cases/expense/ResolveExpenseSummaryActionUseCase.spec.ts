@@ -35,6 +35,13 @@ function buildPayload(overrides: Partial<ExpenseReviewPayload> = {}): ExpenseRev
     resolvedSubcategoryId: null,
     subcategoryStatus: 'none',
     subcategoryEnabled: false,
+    paymentMethodSelection: {
+      status: 'legacy',
+      sourceConfigId: null,
+      paymentMethodId: null,
+      canonicalName: null,
+      unresolvedRaw: null,
+    },
     ...overrides,
   };
 }
@@ -149,6 +156,25 @@ function buildUseCase(
 describe('ResolveExpenseSummaryActionUseCase', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('rejects confirmation of an unresolved payment before claiming or saving', async () => {
+    const { useCase, saveMock, transitionMock, sendMessageMock } = buildUseCase();
+    const payload = buildPayload({
+      paymentMethodSelection: {
+        status: 'unresolved',
+        sourceConfigId: 'config-1',
+        paymentMethodId: null,
+        canonicalName: null,
+        unresolvedRaw: 'Tarjeta nueva',
+      },
+    });
+    await expect(
+      useCase.execute({ userId: 'user-123', action: 'confirm', payload, chatId: 'chat' }),
+    ).resolves.toEqual({ status: 'payment_unresolved' });
+    expect(transitionMock).not.toHaveBeenCalled();
+    expect(saveMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
   it('confirm sends saving message, saves the expense, and sends confirmation', async () => {

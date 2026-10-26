@@ -19,6 +19,7 @@ export interface ExpenseRecord {
   subcategoria: string | null;
   fechaGasto: Date; // DATE en BD
   medioPago: string | null;
+  paymentMethodId?: string | null;
   sheetName: string;
   rowIndex: number | null; // fila real en la planilla, si el proveedor la confirmó
   categoriaConfidence: CategoryConfidence | null;

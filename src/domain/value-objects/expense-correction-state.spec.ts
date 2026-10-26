@@ -32,6 +32,13 @@ function buildReviewPayload(overrides: Partial<ExpenseReviewPayload> = {}): Expe
     resolvedCategory: 'Comida',
     resolvedCategoryId: null,
     categoryStatus: 'confirmed',
+    paymentMethodSelection: {
+      status: 'legacy',
+      sourceConfigId: null,
+      paymentMethodId: null,
+      canonicalName: null,
+      unresolvedRaw: null,
+    },
     resolvedSubcategory: null,
     resolvedSubcategoryId: null,
     subcategoryStatus: 'none',

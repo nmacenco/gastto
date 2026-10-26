@@ -363,7 +363,7 @@ describePostgres('linked-subcategory generated migration chain (PostgreSQL)', ()
     try {
       await upgradeClient`CREATE EXTENSION IF NOT EXISTS pgcrypto`;
       const migrations = readMigrationFiles({ migrationsFolder });
-      expect(migrations).toHaveLength(9);
+      expect(migrations.length).toBeGreaterThanOrEqual(16);
 
       await applyMigrations(upgradeClient, migrations.slice(0, 7));
       await upgradeClient`INSERT INTO users (user_id, status) VALUES (${userId}, 'active')`;
@@ -386,7 +386,7 @@ describePostgres('linked-subcategory generated migration chain (PostgreSQL)', ()
       await applyMigrations(upgradeClient, migrations.slice(7));
 
       const [legacyRow] = await upgradeClient`
-        SELECT category_id, subcategory_id, subcategoria
+        SELECT category_id, subcategory_id, subcategoria, medio_pago, payment_method_id
         FROM expense_records
         WHERE id = ${legacyExpenseId}
       `;
@@ -394,7 +394,21 @@ describePostgres('linked-subcategory generated migration chain (PostgreSQL)', ()
         category_id: null,
         subcategory_id: null,
         subcategoria: null,
+        medio_pago: 'Card',
+        payment_method_id: null,
       });
+
+      const [legacyConfig] = await upgradeClient`
+        SELECT payment_methods_confirmed_at
+        FROM spreadsheet_configs
+        WHERE id = ${spreadsheetId}
+      `;
+      expect(legacyConfig?.payment_methods_confirmed_at).toBeNull();
+      const paymentTables = await upgradeClient<{ table_name: string }[]>`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'user_payment_methods'
+      `;
+      expect(paymentTables).toEqual([{ table_name: 'user_payment_methods' }]);
 
       const tables = await upgradeClient<{ table_name: string }[]>`
         SELECT table_name

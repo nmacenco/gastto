@@ -13,6 +13,8 @@ function categoryStatusNote(status: 'confirmed' | 'ambiguous' | 'fallback' | 'no
 }
 
 export const expenseCopies = {
+  paymentUnresolved: () =>
+    'Antes de guardar, elegí un medio de pago existente, agregá el mostrado o dejalo vacío.',
   clarificationAmount: () => '¿Cuánto gastaste?',
   clarificationCurrency: () => '¿En qué moneda fue ese gasto?',
   zeroAmountConfirmation: () => '¿Querías registrar un gasto de $0?',
@@ -140,6 +142,7 @@ export const expenseCopies = {
     '• "ponlo en transporte"\n' +
     '• "es comida, subcategoría restaurante"\n' +
     '• "la subcategoría es supermercado"\n' +
+    '• "lo pagué con Visa" o "sin medio de pago"\n' +
     '• "fue ayer"\n' +
     '• "no, fueron 15 y es transporte" (varios campos en un solo mensaje)',
   correctionApplied: (field: string, value: string | number): string => {

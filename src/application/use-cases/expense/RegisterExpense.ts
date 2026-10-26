@@ -44,6 +44,10 @@ import {
 } from '../../services/OAuthAccessTokenService';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { createExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
+import type { IPaymentMethodCatalogRepository } from '../../../domain/ports/PaymentMethodCatalogRepository';
+import { ResolvePaymentMethod } from './ResolvePaymentMethod';
+import { normalizeExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
+import type { PaymentMethodSelection } from '../../../domain/value-objects/payment-method-selection';
 
 export interface RegisterExpenseInput {
   userId: string;
@@ -83,6 +87,7 @@ function resolveExpenseCalendarDate(rawDate: string | null): string {
 
 export class RegisterExpenseUseCase {
   private readonly fallbackExtractor = new ExtractAmountCurrency();
+  private readonly paymentResolver = new ResolvePaymentMethod();
 
   constructor(
     private readonly llm: LLMPort,
@@ -99,6 +104,7 @@ export class RegisterExpenseUseCase {
     private readonly oauthAccessTokenService: OAuthAccessTokenProvider,
     private readonly reviewTimeoutMinutes: number = 10,
     private readonly logger?: Logger,
+    private readonly paymentCatalogRepo?: IPaymentMethodCatalogRepository,
   ) {}
 
   // Fase 1: interpreta el mensaje y transiciona a EXPENSE_REVIEW
@@ -152,6 +158,10 @@ export class RegisterExpenseUseCase {
           this.columnMappingRepo.findBySpreadsheetId(config.id),
         ])
       : [[], null, []];
+    const paymentCatalog =
+      config && this.paymentCatalogRepo
+        ? await this.paymentCatalogRepo.findBySpreadsheetId(config.id)
+        : null;
     const categories = activeCategories.map((category) => category.normalizedValue);
     const categoryHierarchy = categoryVocabulary
       ? [...categoryVocabulary.getCategories()]
@@ -173,6 +183,8 @@ export class RegisterExpenseUseCase {
       categories,
       categoryHierarchy,
       subcategoryEnabled,
+      paymentMethods: paymentCatalog ? paymentCatalog.getActive().map((method) => method.name) : [],
+      paymentCatalogConfigured: paymentCatalog !== null,
       channel: input.channel,
     };
 
@@ -296,6 +308,19 @@ export class RegisterExpenseUseCase {
       input.rawMessage,
       classification,
       subcategoryEnabled,
+      config
+        ? this.paymentResolver.execute({
+            catalog: paymentCatalog,
+            rawValue: finalExtracted.medioPago,
+            sourceConfigId: config.id,
+          })
+        : {
+            status: 'legacy',
+            sourceConfigId: null,
+            paymentMethodId: null,
+            canonicalName: finalExtracted.medioPago,
+            unresolvedRaw: null,
+          },
     );
 
     // Zero-amount confirmation path (E1-US-03)
@@ -353,7 +378,6 @@ export class RegisterExpenseUseCase {
     spreadsheetId: string,
     claimId: string,
   ): Promise<{ sheetName: string; rowIndex?: number | undefined; expenseId?: string }> {
-    const _spreadsheetId = spreadsheetId; // TODO: use when implementing multi-spreadsheet support
     const config = await this.spreadsheetConfigRepo.findByUserId(userId);
     if (!config) {
       throw new SpreadsheetError('Spreadsheet configuration not found for user', {
@@ -368,8 +392,28 @@ export class RegisterExpenseUseCase {
       );
     }
 
+    const selection = normalizeExpenseReviewPayload(payload).paymentMethodSelection;
+    if (
+      (spreadsheetId !== '' && config.id !== spreadsheetId) ||
+      (selection.sourceConfigId !== null && selection.sourceConfigId !== config.id) ||
+      selection.status === 'unresolved'
+    ) {
+      throw new SpreadsheetError(
+        'Payment selection is unresolved or belongs to another destination',
+        { code: 'STRUCTURE_ERROR' },
+      );
+    }
+    if (selection.status === 'matched') {
+      const catalog = await this.paymentCatalogRepo?.findBySpreadsheetId(config.id);
+      const method = catalog?.getActive().find((entry) => entry.id === selection.paymentMethodId);
+      if (!method || method.name !== selection.canonicalName)
+        throw new SpreadsheetError('Payment method is not active in this destination', {
+          code: 'STRUCTURE_ERROR',
+        });
+    }
+
     const mappings = await this.columnMappingRepo.findBySpreadsheetId(config.id);
-    const row = this.buildRow(payload, mappings);
+    const row = this.buildRow(payload, mappings, selection);
     await this.transitionState.assertCanStartFinancialEffect(userId, claimId);
     const result = await executeWithOAuthAccessToken(
       this.oauthAccessTokenService,
@@ -393,7 +437,8 @@ export class RegisterExpenseUseCase {
         subcategoryId: payload.resolvedSubcategoryId ?? null,
         subcategoria: payload.resolvedSubcategory ?? null,
         fechaGasto: new Date(payload.resolvedDate),
-        medioPago: payload.extracted.medioPago,
+        medioPago: selection.canonicalName,
+        paymentMethodId: selection.paymentMethodId,
         sheetName: result.sheet,
         rowIndex: result.row ?? null,
         categoriaConfidence: payload.extracted.confianzaCategoria,
@@ -432,6 +477,7 @@ export class RegisterExpenseUseCase {
     rawMessage: string,
     classification: HierarchicalClassificationResult,
     subcategoryEnabled: boolean,
+    paymentMethodSelection: PaymentMethodSelection,
   ): ExpenseReviewPayload {
     const resolvedDate = resolveExpenseCalendarDate(extracted.fechaRaw);
 
@@ -451,6 +497,7 @@ export class RegisterExpenseUseCase {
       resolvedSubcategoryId: classification.subcategory.id,
       subcategoryStatus: classification.subcategory.status,
       subcategoryEnabled,
+      paymentMethodSelection,
       reminderSent: false,
       reviewBinding: createExpenseReviewBinding(),
     };
@@ -480,6 +527,7 @@ export class RegisterExpenseUseCase {
   private buildRow(
     payload: ExpenseReviewPayload,
     mappings: ColumnMapping[],
+    paymentMethodSelection: PaymentMethodSelection,
   ): (string | number | null)[] {
     if (mappings.length === 0 || mappings.some((mapping) => mapping.columnIndex < 0)) {
       throw new SpreadsheetError('Spreadsheet column mappings are missing or invalid', {
@@ -512,7 +560,7 @@ export class RegisterExpenseUseCase {
           row[columnIndex] = payload.rawMessage.slice(0, 200);
           break;
         case 'medio_pago':
-          row[columnIndex] = payload.extracted.medioPago;
+          row[columnIndex] = paymentMethodSelection.canonicalName;
           break;
       }
     }

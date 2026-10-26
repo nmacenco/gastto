@@ -64,7 +64,7 @@ beforeEach(async () => {
     userId,
     currentState: 'ONBOARDING_CATEGORIES',
     statePayload: null,
-    expiresAt: new Date('2026-09-05T11:00:00Z'),
+    expiresAt: new Date(Date.now() + 60_000),
   });
 });
 
@@ -75,22 +75,27 @@ afterAll(async () => {
 
 function buildUseCase() {
   const conversationRepository = new DrizzleConversationStateRepository(db);
-  return new ConfirmCategories({
+  const transitionState = new TransitionConversationState(conversationRepository);
+  const useCase = new ConfirmCategories({
     spreadsheetConfigRepository: new DrizzleSpreadsheetConfigRepository(db),
     categoryVocabularyRepository: new DrizzleCategoryVocabularyRepository(db),
     userRepository: new DrizzleUserRepository(db, {} as Redis),
     messagingPort: { sendMessage },
-    transitionState: new TransitionConversationState(conversationRepository),
+    transitionState,
   });
+  return { useCase, transitionState };
 }
 
 async function confirm(statePayload: Record<string, unknown>) {
-  return buildUseCase().execute({
-    userId,
-    externalId: 'telegram-user',
-    channel: 'telegram',
-    statePayload,
-  });
+  const { useCase, transitionState } = buildUseCase();
+  return transitionState.runForUser(userId, () =>
+    useCase.execute({
+      userId,
+      externalId: 'telegram-user',
+      channel: 'telegram',
+      statePayload,
+    }),
+  );
 }
 
 const canonicalPayload = {

@@ -73,8 +73,10 @@ export class ModifyCategoryVocabulary {
     }
 
     const intent = await this.deps.categoryModificationParser.parse(rawMessage);
-    let vocabulary = await this.deps.categoryVocabularyRepository.findBySpreadsheetId(config.id);
-    if (!vocabulary) vocabulary = this.rebuildVocabulary(config.id, payloadState);
+    const vocabulary =
+      this.rebuildDraft(config.id, statePayload, payloadState) ??
+      (await this.deps.categoryVocabularyRepository.findBySpreadsheetId(config.id)) ??
+      this.rebuildVocabulary(config.id, payloadState);
 
     const currentState = this.toState(vocabulary, payloadState);
     if (intent.kind === 'unknown') {
@@ -157,9 +159,32 @@ export class ModifyCategoryVocabulary {
       return this.respond(input, currentState, message);
     }
 
-    await this.deps.categoryVocabularyRepository.save(vocabulary);
     const updatedState = this.toState(vocabulary, payloadState);
-    return this.respond(input, updatedState, this.updatedPrompt(updatedState));
+    return this.respond(input, updatedState, this.updatedPrompt(updatedState), vocabulary);
+  }
+
+  private rebuildDraft(
+    spreadsheetId: string,
+    payload: Record<string, unknown> | null,
+    state: CategoryOnboardingState | null,
+  ): CategoryVocabulary | null {
+    const raw = payload?.categoryDraft;
+    if (!raw || typeof raw !== 'object' || !('categories' in raw) || !('subcategories' in raw))
+      return null;
+    const draft = raw;
+    if (!Array.isArray(draft.categories) || !Array.isArray(draft.subcategories)) return null;
+    const vocabulary = new CategoryVocabulary(
+      spreadsheetId,
+      draft.categories as ConstructorParameters<typeof CategoryVocabulary>[1],
+      draft.subcategories as ConstructorParameters<typeof CategoryVocabulary>[2],
+    );
+    if (
+      state &&
+      JSON.stringify(this.toState(vocabulary, state).categories) !==
+        JSON.stringify(state.categories)
+    )
+      return null;
+    return vocabulary;
   }
 
   private rebuildVocabulary(
@@ -253,13 +278,24 @@ export class ModifyCategoryVocabulary {
     input: ModifyCategoryVocabularyInput,
     state: CategoryOnboardingState,
     message: string,
+    vocabulary?: CategoryVocabulary,
   ): Promise<ModifyCategoryVocabularyOutput> {
-    await this.deps.messagingPort.sendMessage(input.externalId, message);
     await this.deps.transitionState.execute({
       userId: input.userId,
       targetState: 'ONBOARDING_CATEGORIES',
-      payload: serializeCategoryOnboardingState(state, input.statePayload),
+      payload: {
+        ...serializeCategoryOnboardingState(state, input.statePayload),
+        ...(vocabulary
+          ? {
+              categoryDraft: {
+                categories: vocabulary.getCategories(),
+                subcategories: vocabulary.getSubcategories(),
+              },
+            }
+          : {}),
+      },
     });
+    await this.deps.messagingPort.sendMessage(input.externalId, message);
     return { categories: state.categories.map((category) => category.name), state, message };
   }
 }

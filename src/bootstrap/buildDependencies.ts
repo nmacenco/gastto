@@ -17,6 +17,9 @@ import { DrizzleSettingsConfigurationActivation } from '../infrastructure/db/rep
 import { DrizzleSpreadsheetConfigRepository } from '../infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
 import { DrizzleColumnMappingRepository } from '../infrastructure/db/repositories/DrizzleColumnMappingRepository';
 import { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
+import { DrizzlePaymentMethodCatalogRepository } from '../infrastructure/db/repositories/DrizzlePaymentMethodCatalogRepository';
+import { DrizzleExpensePaymentResolutionCommit } from '../infrastructure/db/repositories/DrizzleExpensePaymentResolutionCommit';
+import { DrizzleSettingsVocabularyCommit } from '../infrastructure/db/repositories/DrizzleSettingsVocabularyCommit';
 import { DrizzleCategoryKeywordVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryKeywordVocabularyRepository';
 import { DrizzleUserCategoryRepository } from '../infrastructure/db/repositories/DrizzleUserCategoryRepository';
 import { DrizzleExpenseRecordRepository } from '../infrastructure/db/repositories/DrizzleExpenseRecordRepository';
@@ -32,6 +35,7 @@ import { GoogleSheetsAdapter } from '../infrastructure/adapters/sheets/GoogleShe
 import { SpreadsheetCategoryReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryReaderFactory';
 import { SpreadsheetCategoryHierarchyReaderFactory } from '../infrastructure/adapters/sheets/SpreadsheetCategoryHierarchyReaderFactory';
 import { RegexCategoryModificationParser } from '../infrastructure/adapters/RegexCategoryModificationParser';
+import { SettingsVocabularyFlow } from '../application/use-cases/spreadsheet/SettingsVocabularyFlow';
 import { RuleBasedColumnInferenceAdapter } from '../infrastructure/adapters/sheets/RuleBasedColumnInferenceAdapter';
 import { RuleBasedHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/RuleBasedHeaderDetectionAdapter';
 import { LLMHeaderDetectionAdapter } from '../infrastructure/adapters/sheets/LLMHeaderDetectionAdapter';
@@ -65,6 +69,7 @@ import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProces
 
 // Application
 import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import { ResolveExpensePaymentMethod } from '../application/use-cases/expense/ResolveExpensePaymentMethod';
 import { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
 import { DispatchControlSemanticAction } from '../application/use-cases/expense/DispatchControlSemanticAction';
 import { PresentUndoConfirmation } from '../application/use-cases/expense/PresentUndoConfirmation';
@@ -98,6 +103,8 @@ import { InferColumnMapping } from '../application/use-cases/spreadsheet/InferCo
 import { ConfirmColumnMapping } from '../application/use-cases/spreadsheet/ConfirmColumnMapping';
 import { CorrectColumnMapping } from '../application/use-cases/spreadsheet/CorrectColumnMapping';
 import { DetectCategories } from '../application/use-cases/spreadsheet/DetectCategories';
+import { DetectPaymentMethods } from '../application/use-cases/spreadsheet/DetectPaymentMethods';
+import { DrizzleOnboardingVocabularyCommit } from '../infrastructure/db/repositories/DrizzleOnboardingVocabularyCommit';
 import { ConfirmCategories } from '../application/use-cases/spreadsheet/ConfirmCategories';
 import { ModifyCategoryVocabulary } from '../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import { HandleStartCommand } from '../application/use-cases/conversation/HandleStartCommand';
@@ -353,6 +360,10 @@ function buildGoogleOAuthFeature(
   const mappingCorrectionStateRepository = new RedisMappingCorrectionStateRepository(infra.redis);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const settingsActivation = new DrizzleSettingsConfigurationActivation(infra.db);
+  const detectPaymentMethods = new DetectPaymentMethods({
+    tokenService: core.oauthAccessTokenService,
+    spreadsheetPortFactory: sheetsAdapterFactory,
+  });
   const settingsDestinationFlow = new SettingsDestinationFlow({
     configRepository: core.spreadsheetConfigRepo,
     cloudStorage: driveFileDiscovery,
@@ -367,6 +378,7 @@ function buildGoogleOAuthFeature(
     activation: settingsActivation,
     transitionState: core.transitionState,
     messaging: messagingPort,
+    detectPaymentMethods,
   });
 
   const inferColumnMapping = new InferColumnMapping({
@@ -477,6 +489,10 @@ function buildGoogleOAuthFeature(
     userRepository: core.userRepo,
     messagingPort,
     transitionState: core.transitionState,
+    columnMappingRepository: core.columnMappingRepo,
+    detectPaymentMethods,
+    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+    onboardingCommit: new DrizzleOnboardingVocabularyCommit(infra.db),
   });
 
   const modifyCategoryVocabulary = new ModifyCategoryVocabulary({
@@ -534,6 +550,10 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   const columnMappingRepo = new DrizzleColumnMappingRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const categoryVocabularyRepo = new DrizzleCategoryVocabularyRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const paymentCatalogRepo = new DrizzlePaymentMethodCatalogRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const settingsVocabularyCommit = new DrizzleSettingsVocabularyCommit(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const userCategoryRepo = new DrizzleUserCategoryRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
@@ -699,6 +719,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     oauthAccessTokenService,
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
     infra.rootLogger,
+    paymentCatalogRepo,
   );
   const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
   const completeExpenseClarification = new CompleteExpenseClarification(registerExpense);
@@ -723,6 +744,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       expenseRepo: expenseRecordRepo,
       spreadsheetConfigRepo,
       categoryVocabularyRepo,
+      paymentCatalogRepo,
       transitionState,
     },
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
@@ -778,6 +800,18 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     sendMessage: () =>
       Promise.resolve({ status: 'failure' as const, errorCode: 'NO_MESSAGING_ADAPTER' }),
   };
+  const settingsVocabularyFlow = new SettingsVocabularyFlow({
+    configRepository: spreadsheetConfigRepo,
+    mappingRepository: columnMappingRepo,
+    parser: new RegexCategoryModificationParser(),
+    commit: settingsVocabularyCommit,
+    transition: transitionState,
+    messaging: messagingPort,
+    detectPaymentMethods: new DetectPaymentMethods({
+      tokenService: oauthAccessTokenService,
+      spreadsheetPortFactory,
+    }),
+  });
   const expenseSummaryPresenterFactory = (messaging: MessagingOutputPort, chatId: string) =>
     new TelegramExpenseSummaryPresenter(messaging, telegram!.adapter, chatId);
   const advancePendingExpense = new AdvancePendingExpense({
@@ -817,6 +851,14 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     operationLogRepo,
     advancePendingExpense,
   });
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const paymentResolutionCommit = new DrizzleExpensePaymentResolutionCommit(infra.db);
+  const resolveExpensePaymentMethod = new ResolveExpensePaymentMethod({
+    authorization: resolveExpenseSummaryAction,
+    transitionState,
+    catalogRepository: paymentCatalogRepo,
+    commit: paymentResolutionCommit,
+  });
   const resolveExpenseReviewReply = new ResolveExpenseReviewReplyUseCase({
     resolveExpenseSummaryAction,
     correctExpense,
@@ -835,6 +877,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     spreadsheetConfigRepo,
     columnMappingRepo,
     categoryVocabularyRepo,
+    settingsVocabularyFlow,
+    resolveExpensePaymentMethod,
     userCategoryRepo,
     expenseRecordRepo,
     expenseQueueRepo,

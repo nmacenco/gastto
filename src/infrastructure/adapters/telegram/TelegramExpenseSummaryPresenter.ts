@@ -22,7 +22,7 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
     const text = summary.isHighAmount
       ? this.formatHighAmountSummary(summary)
       : this.formatSummary(summary);
-    const buttons = this.buildActionButtons(binding);
+    const buttons = this.buildActionButtons(binding, summary.actions.confirm);
     await this.inlineKeyboard.sendMessageWithInlineKeyboard(this.chatId, text, buttons);
   }
 
@@ -42,13 +42,12 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
       expenseCopies.highAmountWarning(),
       '',
       this.formatSummary(summary),
-      '',
-      expenseCopies.highAmountConfirmationPrompt(),
+      ...(summary.actions.confirm ? ['', expenseCopies.highAmountConfirmationPrompt()] : []),
     ].join('\n');
     await this.inlineKeyboard.sendMessageWithInlineKeyboard(
       this.chatId,
       text,
-      this.buildActionButtons(binding),
+      this.buildActionButtons(binding, summary.actions.confirm),
     );
   }
 
@@ -64,9 +63,12 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
       `• Monto: ${summary.amount} ${summary.currency}`,
       `• Categoría: ${categoryLabel}${statusMarker}`,
       ...(subcategoryLine ? [subcategoryLine] : []),
+      `• Medio de pago: ${summary.paymentStatus === 'unresolved' ? `❓ ${summary.paymentLabel} (sin resolver)` : summary.paymentLabel || 'Sin medio de pago'}`,
       `• Fecha: ${dateLabel}`,
       '',
-      '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.',
+      summary.actions.confirm
+        ? '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.'
+        : 'Antes de guardar: escribí *medio de pago: Nombre* para elegir uno existente, *agregar medio de pago* para agregar el mostrado, o *sin medio de pago* para dejarlo vacío.',
     ].join('\n');
   }
 
@@ -75,8 +77,7 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
       expenseCopies.highAmountWarning(),
       '',
       this.formatSummary(summary),
-      '',
-      expenseCopies.highAmountConfirmationPrompt(),
+      ...(summary.actions.confirm ? ['', expenseCopies.highAmountConfirmationPrompt()] : []),
     ].join('\n');
   }
 
@@ -108,18 +109,22 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
     return '';
   }
 
-  private buildActionButtons(binding: ExpenseReviewBinding) {
+  private buildActionButtons(binding: ExpenseReviewBinding, canConfirm: boolean) {
     return [
-      [
-        {
-          text: 'Confirmar',
-          callbackData: encodeExpenseReviewCallback(
-            'confirm',
-            binding.operationId,
-            binding.revision,
-          ),
-        },
-      ],
+      ...(canConfirm
+        ? [
+            [
+              {
+                text: 'Confirmar',
+                callbackData: encodeExpenseReviewCallback(
+                  'confirm',
+                  binding.operationId,
+                  binding.revision,
+                ),
+              },
+            ],
+          ]
+        : []),
       [
         {
           text: 'Corregir',

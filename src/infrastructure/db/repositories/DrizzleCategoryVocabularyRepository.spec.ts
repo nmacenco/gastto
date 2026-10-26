@@ -150,6 +150,22 @@ describe('DrizzleCategoryVocabularyRepository', () => {
       });
     });
 
+    it('keeps a known id authoritative when renaming into an inactive reserved name', async () => {
+      const food = categoryRow();
+      const inactive = categoryRow({
+        id: 'cat-inactive',
+        rawValue: 'Leisure',
+        normalizedValue: 'leisure',
+        isActive: false,
+      });
+      const { db, operations } = persistenceMocks([[food, inactive], []]);
+      const vocabulary = new CategoryVocabulary('sheet-1', [
+        { id: food.id, name: 'Leisure', normalizedName: 'leisure' },
+      ]);
+      await expect(new DrizzleCategoryVocabularyRepository(db).save(vocabulary)).rejects.toThrow();
+      expect(operations).toEqual([]);
+    });
+
     it('renames and moves a child by stable id without inserting a replacement', async () => {
       const food = categoryRow();
       const leisure = categoryRow({

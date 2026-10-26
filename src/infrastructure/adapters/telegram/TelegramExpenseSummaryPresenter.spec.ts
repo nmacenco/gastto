@@ -28,6 +28,8 @@ function buildSummary(overrides: Partial<ExpenseSummary> = {}): ExpenseSummary {
     subcategoryConfidence: 'nula',
     subcategoryStatus: 'none',
     subcategoryEnabled: false,
+    paymentLabel: null,
+    paymentStatus: 'none',
     actions: { confirm: true, correct: true, cancel: true },
     isHighAmount: false,
     requiresExplicitConfirmation: false,
@@ -118,7 +120,9 @@ describe('TelegramExpenseSummaryPresenter', () => {
     );
 
     const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
-    expect(text).toContain('• Categoría: Comida\n• Subcategoría: Restaurante\n• Fecha:');
+    expect(text).toContain(
+      '• Categoría: Comida\n• Subcategoría: Restaurante\n• Medio de pago: Sin medio de pago\n• Fecha:',
+    );
   });
 
   it('renders an explicit empty subcategory when hierarchy support is enabled', async () => {
@@ -178,11 +182,46 @@ describe('TelegramExpenseSummaryPresenter', () => {
         '• Concepto: Café con leche 100 EUR',
         '• Monto: 100 EUR',
         '• Categoría: Comida',
+        '• Medio de pago: Sin medio de pago',
         '• Fecha: 2026-07-25',
         '',
         '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.',
       ].join('\n'),
     );
+  });
+
+  it('shows an unresolved payment and omits the Confirmar action', async () => {
+    const messaging = buildMockMessaging();
+    const inlineKeyboard = buildMockInlineKeyboard();
+    const presenter = new TelegramExpenseSummaryPresenter(messaging, inlineKeyboard, 'chat-1');
+    await presenter.presentSummary(
+      buildSummary({
+        paymentLabel: 'Tarjeta nueva',
+        paymentStatus: 'unresolved',
+        actions: { confirm: false, correct: true, cancel: true },
+      }),
+      REVIEW_BINDING,
+    );
+    const [chatId, text, buttons] = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]!;
+    expect(chatId).toBe('chat-1');
+    expect(text).toContain('❓ Tarjeta nueva (sin resolver)');
+    expect(buttons.flat().map((button) => button.text)).not.toContain('Confirmar');
+  });
+
+  it('keeps a high-amount unresolved review focused on payment resolution', async () => {
+    await presenter.presentSummary(
+      buildSummary({
+        isHighAmount: true,
+        paymentLabel: 'Nueva',
+        paymentStatus: 'unresolved',
+        actions: { confirm: false, correct: true, cancel: true },
+      }),
+      REVIEW_BINDING,
+    );
+    const text = inlineKeyboard.sendMessageWithInlineKeyboard.mock.calls[0]![1];
+    expect(text).toContain('⚠️ *Monto inusualmente alto*');
+    expect(text).toContain('❓ Nueva (sin resolver)');
+    expect(text).not.toContain('¿Confirmamos que es correcto?');
   });
 
   it('shows the high-amount warning and explicit confirmation prompt', async () => {

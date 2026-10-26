@@ -94,6 +94,122 @@ beforeEach(() => {
 });
 
 describe('ConfirmCategories', () => {
+  it('detects payments after category review and defers catalog writes', async () => {
+    const detect = vi.fn().mockResolvedValue({ names: ['Visa'], columnMapped: true });
+    const commit = vi.fn();
+    const useCase = new ConfirmCategories(
+      buildMockDeps({
+        columnMappingRepository: {
+          findBySpreadsheetId: vi
+            .fn()
+            .mockResolvedValue([{ GasttoField: 'medio_pago', columnIndex: 4 }]),
+        } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
+        detectPaymentMethods: { execute: detect } as unknown as NonNullable<
+          ConfirmCategoriesDeps['detectPaymentMethods']
+        >,
+        onboardingCommit: { execute: commit },
+      }),
+    );
+    const result = await useCase.execute(hierarchyInput);
+    expect(result.nextState).toBe('ONBOARDING_CATEGORIES');
+    expect(detect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: 'file-123',
+        sheetName: 'Gastos',
+        mappings: [{ field: 'medio_pago', columnIndex: 4 }],
+      }),
+    );
+    expect(mockTransitionExecute.mock.calls[0]?.[0]).toMatchObject({
+      targetState: 'ONBOARDING_CATEGORIES',
+      payload: { paymentReview: true, paymentMethods: ['Visa'] },
+    });
+    expect(commit).not.toHaveBeenCalled();
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it('keeps legacy in-flight onboarding at category review after a provider failure', async () => {
+    const detect = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('provider unavailable'))
+      .mockResolvedValue({ names: [], columnMapped: false });
+    const commit = vi.fn();
+    const useCase = new ConfirmCategories(
+      buildMockDeps({
+        columnMappingRepository: {
+          findBySpreadsheetId: vi.fn().mockResolvedValue([]),
+        } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
+        detectPaymentMethods: { execute: detect } as unknown as NonNullable<
+          ConfirmCategoriesDeps['detectPaymentMethods']
+        >,
+        onboardingCommit: { execute: commit },
+      }),
+    );
+
+    const failed = await useCase.execute(hierarchyInput);
+    expect(failed.nextState).toBe('ONBOARDING_CATEGORIES');
+    expect(failed.message).toContain('reintentar');
+    expect(mockTransitionExecute).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+
+    const retried = await useCase.execute(hierarchyInput);
+    expect(retried.nextState).toBe('ONBOARDING_CATEGORIES');
+    expect(mockTransitionExecute.mock.calls[0]?.[0]).toMatchObject({
+      payload: { paymentReview: true, paymentMethods: [], paymentColumnMapped: false },
+    });
+    expect(detect).toHaveBeenCalledTimes(2);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('commits both vocabularies only after payment review', async () => {
+    const commit = vi.fn().mockResolvedValue('committed');
+    const observed = {
+      userId: 'user-123',
+      revision: '7',
+      currentState: 'ONBOARDING_CATEGORIES',
+      expiresAt: null,
+    };
+    const useCase = new ConfirmCategories(
+      buildMockDeps({
+        columnMappingRepository: { findBySpreadsheetId: vi.fn() } as unknown as NonNullable<
+          ConfirmCategoriesDeps['columnMappingRepository']
+        >,
+        detectPaymentMethods: { execute: vi.fn() } as unknown as NonNullable<
+          ConfirmCategoriesDeps['detectPaymentMethods']
+        >,
+        onboardingCommit: { execute: commit },
+        transitionState: {
+          execute: mockTransitionExecute,
+          currentState: vi.fn().mockReturnValue(observed),
+          precondition: vi.fn().mockReturnValue({
+            revision: '7',
+            currentState: 'ONBOARDING_CATEGORIES',
+            expiry: 'any',
+          }),
+        } as unknown as TransitionConversationState,
+      }),
+    );
+    const result = await useCase.execute({
+      ...hierarchyInput,
+      statePayload: {
+        ...hierarchyInput.statePayload,
+        paymentReview: true,
+        paymentMethods: ['Visa'],
+      },
+    });
+    expect(commit.mock.calls[0]?.[0]).toMatchObject({
+      userId: 'user-123',
+      sourceConfigId: 'config-1',
+      paymentMethods: ['Visa'],
+      categories: [
+        { name: 'Food', subcategories: ['Restaurant'] },
+        { name: 'Leisure', subcategories: ['Restaurant', 'Cinema'] },
+      ],
+    });
+    expect(result.nextState).toBe('IDLE');
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(mockTransitionExecute).not.toHaveBeenCalled();
+  });
   it('saves the complete hierarchy before timestamp, activation, IDLE, and completion', async () => {
     const result = await new ConfirmCategories(buildMockDeps()).execute(hierarchyInput);
     const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;

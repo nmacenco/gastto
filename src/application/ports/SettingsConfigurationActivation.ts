@@ -13,6 +13,7 @@ export interface SettingsDestinationCandidate {
   accessVerifiedAt: Date;
   mappings: Array<{ field: GasttoField; columnIndex: number; columnHeader: string }>;
   categories: Array<{ name: string; subcategories: string[] }>;
+  paymentMethods: string[];
 }
 
 export interface SettingsConfigurationActivation {

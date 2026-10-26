@@ -6,6 +6,9 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 
 ## Behavior (Implemented)
 
+- `ONBOARDING_CATEGORIES` and `SETTINGS_CATEGORIES` now carry a payment-review stage after category review. Legacy payloads without a stage enter category review first. Final database commits validate the reviewed stage and revision before clearing the conversation.
+- Payment resolution during `EXPENSE_REVIEW` updates the catalog and review in one transaction, advances the binding, and updates the handler's in-memory observed state before the summary is presented again.
+
 - Each user has exactly one row in `conversation_states`, referenced by `user_id` with `ON DELETE CASCADE`.
 - The FSM defines **17 states** and valid transitions between them (see ADR-003, ADR-017, and [chat spreadsheet settings](./chat-spreadsheet-settings.md)).
 - State transitions are atomic compare-and-swap writes over user ID, decimal-string `revision`, observed state, and database-time expiry. Each successful mutation increments the `BIGINT` revision, including self-transitions.

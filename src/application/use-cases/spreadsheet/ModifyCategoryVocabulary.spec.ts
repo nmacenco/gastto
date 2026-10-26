@@ -19,6 +19,22 @@ const mockSaveVocabulary = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockTransitionExecute = vi.fn();
 
+function capturedDraft(): CategoryVocabulary {
+  const write = mockTransitionExecute.mock.calls.at(-1)?.[0] as {
+    payload: {
+      categoryDraft: {
+        categories: ConstructorParameters<typeof CategoryVocabulary>[1];
+        subcategories: ConstructorParameters<typeof CategoryVocabulary>[2];
+      };
+    };
+  };
+  return new CategoryVocabulary(
+    'config-1',
+    write.payload.categoryDraft.categories,
+    write.payload.categoryDraft.subcategories,
+  );
+}
+
 function buildMockDeps(
   overrides: Partial<ModifyCategoryVocabularyDeps> = {},
 ): ModifyCategoryVocabularyDeps {
@@ -113,7 +129,7 @@ describe('ModifyCategoryVocabulary', () => {
 
     const result = await useCase.execute(baseInput);
 
-    expect(mockSaveVocabulary).toHaveBeenCalledTimes(1);
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
     expect(result.categories).toContain('comida');
     expect(result.categories).toContain('transporte');
     expect(result.categories).toContain('salud');
@@ -138,7 +154,7 @@ describe('ModifyCategoryVocabulary', () => {
 
     const result = await useCase.execute(baseInput);
 
-    expect(mockSaveVocabulary).toHaveBeenCalledTimes(1);
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
     expect(result.categories).toContain('alimentacion');
     expect(result.categories).not.toContain('comida');
     expect(result.categories).toContain('transporte');
@@ -164,13 +180,13 @@ describe('ModifyCategoryVocabulary', () => {
     const useCase = new ModifyCategoryVocabulary(buildMockDeps());
     const result = await useCase.execute({ ...baseInput, rawMessage: 'quitar ocio' });
 
-    expect(mockSaveVocabulary).toHaveBeenCalledTimes(1);
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
     expect(result.categories).toEqual(['comida']);
     expect(mockSendMessage).toHaveBeenCalledWith(
       '987654321',
       expect.not.stringContaining('• ocio'),
     );
-    expect(mockTransitionExecute).toHaveBeenCalledWith({
+    expect(mockTransitionExecute.mock.calls[0]?.[0]).toMatchObject({
       userId: 'user-123',
       targetState: 'ONBOARDING_CATEGORIES',
       payload: {
@@ -310,7 +326,7 @@ describe('ModifyCategoryVocabulary', () => {
 
     const result = await useCase.execute(baseInput);
 
-    expect(mockSaveVocabulary).toHaveBeenCalledTimes(1);
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
     expect(result.categories).toContain('comida');
     expect(result.categories).toContain('transporte');
     expect(result.categories).toContain('salud');
@@ -327,8 +343,8 @@ describe('ModifyCategoryVocabulary', () => {
       subcategories: ['Delivery', 'Groceries', 'Takeout'],
     });
     expect(result.state.orphanSubcategories).toEqual(['Unassigned']);
-    expect(mockSaveVocabulary).toHaveBeenCalledOnce();
-    expect(mockTransitionExecute).toHaveBeenCalledWith({
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(mockTransitionExecute.mock.calls[0]?.[0]).toMatchObject({
       userId: 'user-123',
       targetState: 'ONBOARDING_CATEGORIES',
       payload: {
@@ -352,7 +368,7 @@ describe('ModifyCategoryVocabulary', () => {
     expect(
       result.state.categories.find((category) => category.name === 'Leisure')?.subcategories,
     ).toContain('Cinema');
-    expect(mockSaveVocabulary).toHaveBeenCalledOnce();
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
   });
 
   it('renames only the selected child and preserves its stable id', async () => {
@@ -368,7 +384,7 @@ describe('ModifyCategoryVocabulary', () => {
     mockFindVocabularyBySpreadsheetId.mockResolvedValue(vocabulary);
 
     const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
-    const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;
+    const saved = capturedDraft();
 
     expect(saved.findSubcategory(food.id, 'Takeout')?.id).toBe(childId);
     expect(result.state.categories[0]?.subcategories).toEqual(['Takeout', 'Groceries']);
@@ -388,7 +404,7 @@ describe('ModifyCategoryVocabulary', () => {
     mockFindVocabularyBySpreadsheetId.mockResolvedValue(vocabulary);
 
     const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
-    const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;
+    const saved = capturedDraft();
 
     expect(saved.findSubcategory(utilities.id, 'Streaming')).toBeUndefined();
     expect(saved.findSubcategory(leisure.id, 'Streaming')?.id).toBe(childId);
@@ -408,7 +424,7 @@ describe('ModifyCategoryVocabulary', () => {
 
     expect(result.state.categories[2]).toEqual({ name: 'Leisure', subcategories: [] });
     expect(result.state.categories[0]?.subcategories).toEqual(['Delivery', 'Groceries']);
-    expect(mockSaveVocabulary).toHaveBeenCalledOnce();
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
   });
 
   it('removes a category together with its complete child branch', async () => {
@@ -416,7 +432,7 @@ describe('ModifyCategoryVocabulary', () => {
     mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
 
     const result = await new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput);
-    const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;
+    const saved = capturedDraft();
 
     expect(result.state.categories.map((category) => category.name)).toEqual([
       'Utilities',
@@ -515,20 +531,20 @@ describe('ModifyCategoryVocabulary', () => {
       name: 'Food',
       subcategories: ['Takeout', 'Groceries'],
     });
-    expect(mockSaveVocabulary).toHaveBeenCalledOnce();
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
   });
 
   it('propagates repository failure before sending or transitioning', async () => {
     mockParse.mockResolvedValue({ kind: 'add-subcategory', name: 'Takeout', parent: 'Food' });
     mockFindVocabularyBySpreadsheetId.mockResolvedValue(buildHierarchyVocabulary());
-    mockSaveVocabulary.mockRejectedValueOnce(new Error('transaction rolled back'));
+    mockTransitionExecute.mockRejectedValueOnce(new Error('transaction rolled back'));
 
     await expect(
       new ModifyCategoryVocabulary(buildMockDeps()).execute(hierarchyInput),
     ).rejects.toThrow('transaction rolled back');
 
     expect(mockSendMessage).not.toHaveBeenCalled();
-    expect(mockTransitionExecute).not.toHaveBeenCalled();
+    expect(mockTransitionExecute).toHaveBeenCalledOnce();
   });
 
   it('treats a repeated child command idempotently and does not persist again', async () => {

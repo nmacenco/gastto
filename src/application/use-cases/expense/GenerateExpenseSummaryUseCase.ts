@@ -14,6 +14,7 @@ import {
   advanceExpenseReviewBinding,
   createExpenseReviewBinding,
 } from '../../../domain/value-objects/expense-review-binding';
+import { normalizePaymentMethodSelection } from '../../../domain/value-objects/payment-method-selection';
 
 export interface GenerateExpenseSummaryInput {
   userId: string;
@@ -89,6 +90,10 @@ export class GenerateExpenseSummaryUseCase {
     const isHighAmount =
       averageAmount !== null && amount > averageAmount * this.highAmountThresholdMultiplier;
     const subcategoryEnabled = payload.subcategoryEnabled ?? false;
+    const payment = normalizePaymentMethodSelection(
+      payload.paymentMethodSelection,
+      payload.extracted.medioPago,
+    );
 
     return {
       concept: payload.rawMessage,
@@ -102,8 +107,10 @@ export class GenerateExpenseSummaryUseCase {
       subcategoryConfidence: payload.extracted.confianzaSubcategoria ?? 'nula',
       subcategoryStatus: payload.subcategoryStatus ?? 'none',
       subcategoryEnabled,
+      paymentLabel: payment.status === 'unresolved' ? payment.unresolvedRaw : payment.canonicalName,
+      paymentStatus: payment.status,
       actions: {
-        confirm: true,
+        confirm: payment.status !== 'unresolved',
         correct: true,
         cancel: true,
       },

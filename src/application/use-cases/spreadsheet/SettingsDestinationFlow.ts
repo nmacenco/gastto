@@ -20,6 +20,12 @@ import type {
 } from '../../ports/SettingsConfigurationActivation';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
+import type { DetectPaymentMethods } from './DetectPaymentMethods';
+import {
+  PaymentMethodCatalog,
+  normalizePaymentMethodName,
+} from '../../../domain/entities/PaymentMethodCatalog';
+import { DomainValidationError } from '../../../domain/errors/DomainValidationError';
 
 type Mapping = SettingsDestinationCandidate['mappings'][number];
 type Category = SettingsDestinationCandidate['categories'][number];
@@ -38,6 +44,9 @@ type Payload = Record<string, unknown> & {
   headerRowIndex?: number;
   mappings?: Mapping[];
   categories?: Category[];
+  paymentMethods?: string[];
+  paymentColumnMapped?: boolean;
+  stage?: 'categories' | 'payment_methods';
   accessVerifiedAt?: string;
 };
 
@@ -55,6 +64,7 @@ export interface SettingsDestinationFlowDeps {
   activation: SettingsConfigurationActivation;
   transitionState: TransitionConversationState;
   messaging: MessagingOutputPort;
+  detectPaymentMethods?: DetectPaymentMethods;
 }
 
 const timeoutMs = 30 * 60 * 1000;
@@ -465,6 +475,41 @@ export class SettingsDestinationFlow {
     )
       return;
     if (normalize(reply) === 'confirmar') {
+      if (payload.stage !== 'payment_methods') {
+        if (!this.deps.detectPaymentMethods) {
+          await this.deps.messaging.sendMessage(
+            externalId,
+            'No se puede detectar el medio de pago ahora. Escribí confirmar para reintentar.',
+          );
+          return;
+        }
+        try {
+          const proposal = await this.deps.detectPaymentMethods.execute({
+            userId: state.userId,
+            provider: 'google',
+            fileId: payload.fileId,
+            sheetName: payload.sheetName,
+            mappings: payload.mappings,
+            headerRowIndex: payload.headerRowIndex,
+          });
+          await this.move(state, 'SETTINGS_CATEGORIES', {
+            ...payload,
+            stage: 'payment_methods',
+            paymentMethods: proposal.names,
+            paymentColumnMapped: proposal.columnMapped,
+          });
+          await this.deps.messaging.sendMessage(
+            externalId,
+            this.paymentPrompt(proposal.names, proposal.columnMapped),
+          );
+        } catch {
+          await this.deps.messaging.sendMessage(
+            externalId,
+            'No pudimos leer los medios de pago. Escribí confirmar para reintentar o cancelar.',
+          );
+        }
+        return;
+      }
       const outcome = await this.deps.activation.execute({
         userId: state.userId,
         expected: this.deps.transitionState.precondition(state, 'unexpired'),
@@ -480,6 +525,7 @@ export class SettingsDestinationFlow {
           accessVerifiedAt: new Date(payload.accessVerifiedAt),
           mappings: payload.mappings,
           categories: payload.categories,
+          paymentMethods: payload.paymentMethods ?? [],
         },
       });
       if (outcome === 'activated')
@@ -489,6 +535,55 @@ export class SettingsDestinationFlow {
             ? 'La nueva planilla quedó activa. Tus gastos anteriores conservan su planilla original.'
             : 'La nueva hoja quedó activa. Tus gastos anteriores conservan su hoja original.',
         );
+      return;
+    }
+    if (payload.stage === 'payment_methods') {
+      const methods = new PaymentMethodCatalog('destination-proposal');
+      for (const name of payload.paymentMethods ?? []) methods.add(name);
+      const command = reply.trim();
+      const add = command.match(
+        /^(?:agregar|agrega|añadir|añade)\s+(?:medio\s+de\s+pago\s+)?(.+)$/iu,
+      );
+      const remove = command.match(/^(?:quitar|quita|eliminar|elimina)\s+(.+)$/iu);
+      const rename = command.match(/^(?:renombrar|renombra)\s+(.+?)\s+(?:a|por)\s+(.+)$/iu);
+      const find = (name: string) =>
+        methods
+          .getActive()
+          .find((item) => item.normalizedName === normalizePaymentMethodName(name));
+      try {
+        if (add) methods.add(add[1]!);
+        else if (remove) {
+          const item = find(remove[1]!);
+          if (!item) throw new DomainValidationError('Medio de pago no encontrado');
+          methods.deactivate(item.id);
+        } else if (rename) {
+          const item = find(rename[1]!);
+          if (!item) throw new DomainValidationError('Medio de pago no encontrado');
+          methods.rename(item.id, rename[2]!);
+        } else {
+          await this.deps.messaging.sendMessage(
+            externalId,
+            this.paymentPrompt(payload.paymentMethods ?? [], payload.paymentColumnMapped === true),
+          );
+          return;
+        }
+        const paymentMethods = methods.getActive().map((item) => item.name);
+        await this.move(state, 'SETTINGS_CATEGORIES', {
+          ...payload,
+          paymentMethods,
+          proposalId: randomUUID(),
+        });
+        await this.deps.messaging.sendMessage(
+          externalId,
+          this.paymentPrompt(paymentMethods, payload.paymentColumnMapped === true),
+        );
+      } catch (error) {
+        if (!(error instanceof DomainValidationError)) throw error;
+        await this.deps.messaging.sendMessage(
+          externalId,
+          `${error.message}\n${this.paymentPrompt(payload.paymentMethods ?? [], payload.paymentColumnMapped === true)}`,
+        );
+      }
       return;
     }
     const parsed = this.parseCategories(reply);
@@ -589,5 +684,9 @@ export class SettingsDestinationFlow {
           `${category.name}${category.subcategories.length ? ` > ${category.subcategories.join(', ')}` : ''}`,
       )
       .join('\n')}\nEscribí confirmar o categorías: Nombre; Otra > Subcategoría.`;
+  }
+
+  private paymentPrompt(names: string[], columnMapped: boolean): string {
+    return `Revisá los medios de pago:\n${names.map((name) => `• ${name}`).join('\n') || '(sin medios de pago)'}${columnMapped ? '' : '\nNo hay columna de medio de pago; los valores que agregues se guardarán solo en Gastto.'}\nEscribí confirmar, agregar Nombre, renombrar Nombre a Otro, quitar Nombre o cancelar.`;
   }
 }
