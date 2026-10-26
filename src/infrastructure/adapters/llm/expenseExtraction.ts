@@ -42,7 +42,8 @@ export function buildExtractionSystemPrompt(): string {
 5. Evaluar la confianza de categoría y subcategoría de forma independiente. categoryHierarchy contiene las relaciones disponibles y una categoría válida puede no tener subcategoría.
 6. Si subcategoryEnabled es false, devolver subcategoria_raw: null y confianza_subcategoria: "nula".
 7. No inventar relaciones ni trasladar una subcategoría a otro padre. Si un nombre existe bajo varios padres, usar únicamente el contexto explícito del mensaje.
-8. ${UNTRUSTED_DATA_GUARD}
+8. Si el usuario menciona un medio de pago, conservar su texto explícito. paymentMethods son candidatos configurados, pero no adivinar una tarjeta concreta a partir de "tarjeta" ni inferir el medio por la categoría. Si no se menciona, devolver medio_pago: null.
+9. ${UNTRUSTED_DATA_GUARD}
 
 Esquema de salida (siempre JSON puro, sin backticks):
 {

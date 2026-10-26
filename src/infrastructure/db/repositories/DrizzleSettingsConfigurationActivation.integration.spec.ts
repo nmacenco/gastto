@@ -50,6 +50,13 @@ beforeEach(async () => {
       sourceConfigId,
       fileId: 'new-file',
       sheetName: 'New',
+      stage: 'payment_methods',
+      paymentMethods: ['Visa'],
+      mappings: [
+        { field: 'monto', columnIndex: 0, columnHeader: 'Amount' },
+        { field: 'categoria', columnIndex: 1, columnHeader: 'Category' },
+      ],
+      categories: [{ name: 'Food', subcategories: ['Restaurant'] }],
     },
   });
 });
@@ -78,6 +85,7 @@ function input() {
         { field: 'categoria' as const, columnIndex: 1, columnHeader: 'Category' },
       ],
       categories: [{ name: 'Food', subcategories: ['Restaurant'] }],
+      paymentMethods: ['Visa'],
     },
   };
 }
@@ -164,6 +172,19 @@ describePostgres('Settings configuration activation (PostgreSQL)', () => {
   it('rolls back the full transaction on a mapping conflict', async () => {
     const duplicate = input();
     duplicate.candidate.mappings[1]!.columnIndex = 0;
+    const [observed] = await db
+      .select()
+      .from(schema.conversationStates)
+      .where(eq(schema.conversationStates.userId, userId));
+    await db
+      .update(schema.conversationStates)
+      .set({
+        statePayload: {
+          ...(observed?.statePayload as Record<string, unknown>),
+          mappings: duplicate.candidate.mappings,
+        },
+      })
+      .where(eq(schema.conversationStates.userId, userId));
     await expect(
       new DrizzleSettingsConfigurationActivation(db).execute(duplicate),
     ).rejects.toThrow();

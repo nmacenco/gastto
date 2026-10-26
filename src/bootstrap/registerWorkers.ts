@@ -108,6 +108,8 @@ export async function registerWorkers(
     startSettingsReauthorization: deps.googleOAuth?.startSettingsReauthorization ?? null,
     settingsOAuthCleanup: deps.googleOAuth?.settingsOAuthCleanup ?? null,
     settingsDestinationFlow: deps.googleOAuth?.settingsDestinationFlow ?? null,
+    settingsVocabularyFlow: deps.settingsVocabularyFlow ?? null,
+    resolveExpensePaymentMethod: deps.resolveExpensePaymentMethod ?? null,
     recoverCorruptedState: deps.recoverCorruptedState,
     userRepo: deps.userRepo,
     messagingAdapters: {

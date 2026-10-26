@@ -61,7 +61,7 @@ export class RetryExpenseSaveUseCase {
       const saveResult = await this.deps.registerExpense.save(
         input.userId,
         retryPayload.expense,
-        '',
+        retryPayload.expense.paymentMethodSelection?.sourceConfigId ?? '',
         claimId,
       );
       await this.deps.messagingPort.sendMessage(

@@ -30,6 +30,8 @@ import {
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
+import { PaymentMethodCatalog } from '../../../domain/entities/PaymentMethodCatalog';
+import type { IPaymentMethodCatalogRepository } from '../../../domain/ports/PaymentMethodCatalogRepository';
 import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { TransitionConversationStateInput } from '../conversation/TransitionConversationState';
@@ -56,6 +58,7 @@ const mockUpsertMany = vi.fn();
 const mockConfirm = vi.fn();
 const mockConfirmBySpreadsheetId = vi.fn();
 const mockUpdateCorrected = vi.fn();
+const mockFindPaymentCatalog = vi.fn();
 
 function buildMockLLMPort(): LLMPort {
   return {
@@ -158,6 +161,9 @@ function buildMockDependencies() {
       getValidAccessToken: mockGetValidAccessToken,
       forceRefreshAccessToken: mockForceRefreshAccessToken,
     },
+    paymentCatalogRepo: {
+      findBySpreadsheetId: mockFindPaymentCatalog,
+    } as unknown as IPaymentMethodCatalogRepository,
   };
 }
 
@@ -177,6 +183,9 @@ function buildUseCase(overrides: Partial<ReturnType<typeof buildMockDependencies
       overrides.userProfilePort ?? deps.userProfilePort,
       overrides.classifier ?? deps.classifier,
       overrides.oauthAccessTokenService ?? deps.oauthAccessTokenService,
+      10,
+      undefined,
+      overrides.paymentCatalogRepo ?? deps.paymentCatalogRepo,
     ),
     deps: { ...deps, ...overrides },
   };
@@ -252,10 +261,29 @@ beforeEach(() => {
   mockAppendRow.mockResolvedValue({ sheet: 'Hoja 1', row: 2 });
   mockSpreadsheetPortFactoryCreate.mockReturnValue(buildMockSpreadsheetPort());
   mockClassifierExecute.mockResolvedValue(HierarchicalClassificationResult.none());
+  mockFindPaymentCatalog.mockResolvedValue(null);
 });
 
 describe('RegisterExpenseUseCase', () => {
   describe('save()', () => {
+    it('rejects unresolved payment before a spreadsheet append', async () => {
+      const { useCase } = buildUseCase();
+      const review = {
+        ...payload,
+        paymentMethodSelection: {
+          status: 'unresolved' as const,
+          sourceConfigId: 'config-1',
+          paymentMethodId: null,
+          canonicalName: null,
+          unresolvedRaw: 'Tarjeta nueva',
+        },
+      };
+      await expect(useCase.save('user-123', review, 'config-1', 'claim-1')).rejects.toMatchObject({
+        code: 'STRUCTURE_ERROR',
+      });
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+    });
     const payload: ExpenseReviewPayload = {
       rawMessage: 'Café 100 EUR',
       extracted: {
@@ -273,6 +301,44 @@ describe('RegisterExpenseUseCase', () => {
       resolvedCategoryId: null,
       categoryStatus: 'confirmed',
     };
+
+    it.each([
+      {
+        name: 'mapped',
+        mappings: [buildMapping('monto', 0), buildMapping('medio_pago', 2)],
+        row: [100, null, 'Visa'],
+      },
+      { name: 'unmapped', mappings: [buildMapping('monto', 0)], row: [100] },
+    ])(
+      'saves a confirmed payment snapshot with the payment column $name',
+      async ({ mappings, row }) => {
+        mockFindPaymentCatalog.mockResolvedValue(
+          new PaymentMethodCatalog('config-1', [
+            { id: 'payment-visa', name: 'Visa', normalizedName: 'visa', isActive: true },
+          ]),
+        );
+        mockFindBySpreadsheetId.mockResolvedValue(mappings);
+        mockExpenseRecordCreate.mockResolvedValue({ id: 'expense-1' });
+        const reviewed: ExpenseReviewPayload = {
+          ...payload,
+          extracted: { ...payload.extracted, medioPago: 'visa' },
+          paymentMethodSelection: {
+            status: 'matched',
+            sourceConfigId: 'config-1',
+            paymentMethodId: 'payment-visa',
+            canonicalName: 'Visa',
+            unresolvedRaw: null,
+          },
+        };
+
+        await buildUseCase().useCase.save('user-123', reviewed, 'config-1', 'claim-1');
+
+        expect(mockAppendRow).toHaveBeenCalledWith('file-1', 'Hoja 1', row);
+        expect(mockExpenseRecordCreate).toHaveBeenCalledWith(
+          expect.objectContaining({ medioPago: 'Visa', paymentMethodId: 'payment-visa' }),
+        );
+      },
+    );
 
     beforeEach(() => {
       mockFindBySpreadsheetId.mockResolvedValue([buildMapping('monto', 0)]);
@@ -398,7 +464,7 @@ describe('RegisterExpenseUseCase', () => {
         mockFindBySpreadsheetId.mockResolvedValue(mappings);
         const { useCase } = buildUseCase();
 
-        await useCase.save('user-123', review, '', 'claim-1');
+        await useCase.save('user-123', review, 'config-1', 'claim-1');
 
         expect(mockAppendRow).toHaveBeenCalledWith('file-1', 'Hoja 1', row);
         expect(mockExpenseRecordCreate).toHaveBeenCalledWith(expect.objectContaining(hierarchy));
@@ -409,7 +475,7 @@ describe('RegisterExpenseUseCase', () => {
       mockExpenseRecordCreate.mockResolvedValue({ id: 'expense-1' });
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toEqual({
+      await expect(useCase.save('user-123', payload, 'config-1', 'claim-1')).resolves.toEqual({
         sheetName: 'Hoja 1',
         rowIndex: 2,
         expenseId: 'expense-1',
@@ -436,7 +502,7 @@ describe('RegisterExpenseUseCase', () => {
     it('checks the persistent claim before appending', async () => {
       const { useCase } = buildUseCase();
 
-      await useCase.save('user-123', payload, '', 'claim-1');
+      await useCase.save('user-123', payload, 'config-1', 'claim-1');
 
       expect(mockAssertCanStartFinancialEffect).toHaveBeenCalledWith('user-123', 'claim-1');
       expect(mockAssertCanStartFinancialEffect.mock.invocationCallOrder[0]).toBeLessThan(
@@ -448,7 +514,7 @@ describe('RegisterExpenseUseCase', () => {
       mockExpenseRecordCreate.mockRejectedValue(new Error('database unavailable'));
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '', 'claim-1')).rejects.toMatchObject({
+      await expect(useCase.save('user-123', payload, 'config-1', 'claim-1')).rejects.toMatchObject({
         code: 'UNKNOWN',
         outcomeUnknown: true,
       });
@@ -459,7 +525,7 @@ describe('RegisterExpenseUseCase', () => {
     it('uses the access-token service to append and persists the confirmed location', async () => {
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toEqual({
+      await expect(useCase.save('user-123', payload, 'config-1', 'claim-1')).resolves.toEqual({
         sheetName: 'Hoja 1',
         rowIndex: 2,
       });
@@ -489,7 +555,7 @@ describe('RegisterExpenseUseCase', () => {
       });
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toEqual({
+      await expect(useCase.save('user-123', payload, 'config-1', 'claim-1')).resolves.toEqual({
         sheetName: 'Hoja 1',
         rowIndex: 2,
       });
@@ -518,7 +584,7 @@ describe('RegisterExpenseUseCase', () => {
       mockAppendRow.mockResolvedValue({ sheet: 'Hoja 1' });
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toEqual({
+      await expect(useCase.save('user-123', payload, 'config-1', 'claim-1')).resolves.toEqual({
         sheetName: 'Hoja 1',
       });
 
@@ -569,9 +635,9 @@ describe('RegisterExpenseUseCase', () => {
         configure();
         const { useCase } = buildUseCase();
 
-        await expect(useCase.save('user-123', payload, '', 'claim-1')).rejects.toBeInstanceOf(
-          SpreadsheetError,
-        );
+        await expect(
+          useCase.save('user-123', payload, 'config-1', 'claim-1'),
+        ).rejects.toBeInstanceOf(SpreadsheetError);
 
         expect(mockAppendRow).toHaveBeenCalledTimes(appendCount);
         expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
@@ -586,10 +652,12 @@ describe('RegisterExpenseUseCase', () => {
         .mockResolvedValueOnce({ sheet: 'Hoja 1', row: 2 });
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '', 'claim-1')).resolves.toMatchObject({
-        sheetName: 'Hoja 1',
-        rowIndex: 2,
-      });
+      await expect(useCase.save('user-123', payload, 'config-1', 'claim-1')).resolves.toMatchObject(
+        {
+          sheetName: 'Hoja 1',
+          rowIndex: 2,
+        },
+      );
 
       expect(mockForceRefreshAccessToken).toHaveBeenCalledTimes(1);
       expect(mockAppendRow).toHaveBeenCalledTimes(2);
@@ -608,7 +676,7 @@ describe('RegisterExpenseUseCase', () => {
       mockFindBySpreadsheetId.mockResolvedValue([]);
       const { useCase } = buildUseCase();
 
-      await expect(useCase.save('user-123', payload, '', 'claim-1')).rejects.toMatchObject({
+      await expect(useCase.save('user-123', payload, 'config-1', 'claim-1')).rejects.toMatchObject({
         code: 'STRUCTURE_ERROR',
         retryable: false,
       });

@@ -2,6 +2,7 @@ import { and, eq, gt, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { SettingsConfigurationActivation } from '../../../application/ports/SettingsConfigurationActivation';
 import * as schema from '../schema';
+import { normalizePaymentMethodName } from '../../../domain/entities/PaymentMethodCatalog';
 
 class StaleSettingsConfiguration extends Error {}
 
@@ -40,6 +41,10 @@ export class DrizzleSettingsConfigurationActivation implements SettingsConfigura
           payload.sourceConfigId !== candidate.sourceConfigId ||
           payload.fileId !== candidate.fileId ||
           payload.sheetName !== candidate.sheetName ||
+          payload.stage !== 'payment_methods' ||
+          JSON.stringify(payload.categories) !== JSON.stringify(candidate.categories) ||
+          JSON.stringify(payload.mappings) !== JSON.stringify(candidate.mappings) ||
+          JSON.stringify(payload.paymentMethods) !== JSON.stringify(candidate.paymentMethods) ||
           payload.executionClaim !== undefined
         )
           throw new StaleSettingsConfiguration();
@@ -73,6 +78,7 @@ export class DrizzleSettingsConfigurationActivation implements SettingsConfigura
             headerRowIndex: candidate.headerRowIndex,
             accessVerifiedAt: candidate.accessVerifiedAt,
             categoriesConfirmedAt: new Date(),
+            paymentMethodsConfirmedAt: new Date(),
           })
           .returning({ id: schema.spreadsheetConfigs.id });
         if (!replacement) throw new Error('Configuration insertion failed');
@@ -105,6 +111,17 @@ export class DrizzleSettingsConfigurationActivation implements SettingsConfigura
                 normalizedValue: name.trim().toLowerCase(),
               })),
             );
+        }
+        const paymentNames = new Set<string>();
+        for (const name of candidate.paymentMethods) {
+          const normalized = normalizePaymentMethodName(name);
+          if (!normalized || paymentNames.has(normalized)) throw new StaleSettingsConfiguration();
+          paymentNames.add(normalized);
+          await tx.insert(schema.userPaymentMethods).values({
+            spreadsheetId: replacement.id,
+            displayName: name.trim(),
+            normalizedName: normalized,
+          });
         }
 
         const [deactivated] = await tx

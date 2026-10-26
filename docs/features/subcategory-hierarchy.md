@@ -60,6 +60,8 @@ A valid legacy payload is upgraded in memory to category nodes with no children,
 
 ### Parent-aware modification
 
+The settings menu also provides a draft editor for the active destination. It uses the same parent-aware parser and hierarchy aggregate but applies commands in memory until `confirmar`. It preserves existing category and child UUIDs on rename and move, deactivates removed branches, rejects reserved inactive-name collisions, and reactivates the original UUID on an explicit add of an inactive name. Reactivating a parent does not reactivate its former children. Cancel and timeout discard the draft without changing the stored hierarchy or historical expense snapshots.
+
 The deterministic Spanish/English parser supports one operation per message:
 
 | Operation    | English example                            | Spanish example                              |
@@ -77,25 +79,11 @@ Existing category add, rename, and remove commands remain supported.
 - Missing children, duplicates within a parent, and move collisions are rejected without persistence.
 - Accepted operations delegate duplicate, stable-ID, move, and branch-removal rules to `CategoryVocabulary`.
 - Removing a category removes its complete active child branch from the aggregate.
-- An accepted operation saves the complete aggregate transactionally and returns to `ONBOARDING_CATEGORIES` with the updated canonical proposal.
+- An accepted operation updates the identified conversation draft and returns to `ONBOARDING_CATEGORIES` with the updated canonical proposal. Final confirmation persists the hierarchy with payment methods.
 
 ### Atomic confirmation
 
-When a user confirms the proposal:
-
-1. `ConfirmCategories` validates and normalizes the canonical or legacy payload.
-2. It loads the active persisted aggregate and reconciles the complete reviewed proposal while preserving matching category and child identifiers.
-3. It saves the complete hierarchy through `DrizzleCategoryVocabularyRepository`, which updates parents and children in one database transaction.
-4. Only after that save succeeds, it writes `categories_confirmed_at` when absent.
-5. It activates the user.
-6. It transitions the FSM to `IDLE` with `statePayload` and `expiresAt` cleared.
-7. It sends the completion message.
-
-If hierarchy persistence fails, the transaction rolls back and confirmation, activation, the FSM, and completion messaging do not advance. Activation or FSM failures also suppress the completion message.
-
-Re-confirmation always re-saves the reviewed hierarchy idempotently. It skips only an already-present confirmation timestamp and still restores the active user plus cleared `IDLE` state after interruption.
-
-An absent, empty, or malformed proposal remains in `ONBOARDING_CATEGORIES`, clears the invalid payload, and prompts fresh detection. A missing spreadsheet configuration follows the existing account reconnection path.
+Category confirmation advances to payment-method review without writing the live vocabulary. The identified category draft retains parent and child IDs across renames and moves. After payment review, `DrizzleOnboardingVocabularyCommit` locks the conversation and active configuration, validates the reviewed payload, and writes the hierarchy, payment catalog, confirmation markers, user activation, and `IDLE` in one transaction. A failure rolls back the complete finalization and sends no completion message. Legacy in-flight category proposals enter payment review before finalization.
 
 ### Parent-first expense classification and review
 

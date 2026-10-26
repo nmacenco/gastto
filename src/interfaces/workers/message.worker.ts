@@ -86,6 +86,12 @@ import type { GetSpreadsheetSettings } from '../../application/use-cases/spreads
 import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
 import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
 import type { SettingsDestinationFlow } from '../../application/use-cases/spreadsheet/SettingsDestinationFlow';
+import type { SettingsVocabularyFlow } from '../../application/use-cases/spreadsheet/SettingsVocabularyFlow';
+import type {
+  ResolveExpensePaymentMethod,
+  ResolveExpensePaymentAction,
+} from '../../application/use-cases/expense/ResolveExpensePaymentMethod';
+import { parseSettingsVocabularyPayload } from '../../application/use-cases/spreadsheet/SettingsVocabularyFlow';
 import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadsheet/SettingsOAuthFlow';
 import { randomUUID } from 'node:crypto';
 import {
@@ -163,6 +169,8 @@ export interface MessageWorkerDeps {
   startSettingsReauthorization?: StartSettingsReauthorization | null;
   settingsOAuthCleanup?: SettingsOAuthCleanup | null;
   settingsDestinationFlow?: SettingsDestinationFlow | null;
+  settingsVocabularyFlow?: SettingsVocabularyFlow | null;
+  resolveExpensePaymentMethod?: ResolveExpensePaymentMethod | null;
 }
 
 export async function processMessageJob(
@@ -250,7 +258,10 @@ export async function processMessageJob(
           currentState === 'SETTINGS_SHEET' ||
           currentState === 'SETTINGS_MAPPING' ||
           currentState === 'SETTINGS_CATEGORIES' ||
-          (data.callbackData === undefined && isSettingsCommand(data.rawMessage))
+          (data.callbackData === undefined && isSettingsCommand(data.rawMessage)) ||
+          (currentState === 'EXPENSE_REVIEW' &&
+            data.callbackData === undefined &&
+            parseExpensePaymentCommand(data.rawMessage) !== null)
         ) {
           await routeByState(currentState, data, conversationState, opts, messaging);
           return;
@@ -614,6 +625,43 @@ async function routeByState(
         expiresAt: new Date(Date.now() + SETTINGS_TIMEOUT_MS),
       });
     } else {
+      const vocabulary = parseSettingsVocabularyPayload(conversationState?.statePayload ?? null);
+      if (
+        (conversationState?.statePayload?.screen === 'categories' ||
+          conversationState?.statePayload?.screen === 'payment_methods') &&
+        !vocabulary &&
+        opts.settingsVocabularyFlow
+      ) {
+        await opts.settingsVocabularyFlow.reply({
+          state: conversationState,
+          externalId,
+          rawMessage,
+        });
+        return;
+      }
+      if (vocabulary?.screen === 'categories' && opts.settingsVocabularyFlow && conversationState) {
+        await refreshSettingsDeadline(userId, conversationState, opts);
+        await messaging.sendMessage(
+          externalId,
+          opts.settingsVocabularyFlow.render(vocabulary.draft, vocabulary.subcategoryColumnMapped),
+        );
+        return;
+      }
+      if (
+        vocabulary?.screen === 'payment_methods' &&
+        opts.settingsVocabularyFlow &&
+        conversationState
+      ) {
+        await refreshSettingsDeadline(userId, conversationState, opts);
+        await messaging.sendMessage(
+          externalId,
+          opts.settingsVocabularyFlow.renderPayments(
+            vocabulary.draft,
+            vocabulary.paymentColumnMapped,
+          ),
+        );
+        return;
+      }
       await refreshSettingsDeadline(userId, conversationState, opts);
     }
     await messaging.sendMessage(externalId, settingsCopies.menu());
@@ -632,7 +680,34 @@ async function routeByState(
       await messaging.sendMessage(externalId, settingsCopies.cancelled());
       return;
     }
+    const vocabulary = parseSettingsVocabularyPayload(conversationState.statePayload);
+    if (
+      (vocabulary?.screen === 'categories' ||
+        vocabulary?.screen === 'payment_methods' ||
+        conversationState.statePayload?.screen === 'categories' ||
+        conversationState.statePayload?.screen === 'payment_methods') &&
+      opts.settingsVocabularyFlow
+    ) {
+      await opts.settingsVocabularyFlow.reply({ state: conversationState, externalId, rawMessage });
+      return;
+    }
     const choice = rawMessage.trim();
+    if (choice === '5' && opts.settingsVocabularyFlow) {
+      await opts.settingsVocabularyFlow.start({
+        state: conversationState,
+        externalId,
+        kind: 'categories',
+      });
+      return;
+    }
+    if (choice === '6' && opts.settingsVocabularyFlow) {
+      await opts.settingsVocabularyFlow.start({
+        state: conversationState,
+        externalId,
+        kind: 'payment_methods',
+      });
+      return;
+    }
     if (choice === '2') {
       if (!opts.startSettingsReauthorization) {
         await refreshSettingsDeadline(userId, conversationState, opts);
@@ -1038,7 +1113,15 @@ async function routeByState(
           await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
         }
       } else {
-        if (opts.modifyCategoryVocabulary) {
+        if (categoryPayload?.paymentReview === true && opts.confirmCategories) {
+          await opts.confirmCategories.replyPayment({
+            userId,
+            externalId,
+            channel,
+            statePayload: categoryPayload,
+            rawMessage,
+          });
+        } else if (opts.modifyCategoryVocabulary) {
           await opts.modifyCategoryVocabulary.execute({
             userId,
             externalId,
@@ -1083,6 +1166,14 @@ async function routeByState(
 }
 
 const SETTINGS_TIMEOUT_MS = 30 * 60 * 1000;
+
+function parseExpensePaymentCommand(rawMessage: string): ResolveExpensePaymentAction | null {
+  const command = rawMessage.trim();
+  if (/^sin medio de pago$/iu.test(command)) return { kind: 'clear' };
+  if (/^agregar medio de pago$/iu.test(command)) return { kind: 'add' };
+  const selected = command.match(/^medio de pago:\s*(.+)$/iu);
+  return selected ? { kind: 'select', name: selected[1]!.trim() } : null;
+}
 
 function isSettingsCommand(rawMessage: string): boolean {
   return (
@@ -1731,6 +1822,36 @@ async function handleExpenseReview(
   const { userId, rawMessage, externalId, callbackData } = jobData;
   const reviewPayload = tryNormalizeExpenseReviewPayload(statePayload);
 
+  const paymentAction = callbackData === undefined ? parseExpensePaymentCommand(rawMessage) : null;
+  if (paymentAction && opts.resolveExpensePaymentMethod && reviewPayload) {
+    const state = opts.transitionState.currentState(userId);
+    if (!state) {
+      await messaging.sendMessage(externalId, expenseCopies.staleFinancialAction());
+      return;
+    }
+    const outcome = await opts.resolveExpensePaymentMethod.execute({
+      userId,
+      expected: opts.transitionState.precondition(state, 'unexpired'),
+      authorization: {
+        kind: 'text',
+        receivedAt: jobData.receivedAt,
+        sourceMessageId: jobData.externalMessageId,
+      },
+      action: paymentAction,
+    });
+    if (outcome.status === 'updated') {
+      if (outcome.added)
+        await messaging.sendMessage(
+          externalId,
+          'El medio de pago se agregó al catálogo y permanecerá allí aunque canceles este gasto.',
+        );
+      await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
+    } else if (outcome.status === 'invalid')
+      await messaging.sendMessage(externalId, expenseCopies.paymentUnresolved());
+    else await messaging.sendMessage(externalId, expenseCopies.staleFinancialAction());
+    return;
+  }
+
   // Inline-button actions (Phase 3) take precedence over legacy text intents.
   if (callbackData !== undefined) {
     if (!opts.resolveExpenseSummaryAction) {
@@ -1876,6 +1997,9 @@ async function renderExpenseReviewReplyOutcome(
       return;
     case 'operation_in_progress':
       await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+      return;
+    case 'payment_unresolved':
+      await messaging.sendMessage(externalId, expenseCopies.paymentUnresolved());
       return;
     case 'expired': {
       const state = opts.transitionState.currentState(userId);

@@ -2,7 +2,7 @@
 
 ## Settings destination changes
 
-`SETTINGS_CATEGORIES` reads the candidate sheet using its reviewed `categoria` column and optional `subcategoria` column. It keeps the flat or linked hierarchy in the guarded conversation payload, scoped to the candidate flow and proposal. The user confirms with `confirmar` or replaces the reviewed list with `categorías: Nombre; Otra > Subcategoría`. Confirmation persists the new version's hierarchy in the same transaction that activates its configuration and mapping. Cancellation, expiry, and failed activation leave the previous hierarchy unchanged.
+`SETTINGS_CATEGORIES` reads the candidate sheet using its reviewed `categoria` column and optional `subcategoria` column. It keeps the flat or linked hierarchy in the guarded conversation payload, scoped to the candidate flow and proposal. The user confirms with `confirmar` or replaces the reviewed list with `categorías: Nombre; Otra > Subcategoría`. Category confirmation advances to a payment-method review. Final payment confirmation persists the new version's hierarchy, payment catalog, mapping, and configuration activation in one transaction. Cancellation, expiry, and failed activation leave the previous hierarchy unchanged.
 
 ## Purpose
 
@@ -38,11 +38,11 @@ After column mapping, Gastto proposes the spreadsheet's active category vocabula
 ### Confirmation and failure behavior
 
 - `ConfirmCategories` validates canonical or legacy state and requires at least one valid category.
-- It reconciles the reviewed proposal with the active aggregate to preserve stable identifiers.
-- It saves the complete aggregate transactionally before writing `categories_confirmed_at`, activating the user, clearing the FSM into `IDLE`, or sending completion.
+- It detects payment values after category confirmation and keeps both reviewed vocabularies in the guarded conversation payload.
+- Final payment confirmation reconciles identified category drafts and commits both vocabularies, confirmation markers, user activation, and `IDLE` together in one database transaction.
 - Orphan warning values are never persisted as vocabulary rows.
-- Re-confirmation always re-saves the hierarchy idempotently, skips only a redundant timestamp write, and restores active/`IDLE` final-state invariants.
-- A hierarchy save failure advances no finalization step and sends no completion.
+- A repeated final confirmation is guarded by the conversation revision; legacy in-flight category payloads enter payment review before finalization.
+- A catalog commit failure advances no finalization step and sends no completion.
 - Activation or FSM transition failures also send no false completion.
 - An invalid proposal remains in `ONBOARDING_CATEGORIES` with a cleared payload so detection can recover.
 - A missing spreadsheet configuration follows the account reconnection path.
@@ -53,9 +53,9 @@ No HTTP endpoint is exposed. The feature is driven by `ONBOARDING_CATEGORIES` in
 
 ### Application services
 
-- `DetectCategories.execute(input): Promise<DetectCategoriesOutput>` detects and persists the flat or hierarchy proposal.
+- `DetectCategories.execute(input): Promise<DetectCategoriesOutput>` detects the flat or hierarchy proposal and stores its identified draft in conversation state.
 - `ModifyCategoryVocabulary.execute(input): Promise<ModifyCategoryVocabularyOutput>` applies flat or parent-aware changes and returns both canonical state and a flat compatibility projection.
-- `ConfirmCategories.execute(input): Promise<ConfirmCategoriesOutput>` persists the complete reviewed aggregate before finalizing onboarding.
+- `ConfirmCategories.execute(input): Promise<ConfirmCategoriesOutput>` advances category review to payment review, then calls the atomic onboarding commit.
 
 ### Infrastructure
 

@@ -113,7 +113,7 @@ describe('DetectCategories', () => {
       statePayload: null,
     });
 
-    expect(saveVocabulary).toHaveBeenCalledTimes(1);
+    expect(saveVocabulary).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('comida'));
     expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('transporte'));
@@ -174,7 +174,7 @@ describe('DetectCategories', () => {
       statePayload: null,
     });
 
-    expect(saveVocabulary).toHaveBeenCalledTimes(1);
+    expect(saveVocabulary).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('alimentacion'));
     expect(transitionExecute).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -362,8 +362,8 @@ describe('DetectCategories', () => {
       orphanSubcategories: [],
       subcategoryColumnMapped: true,
     });
-    const saved = saveVocabulary.mock.calls[0]?.[0];
-    expect(saved?.getSubcategories()).toHaveLength(3);
+    expect(result.state.categories.flatMap((category) => category.subcategories)).toHaveLength(3);
+    expect(saveVocabulary).not.toHaveBeenCalled();
   });
 
   it('keeps category-only hierarchy rows and excludes reported orphans', async () => {
@@ -483,24 +483,21 @@ describe('DetectCategories', () => {
       statePayload: null,
     });
 
-    const saved = saveVocabulary.mock.calls[0]?.[0];
-    expect(saved?.getCategories()[0]?.id).toBe('food-id');
-    expect(saved?.getSubcategories().map((subcategory) => subcategory.id)).toContain('manual-id');
+    expect(saveVocabulary).not.toHaveBeenCalled();
     expect(result.state.categories).toEqual([
       { name: 'food', subcategories: ['manual', 'restaurant'] },
     ]);
   });
 
-  it('does not send or transition when hierarchy persistence fails', async () => {
+  it('does not send when storing the draft fails', async () => {
     const { deps, sendMessage, transitionExecute } = buildDeps({
       columnMappingRepository: buildColumnMappingRepository([
         { GasttoField: 'categoria', columnIndex: 1, columnHeader: 'Category' },
         { GasttoField: 'subcategoria', columnIndex: 2, columnHeader: 'Subcategory' },
       ]),
-      categoryVocabularyRepository: {
-        findBySpreadsheetId: vi.fn().mockResolvedValue(null),
-        save: vi.fn().mockRejectedValue(new Error('database unavailable')),
-      },
+      transitionState: {
+        execute: vi.fn().mockRejectedValue(new Error('database unavailable')),
+      } as unknown as DetectCategoriesDeps['transitionState'],
     });
 
     await expect(
@@ -555,6 +552,6 @@ describe('DetectCategories', () => {
     expect(first.state).toEqual(second.state);
     expect(persisted.getCategories()).toHaveLength(1);
     expect(persisted.getSubcategories()).toHaveLength(1);
-    expect(saveVocabulary).toHaveBeenCalledTimes(2);
+    expect(saveVocabulary).not.toHaveBeenCalled();
   });
 });

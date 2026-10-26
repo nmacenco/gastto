@@ -98,6 +98,7 @@ function setup() {
   const validateFileAccess = vi.fn().mockResolvedValue(true);
   const listSheets = vi.fn().mockResolvedValue(sheets);
   const getValidAccessToken = vi.fn().mockResolvedValue({ accessToken: 'token' });
+  const detectPaymentMethods = vi.fn().mockResolvedValue({ names: ['Visa'], columnMapped: true });
   const deps = {
     configRepository: { findByUserId },
     cloudStorage: { listRecentSpreadsheets, searchSpreadsheets, validateFileAccess },
@@ -111,6 +112,7 @@ function setup() {
     },
     categoryHierarchyReaderFactory: { create: () => ({ readHierarchy: vi.fn() }) },
     tokenService: { getValidAccessToken },
+    detectPaymentMethods: { execute: detectPaymentMethods },
     activation: { execute: activate },
     transitionState: {
       execute: transition,
@@ -136,6 +138,7 @@ function setup() {
     validateFileAccess,
     listSheets,
     tokenService: { getValidAccessToken },
+    detectPaymentMethods,
   };
 }
 
@@ -389,6 +392,18 @@ describe('SettingsDestinationFlow', () => {
       categories: [{ name: 'Food', subcategories: [] }],
     };
     await t.flow.reply(state('SETTINGS_CATEGORIES', reviewed), 'confirmar', 'chat-1');
+    expect(t.activate).not.toHaveBeenCalled();
+    expect(t.detectPaymentMethods).toHaveBeenCalledOnce();
+    await t.flow.reply(
+      state('SETTINGS_CATEGORIES', {
+        ...reviewed,
+        stage: 'payment_methods',
+        paymentMethods: ['Visa'],
+        paymentColumnMapped: true,
+      }),
+      'confirmar',
+      'chat-1',
+    );
     const activation = t.activate.mock.calls[0]?.[0] as unknown as {
       candidate: { sourceConfigId: string; fileId: string };
     };
@@ -399,8 +414,61 @@ describe('SettingsDestinationFlow', () => {
     expect(t.sendMessage).toHaveBeenCalledWith('chat-1', expect.stringContaining('quedó activa'));
     t.activate.mockResolvedValue('stale');
     t.sendMessage.mockClear();
-    await t.flow.reply(state('SETTINGS_CATEGORIES', reviewed), 'confirmar', 'chat-1');
+    await t.flow.reply(
+      state('SETTINGS_CATEGORIES', {
+        ...reviewed,
+        stage: 'payment_methods',
+        paymentMethods: ['Visa'],
+        paymentColumnMapped: true,
+      }),
+      'confirmar',
+      'chat-1',
+    );
     expect(t.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('retries failed detection, keeps payment edits in the proposal, and cancels without activation', async () => {
+    const t = setup();
+    const reviewed = {
+      ...payload,
+      headerRowIndex: 1,
+      mappings: [{ field: 'categoria', columnIndex: 1, columnHeader: 'Category' }],
+      categories: [{ name: 'Food', subcategories: [] }],
+    };
+    t.detectPaymentMethods.mockRejectedValueOnce(new Error('provider unavailable'));
+    await t.flow.reply(state('SETTINGS_CATEGORIES', reviewed), 'confirmar', 'chat-1');
+    expect(t.transition).not.toHaveBeenCalled();
+    expect(t.activate).not.toHaveBeenCalled();
+    expect(t.sendMessage).toHaveBeenCalledWith('chat-1', expect.stringContaining('reintentar'));
+
+    await t.flow.reply(state('SETTINGS_CATEGORIES', reviewed), 'confirmar', 'chat-1');
+    expect(t.transition).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        payload: {
+          ...reviewed,
+          stage: 'payment_methods',
+          paymentMethods: ['Visa'],
+          paymentColumnMapped: true,
+        },
+      }),
+    );
+    const paymentReview = {
+      ...reviewed,
+      stage: 'payment_methods',
+      paymentMethods: ['Visa'],
+      paymentColumnMapped: true,
+    };
+    await t.flow.reply(state('SETTINGS_CATEGORIES', paymentReview), 'agregar Efectivo', 'chat-1');
+    expect(t.transition.mock.calls[1]?.[0]).toMatchObject({
+      payload: { paymentMethods: ['Visa', 'Efectivo'] },
+    });
+    expect(t.activate).not.toHaveBeenCalled();
+
+    await t.flow.reply(state('SETTINGS_CATEGORIES', paymentReview), 'cancelar', 'chat-1');
+    expect(t.transition.mock.calls[2]?.[0]).toMatchObject({ targetState: 'IDLE', payload: null });
+    expect(t.activate).not.toHaveBeenCalled();
+    expect(config.fileId).toBe('file-old');
   });
 
   it('activates a reviewed file candidate without changing the historical source', async () => {
@@ -415,6 +483,16 @@ describe('SettingsDestinationFlow', () => {
       categories: [{ name: 'Food', subcategories: [] }],
     };
     await t.flow.reply(state('SETTINGS_CATEGORIES', reviewed), 'confirmar', 'chat-1');
+    await t.flow.reply(
+      state('SETTINGS_CATEGORIES', {
+        ...reviewed,
+        stage: 'payment_methods',
+        paymentMethods: ['Visa'],
+        paymentColumnMapped: true,
+      }),
+      'confirmar',
+      'chat-1',
+    );
     const call = t.activate.mock.calls[0]?.[0] as unknown as {
       candidate: { sourceConfigId: string; fileId: string; fileName: string };
     };

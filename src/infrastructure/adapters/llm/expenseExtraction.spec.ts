@@ -8,5 +8,7 @@ describe('buildExtractionSystemPrompt', () => {
     expect(prompt).toContain('concepto o comercio');
     expect(prompt).toContain('aunque el usuario no nombre esos campos explícitamente');
     expect(prompt).toContain('exclusivamente nombres presentes en categories/categoryHierarchy');
+    expect(prompt).toContain('conservar su texto explícito');
+    expect(prompt).toContain('no adivinar una tarjeta concreta');
   });
 });

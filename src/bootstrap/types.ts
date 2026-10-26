@@ -32,6 +32,7 @@ import type { RedisMappingCorrectionStateRepository } from '../infrastructure/re
 import type { RedisProcessedMessageRepository } from '../infrastructure/redis/RedisProcessedMessageRepository';
 import type { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProcessingLock';
 import type { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
+import type { ResolveExpensePaymentMethod } from '../application/use-cases/expense/ResolveExpensePaymentMethod';
 import type { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
 import type { DispatchControlSemanticAction } from '../application/use-cases/expense/DispatchControlSemanticAction';
 import type { PresentUndoConfirmation } from '../application/use-cases/expense/PresentUndoConfirmation';
@@ -56,6 +57,7 @@ import type { SendOAuthReminder } from '../application/use-cases/spreadsheet/Sen
 import type { StartSettingsReauthorization } from '../application/use-cases/spreadsheet/StartSettingsReauthorization';
 import type { SettingsOAuthCleanup } from '../application/use-cases/spreadsheet/SettingsOAuthCleanup';
 import type { SettingsDestinationFlow } from '../application/use-cases/spreadsheet/SettingsDestinationFlow';
+import type { SettingsVocabularyFlow } from '../application/use-cases/spreadsheet/SettingsVocabularyFlow';
 import type { CancelCloudConnection } from '../application/use-cases/spreadsheet/CancelCloudConnection';
 import type { HandleSpreadsheetFileSelection } from '../application/use-cases/spreadsheet/HandleSpreadsheetFileSelection';
 import type { HandleSheetSelection } from '../application/use-cases/spreadsheet/HandleSheetSelection';
@@ -171,6 +173,8 @@ export interface Dependencies {
   spreadsheetConfigRepo: DrizzleSpreadsheetConfigRepository;
   columnMappingRepo: DrizzleColumnMappingRepository;
   categoryVocabularyRepo: DrizzleCategoryVocabularyRepository;
+  settingsVocabularyFlow?: SettingsVocabularyFlow;
+  resolveExpensePaymentMethod?: ResolveExpensePaymentMethod;
   userCategoryRepo: DrizzleUserCategoryRepository;
   expenseRecordRepo: DrizzleExpenseRecordRepository;
   expenseQueueRepo: DrizzleExpenseQueueRepository;
