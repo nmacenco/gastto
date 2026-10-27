@@ -411,6 +411,15 @@ export class SettingsVocabularyFlow {
           .map((child) => child.name);
         return `• ${entry.name}${children.length ? `: ${children.join(', ')}` : ''}`;
       });
-    return `Borrador de categorías y subcategorías:\n${lines.join('\n') || '(sin categorías activas)'}${subcategoryColumnMapped ? '' : '\nLas subcategorías se conservarán en Gastto, pero no se escribirán en la planilla porque no hay una columna mapeada.'}\n\nEjemplos: agregar categoría Comida; Comida se llama Alimentación; quitar Comida; agregar subcategoría Café a Comida; en Comida renombrar Café a Cafetería; mover Café de Comida a Ocio; quitar Café de Comida.\nEscribí confirmar para guardar todos los cambios o cancelar para descartarlos.`;
+    const examples = [
+      'agregar categoría Comida',
+      'Comida se llama Alimentación',
+      'quitar Comida',
+      'agregar subcategoría Café a Comida',
+      'en Comida renombrar Café a Cafetería',
+      'mover Café de Comida a Ocio',
+      'quitar Café de Comida',
+    ];
+    return `Borrador de categorías y subcategorías:\n${lines.join('\n') || '(sin categorías activas)'}${subcategoryColumnMapped ? '' : '\nLas subcategorías se conservarán en Gastto, pero no se escribirán en la planilla porque no hay una columna mapeada.'}\n\nEjemplos:\n${examples.map((example) => `• ${example}`).join('\n')}\n\nEscribí confirmar para guardar todos los cambios o cancelar para descartarlos.`;
   }
 }

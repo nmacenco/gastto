@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { and, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type * as schema from '../schema';
@@ -17,7 +18,7 @@ import {
 
 class StaleVocabularyCommit extends Error {}
 
-function sameSnapshot(a: VocabularySnapshot, b: VocabularySnapshot): boolean {
+export function sameSnapshot(a: VocabularySnapshot, b: VocabularySnapshot): boolean {
   if (
     !a ||
     !b ||
@@ -31,10 +32,10 @@ function sameSnapshot(a: VocabularySnapshot, b: VocabularySnapshot): boolean {
     categories: [...snapshot.categories].sort((x, y) => x.id.localeCompare(y.id)),
     subcategories: [...snapshot.subcategories].sort((x, y) => x.id.localeCompare(y.id)),
   });
-  return JSON.stringify(sort(a)) === JSON.stringify(sort(b));
+  return isDeepStrictEqual(sort(a), sort(b));
 }
 
-function samePayments(a: PaymentSnapshot, b: PaymentSnapshot): boolean {
+export function samePayments(a: PaymentSnapshot, b: PaymentSnapshot): boolean {
   if (
     !a ||
     !b ||
@@ -46,8 +47,10 @@ function samePayments(a: PaymentSnapshot, b: PaymentSnapshot): boolean {
     return false;
   return (
     a.confirmed === b.confirmed &&
-    JSON.stringify([...a.methods].sort((x, y) => x.id.localeCompare(y.id))) ===
-      JSON.stringify([...b.methods].sort((x, y) => x.id.localeCompare(y.id)))
+    isDeepStrictEqual(
+      [...a.methods].sort((x, y) => x.id.localeCompare(y.id)),
+      [...b.methods].sort((x, y) => x.id.localeCompare(y.id)),
+    )
   );
 }
 

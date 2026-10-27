@@ -134,6 +134,13 @@ describe('SettingsVocabularyFlow', () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
+  it('shows category editing examples as separate list items', () => {
+    const { flow } = setup();
+    expect(flow.render(baseline)).toContain(
+      'Ejemplos:\n• agregar categoría Comida\n• Comida se llama Alimentación\n• quitar Comida\n• agregar subcategoría Café a Comida\n• en Comida renombrar Café a Cafetería\n• mover Café de Comida a Ocio\n• quitar Café de Comida\n\nEscribí confirmar',
+    );
+  });
+
   it('updates only the draft after a parsed command', async () => {
     const { flow, execute, commit } = setup();
     const payload = {
