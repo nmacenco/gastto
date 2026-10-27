@@ -26,10 +26,13 @@ import {
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
+import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
+import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
+import { settingsCopies } from '../../application/copies/settings.copies';
 import { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionInput } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import { SpreadsheetCategoryReader } from '../../infrastructure/adapters/sheets/SpreadsheetCategoryReader';
@@ -76,6 +79,7 @@ const mockCancelExpenseRegistrationExecute = vi.fn();
 const mockUndoLastExpenseExecute = vi.fn();
 const mockRetryExpenseSaveExecute = vi.fn();
 const mockStartSpreadsheetReconfigurationExecute = vi.fn();
+const mockStartSettingsReauthorizationExecute = vi.fn();
 const mockObserveSemanticRoutingExecute = vi.fn();
 const mockDispatchExpenseSemanticActionExecute = vi.fn();
 const mockDispatchControlSemanticActionExecute = vi.fn();
@@ -296,6 +300,9 @@ function buildMockDeps(): MessageWorkerDeps {
     startSpreadsheetReconfiguration: {
       execute: mockStartSpreadsheetReconfigurationExecute,
     } as unknown as StartSpreadsheetReconfigurationUseCase,
+    startSettingsReauthorization: {
+      execute: mockStartSettingsReauthorizationExecute,
+    } as unknown as StartSettingsReauthorization,
   };
 }
 
@@ -405,6 +412,394 @@ describe('processMessageJob', () => {
     mockDispatchOptionSelectionExecute.mockResolvedValue({ status: 'selected', target: 'file' });
     mockSendGuidanceExecute.mockResolvedValue(undefined);
     mockDeterministicRoutingDecide.mockReturnValue({ kind: 'fsm_handler' });
+  });
+
+  describe('spreadsheet settings', () => {
+    const settingsState = () =>
+      buildConversationState({
+        currentState: 'SETTINGS_MENU',
+        revision: '7',
+        statePayload: { flowId: 'flow-1' },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+    it('opens the menu from IDLE before semantic routing and invalidates immediate undo', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ statePayload: { immediateUndoExpenseId: 'old' } }),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'Configuración' }),
+        buildMockDeps(),
+      );
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'IDLE', payload: null }),
+      );
+      const opening = mockTransitionStateExecute.mock.calls.find(
+        ([input]) => input.targetState === 'SETTINGS_MENU',
+      )?.[0];
+      expect(typeof opening?.payload?.flowId).toBe('string');
+      expect(opening?.expiresAt).toBeInstanceOf(Date);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.menu());
+    });
+
+    it('shows stored status and refreshes the deadline', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(settingsState());
+      const deps = buildMockDeps();
+      deps.getSpreadsheetSettings = {
+        execute: vi.fn().mockResolvedValue({
+          credentialStatus: 'available',
+          provider: 'google',
+          fileName: 'Gastos',
+          sheetName: 'Octubre',
+        }),
+      } as unknown as NonNullable<MessageWorkerDeps['getSpreadsheetSettings']>;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), deps);
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'SETTINGS_MENU',
+          expected: { revision: '7', currentState: 'SETTINGS_MENU', expiry: 'unexpired' },
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expect.stringContaining('El acceso actual no se verificó'),
+      );
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it('starts Google reauthorization from option 2', async () => {
+      const state = settingsState();
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '2' }), buildMockDeps());
+      expect(mockStartSettingsReauthorizationExecute).toHaveBeenCalledWith({
+        state,
+        externalId: '123456789',
+        channel: 'telegram',
+      });
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it('starts a sheet candidate from option 4 before semantic routing', async () => {
+      const state = settingsState();
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const startSheet = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = {
+        startSheet,
+      } as unknown as NonNullable<MessageWorkerDeps['settingsDestinationFlow']>;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '4' }), deps);
+      expect(startSheet).toHaveBeenCalledWith(state, '123456789');
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it('starts a file candidate from option 3 before semantic routing', async () => {
+      const state = settingsState();
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const startFile = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = { startFile } as unknown as NonNullable<
+        MessageWorkerDeps['settingsDestinationFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '3' }), deps);
+      expect(startFile).toHaveBeenCalledWith(state, '123456789');
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it('opens category draft from option 5', async () => {
+      const state = settingsState();
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const start = vi.fn().mockResolvedValue(undefined);
+      deps.settingsVocabularyFlow = { start } as unknown as NonNullable<
+        MessageWorkerDeps['settingsVocabularyFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '5' }), deps);
+      expect(start).toHaveBeenCalledWith({ state, externalId: '123456789', kind: 'categories' });
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it('opens payment draft from option 6', async () => {
+      const state = settingsState();
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const start = vi.fn().mockResolvedValue(undefined);
+      deps.settingsVocabularyFlow = { start } as unknown as NonNullable<
+        MessageWorkerDeps['settingsVocabularyFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '6' }), deps);
+      expect(start).toHaveBeenCalledWith({
+        state,
+        externalId: '123456789',
+        kind: 'payment_methods',
+      });
+    });
+
+    it('routes draft commands before menu choices', async () => {
+      const state = buildConversationState({
+        currentState: 'SETTINGS_MENU',
+        revision: '7',
+        statePayload: {
+          screen: 'categories',
+          flowId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          sourceConfigId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          subcategoryColumnMapped: false,
+          baseline: { categories: [], subcategories: [] },
+          draft: { categories: [], subcategories: [] },
+        },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const reply = vi.fn().mockResolvedValue(undefined);
+      deps.settingsVocabularyFlow = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['settingsVocabularyFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), deps);
+      expect(reply).toHaveBeenCalledWith({ state, externalId: '123456789', rawMessage: '1' });
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it('discards an owned category draft on cancellation', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'SETTINGS_MENU',
+          revision: '7',
+          statePayload: {
+            screen: 'categories',
+            flowId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            sourceConfigId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            subcategoryColumnMapped: false,
+            baseline: { categories: [], subcategories: [] },
+            draft: { categories: [], subcategories: [] },
+          },
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'cancelar' }),
+        buildMockDeps(),
+      );
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'IDLE', payload: null }),
+      );
+    });
+
+    it('expires a category draft without invoking the editor', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'SETTINGS_MENU',
+          revision: '7',
+          statePayload: { screen: 'categories', flowId: 'flow' },
+          expiresAt: new Date(Date.now() - 1_000),
+        }),
+      );
+      const deps = buildMockDeps();
+      const reply = vi.fn().mockResolvedValue(undefined);
+      deps.settingsVocabularyFlow = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['settingsVocabularyFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'confirmar' }), deps);
+      expect(reply).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'IDLE', payload: null }),
+      );
+    });
+
+    it('reopens configuración on the current draft without discarding it', async () => {
+      const draft = { categories: [], subcategories: [] };
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'SETTINGS_MENU',
+          revision: '7',
+          statePayload: {
+            screen: 'categories',
+            flowId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            sourceConfigId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            subcategoryColumnMapped: false,
+            baseline: draft,
+            draft,
+          },
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      );
+      const deps = buildMockDeps();
+      const render = vi.fn().mockReturnValue('Borrador actual');
+      deps.settingsVocabularyFlow = { render } as unknown as NonNullable<
+        MessageWorkerDeps['settingsVocabularyFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'configuración' }), deps);
+      expect(render).toHaveBeenCalledWith(draft, false);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Borrador actual');
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'SETTINGS_MENU' }),
+      );
+    });
+
+    it('routes a malformed category draft to recovery instead of menu choice handling', async () => {
+      const state = buildConversationState({
+        currentState: 'SETTINGS_MENU',
+        revision: '7',
+        statePayload: { screen: 'categories', flowId: 'bad', draft: 'invalid' },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const reply = vi.fn().mockResolvedValue(undefined);
+      deps.settingsVocabularyFlow = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['settingsVocabularyFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), deps);
+      expect(reply).toHaveBeenCalledWith({ state, externalId: '123456789', rawMessage: '1' });
+      expect(mockSendMessage).not.toHaveBeenCalledWith('123456789', settingsCopies.choose());
+    });
+
+    it('routes an owned sheet choice directly to settings review', async () => {
+      const state = buildConversationState({
+        currentState: 'SETTINGS_SHEET',
+        statePayload: {
+          flowId: 'flow-1',
+          sourceConfigId: 'config-1',
+          fileId: 'file-1',
+          fileName: 'Expenses',
+        },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const reply = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['settingsDestinationFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '2' }), deps);
+      expect(reply).toHaveBeenCalledWith(state, '2', '123456789');
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it('routes an owned file choice directly to settings review', async () => {
+      const state = buildConversationState({
+        currentState: 'SETTINGS_FILE',
+        statePayload: {
+          flowId: 'flow-1',
+          sourceConfigId: 'config-1',
+          fileId: 'file-1',
+          fileName: 'Expenses',
+        },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      const deps = buildMockDeps();
+      const reply = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['settingsDestinationFlow']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), deps);
+      expect(reply).toHaveBeenCalledWith(state, '1', '123456789');
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+
+    it.each(['3', '4'])('reports option %s as unavailable', async (rawMessage) => {
+      mockGetConversationStateExecute.mockResolvedValue(settingsState());
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage }), buildMockDeps());
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.unavailable());
+    });
+
+    it('cancels only the observed unexpired flow', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(settingsState());
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'cancelar' }),
+        buildMockDeps(),
+      );
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'IDLE',
+        payload: null,
+        expected: { revision: '7', currentState: 'SETTINGS_MENU', expiry: 'unexpired' },
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.cancelled());
+    });
+
+    it('cancels an owned OAuth flow before cleaning up its nonce and reminder', async () => {
+      const cleanup = vi.fn();
+      const deps = buildMockDeps();
+      deps.settingsOAuthCleanup = { execute: cleanup } as unknown as SettingsOAuthCleanup;
+      const state = buildConversationState({
+        currentState: 'SETTINGS_OAUTH',
+        revision: '9',
+        statePayload: {
+          origin: 'settings',
+          flowId: 'flow-1',
+          provider: 'google',
+          sourceConfigId: 'config-1',
+          fileId: 'file-1',
+          sheetName: 'Gastos',
+          state: 'nonce-1',
+          reminderJobId: 'job-1',
+        },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockGetConversationStateExecute.mockResolvedValue(state);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'IDLE',
+          payload: null,
+          expected: { revision: '9', currentState: 'SETTINGS_OAUTH', expiry: 'unexpired' },
+        }),
+      );
+      expect(cleanup).toHaveBeenCalledWith(state.statePayload);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.cancelled());
+    });
+
+    it('expires only the observed flow', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ ...settingsState(), expiresAt: new Date(Date.now() - 1000) }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), buildMockDeps());
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'IDLE',
+          payload: null,
+          expected: { revision: '7', currentState: 'SETTINGS_MENU', expiry: 'expired' },
+        }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.expired());
+    });
+
+    it('keeps an active expense and unresolved financial claim protected', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_REVIEW' }),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'configuración' }),
+        buildMockDeps(),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.finishExpense());
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      mockSendMessage.mockClear();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          statePayload: {
+            executionClaim: {
+              claimId: 'claim',
+              kind: 'save',
+              operationId: 'op',
+              sourceMessageId: null,
+              status: 'outcome_unknown',
+              target: {},
+            },
+          },
+        }),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'configuración' }),
+        buildMockDeps(),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.financialOutcomeUnknown(),
+      );
+    });
   });
 
   it('rejects malformed payloads before identity lookup or lock acquisition', async () => {
@@ -1126,6 +1521,13 @@ describe('processMessageJob', () => {
       resolvedSubcategoryId: null,
       subcategoryStatus: 'none',
       subcategoryEnabled: false,
+      paymentMethodSelection: {
+        status: 'legacy',
+        sourceConfigId: null,
+        paymentMethodId: null,
+        canonicalName: null,
+        unresolvedRaw: null,
+      },
       ...overrides,
     };
   }
@@ -2106,6 +2508,67 @@ describe('processMessageJob', () => {
   });
 
   describe('EXPENSE_REVIEW state', () => {
+    it('routes an exact payment selection through the bound resolution use case', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload({
+        paymentMethodSelection: {
+          status: 'unresolved',
+          sourceConfigId: 'config-1',
+          paymentMethodId: null,
+          canonicalName: null,
+          unresolvedRaw: 'Mastercard',
+        },
+        extracted: {
+          monto: 850,
+          moneda: 'ARS',
+          categoriaRaw: 'café',
+          subcategoriaRaw: null,
+          fechaRaw: '2026-07-25',
+          medioPago: 'Mastercard',
+          confianzaCategoria: 'alta',
+          confianzaSubcategoria: 'nula',
+        },
+      });
+      const observed = buildConversationState({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: payload,
+      });
+      mockGetConversationStateExecute.mockResolvedValue(observed);
+      const resolvePayment = vi.fn().mockResolvedValue({
+        status: 'updated',
+        payload: {
+          ...payload,
+          paymentMethodSelection: {
+            status: 'matched',
+            sourceConfigId: 'config-1',
+            paymentMethodId: 'visa-id',
+            canonicalName: 'Visa',
+            unresolvedRaw: null,
+          },
+        },
+        added: false,
+      });
+      deps.resolveExpensePaymentMethod = { execute: resolvePayment } as unknown as NonNullable<
+        MessageWorkerDeps['resolveExpensePaymentMethod']
+      >;
+      vi.spyOn(deps.transitionState, 'currentState').mockReturnValue(observed);
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'medio de pago: Visa' }),
+        deps,
+      );
+      expect(resolvePayment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          action: { kind: 'select', name: 'Visa' },
+          expected: {
+            revision: observed.revision,
+            currentState: 'EXPENSE_REVIEW',
+            expiry: 'unexpired',
+          },
+        }),
+      );
+      expect(mockResolveExpenseReviewReplyExecute).not.toHaveBeenCalled();
+    });
     it('consumes queued-review immediate eligibility and forwards its exact expense ID', async () => {
       const deps = buildMockDeps();
       const reviewPayload = buildReviewStatePayload({ immediateUndoExpenseId: 'expense-1' });
@@ -3307,7 +3770,7 @@ describe('processMessageJob', () => {
     });
 
     describe('ONBOARDING_DRIVE', () => {
-      it('triggers CancelCloudConnection when user types cancelar', async () => {
+      it.each(['cancelar', 'cancel'])('triggers CancelCloudConnection for %s', async (message) => {
         const deps = buildMockDeps();
         mockGetConversationStateExecute.mockResolvedValue(
           buildConversationState({
@@ -3320,7 +3783,7 @@ describe('processMessageJob', () => {
           message: onboardingCopies.cancelledMessage(),
         });
 
-        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: message }), deps);
 
         expect(mockCancelCloudConnectionExecute).toHaveBeenCalledWith({
           userId: 'user-123',
@@ -3646,8 +4109,9 @@ describe('processMessageJob', () => {
             execute: mockTransitionStateExecute,
           } as unknown as DetectCategoriesDeps['transitionState'],
           categoryVocabularyRepository: {
+            findBySpreadsheetId: vi.fn().mockResolvedValue(null),
             save: vi.fn().mockResolvedValue(undefined),
-          } as unknown as DetectCategoriesDeps['categoryVocabularyRepository'],
+          },
         });
         mockGetConversationStateExecute.mockResolvedValue(
           buildConversationState({
@@ -4518,7 +4982,7 @@ describe('processMessageJob', () => {
         expect(FSM_STATES.filter((state) => state === 'ONBOARDING_CATEGORIES')).toEqual([
           'ONBOARDING_CATEGORIES',
         ]);
-        expect(FSM_STATES).toHaveLength(15);
+        expect(FSM_STATES).toHaveLength(21);
       });
 
       it('passes canonical confirmation through WhatsApp unchanged', async () => {

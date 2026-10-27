@@ -81,6 +81,19 @@ import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProce
 import { StaleConversationStateError } from '../../domain/errors/StaleConversationStateError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
+import { settingsCopies } from '../../application/copies/settings.copies';
+import type { GetSpreadsheetSettings } from '../../application/use-cases/spreadsheet/GetSpreadsheetSettings';
+import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
+import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
+import type { SettingsDestinationFlow } from '../../application/use-cases/spreadsheet/SettingsDestinationFlow';
+import type { SettingsVocabularyFlow } from '../../application/use-cases/spreadsheet/SettingsVocabularyFlow';
+import type {
+  ResolveExpensePaymentMethod,
+  ResolveExpensePaymentAction,
+} from '../../application/use-cases/expense/ResolveExpensePaymentMethod';
+import { parseSettingsVocabularyPayload } from '../../application/use-cases/spreadsheet/SettingsVocabularyFlow';
+import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadsheet/SettingsOAuthFlow';
+import { randomUUID } from 'node:crypto';
 import {
   isConfirmIntent,
   isCancelIntent,
@@ -152,6 +165,12 @@ export interface MessageWorkerDeps {
   confirmCategories?: ConfirmCategories | null;
   modifyCategoryVocabulary?: ModifyCategoryVocabulary | null;
   startSpreadsheetReconfiguration?: StartSpreadsheetReconfigurationUseCase | null;
+  getSpreadsheetSettings?: GetSpreadsheetSettings | null;
+  startSettingsReauthorization?: StartSettingsReauthorization | null;
+  settingsOAuthCleanup?: SettingsOAuthCleanup | null;
+  settingsDestinationFlow?: SettingsDestinationFlow | null;
+  settingsVocabularyFlow?: SettingsVocabularyFlow | null;
+  resolveExpensePaymentMethod?: ResolveExpensePaymentMethod | null;
 }
 
 export async function processMessageJob(
@@ -232,6 +251,21 @@ export async function processMessageJob(
     // re-send the same messages on every attempt (ADR-005).
     try {
       const route = async () => {
+        if (
+          currentState === 'SETTINGS_MENU' ||
+          currentState === 'SETTINGS_OAUTH' ||
+          currentState === 'SETTINGS_FILE' ||
+          currentState === 'SETTINGS_SHEET' ||
+          currentState === 'SETTINGS_MAPPING' ||
+          currentState === 'SETTINGS_CATEGORIES' ||
+          (data.callbackData === undefined && isSettingsCommand(data.rawMessage)) ||
+          (currentState === 'EXPENSE_REVIEW' &&
+            data.callbackData === undefined &&
+            parseExpensePaymentCommand(data.rawMessage) !== null)
+        ) {
+          await routeByState(currentState, data, conversationState, opts, messaging);
+          return;
+        }
         let semanticTurn: Awaited<ReturnType<ObserveSemanticRouting['execute']>> | undefined;
         if (conversationState) {
           try {
@@ -517,6 +551,218 @@ async function routeByState(
     await opts.transitionState.execute({ userId, targetState: 'IDLE', payload: null });
   }
 
+  if (
+    currentState === 'SETTINGS_MENU' &&
+    (conversationState?.expiresAt === null ||
+      conversationState?.expiresAt === undefined ||
+      conversationState.expiresAt.getTime() <= Date.now())
+  ) {
+    if (conversationState) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(
+          conversationState,
+          conversationState.expiresAt === null ? 'any' : 'expired',
+        ),
+      });
+    }
+    await messaging.sendMessage(externalId, settingsCopies.expired());
+    return;
+  }
+
+  if (currentState === 'SETTINGS_OAUTH') {
+    if (!conversationState) throw new Error('Settings OAuth state is missing');
+    const payload = parseSettingsOAuthPayload(conversationState);
+    if (
+      conversationState.expiresAt === null ||
+      conversationState.expiresAt.getTime() <= Date.now()
+    ) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(
+          conversationState,
+          conversationState.expiresAt ? 'expired' : 'any',
+        ),
+      });
+      if (payload) await opts.settingsOAuthCleanup?.execute(payload);
+      await messaging.sendMessage(externalId, settingsCopies.expired());
+      return;
+    }
+    if (isCancelIntent(rawMessage)) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(conversationState, 'unexpired'),
+      });
+      if (payload) await opts.settingsOAuthCleanup?.execute(payload);
+      await messaging.sendMessage(externalId, settingsCopies.cancelled());
+      return;
+    }
+    await messaging.sendMessage(externalId, settingsCopies.waitForAuth());
+    return;
+  }
+
+  if (jobData.callbackData === undefined && isSettingsCommand(rawMessage)) {
+    if (currentState !== 'IDLE' && currentState !== 'SETTINGS_MENU') {
+      await messaging.sendMessage(
+        externalId,
+        currentState.startsWith('ONBOARDING_')
+          ? settingsCopies.finishOnboarding()
+          : settingsCopies.finishExpense(),
+      );
+      return;
+    }
+    if (currentState === 'IDLE') {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'SETTINGS_MENU',
+        payload: { flowId: randomUUID() },
+        expiresAt: new Date(Date.now() + SETTINGS_TIMEOUT_MS),
+      });
+    } else {
+      const vocabulary = parseSettingsVocabularyPayload(conversationState?.statePayload ?? null);
+      if (
+        (conversationState?.statePayload?.screen === 'categories' ||
+          conversationState?.statePayload?.screen === 'payment_methods') &&
+        !vocabulary &&
+        opts.settingsVocabularyFlow
+      ) {
+        await opts.settingsVocabularyFlow.reply({
+          state: conversationState,
+          externalId,
+          rawMessage,
+        });
+        return;
+      }
+      if (vocabulary?.screen === 'categories' && opts.settingsVocabularyFlow && conversationState) {
+        await refreshSettingsDeadline(userId, conversationState, opts);
+        await messaging.sendMessage(
+          externalId,
+          opts.settingsVocabularyFlow.render(vocabulary.draft, vocabulary.subcategoryColumnMapped),
+        );
+        return;
+      }
+      if (
+        vocabulary?.screen === 'payment_methods' &&
+        opts.settingsVocabularyFlow &&
+        conversationState
+      ) {
+        await refreshSettingsDeadline(userId, conversationState, opts);
+        await messaging.sendMessage(
+          externalId,
+          opts.settingsVocabularyFlow.renderPayments(
+            vocabulary.draft,
+            vocabulary.paymentColumnMapped,
+          ),
+        );
+        return;
+      }
+      await refreshSettingsDeadline(userId, conversationState, opts);
+    }
+    await messaging.sendMessage(externalId, settingsCopies.menu());
+    return;
+  }
+
+  if (currentState === 'SETTINGS_MENU') {
+    if (!conversationState) throw new Error('Settings state is missing');
+    if (isCancelIntent(rawMessage)) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(conversationState, 'unexpired'),
+      });
+      await messaging.sendMessage(externalId, settingsCopies.cancelled());
+      return;
+    }
+    const vocabulary = parseSettingsVocabularyPayload(conversationState.statePayload);
+    if (
+      (vocabulary?.screen === 'categories' ||
+        vocabulary?.screen === 'payment_methods' ||
+        conversationState.statePayload?.screen === 'categories' ||
+        conversationState.statePayload?.screen === 'payment_methods') &&
+      opts.settingsVocabularyFlow
+    ) {
+      await opts.settingsVocabularyFlow.reply({ state: conversationState, externalId, rawMessage });
+      return;
+    }
+    const choice = rawMessage.trim();
+    if (choice === '5' && opts.settingsVocabularyFlow) {
+      await opts.settingsVocabularyFlow.start({
+        state: conversationState,
+        externalId,
+        kind: 'categories',
+      });
+      return;
+    }
+    if (choice === '6' && opts.settingsVocabularyFlow) {
+      await opts.settingsVocabularyFlow.start({
+        state: conversationState,
+        externalId,
+        kind: 'payment_methods',
+      });
+      return;
+    }
+    if (choice === '2') {
+      if (!opts.startSettingsReauthorization) {
+        await refreshSettingsDeadline(userId, conversationState, opts);
+        await messaging.sendMessage(externalId, settingsCopies.authUnavailable());
+        return;
+      }
+      await opts.startSettingsReauthorization.execute({
+        state: conversationState,
+        externalId,
+        channel,
+      });
+      return;
+    }
+    if (choice === '4' && opts.settingsDestinationFlow) {
+      await opts.settingsDestinationFlow.startSheet(conversationState, externalId);
+      return;
+    }
+    if (choice === '3' && opts.settingsDestinationFlow) {
+      await opts.settingsDestinationFlow.startFile(conversationState, externalId);
+      return;
+    }
+    await refreshSettingsDeadline(userId, conversationState, opts);
+    if (choice === '1') {
+      if (!opts.getSpreadsheetSettings) throw new Error('Settings summary is not configured');
+      const summary = await opts.getSpreadsheetSettings.execute({ userId });
+      await messaging.sendMessage(externalId, settingsCopies.status(summary));
+    } else if (['3', '4'].includes(choice)) {
+      await messaging.sendMessage(externalId, settingsCopies.unavailable());
+    } else {
+      await messaging.sendMessage(externalId, settingsCopies.choose());
+    }
+    return;
+  }
+
+  if (
+    ['SETTINGS_FILE', 'SETTINGS_SHEET', 'SETTINGS_MAPPING', 'SETTINGS_CATEGORIES'].includes(
+      currentState,
+    )
+  ) {
+    if (!conversationState || !opts.settingsDestinationFlow) return;
+    if (conversationState.expiresAt && conversationState.expiresAt.getTime() <= Date.now()) {
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expiresAt: null,
+        expected: opts.transitionState.precondition(conversationState, 'expired'),
+      });
+      await messaging.sendMessage(externalId, settingsCopies.expired());
+      return;
+    }
+    await opts.settingsDestinationFlow.reply(conversationState, rawMessage, externalId);
+    return;
+  }
+
   const cancellationSource = isCancelIntent(rawMessage) ? 'text' : null;
   const normalizedReviewPayload = tryNormalizeExpenseReviewPayload(conversationState?.statePayload);
   if (
@@ -773,8 +1019,7 @@ async function routeByState(
         await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
         break;
       }
-      const lower = rawMessage.toLowerCase().trim();
-      if (lower === 'cancelar') {
+      if (isCancelIntent(rawMessage)) {
         const state = conversationState?.statePayload?.state;
         if (typeof state === 'string') {
           await opts.cancelCloudConnection.execute({ userId, state, externalId, channel });
@@ -868,7 +1113,15 @@ async function routeByState(
           await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
         }
       } else {
-        if (opts.modifyCategoryVocabulary) {
+        if (categoryPayload?.paymentReview === true && opts.confirmCategories) {
+          await opts.confirmCategories.replyPayment({
+            userId,
+            externalId,
+            channel,
+            statePayload: categoryPayload,
+            rawMessage,
+          });
+        } else if (opts.modifyCategoryVocabulary) {
           await opts.modifyCategoryVocabulary.execute({
             userId,
             externalId,
@@ -910,6 +1163,41 @@ async function routeByState(
       }
     }
   }
+}
+
+const SETTINGS_TIMEOUT_MS = 30 * 60 * 1000;
+
+function parseExpensePaymentCommand(rawMessage: string): ResolveExpensePaymentAction | null {
+  const command = rawMessage.trim();
+  if (/^sin medio de pago$/iu.test(command)) return { kind: 'clear' };
+  if (/^agregar medio de pago$/iu.test(command)) return { kind: 'add' };
+  const selected = command.match(/^medio de pago:\s*(.+)$/iu);
+  return selected ? { kind: 'select', name: selected[1]!.trim() } : null;
+}
+
+function isSettingsCommand(rawMessage: string): boolean {
+  return (
+    rawMessage
+      .toLocaleLowerCase('es')
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') === 'configuracion'
+  );
+}
+
+async function refreshSettingsDeadline(
+  userId: string,
+  state: ConversationState | null,
+  opts: MessageWorkerDeps,
+): Promise<void> {
+  if (!state) throw new Error('Settings state is missing');
+  await opts.transitionState.execute({
+    userId,
+    targetState: 'SETTINGS_MENU',
+    payload: state.statePayload,
+    expiresAt: new Date(Date.now() + SETTINGS_TIMEOUT_MS),
+    expected: opts.transitionState.precondition(state, 'unexpired'),
+  });
 }
 
 function shouldQueueAdditionalExpense(
@@ -1534,6 +1822,36 @@ async function handleExpenseReview(
   const { userId, rawMessage, externalId, callbackData } = jobData;
   const reviewPayload = tryNormalizeExpenseReviewPayload(statePayload);
 
+  const paymentAction = callbackData === undefined ? parseExpensePaymentCommand(rawMessage) : null;
+  if (paymentAction && opts.resolveExpensePaymentMethod && reviewPayload) {
+    const state = opts.transitionState.currentState(userId);
+    if (!state) {
+      await messaging.sendMessage(externalId, expenseCopies.staleFinancialAction());
+      return;
+    }
+    const outcome = await opts.resolveExpensePaymentMethod.execute({
+      userId,
+      expected: opts.transitionState.precondition(state, 'unexpired'),
+      authorization: {
+        kind: 'text',
+        receivedAt: jobData.receivedAt,
+        sourceMessageId: jobData.externalMessageId,
+      },
+      action: paymentAction,
+    });
+    if (outcome.status === 'updated') {
+      if (outcome.added)
+        await messaging.sendMessage(
+          externalId,
+          'El medio de pago se agregó al catálogo y permanecerá allí aunque canceles este gasto.',
+        );
+      await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
+    } else if (outcome.status === 'invalid')
+      await messaging.sendMessage(externalId, expenseCopies.paymentUnresolved());
+    else await messaging.sendMessage(externalId, expenseCopies.staleFinancialAction());
+    return;
+  }
+
   // Inline-button actions (Phase 3) take precedence over legacy text intents.
   if (callbackData !== undefined) {
     if (!opts.resolveExpenseSummaryAction) {
@@ -1679,6 +1997,9 @@ async function renderExpenseReviewReplyOutcome(
       return;
     case 'operation_in_progress':
       await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+      return;
+    case 'payment_unresolved':
+      await messaging.sendMessage(externalId, expenseCopies.paymentUnresolved());
       return;
     case 'expired': {
       const state = opts.transitionState.currentState(userId);

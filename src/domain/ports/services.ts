@@ -15,6 +15,8 @@ export interface UserContext {
   categories: string[]; // active categories from the user's spreadsheet
   categoryHierarchy: CategoryHierarchyContext[];
   subcategoryEnabled: boolean;
+  paymentMethods?: string[];
+  paymentCatalogConfigured?: boolean;
   channel: 'telegram' | 'whatsapp';
 }
 
@@ -29,7 +31,13 @@ export interface ConversationContext {
   statePayload: Record<string, unknown> | null;
 }
 
-export type CorrectionField = 'monto' | 'moneda' | 'categoria' | 'subcategoria' | 'fecha';
+export type CorrectionField =
+  | 'monto'
+  | 'moneda'
+  | 'categoria'
+  | 'subcategoria'
+  | 'fecha'
+  | 'medio_pago';
 export type ExpenseFollowUpIntent = 'correction' | 'new_expense' | 'unrelated';
 
 export interface ExpenseCorrectionSuggestion {
@@ -40,6 +48,7 @@ export interface ExpenseCorrectionSuggestion {
   categoriaRaw: string | null;
   subcategoriaRaw: string | null;
   fechaRaw: string | null;
+  medioPago?: string | null;
 }
 
 export interface ExtractionExecutionOptions {

@@ -9,6 +9,13 @@ describe('RegexCategoryModificationParser', () => {
   const parser = new RegexCategoryModificationParser();
 
   describe('add category intent', () => {
+    it('keeps an explicit category name containing the child separator "a"', async () => {
+      await expect(parser.parse('agregar categoría Plan a futuro')).resolves.toEqual({
+        kind: 'add',
+        name: 'Plan a futuro',
+      });
+    });
+
     it('parses Spanish "falta" pattern', async () => {
       const result = await parser.parse('falta Salud');
       expect(result).toEqual({ kind: 'add', name: 'Salud' });
@@ -41,6 +48,20 @@ describe('RegexCategoryModificationParser', () => {
   });
 
   describe('remove category intent', () => {
+    it('keeps an explicit category name containing the child separator "de"', async () => {
+      await expect(parser.parse('quitar categoría Ropa de niños')).resolves.toEqual({
+        kind: 'remove',
+        name: 'Ropa de niños',
+      });
+    });
+
+    it('keeps an explicit English category name containing "from"', async () => {
+      await expect(parser.parse('remove category Work from home')).resolves.toEqual({
+        kind: 'remove',
+        name: 'Work from home',
+      });
+    });
+
     it.each(['quitar ocio', 'elimina la categoría ocio', 'borrar ocio'])(
       'parses Spanish command "%s"',
       async (command) => {

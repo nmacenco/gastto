@@ -13,6 +13,7 @@ import { createMessageWorker } from '../interfaces/workers/message.worker';
 import { createSessionTimeoutWorker } from '../interfaces/workers/sessionTimeout.worker';
 import { createOAuthReminderWorker } from '../interfaces/workers/oauthReminder.worker';
 import { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
+import { GetSpreadsheetSettings } from '../application/use-cases/spreadsheet/GetSpreadsheetSettings';
 import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
 
 interface CloseableBullMqResource {
@@ -103,6 +104,12 @@ export async function registerWorkers(
     retryExpenseSave: deps.retryExpenseSave,
     getConversationState: deps.getConversationState,
     transitionState: deps.transitionState,
+    getSpreadsheetSettings: new GetSpreadsheetSettings(deps.tokenRepo, deps.spreadsheetConfigRepo),
+    startSettingsReauthorization: deps.googleOAuth?.startSettingsReauthorization ?? null,
+    settingsOAuthCleanup: deps.googleOAuth?.settingsOAuthCleanup ?? null,
+    settingsDestinationFlow: deps.googleOAuth?.settingsDestinationFlow ?? null,
+    settingsVocabularyFlow: deps.settingsVocabularyFlow ?? null,
+    resolveExpensePaymentMethod: deps.resolveExpensePaymentMethod ?? null,
     recoverCorruptedState: deps.recoverCorruptedState,
     userRepo: deps.userRepo,
     messagingAdapters: {
@@ -183,6 +190,7 @@ export async function registerWorkers(
       deps.advancePendingExpense,
       deps.userProcessingLock,
       deps.generateExpenseSummary,
+      deps.googleOAuth?.settingsOAuthCleanup,
     );
 
     const sessionTimeoutWorker = createSessionTimeoutWorker({

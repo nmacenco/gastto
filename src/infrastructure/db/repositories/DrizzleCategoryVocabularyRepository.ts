@@ -8,6 +8,10 @@ import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary'
 import type { ICategoryVocabularyRepository } from '../../../domain/ports/repositories';
 import type * as schema from '../schema';
 import { userCategories, userSubcategories } from '../schema';
+import {
+  loadVocabularySnapshot,
+  VocabularyIdentityConflict,
+} from './categoryVocabularyPersistence';
 
 export class DrizzleCategoryVocabularyRepository implements ICategoryVocabularyRepository {
   constructor(private readonly db: PostgresJsDatabase<typeof schema>) {}
@@ -56,21 +60,12 @@ export class DrizzleCategoryVocabularyRepository implements ICategoryVocabularyR
       const spreadsheetId = vocabulary.spreadsheetId;
       const categories = vocabulary.getCategories();
       const subcategories = vocabulary.getSubcategories();
-      const existingCategories = await tx
-        .select()
-        .from(userCategories)
-        .where(eq(userCategories.spreadsheetId, spreadsheetId));
-      const existingCategoryIds = existingCategories.map((row) => row.id);
-      const existingSubcategories =
-        existingCategoryIds.length === 0
-          ? []
-          : await tx
-              .select()
-              .from(userSubcategories)
-              .where(inArray(userSubcategories.categoryId, existingCategoryIds));
+      const existing = await loadVocabularySnapshot(tx, spreadsheetId);
+      const existingCategories = existing.categories;
+      const existingSubcategories = existing.subcategories;
 
       const categoriesById = new Map(existingCategories.map((row) => [row.id, row]));
-      const categoriesByName = new Map(existingCategories.map((row) => [row.normalizedValue, row]));
+      const categoriesByName = new Map(existingCategories.map((row) => [row.normalizedName, row]));
       const resolvedCategoryIds = new Map<string, string>();
       const desiredPersistedCategoryIds = new Set<string>();
 
@@ -80,14 +75,9 @@ export class DrizzleCategoryVocabularyRepository implements ICategoryVocabularyR
         const naturalKeyMatch = categoriesByName.get(category.normalizedName);
         const idMatch = categoriesById.get(category.id);
 
-        if (naturalKeyMatch) {
-          await tx
-            .update(userCategories)
-            .set({ rawValue: category.name, isActive: true })
-            .where(eq(userCategories.id, naturalKeyMatch.id));
-          resolvedCategoryIds.set(category.id, naturalKeyMatch.id);
-          desiredPersistedCategoryIds.add(naturalKeyMatch.id);
-        } else if (idMatch) {
+        if (idMatch) {
+          if (naturalKeyMatch && naturalKeyMatch.id !== idMatch.id)
+            throw new VocabularyIdentityConflict();
           await tx
             .update(userCategories)
             .set({
@@ -98,6 +88,14 @@ export class DrizzleCategoryVocabularyRepository implements ICategoryVocabularyR
             .where(eq(userCategories.id, idMatch.id));
           resolvedCategoryIds.set(category.id, idMatch.id);
           desiredPersistedCategoryIds.add(idMatch.id);
+        } else if (naturalKeyMatch) {
+          if (naturalKeyMatch.isActive) throw new VocabularyIdentityConflict();
+          await tx
+            .update(userCategories)
+            .set({ rawValue: category.name, isActive: true })
+            .where(eq(userCategories.id, naturalKeyMatch.id));
+          resolvedCategoryIds.set(category.id, naturalKeyMatch.id);
+          desiredPersistedCategoryIds.add(naturalKeyMatch.id);
         } else {
           await tx.insert(userCategories).values({
             id: category.id,
@@ -115,7 +113,7 @@ export class DrizzleCategoryVocabularyRepository implements ICategoryVocabularyR
       const subcategoriesById = new Map(existingSubcategories.map((row) => [row.id, row]));
       const subcategoriesByParentAndName = new Map(
         existingSubcategories.map((row) => [
-          this.subcategoryKey(row.categoryId, row.normalizedValue),
+          this.subcategoryKey(row.categoryId, row.normalizedName),
           row,
         ]),
       );
@@ -132,13 +130,9 @@ export class DrizzleCategoryVocabularyRepository implements ICategoryVocabularyR
         );
         const idMatch = subcategoriesById.get(subcategory.id);
 
-        if (naturalKeyMatch) {
-          await tx
-            .update(userSubcategories)
-            .set({ rawValue: subcategory.name, isActive: true })
-            .where(eq(userSubcategories.id, naturalKeyMatch.id));
-          desiredPersistedSubcategoryIds.add(naturalKeyMatch.id);
-        } else if (idMatch) {
+        if (idMatch) {
+          if (naturalKeyMatch && naturalKeyMatch.id !== idMatch.id)
+            throw new VocabularyIdentityConflict();
           await tx
             .update(userSubcategories)
             .set({
@@ -149,6 +143,13 @@ export class DrizzleCategoryVocabularyRepository implements ICategoryVocabularyR
             })
             .where(eq(userSubcategories.id, idMatch.id));
           desiredPersistedSubcategoryIds.add(idMatch.id);
+        } else if (naturalKeyMatch) {
+          if (naturalKeyMatch.isActive) throw new VocabularyIdentityConflict();
+          await tx
+            .update(userSubcategories)
+            .set({ rawValue: subcategory.name, isActive: true })
+            .where(eq(userSubcategories.id, naturalKeyMatch.id));
+          desiredPersistedSubcategoryIds.add(naturalKeyMatch.id);
         } else {
           await tx.insert(userSubcategories).values({
             id: subcategory.id,

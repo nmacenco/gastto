@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Allow a user reviewing an expense summary to correct the amount, currency, category, optional linked subcategory, or date by replying in natural language. The correction is applied atomically to the pending review payload, shown again for confirmation, and is not saved to the spreadsheet until the user explicitly confirms it.
+Allow a user reviewing an expense summary to correct the amount, currency, category, optional linked subcategory, date, or payment method by replying in natural language. The correction is applied atomically to the pending review payload, shown again for confirmation, and is not saved to the spreadsheet until the user explicitly confirms it.
 
 ## Behavior (Implemented)
 
@@ -18,8 +18,10 @@ Allow a user reviewing an expense summary to correct the amount, currency, categ
   - currency (`moneda`),
   - category (`categoria`), resolved through the user's active spreadsheet vocabulary, and
   - linked subcategory (`subcategoria`), resolved only beneath the selected active parent, and
-  - date (`fecha`), including supported relative values such as `ayer`, `hoy`, and `mañana`.
+  - date (`fecha`), including supported relative values such as `ayer`, `hoy`, and `mañana`, and
+  - payment method (`medio_pago`), including explicit clearing.
 - Multiple fields in one message are applied atomically and produce one updated summary presentation.
+- Payment corrections resolve exact configured names locally. An unknown name produces an unresolved updated review with no save action; it is never added automatically. Clearing selects `Sin medio de pago`. Provider context treats payment names as untrusted data.
 - A combined category/subcategory correction is accepted only when both selections resolve to one active relationship. A child-only correction is scoped to the current active parent and never searches another branch.
 - A category-only correction preserves the current child only while its stable ID still belongs to the resolved parent; otherwise every child selection and extraction field is cleared to canonical no-child values.
 - When the provider omits `categoria_raw`, recovery accepts only a complete active name or a simple category assignment (for example `corregir categoria: gastos diarios`). Whole-target matching distinguishes `Gastos` from `Gastos diarios`. Negations, alternatives, and other incomplete instructions return `not_interpretable` without advancing the review.

@@ -130,13 +130,14 @@ export class DetectCategories {
       detectedCategories.length > 0
         ? detectedCategories
         : DEFAULT_CATEGORIES.map((category) => category.toLowerCase());
-    const vocabulary = new CategoryVocabulary(spreadsheetId);
-    for (const category of categories) vocabulary.addCategory(category);
-    await this.deps.categoryVocabularyRepository.save(vocabulary);
+    const vocabulary =
+      (await this.deps.categoryVocabularyRepository.findBySpreadsheetId(spreadsheetId)) ??
+      new CategoryVocabulary(spreadsheetId);
+    for (const category of categories) addCategoryIfMissing(vocabulary, category);
 
     const state = toOnboardingState(vocabulary, [], false);
     const message = onboardingCopies.categoryConfirmationPrompt(categories);
-    await this.sendProposal(externalId, userId, statePayload, state, message);
+    await this.sendProposal(externalId, userId, statePayload, state, message, vocabulary);
     return { categories, state, message };
   }
 
@@ -162,7 +163,6 @@ export class DetectCategories {
         vocabulary.addSubcategory(parent.id, pair.subcategory);
       }
     }
-    await this.deps.categoryVocabularyRepository.save(vocabulary);
 
     const state = toOnboardingState(vocabulary, hierarchy.orphanSubcategories, true);
     const categories = state.categories.map((category) => category.name);
@@ -170,7 +170,7 @@ export class DetectCategories {
       state.categories,
       state.orphanSubcategories,
     );
-    await this.sendProposal(externalId, userId, statePayload, state, message);
+    await this.sendProposal(externalId, userId, statePayload, state, message, vocabulary);
     return { categories, state, message };
   }
 
@@ -180,13 +180,20 @@ export class DetectCategories {
     previousPayload: Record<string, unknown> | null,
     state: CategoryOnboardingState,
     message: string,
+    vocabulary: CategoryVocabulary,
   ): Promise<void> {
-    await this.deps.messagingPort.sendMessage(externalId, message);
     await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_CATEGORIES',
-      payload: serializeCategoryOnboardingState(state, previousPayload),
+      payload: {
+        ...serializeCategoryOnboardingState(state, previousPayload),
+        categoryDraft: {
+          categories: vocabulary.getCategories(),
+          subcategories: vocabulary.getSubcategories(),
+        },
+      },
     });
+    await this.deps.messagingPort.sendMessage(externalId, message);
   }
 
   private async sendPlaceholder(

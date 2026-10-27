@@ -76,7 +76,16 @@ describe('expense review payload normalization', () => {
       immediateUndoExpenseId: 'expense-1',
     } as const;
 
-    expect(normalizeExpenseReviewPayload(review)).toEqual(review);
+    expect(normalizeExpenseReviewPayload(review)).toEqual({
+      ...review,
+      paymentMethodSelection: {
+        status: 'legacy',
+        sourceConfigId: null,
+        paymentMethodId: null,
+        canonicalName: null,
+        unresolvedRaw: null,
+      },
+    });
   });
 
   it.each([

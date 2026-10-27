@@ -26,6 +26,8 @@ export interface SpreadsheetConfig {
   fileId: string;
   fileName: string;
   sheetName: string;
+  isActive: boolean;
+  headerRowIndex: number | null;
   accessVerifiedAt: Date; // last permission verification (ADR-004)
   categoriesConfirmedAt: Date | null;
   createdAt: Date;

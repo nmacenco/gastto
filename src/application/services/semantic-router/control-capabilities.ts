@@ -23,6 +23,12 @@ export const CONTROL_SEMANTIC_CAPABILITY_MATRIX: Readonly<
   Record<FsmState, Readonly<Record<string, readonly ControlSemanticAction[]>>>
 > = {
   IDLE: { default: ['undo_last_expense'] },
+  SETTINGS_MENU: {},
+  SETTINGS_OAUTH: {},
+  SETTINGS_FILE: {},
+  SETTINGS_SHEET: {},
+  SETTINGS_MAPPING: {},
+  SETTINGS_CATEGORIES: {},
   EXPENSE_RECEIVING: { default: ['cancel_current_flow'] },
   EXPENSE_CLARIFYING: { default: ['cancel_current_flow'] },
   EXPENSE_REVIEW: { default: ['cancel_current_flow'] },

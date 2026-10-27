@@ -94,7 +94,7 @@ export const conversationStates = pgTable(
     stateIdx: index('idx_conversation_states_current').on(t.currentState),
     stateCheck: check(
       'chk_conversation_state',
-      sql`${t.currentState} IN ('IDLE','ONBOARDING_START','ONBOARDING_DRIVE','ONBOARDING_FILE','ONBOARDING_SHEET','ONBOARDING_VALIDATING_ACCESS','ONBOARDING_MAPPING','ONBOARDING_CATEGORIES','EXPENSE_RECEIVING','EXPENSE_CLARIFYING','EXPENSE_REVIEW','EXPENSE_CORRECTING','EXPENSE_SAVING','EXPENSE_SAVING_RETRY','EXPENSE_UNDO_CONFIRMING')`,
+      sql`${t.currentState} IN ('IDLE','SETTINGS_MENU','SETTINGS_OAUTH','SETTINGS_FILE','SETTINGS_SHEET','SETTINGS_MAPPING','SETTINGS_CATEGORIES','ONBOARDING_START','ONBOARDING_DRIVE','ONBOARDING_FILE','ONBOARDING_SHEET','ONBOARDING_VALIDATING_ACCESS','ONBOARDING_MAPPING','ONBOARDING_CATEGORIES','EXPENSE_RECEIVING','EXPENSE_CLARIFYING','EXPENSE_REVIEW','EXPENSE_CORRECTING','EXPENSE_SAVING','EXPENSE_SAVING_RETRY','EXPENSE_UNDO_CONFIRMING')`,
     ),
   }),
 );
@@ -163,14 +163,19 @@ export const spreadsheetConfigs = pgTable(
     fileId: text('file_id').notNull(),
     fileName: text('file_name').notNull(),
     sheetName: text('sheet_name').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    headerRowIndex: integer('header_row_index'),
     accessVerifiedAt: timestamp('access_verified_at').notNull(),
     categoriesConfirmedAt: timestamp('categories_confirmed_at'),
+    paymentMethodsConfirmedAt: timestamp('payment_methods_confirmed_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
   (t) => ({
     userIdx: index('idx_spreadsheet_configs_user').on(t.userId),
-    uniqueUser: uniqueIndex('uq_user_spreadsheet').on(t.userId),
+    uniqueActiveUser: uniqueIndex('uq_user_active_spreadsheet')
+      .on(t.userId)
+      .where(sql`${t.isActive} = true`),
     providerCheck: check('chk_sp_provider', sql`${t.provider} IN ('google', 'microsoft')`),
   }),
 );
@@ -241,6 +246,26 @@ export const userSubcategories = pgTable(
   }),
 );
 
+export const userPaymentMethods = pgTable(
+  'user_payment_methods',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spreadsheetId: uuid('spreadsheet_id')
+      .notNull()
+      .references(() => spreadsheetConfigs.id, { onDelete: 'cascade' }),
+    displayName: text('display_name').notNull(),
+    normalizedName: text('normalized_name').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    spreadsheetIdx: index('idx_user_payment_methods_spreadsheet')
+      .on(t.spreadsheetId)
+      .where(sql`${t.isActive} = true`),
+    uniqueName: uniqueIndex('uq_spreadsheet_payment_method').on(t.spreadsheetId, t.normalizedName),
+  }),
+);
+
 // ── GRUPO 5: REGISTRO DE GASTOS ───────────────────────────────────────────────
 
 export const expenseRecords = pgTable(
@@ -266,6 +291,9 @@ export const expenseRecords = pgTable(
     subcategoria: text('subcategoria'),
     fechaGasto: date('fecha_gasto').notNull(),
     medioPago: text('medio_pago'),
+    paymentMethodId: uuid('payment_method_id').references(() => userPaymentMethods.id, {
+      onDelete: 'set null',
+    }),
     sheetName: text('sheet_name').notNull(),
     rowIndex: integer('row_index'),
     categoriaConfidence: text('categoria_confidence'),
@@ -289,6 +317,7 @@ export const expenseRecords = pgTable(
     ),
     categoryIdx: index('idx_expense_records_category').on(t.categoryId),
     subcategoryIdx: index('idx_expense_records_subcategory').on(t.subcategoryId),
+    paymentMethodIdx: index('idx_expense_records_payment_method').on(t.paymentMethodId),
     montoCheck: check('chk_monto', sql`${t.monto} >= 0`),
     monedaCheck: check('chk_moneda', sql`${t.moneda} IN ('ARS','EUR','USD','MXN','GBP','BRL')`),
     confidenceCheck: check(

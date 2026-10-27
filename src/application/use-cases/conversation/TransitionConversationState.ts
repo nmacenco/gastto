@@ -80,6 +80,15 @@ export class TransitionConversationState {
     return store?.valid === true && store.current.userId === userId ? store.current : null;
   }
 
+  /** Adopt a state returned by a separate atomic database transaction. */
+  adoptCommittedState(state: ConversationState): void {
+    const store = this.storage.getStore();
+    if (!store || !store.valid || store.current.userId !== state.userId) {
+      throw new StaleConversationStateError({ status: 'stale' });
+    }
+    store.current = state;
+  }
+
   signal(userId: string): AbortSignal | null {
     const store = this.storage.getStore();
     return store?.current.userId === userId ? store.controller.signal : null;

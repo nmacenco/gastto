@@ -19,6 +19,9 @@ import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { Currency } from '../../../domain/entities/User';
 import type { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
 import { advanceExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
+import type { IPaymentMethodCatalogRepository } from '../../../domain/ports/PaymentMethodCatalogRepository';
+import type { PaymentMethodCatalog } from '../../../domain/entities/PaymentMethodCatalog';
+import { ResolvePaymentMethod } from './ResolvePaymentMethod';
 
 export interface CorrectExpenseInput {
   userId: string;
@@ -47,6 +50,7 @@ export interface CorrectExpenseUseCaseDeps {
   expenseRepo: IExpenseRecordRepository;
   spreadsheetConfigRepo: ISpreadsheetConfigRepository;
   categoryVocabularyRepo: ICategoryVocabularyRepository;
+  paymentCatalogRepo?: IPaymentMethodCatalogRepository;
   transitionState: TransitionConversationState;
 }
 
@@ -57,11 +61,13 @@ interface CorrectionSuggestionValues {
   categoriaRaw: string | null;
   subcategoriaRaw: string | null;
   fechaRaw: string | null;
+  medioPago?: string | null;
 }
 
 interface CorrectionHierarchyContext {
   spreadsheetId: string | null;
   vocabulary: CategoryVocabulary | null;
+  paymentCatalog: PaymentMethodCatalog | null;
 }
 
 type ApplySuggestionOutcome =
@@ -86,7 +92,7 @@ export class CorrectExpenseUseCase {
     const suggestion = await this.deps.llm.interpretCorrection(
       rawMessage,
       state.payload.extracted,
-      this.buildUserContext(input, hierarchy.vocabulary),
+      this.buildUserContext(input, hierarchy),
     );
 
     if (suggestion.intent === 'new_expense' && input.intentMode !== 'validated_correction') {
@@ -144,13 +150,18 @@ export class CorrectExpenseUseCase {
       vocabulary: config
         ? await this.deps.categoryVocabularyRepo.findBySpreadsheetId(config.id)
         : null,
+      paymentCatalog:
+        config && this.deps.paymentCatalogRepo
+          ? await this.deps.paymentCatalogRepo.findBySpreadsheetId(config.id)
+          : null,
     };
   }
 
   private buildUserContext(
     input: CorrectExpenseInput,
-    vocabulary: CategoryVocabulary | null,
+    hierarchy: CorrectionHierarchyContext,
   ): UserContext {
+    const vocabulary = hierarchy.vocabulary;
     const categories = vocabulary?.getCategories() ?? [];
 
     return {
@@ -163,6 +174,8 @@ export class CorrectExpenseUseCase {
           : [],
       })),
       subcategoryEnabled: input.state.payload.subcategoryEnabled === true,
+      paymentCatalogConfigured: hierarchy.paymentCatalog !== null,
+      paymentMethods: hierarchy.paymentCatalog?.getActive().map((method) => method.name) ?? [],
       channel: input.channel,
     };
   }
@@ -183,6 +196,23 @@ export class CorrectExpenseUseCase {
     const dateWasCorrected = suggestion.changedFields.includes('fecha');
     const categoryWasCorrected = suggestion.changedFields.includes('categoria');
     const subcategoryWasCorrected = suggestion.changedFields.includes('subcategoria');
+    const paymentWasCorrected = suggestion.changedFields.includes('medio_pago');
+    if (paymentWasCorrected && suggestion.medioPago === undefined)
+      return { status: 'not_interpretable' };
+    if (
+      paymentWasCorrected &&
+      (!hierarchy.spreadsheetId ||
+        (current.paymentMethodSelection?.sourceConfigId &&
+          current.paymentMethodSelection.sourceConfigId !== hierarchy.spreadsheetId))
+    )
+      return { status: 'not_interpretable' };
+    const paymentSelection = paymentWasCorrected
+      ? new ResolvePaymentMethod().execute({
+          catalog: hierarchy.paymentCatalog,
+          rawValue: suggestion.medioPago ?? null,
+          sourceConfigId: hierarchy.spreadsheetId!,
+        })
+      : current.paymentMethodSelection;
 
     if (categoryWasCorrected || subcategoryWasCorrected) {
       const attemptedSubcategory = suggestion.subcategoriaRaw;
@@ -304,6 +334,9 @@ export class CorrectExpenseUseCase {
             extracted = { ...extracted, fechaRaw: suggestion.fechaRaw };
           }
           break;
+        case 'medio_pago':
+          extracted = { ...extracted, medioPago: suggestion.medioPago?.trim() || null };
+          break;
       }
     }
 
@@ -316,6 +349,7 @@ export class CorrectExpenseUseCase {
       payload: {
         ...current,
         extracted,
+        ...(paymentSelection === undefined ? {} : { paymentMethodSelection: paymentSelection }),
         resolvedDate,
         resolvedCategory,
         resolvedCategoryId,

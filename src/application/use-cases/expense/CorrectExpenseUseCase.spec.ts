@@ -24,6 +24,7 @@ import {
 import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary';
 import { ClassifyExpenseCategory } from './ClassifyExpenseCategory';
 import { CategoryKeywordVocabulary } from '../../../domain/value-objects/CategoryKeywordVocabulary';
+import { PaymentMethodCatalog } from '../../../domain/entities/PaymentMethodCatalog';
 
 function buildExtractedExpense(overrides: Partial<ExtractedExpense> = {}): ExtractedExpense {
   return {
@@ -76,6 +77,7 @@ function buildDeps(
       typeof vi.fn<ICategoryVocabularyRepository['findBySpreadsheetId']>
     >;
     transition?: ReturnType<typeof vi.fn<TransitionConversationState['execute']>>;
+    paymentCatalog?: PaymentMethodCatalog | null;
   } = {},
 ) {
   const interpretCorrectionMock: ReturnType<typeof vi.fn<LLMPort['interpretCorrection']>> =
@@ -111,6 +113,8 @@ function buildDeps(
       fileId: 'file-1',
       fileName: 'Gastos.xlsx',
       sheetName: 'Gastos',
+      isActive: true,
+      headerRowIndex: null,
       accessVerifiedAt: new Date(),
       categoriesConfirmedAt: new Date(),
       createdAt: new Date(),
@@ -191,6 +195,9 @@ function buildDeps(
         expenseRepo,
         spreadsheetConfigRepo,
         categoryVocabularyRepo,
+        paymentCatalogRepo: {
+          findBySpreadsheetId: vi.fn().mockResolvedValue(overrides.paymentCatalog ?? null),
+        },
         transitionState,
       },
       10,
@@ -205,6 +212,69 @@ function buildDeps(
 }
 
 describe('CorrectExpenseUseCase', () => {
+  it('applies an amount and unknown payment correction in one unsavable review', async () => {
+    const catalog = new PaymentMethodCatalog('sheet-1', [
+      { id: 'visa-id', name: 'Visa', normalizedName: 'visa', isActive: true },
+    ]);
+    const suggestion = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['monto', 'medio_pago'],
+      monto: 15,
+      moneda: null,
+      categoriaRaw: null,
+      subcategoriaRaw: null,
+      fechaRaw: null,
+      medioPago: 'Mastercard',
+    });
+    const { useCase, transitionMock } = buildDeps({
+      paymentCatalog: catalog,
+      interpretCorrection: suggestion,
+    });
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'fueron 15 con Mastercard',
+      state: buildCorrectionState(),
+      channel: 'telegram',
+      intentMode: 'infer',
+    });
+    expect(getPayload(result)).toMatchObject({
+      extracted: { monto: 15, medioPago: 'Mastercard' },
+      paymentMethodSelection: {
+        status: 'unresolved',
+        unresolvedRaw: 'Mastercard',
+        sourceConfigId: 'sheet-1',
+      },
+    });
+    expect(transitionMock).toHaveBeenCalledOnce();
+  });
+
+  it('clears a payment explicitly while preserving other reviewed fields', async () => {
+    const suggestion = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['medio_pago'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: null,
+      subcategoriaRaw: null,
+      fechaRaw: null,
+      medioPago: null,
+    });
+    const { useCase } = buildDeps({
+      paymentCatalog: new PaymentMethodCatalog('sheet-1'),
+      interpretCorrection: suggestion,
+    });
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'sin medio de pago',
+      state: buildCorrectionState(),
+      channel: 'telegram',
+      intentMode: 'infer',
+    });
+    expect(getPayload(result)).toMatchObject({
+      extracted: { monto: 12, medioPago: null },
+      paymentMethodSelection: { status: 'none', canonicalName: null },
+    });
+  });
   it.each([
     ['corregir categoria: gastos diarios', 'corrected'],
     ['corregir categoria: no es gastos diarios', 'not_interpretable'],

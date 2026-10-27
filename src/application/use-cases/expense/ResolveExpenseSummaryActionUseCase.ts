@@ -41,7 +41,15 @@ export type ExpenseReviewAuthorizationEvidence =
 export type ResolveExpenseSummaryActionOutcome =
   | { status: 'handled'; action: ExpenseReviewAction }
   | { status: 'review_required'; payload: ExpenseReviewPayload }
-  | { status: 'stale' | 'expired' | 'unbound' | 'invalid' | 'operation_in_progress' };
+  | {
+      status:
+        | 'stale'
+        | 'expired'
+        | 'unbound'
+        | 'invalid'
+        | 'operation_in_progress'
+        | 'payment_unresolved';
+    };
 
 export interface ResolveExpenseSummaryActionInput {
   userId: string;
@@ -69,7 +77,7 @@ export class ResolveExpenseSummaryActionUseCase {
   async execute(
     input: ResolveExpenseSummaryActionInput,
   ): Promise<ResolveExpenseSummaryActionOutcome> {
-    const authorization = this.authorize(input);
+    const authorization = this.authorizeReview(input);
     if (authorization.status !== 'authorized') return authorization;
     const { action, payload } = authorization;
 
@@ -108,7 +116,7 @@ export class ResolveExpenseSummaryActionUseCase {
     return { status: 'handled', action };
   }
 
-  private authorize(
+  authorizeReview(
     input: ResolveExpenseSummaryActionInput,
   ):
     | { status: 'authorized'; action: ExpenseReviewAction; payload: ExpenseReviewPayload }
@@ -152,6 +160,8 @@ export class ResolveExpenseSummaryActionUseCase {
       return { status: 'unbound' };
     }
     if (action === undefined) return { status: 'invalid' };
+    if (action === 'confirm' && payload.paymentMethodSelection?.status === 'unresolved')
+      return { status: 'payment_unresolved' };
     return { status: 'authorized', action, payload };
   }
 
@@ -183,11 +193,14 @@ export class ResolveExpenseSummaryActionUseCase {
     });
     await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.saving());
 
-    // The third argument is a legacy spreadsheetId placeholder that the current
-    // save() implementation does not use; it is kept to preserve the interface.
     let saveResult: { sheetName: string; rowIndex?: number | undefined; expenseId?: string };
     try {
-      saveResult = await this.deps.registerExpense.save(input.userId, input.payload, '', claimId);
+      saveResult = await this.deps.registerExpense.save(
+        input.userId,
+        input.payload,
+        input.payload.paymentMethodSelection?.sourceConfigId ?? '',
+        claimId,
+      );
     } catch (error) {
       await this.handleSaveFailure(input, error, executionClaim);
       return;

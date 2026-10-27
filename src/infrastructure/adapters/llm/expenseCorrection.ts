@@ -8,12 +8,15 @@ import { UNTRUSTED_DATA_GUARD } from './untrustedData';
 export const ExpenseCorrectionSuggestionSchema = z
   .object({
     intent: z.enum(['correction', 'new_expense', 'unrelated']),
-    changed_fields: z.array(z.enum(['monto', 'moneda', 'categoria', 'subcategoria', 'fecha'])),
+    changed_fields: z.array(
+      z.enum(['monto', 'moneda', 'categoria', 'subcategoria', 'fecha', 'medio_pago']),
+    ),
     monto: z.number().nullable(),
     moneda: z.enum(['ARS', 'EUR', 'USD', 'MXN', 'GBP', 'BRL']).nullable(),
     categoria_raw: z.string().nullable(),
     subcategoria_raw: z.string().nullable(),
     fecha_raw: z.string().nullable(),
+    medio_pago: z.string().nullable().optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -23,7 +26,8 @@ export const ExpenseCorrectionSuggestionSchema = z
       value.moneda !== null ||
       value.categoria_raw !== null ||
       value.subcategoria_raw !== null ||
-      value.fecha_raw !== null;
+      value.fecha_raw !== null ||
+      (value.medio_pago !== null && value.medio_pago !== undefined);
 
     if (value.intent === 'correction' && value.changed_fields.length === 0) {
       ctx.addIssue({
@@ -51,6 +55,7 @@ export function toExpenseCorrectionSuggestion(
     categoriaRaw: value.categoria_raw,
     subcategoriaRaw: value.subcategoria_raw,
     fechaRaw: value.fecha_raw,
+    ...(value.medio_pago === undefined ? {} : { medioPago: value.medio_pago }),
   };
 }
 
@@ -65,10 +70,11 @@ Tu tarea:
 5. El contexto jerárquico contiene las relaciones configuradas, pero la salida es solo una sugerencia: nunca inventes ni cambies una subcategoría de padre.
 6. Usar new_expense solo cuando el usuario describe claramente otro gasto independiente.
 7. Para new_expense y unrelated, changed_fields debe estar vacío y todos los valores deben ser null.
-8. Si un campo no se corrige, devolver null.
-9. ${UNTRUSTED_DATA_GUARD}
+8. Si un campo no se corrige, devolver null. Para quitar el medio de pago, incluir medio_pago en changed_fields y devolver medio_pago: null.
+9. Si se menciona un medio de pago, conservar el texto explícito; paymentMethods es una lista de candidatos, no una autorización para inventar una tarjeta concreta. "tarjeta" sin más detalle no identifica una tarjeta específica.
+10. ${UNTRUSTED_DATA_GUARD}
 
-Campos corregibles: monto, moneda, categoria, subcategoria, fecha.
+Campos corregibles: monto, moneda, categoria, subcategoria, fecha, medio_pago.
 
 Ejemplos válidos:
 - "no, fueron 15" → changed_fields: ["monto"], monto: 15
@@ -77,17 +83,20 @@ Ejemplos válidos:
 - "la subcategoria es Restaurante" → changed_fields: ["subcategoria"], subcategoria_raw: "Restaurante"
 - "ponlo en transporte, sin subcategoria" → changed_fields: ["categoria"], categoria_raw: "transporte", subcategoria_raw: null
 - "fue ayer" → changed_fields: ["fecha"], fecha_raw: "ayer"
+- "lo pagué con Visa" → changed_fields: ["medio_pago"], medio_pago: "Visa"
+- "sin medio de pago" → changed_fields: ["medio_pago"], medio_pago: null
 - "Taxi 12 EUR" → intent: "new_expense", changed_fields: [], todos los valores null
 - "uh-huh" → intent: "unrelated", changed_fields: [], todos los valores null
 
 Esquema de salida (siempre JSON puro, sin backticks):
 {
   "intent": "correction" | "new_expense" | "unrelated",
-  "changed_fields": ["monto" | "moneda" | "categoria" | "subcategoria" | "fecha"],
+  "changed_fields": ["monto" | "moneda" | "categoria" | "subcategoria" | "fecha" | "medio_pago"],
   "monto": number | null,
   "moneda": "ARS" | "EUR" | "USD" | "MXN" | "GBP" | "BRL" | null,
   "categoria_raw": string | null,
   "subcategoria_raw": string | null,
-  "fecha_raw": string | null
+  "fecha_raw": string | null,
+  "medio_pago": string | null
 }`;
 }

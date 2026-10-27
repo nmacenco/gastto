@@ -1,5 +1,9 @@
 # Confirm or Correct Column Mapping
 
+## Settings destination changes
+
+The `SETTINGS_MAPPING` path keeps its candidate mapping in the guarded conversation payload, scoped by flow ID and proposal ID. It asks whether column positions are unchanged. For a sheet change within the same file, “Sí” reuses saved positions only when the recorded header row and normalized headers match the new sheet; otherwise it infers a fresh proposal. A different file always gets fresh inference. “No” also starts fresh inference. The user may correct a field with `campo=número` and confirm with `confirmar`. Corrections replace ownership of the selected column within the candidate; they never write the active configuration or the onboarding correction cache. The confirmed candidate advances to `SETTINGS_CATEGORIES`, where activation persists the full new version.
+
 ## Overview
 
 The Confirm or Correct Column Mapping feature lets the user review the column mapping proposed by Gastto and either accept it with a single confirmation or correct it one field per message using natural language. The active proposal in the persisted FSM is authoritative. Redis caches only corrections bound to the same proposal and spreadsheet context. An explicit assignment gives the selected field exclusive ownership of its column and leaves any displaced field unmapped. Once accepted, the exact complete mapping shown to the user replaces the stored set atomically and the FSM advances to `ONBOARDING_CATEGORIES`.
@@ -267,20 +271,20 @@ interface MappingCorrectionStateSnapshot {
 
 ## Error Handling
 
-| Scenario                                     | Behavior                                                                                                     |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Missing OAuth token                          | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
-| Expired / revoked token                      | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
-| Token decryption failure                     | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
-| Missing `SpreadsheetConfig`                  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
-| No proposed mappings                         | `noMappingToConfirm` message sent; stays in `ONBOARDING_MAPPING`.                                            |
-| Unparseable correction message               | `correctionParseFailurePrompt` sent; stays in `ONBOARDING_MAPPING`.                                          |
-| Several fields in one correction message     | `multipleMappingCorrectionsPrompt` sent; no correction is applied and the FSM stays in `ONBOARDING_MAPPING`. |
-| Invalid column reference                     | `invalidColumnPrompt` sent with available columns; stays in `ONBOARDING_MAPPING`.                            |
-| Redis save failure                           | Error propagated; no confirmation message sent; no state transition.                                         |
-| Transition failure after valid correction    | Updated mapping message is not sent; error propagated so the user never confirms unseen state.              |
-| Invalid or mismatched active proposal        | Recovery prompt sent; stays in `ONBOARDING_MAPPING`; unseen repository rows are never confirmed.             |
-| Complete replacement on confirmation fails   | Transaction rolls back; no confirmation message or category transition occurs.                              |
+| Scenario                                   | Behavior                                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Missing OAuth token                        | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
+| Expired / revoked token                    | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
+| Token decryption failure                   | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
+| Missing `SpreadsheetConfig`                | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                          |
+| No proposed mappings                       | `noMappingToConfirm` message sent; stays in `ONBOARDING_MAPPING`.                                            |
+| Unparseable correction message             | `correctionParseFailurePrompt` sent; stays in `ONBOARDING_MAPPING`.                                          |
+| Several fields in one correction message   | `multipleMappingCorrectionsPrompt` sent; no correction is applied and the FSM stays in `ONBOARDING_MAPPING`. |
+| Invalid column reference                   | `invalidColumnPrompt` sent with available columns; stays in `ONBOARDING_MAPPING`.                            |
+| Redis save failure                         | Error propagated; no confirmation message sent; no state transition.                                         |
+| Transition failure after valid correction  | Updated mapping message is not sent; error propagated so the user never confirms unseen state.               |
+| Invalid or mismatched active proposal      | Recovery prompt sent; stays in `ONBOARDING_MAPPING`; unseen repository rows are never confirmed.             |
+| Complete replacement on confirmation fails | Transaction rolls back; no confirmation message or category transition occurs.                               |
 
 ## QA Checklist
 

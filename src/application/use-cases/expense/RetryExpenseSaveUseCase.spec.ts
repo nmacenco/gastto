@@ -25,6 +25,13 @@ const retryPayload = {
     resolvedCategory: 'Comida',
     resolvedCategoryId: null,
     categoryStatus: 'confirmed' as const,
+    paymentMethodSelection: {
+      status: 'legacy' as const,
+      sourceConfigId: null,
+      paymentMethodId: null,
+      canonicalName: null,
+      unresolvedRaw: null,
+    },
   },
   failureCode: 'NETWORK_ERROR' as const,
   firstAttemptAt: '2026-08-05T10:00:00.000Z',
@@ -143,6 +150,36 @@ describe('RetryExpenseSaveUseCase', () => {
     expect(save).toHaveBeenCalledOnce();
     expect(save).toHaveBeenCalledWith('user-123', statePayload.expense, '', expect.any(String));
     expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('replays the confirmed payment identity and name after an append failure', async () => {
+    const selectedPayment = {
+      ...validNoChildRetryPayload,
+      expense: {
+        ...validNoChildRetryPayload.expense,
+        extracted: { ...validNoChildRetryPayload.expense.extracted, medioPago: 'Visa' },
+        paymentMethodSelection: {
+          status: 'matched' as const,
+          sourceConfigId: 'config-1',
+          paymentMethodId: 'payment-visa',
+          canonicalName: 'Visa',
+          unresolvedRaw: null,
+        },
+      },
+    };
+    await buildUseCase(selectedPayment).execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      authorization,
+    });
+
+    expect(save).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledWith(
+      'user-123',
+      selectedPayment.expense,
+      'config-1',
+      expect.any(String),
+    );
   });
 
   it('clears retry state and sends manual-copy fallback after the second failure', async () => {

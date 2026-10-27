@@ -17,6 +17,8 @@ function buildSpreadsheetConfigRow(
     fileId: 'file-abc',
     fileName: 'Budget 2026',
     sheetName: 'Gastos',
+    isActive: true,
+    headerRowIndex: null,
     accessVerifiedAt: new Date('2026-01-01T00:00:00Z'),
     categoriesConfirmedAt: null as Date | null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -49,6 +51,8 @@ describe('DrizzleSpreadsheetConfigRepository', () => {
         fileId: 'file-abc',
         fileName: 'Budget 2026',
         sheetName: 'Gastos',
+        isActive: true,
+        headerRowIndex: null,
         accessVerifiedAt: row.accessVerifiedAt,
         categoriesConfirmedAt: null,
         createdAt: row.createdAt,
@@ -199,8 +203,8 @@ describe('DrizzleSpreadsheetConfigRepository', () => {
     });
   });
 
-  describe('upsertByUserId', () => {
-    const newConfig = {
+  describe('createOrResumeInitial', () => {
+    const selected = {
       userId: 'user-123',
       provider: 'google' as const,
       fileId: 'file-new',
@@ -210,92 +214,47 @@ describe('DrizzleSpreadsheetConfigRepository', () => {
       categoriesConfirmedAt: null,
     };
 
-    it('inserts a new config when none exists and returns the mapped entity', async () => {
-      const insertedRow = buildSpreadsheetConfigRow({
-        fileId: 'file-new',
-        fileName: 'Budget 2027',
-        sheetName: 'T 6',
-        accessVerifiedAt: newConfig.accessVerifiedAt,
+    it('creates a new active version when no configuration exists', async () => {
+      const row = buildSpreadsheetConfigRow({
+        fileId: selected.fileId,
+        sheetName: selected.sheetName,
       });
-      const onConflict = vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([insertedRow]),
-      });
+      const onConflictDoNothing = vi
+        .fn()
+        .mockReturnValue({ returning: vi.fn().mockResolvedValue([row]) });
       const db = {
-        insert: vi.fn().mockReturnValue({
-          values: vi.fn().mockReturnValue({
-            onConflictDoUpdate: onConflict,
-          }),
-        }),
+        insert: vi
+          .fn()
+          .mockReturnValue({ values: vi.fn().mockReturnValue({ onConflictDoNothing }) }),
       } as unknown as PostgresJsDatabase<typeof schema>;
-
-      const repo = new DrizzleSpreadsheetConfigRepository(db);
-      const result = await repo.upsertByUserId(newConfig);
-
-      expect(onConflict).toHaveBeenCalled();
-      expect(result.id).toBe('config-123');
-      expect(result.userId).toBe('user-123');
-      expect(result.fileId).toBe('file-new');
-      expect(result.fileName).toBe('Budget 2027');
-      expect(result.sheetName).toBe('T 6');
-      expect(result.accessVerifiedAt).toEqual(new Date('2026-07-05T00:00:00Z'));
-    });
-
-    it('updates provider, fileId, fileName, sheetName, accessVerifiedAt and updatedAt when a row already exists (re-onboarding)', async () => {
-      const originalCreated = new Date('2026-01-01T00:00:00Z');
-      const replacedRow = buildSpreadsheetConfigRow({
-        id: 'config-keep-id',
-        fileId: 'file-new',
-        fileName: 'Budget 2027',
-        sheetName: 'T 6',
-        accessVerifiedAt: new Date('2026-07-05T00:00:00Z'),
-        updatedAt: new Date('2026-07-05T00:00:00Z'),
-        createdAt: originalCreated,
-      });
-      let capturedSet: Record<string, unknown> | undefined;
-      const onConflict = vi.fn().mockImplementation((arg: { set: Record<string, unknown> }) => {
-        capturedSet = arg.set;
-        return { returning: vi.fn().mockResolvedValue([replacedRow]) };
-      });
-      const db = {
-        insert: vi.fn().mockReturnValue({
-          values: vi.fn().mockReturnValue({
-            onConflictDoUpdate: onConflict,
-          }),
-        }),
-      } as unknown as PostgresJsDatabase<typeof schema>;
-
-      const repo = new DrizzleSpreadsheetConfigRepository(db);
-      const result = await repo.upsertByUserId(newConfig);
-
-      expect(capturedSet).toMatchObject({
-        provider: 'google',
-        fileId: 'file-new',
-        fileName: 'Budget 2027',
-        sheetName: 'T 6',
-        accessVerifiedAt: newConfig.accessVerifiedAt,
-      });
-      expect((capturedSet as { updatedAt?: unknown }).updatedAt).toBeInstanceOf(Date);
-      expect(result.id).toBe('config-keep-id');
-      expect(result.createdAt).toEqual(originalCreated);
-      expect(result.sheetName).toBe('T 6');
-    });
-
-    it('throws when upsert returns no row', async () => {
-      const onConflict = vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([]),
-      });
-      const db = {
-        insert: vi.fn().mockReturnValue({
-          values: vi.fn().mockReturnValue({
-            onConflictDoUpdate: onConflict,
-          }),
-        }),
-      } as unknown as PostgresJsDatabase<typeof schema>;
-
-      const repo = new DrizzleSpreadsheetConfigRepository(db);
-      await expect(repo.upsertByUserId(newConfig)).rejects.toThrow(
-        'Failed to upsert spreadsheet config',
+      const result = await new DrizzleSpreadsheetConfigRepository(db).createOrResumeInitial(
+        selected,
       );
+      expect(onConflictDoNothing).toHaveBeenCalled();
+      expect(result.id).toBe(row.id);
+      expect(result.isActive).toBe(true);
+    });
+
+    it('retains the destination and ID of an already configured user', async () => {
+      const existing = buildSpreadsheetConfigRow({ categoriesConfirmedAt: new Date() });
+      const db = {
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockReturnValue({
+            onConflictDoNothing: vi
+              .fn()
+              .mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
+          }),
+        }),
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([existing]) }),
+          }),
+        }),
+      } as unknown as PostgresJsDatabase<typeof schema>;
+      await expect(
+        new DrizzleSpreadsheetConfigRepository(db).createOrResumeInitial(selected),
+      ).rejects.toThrow('Configured destination changes require settings activation');
+      expect('update' in db).toBe(false);
     });
   });
 });

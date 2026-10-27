@@ -171,6 +171,20 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
       expect(q).toContain("name contains 'Budget'");
     });
 
+    it('escapes a quoted search term and groups spreadsheet MIME types', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ files: [] }),
+      });
+      await adapter.searchSpreadsheets('token', 'google', "Joe's\\Budget");
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const q = new URL(url).searchParams.get('q');
+      expect(q).toContain("name contains 'Joe\\'s\\\\Budget'");
+      expect(q).toMatch(/^\(mimeType/);
+      expect(q).toContain(") and name contains '");
+    });
+
     it('throws InvalidProviderError for non-google providers', async () => {
       await expect(
         adapter.searchSpreadsheets('token', 'microsoft', 'query'),

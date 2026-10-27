@@ -14,24 +14,45 @@ export interface OAuthCallbackDeps {
   handleOAuthCallback: HandleOAuthCallback;
 }
 
-const OAuthCallbackQuerySchema = z.object({
-  code: z.string().describe('Authorization code returned by the provider'),
-  state: z.string().describe('CSRF state parameter'),
-});
+const OAuthCallbackQuerySchema = z
+  .object({
+    code: z.string().min(1).optional().describe('Authorization code returned by the provider'),
+    error: z.string().min(1).optional().describe('Provider denial code'),
+    state: z.string().min(1).describe('CSRF state parameter'),
+  })
+  .refine((query) => (query.code === undefined) !== (query.error === undefined), {
+    message: 'Exactly one of code or error is required',
+  });
 
 async function handleOAuthCallback(
-  req: { query: { code: string; state: string } },
+  req: { query: z.infer<typeof OAuthCallbackQuerySchema> },
   reply: FastifyReply,
   deps: OAuthCallbackDeps,
 ): Promise<void> {
-  const { code, state } = req.query;
-  const result = await deps.handleOAuthCallback.execute({ code, state });
+  const { code, error, state } = req.query;
+  const result = await deps.handleOAuthCallback.execute(
+    code !== undefined ? { code, state } : { error: error!, state },
+  );
 
   const html = result.success
     ? '<html><body>You can close this window</body></html>'
-    : `<html><body>${result.message}</body></html>`;
+    : `<html><body>${escapeHtml(result.message)}</body></html>`;
 
   return reply.type('text/html').send(html);
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[character]!,
+  );
 }
 
 export function registerOAuthCallback(app: FastifyInstance, deps: OAuthCallbackDeps): void {

@@ -8,6 +8,10 @@ import type { CategoryConfidence, ExtractedExpense } from '../entities/ExpenseRe
 import type { Currency } from '../entities/User';
 import { DomainValidationError } from '../errors/DomainValidationError';
 import { normalizeExpenseReviewBinding, type ExpenseReviewBinding } from './expense-review-binding';
+import {
+  normalizePaymentMethodSelection,
+  type PaymentMethodSelection,
+} from './payment-method-selection';
 
 export interface ExpenseReviewPayload {
   extracted: ExtractedExpense;
@@ -25,6 +29,7 @@ export interface ExpenseReviewPayload {
   resolvedSubcategoryId?: string | null;
   subcategoryStatus?: 'confirmed' | 'ambiguous' | 'fallback' | 'none';
   subcategoryEnabled?: boolean;
+  paymentMethodSelection?: PaymentMethodSelection;
   awaitingZeroConfirmation?: boolean;
   reminderSent?: boolean;
   pendingHighAmountConfirmation?: boolean;
@@ -51,6 +56,7 @@ export type NormalizedExpenseReviewPayload = ExpenseReviewPayload & {
   resolvedSubcategoryId: string | null;
   subcategoryStatus: ExpenseReviewCategoryStatus;
   subcategoryEnabled: boolean;
+  paymentMethodSelection: PaymentMethodSelection;
   reviewBinding?: ExpenseReviewBinding | null;
 };
 
@@ -116,6 +122,10 @@ export function normalizeExpenseReviewPayload(value: unknown): NormalizedExpense
     value.reviewBinding === undefined || value.reviewBinding === null
       ? null
       : normalizeExpenseReviewBinding(value.reviewBinding);
+  const paymentMethodSelection = normalizePaymentMethodSelection(
+    value.paymentMethodSelection,
+    extracted.medioPago,
+  );
 
   if (typeof value.rawMessage !== 'string' || value.rawMessage.trim().length === 0) {
     throw new DomainValidationError('expense review rawMessage must be a non-empty string');
@@ -201,6 +211,7 @@ export function normalizeExpenseReviewPayload(value: unknown): NormalizedExpense
     resolvedSubcategoryId,
     subcategoryStatus: subcategoryStatus as ExpenseReviewCategoryStatus,
     subcategoryEnabled,
+    paymentMethodSelection,
     ...(value.reviewBinding === undefined ? {} : { reviewBinding }),
     ...(value.awaitingZeroConfirmation === undefined
       ? {}

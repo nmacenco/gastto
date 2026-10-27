@@ -22,6 +22,8 @@ function buildSpreadsheetConfig(overrides: Partial<SpreadsheetConfig> = {}): Spr
     fileId: 'file-1',
     fileName: 'Gastos',
     sheetName: 'Hoja 1',
+    isActive: true,
+    headerRowIndex: null,
     accessVerifiedAt: new Date(),
     categoriesConfirmedAt: new Date(),
     createdAt: new Date(),
@@ -48,9 +50,11 @@ function buildUserCategory(rawValue: string): UserCategory {
 function buildRepository(): DrizzleCategoryKeywordVocabularyRepository {
   const spreadsheetConfigRepo: ISpreadsheetConfigRepository = {
     findByUserId: mockFindByUserId,
+    findById: vi.fn(),
     create: vi.fn(),
-    upsertByUserId: vi.fn(),
+    createOrResumeInitial: vi.fn(),
     updateAccessVerified: vi.fn(),
+    updateHeaderRowIndex: vi.fn(),
     updateCategoriesConfirmed: vi.fn(),
   };
 

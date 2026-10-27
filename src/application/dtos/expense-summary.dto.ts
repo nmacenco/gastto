@@ -19,8 +19,10 @@ export interface ExpenseSummary {
   subcategoryConfidence: CategoryConfidence;
   subcategoryStatus: CategoryStatus;
   subcategoryEnabled: boolean;
+  paymentLabel: string | null;
+  paymentStatus: 'legacy' | 'none' | 'matched' | 'unresolved';
   actions: {
-    confirm: true;
+    confirm: boolean;
     correct: true;
     cancel: true;
   };

@@ -18,6 +18,8 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 
 ## OAuth Flow Sequence
 
+Voluntary reauthorization from chat settings uses `SETTINGS_OAUTH` and the same Google callback and reminder queue. Its nonce, flow ID, source configuration identity, revision, and deadline remain bound to the persisted settings state. An existing valid token does not suppress a settings reminder. The callback validates the candidate token's read/write access to the current file and sheet before a transaction replaces the encrypted credential and exits to `IDLE`. Provider denial, expiry, read-only or inaccessible destination, cancellation, and stale callbacks preserve the existing credential. The callback also accepts the provider's `error` plus required `state` variant; provider error text is never reflected into HTML. See [chat spreadsheet settings](./chat-spreadsheet-settings.md).
+
 ### Initiation (`InitiateCloudConnection`)
 
 1. New users are created in `ONBOARDING_START` with `statePayload: { promptShown: false }` by `ResolveUserIdentity`.
@@ -76,7 +78,7 @@ The reminder owns the per-user lease, commits a guarded nonce/revision self-tran
 
 ### Cancellation (`CancelCloudConnection`)
 
-10. If the user types "cancelar" while in `ONBOARDING_DRIVE`:
+10. If the user types a cancellation intent such as "cancelar" or "cancel" while in `ONBOARDING_DRIVE`:
     - `CancelCloudConnection` removes the Redis CSRF key and cancels the pending reminder job.
     - Transitions FSM to `IDLE`.
     - Sends a friendly cancellation message.

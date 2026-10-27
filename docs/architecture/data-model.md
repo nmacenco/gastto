@@ -1,6 +1,6 @@
 # Data Model
 
-The schema consists of 11 tables grouped into five functional areas: user identity, conversational state, OAuth tokens, spreadsheet configuration, and expense records plus audit logs. All tables use UUID primary keys with `gen_random_uuid()` defaults and `TIMESTAMPTZ` timestamps. PostgreSQL `TEXT` with `CHECK` constraints is preferred over native `ENUM` types to simplify future migrations.
+The schema groups user identity, conversational state, OAuth tokens, spreadsheet configuration, vocabulary catalogs, and expense records plus audit logs. Tables use UUID primary keys with `gen_random_uuid()` defaults and timestamps. PostgreSQL `TEXT` with `CHECK` constraints is preferred over native `ENUM` types to simplify future migrations.
 
 ## Entity Graph
 
@@ -12,8 +12,9 @@ users
 ├── conversation_states         (1:1 — FSM state per user)
 ├── expense_queue               (1:N — pending expense FIFO)
 ├── oauth_tokens                (1:N — one row per provider)
-├── spreadsheet_configs         (1:1 — one active spreadsheet)
+├── spreadsheet_configs         (1:N — one active destination plus historical versions)
 │     ├── column_mappings       (1:N — field-to-column map)
+│     ├── user_payment_methods  (1:N — payment catalog)
 │     └── user_categories       (1:N — category vocabulary)
 │           └── user_subcategories (1:N — linked subcategory vocabulary)
 ├── expense_records             (1:N — saved expenses, soft delete)
@@ -51,15 +52,23 @@ Maps external channel identifiers to the internal `user_id`.
 
 Persisted finite-state machine (FSM) state for each user. One row per user.
 
-| Column          | Type          | Constraints                        | Description                                                      |
-| --------------- | ------------- | ---------------------------------- | ---------------------------------------------------------------- |
-| `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | 1:1 with the user.                                               |
-| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 14 FSM states defined in ADR-003.                         |
-| `revision`      | `BIGINT`      | NOT NULL, default `0`              | Monotonic optimistic-concurrency token; exposed as decimal text. |
-| `state_payload` | `JSONB`       | NULL                               | State context: expense in progress, onboarding data, etc.        |
-| `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.                              |
-| `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute expiration for timed states (e.g., `EXPENSE_REVIEW`).   |
-| `updated_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | Last state mutation.                                             |
+| Column          | Type          | Constraints                        | Description                                                                                |
+| --------------- | ------------- | ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | 1:1 with the user.                                                                         |
+| `current_state` | `TEXT`        | NOT NULL, default `'IDLE'`, CHECK  | One of 21 FSM states, including settings file, sheet, mapping, and category review states. |
+| `revision`      | `BIGINT`      | NOT NULL, default `0`              | Monotonic optimistic-concurrency token; exposed as decimal text.                           |
+| `state_payload` | `JSONB`       | NULL                               | State context: expense in progress, onboarding data, etc.                                  |
+| `entered_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | When the current state was entered.                                                        |
+| `expires_at`    | `TIMESTAMPTZ` | NULL                               | Absolute expiration for timed states (e.g., `EXPENSE_REVIEW`).                             |
+| `updated_at`    | `TIMESTAMPTZ` | NOT NULL, default `now()`          | Last state mutation.                                                                       |
+
+`SETTINGS_MENU` stores a unique `flowId` in `state_payload` and a 30-minute inactivity deadline in `expires_at`. Deploy migration `0010_add_settings_menu_state` before starting workers that write this state. The migration was generated as a Drizzle custom migration because this Drizzle Kit version does not detect CHECK expression changes.
+
+`SETTINGS_OAUTH` retains the settings flow ID, source configuration ID, file and sheet identity, current OAuth nonce, and reminder job ID. Its `expires_at` remains fixed through reminder rotations. Deploy generated custom migration `0011_add_settings_oauth_state` before starting Phase 2 workers or accepting OAuth callbacks that write this state. The encrypted `oauth_tokens` replacement and transition to `IDLE` commit together in one PostgreSQL transaction after provider validation; a failure rolls both back. Migration `0011` must precede the coordinated worker release because older workers cannot recognize the new state.
+
+`SETTINGS_SHEET`, `SETTINGS_MAPPING`, and `SETTINGS_CATEGORIES` hold the owned destination candidate, including flow/proposal identity, header row, confirmed mapping and category hierarchy. Migration `0012_friendly_omega_flight` adds version columns and the active-only unique index; custom generated migration `0013_add_settings_sheet_states` extends the CHECK. Stop old workers using `ON CONFLICT (user_id)` before applying `0012`, then apply both migrations before starting Phase 3 workers. No historical configuration rows are removed.
+
+`SETTINGS_FILE` holds a revision-bound list of displayed file IDs and names, the source configuration ID, and the flow ID. Selection starts a new candidate for the chosen file; no active configuration is changed until guarded activation after sheet, mapping, and category review. Custom generated migration `0014_add_settings_file_state` extends the CHECK. Apply migrations `0012`, `0013`, and `0014` in order before starting Phase 4 workers; all three still require application in a credentialed environment.
 
 ### expense_queue
 
@@ -101,20 +110,23 @@ Encrypted OAuth 2.0 tokens for Google Drive and OneDrive access.
 
 ### spreadsheet_configs
 
-Linked spreadsheet configuration per user.
+Versioned spreadsheet configuration per user. Only one row per user may be active; historical rows remain addressable by ID.
 
-| Column                    | Type          | Constraints                            | Description                                                                           |
-| ------------------------- | ------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
-| `id`                      | `UUID`        | PK, default `gen_random_uuid()`        | Row identifier.                                                                       |
-| `user_id`                 | `UUID`        | FK → `users(user_id)`, CASCADE, UNIQUE | One active spreadsheet per user in the MVP.                                           |
-| `provider`                | `TEXT`        | NOT NULL, CHECK                        | `'google'` or `'microsoft'`.                                                          |
-| `file_id`                 | `TEXT`        | NOT NULL                               | External file identifier.                                                             |
-| `file_name`               | `TEXT`        | NOT NULL                               | Human-readable file name for display.                                                 |
-| `sheet_name`              | `TEXT`        | NOT NULL                               | Target sheet within the file.                                                         |
-| `access_verified_at`      | `TIMESTAMPTZ` | NOT NULL                               | Last read/write permission check.                                                     |
-| `categories_confirmed_at` | `TIMESTAMPTZ` | NULL                                   | Timestamp when the user confirmed their category vocabulary. NULL until confirmation. |
-| `created_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`              | Creation timestamp.                                                                   |
-| `updated_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`              | Last update timestamp.                                                                |
+| Column                    | Type          | Constraints                     | Description                                                                           |
+| ------------------------- | ------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
+| `id`                      | `UUID`        | PK, default `gen_random_uuid()` | Row identifier.                                                                       |
+| `user_id`                 | `UUID`        | FK → `users(user_id)`, CASCADE  | Owner; indexed for active lookup.                                                     |
+| `provider`                | `TEXT`        | NOT NULL, CHECK                 | `'google'` or `'microsoft'`.                                                          |
+| `file_id`                 | `TEXT`        | NOT NULL                        | External file identifier.                                                             |
+| `file_name`               | `TEXT`        | NOT NULL                        | Human-readable file name for display.                                                 |
+| `sheet_name`              | `TEXT`        | NOT NULL                        | Target sheet within the file.                                                         |
+| `is_active`               | `BOOLEAN`     | NOT NULL, default `true`        | Exactly one active row at most per user; old rows remain false.                       |
+| `header_row_index`        | `INTEGER`     | NULL                            | Confirmed one-based header row; NULL on older rows, requiring remapping.              |
+| `access_verified_at`      | `TIMESTAMPTZ` | NOT NULL                        | Last read/write permission check.                                                     |
+| `categories_confirmed_at` | `TIMESTAMPTZ` | NULL                            | Timestamp when the user confirmed their category vocabulary. NULL until confirmation. |
+| `payment_methods_confirmed_at` | `TIMESTAMPTZ` | NULL | NULL retains legacy free-text behavior; a timestamp also represents a confirmed empty catalog. |
+| `created_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Creation timestamp.                                                                   |
+| `updated_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Last update timestamp.                                                                |
 
 ### column_mappings
 
@@ -166,6 +178,20 @@ Per-category subcategory vocabulary. Every configured subcategory belongs to exa
 | `created_at`       | `TIMESTAMPTZ` | NOT NULL, default `now()`           | Record creation timestamp.                        |
 | **UNIQUE**         | —             | `(category_id, normalized_value)`   | One normalized child per parent category.         |
 
+### user_payment_methods
+
+Payment methods belong to one spreadsheet configuration. Deactivation retains the identity for future reactivation and historical expense references.
+
+| Column | Type | Constraints | Description |
+| --- | --- | --- | --- |
+| `id` | `UUID` | PK, default `gen_random_uuid()` | Stable payment-method ID. |
+| `spreadsheet_id` | `UUID` | FK → `spreadsheet_configs(id)`, CASCADE | Catalog owner. |
+| `display_name` | `TEXT` | NOT NULL | User-confirmed spelling. |
+| `normalized_name` | `TEXT` | NOT NULL | Trimmed lowercase identity key. |
+| `is_active` | `BOOLEAN` | NOT NULL, default `true` | Soft deactivation. |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL, default `now()` | Creation time. |
+| **UNIQUE** | — | `(spreadsheet_id, normalized_name)` | Reserves active and inactive names within the configuration. |
+
 ### expense_records
 
 Immutable record of every successfully saved expense. Enables undo and future query features.
@@ -183,7 +209,8 @@ Immutable record of every successfully saved expense. Enables undo and future qu
 | `subcategory_id`       | `UUID`          | NULL, FK → `user_subcategories(id)`, SET NULL | Stable subcategory reference when available.                           |
 | `subcategoria`         | `TEXT`          | NULL                                          | Subcategory text snapshot at save time.                                |
 | `fecha_gasto`          | `DATE`          | NOT NULL                                      | User-facing expense date.                                              |
-| `medio_pago`           | `TEXT`          | NULL                                          | Payment method.                                                        |
+| `medio_pago`           | `TEXT`          | NULL                                          | Immutable confirmed payment-name snapshot.                            |
+| `payment_method_id`    | `UUID`          | NULL, FK → `user_payment_methods(id)`, SET NULL | Catalog reference when a configured method was selected.          |
 | `sheet_name`           | `TEXT`          | NOT NULL                                      | Target sheet at save time.                                             |
 | `row_index`            | `INTEGER`       | NULL                                          | Sheet row index returned by `appendRow`, when the provider exposes it. |
 | `categoria_confidence` | `TEXT`          | NULL, CHECK                                   | `alta`, `baja`, `nula`, or NULL.                                       |
@@ -221,22 +248,26 @@ Immutable audit trail of critical operations.
 
 ### Full indexes
 
-| Index                             | Table                  | Columns                                     | Purpose                                               |
-| --------------------------------- | ---------------------- | ------------------------------------------- | ----------------------------------------------------- |
-| `idx_users_status`                | `users`                | `status`                                    | Maintenance and reporting queries.                    |
-| `idx_messaging_identities_lookup` | `messaging_identities` | `channel`, `external_id`                    | Gateway identity resolution on every inbound message. |
-| `idx_messaging_identities_user`   | `messaging_identities` | `user_id`                                   | Retrieve all identities of a user.                    |
-| `idx_conversation_states_current` | `conversation_states`  | `current_state`                             | Operational lookups and monitoring.                   |
-| `idx_expense_queue_user_position` | `expense_queue`        | `user_id`, `position`                       | Read a user's queue in order.                         |
-| `idx_oauth_tokens_user_provider`  | `oauth_tokens`         | `user_id`, `provider`                       | Token lookup on every spreadsheet operation.          |
-| `idx_spreadsheet_configs_user`    | `spreadsheet_configs`  | `user_id`                                   | Lookup user's linked spreadsheet.                     |
-| `idx_column_mappings_spreadsheet` | `column_mappings`      | `spreadsheet_id`                            | Load all mappings for a spreadsheet.                  |
-| `idx_expense_records_category`    | `expense_records`      | `category_id`                               | Historical expenses referencing a category.           |
-| `idx_expense_records_subcategory` | `expense_records`      | `subcategory_id`                            | Historical expenses referencing a subcategory.        |
-| `idx_expense_records_sheet_row`   | `expense_records`      | `spreadsheet_id`, `sheet_name`, `row_index` | Deterministic row reference for undo.                 |
-| `idx_operation_logs_user_created` | `operation_logs`       | `user_id`, `created_at`                     | User audit history.                                   |
+| Index                             | Table                  | Columns                                     | Purpose                                                 |
+| --------------------------------- | ---------------------- | ------------------------------------------- | ------------------------------------------------------- |
+| `idx_users_status`                | `users`                | `status`                                    | Maintenance and reporting queries.                      |
+| `idx_messaging_identities_lookup` | `messaging_identities` | `channel`, `external_id`                    | Gateway identity resolution on every inbound message.   |
+| `idx_messaging_identities_user`   | `messaging_identities` | `user_id`                                   | Retrieve all identities of a user.                      |
+| `idx_conversation_states_current` | `conversation_states`  | `current_state`                             | Operational lookups and monitoring.                     |
+| `idx_expense_queue_user_position` | `expense_queue`        | `user_id`, `position`                       | Read a user's queue in order.                           |
+| `idx_oauth_tokens_user_provider`  | `oauth_tokens`         | `user_id`, `provider`                       | Token lookup on every spreadsheet operation.            |
+| `idx_spreadsheet_configs_user`    | `spreadsheet_configs`  | `user_id`                                   | Lookup user's linked spreadsheet.                       |
+| `uq_user_active_spreadsheet`      | `spreadsheet_configs`  | `user_id` (`is_active = true`)              | Enforce one active destination while retaining history. |
+| `idx_column_mappings_spreadsheet` | `column_mappings`      | `spreadsheet_id`                            | Load all mappings for a spreadsheet.                    |
+| `idx_expense_records_category`    | `expense_records`      | `category_id`                               | Historical expenses referencing a category.             |
+| `idx_expense_records_subcategory` | `expense_records`      | `subcategory_id`                            | Historical expenses referencing a subcategory.          |
+| `idx_expense_records_payment_method` | `expense_records` | `payment_method_id` | Historical expenses referencing a payment method. |
+| `idx_expense_records_sheet_row`   | `expense_records`      | `spreadsheet_id`, `sheet_name`, `row_index` | Deterministic row reference for undo.                   |
+| `idx_operation_logs_user_created` | `operation_logs`       | `user_id`, `created_at`                     | User audit history.                                     |
 
 ### Partial indexes
+
+`idx_user_payment_methods_spreadsheet` covers active catalog lookup by `spreadsheet_id`; `uq_spreadsheet_payment_method` enforces configuration-scoped normalized-name uniqueness. Migration `0015_lethal_tyrannus` adds the catalog, confirmation marker, and nullable expense reference without backfilling historical expenses. Apply it before workers that read or write payment catalogs.
 
 | Index                             | Table                 | Columns                   | `WHERE` clause                      | Purpose                              |
 | --------------------------------- | --------------------- | ------------------------- | ----------------------------------- | ------------------------------------ |
@@ -286,6 +317,8 @@ Aggregate root that encapsulates the complete category/subcategory hierarchy for
 
 `ICategoryVocabularyRepository` loads only active parents and active children attached to those parents. Its `save` operation reads and mutates both tables inside one database transaction: parents are inserted, renamed, or reactivated before children; missing aggregate entries are soft-disabled; moves update the existing child row; and any child failure rolls back the complete hierarchy mutation.
 
+The settings category editor stores a baseline and draft of active and inactive rows in `conversation_states.state_payload` while remaining in `SETTINGS_MENU`. Its commit locks the conversation and active configuration, compares the persisted hierarchy to the baseline, then writes parent and child changes and exits to `IDLE` in the same transaction. Stored category and subcategory UUIDs remain authoritative. Names held by inactive rows are reserved for explicit reactivation, and an inactive parent's children remain inactive when the parent is reactivated. No historical expense text or spreadsheet row is rewritten.
+
 Aggregate-generated UUIDs are supplied explicitly for new category and subcategory rows. When a normalized natural key already exists, reactivation keeps the database row's established primary key instead of rewriting it. Parent IDs are resolved before child persistence, so a child created beneath a reactivated category always references the persisted parent UUID. Repeated saves are idempotent.
 
 ## Design Decisions
@@ -296,14 +329,14 @@ Aggregate-generated UUIDs are supplied explicitly for new category and subcatego
 - **`expense_records.spreadsheet_id` uses `ON DELETE NO ACTION`.** This is the only non-cascading foreign key. It preserves the internal expense history even if the user unlinks or deletes a spreadsheet configuration, supporting future analytics and audit requirements.
 - **AES-256-GCM token storage.** OAuth tokens are encrypted at rest with a per-row IV. The encryption key is a runtime secret; the database contains no plaintext credentials. See ADR-007.
 - **Placeholder `access_verified_at` on first creation (Option A).** When `spreadsheet_configs` is first created during HU-4.03 sheet selection, `access_verified_at` is initialized to the current timestamp as a placeholder. The real read/write permission verification is performed later during HU-4.04 and the timestamp is updated to the actual verification time via `updateAccessVerified`. This allows the record to be persisted immediately while keeping the verification step separate.
-- **Config replaced on re-onboarding via upsert.** When a user re-onboards (e.g., after an expired OAuth token), `ISpreadsheetConfigRepository.upsertByUserId` transparently replaces the existing row via `ON CONFLICT (user_id) DO UPDATE`, avoiding `uq_user_spreadsheet` violations. The `create` method remains for first-time users only.
+- **Versioned configuration.** `findByUserId` loads only the active row; `findById` resolves historical expenses. First onboarding creates or resumes an incomplete initial row. Changing a completed destination uses guarded settings activation, which preserves its original ID, mappings, and categories. The partial unique index replaces the former full-user unique index; ADR-029 supersedes ADR-015's overwrite decision.
 - **Optional spreadsheet row reference.** A confirmed spreadsheet write always records its destination sheet; `expense_records.row_index` is nullable only when the provider confirms the write but does not expose a row number. This preserves the successful-save audit while preventing an unverified row reference from being invented.
 - **Aggregate-oriented category repository.** `ICategoryVocabularyRepository` provides aggregate-level operations (`findBySpreadsheetId`, `save`) while `IUserCategoryRepository` continues to expose row-level operations (`findActiveBySpreadsheetId`, `upsertMany`, `incrementUsage`). Both interfaces are implemented by separate Drizzle repository classes operating on the same `user_categories` table, keeping the Domain and Application layers clean of ORM details.
 - **Linked subcategories use stable references plus immutable snapshots.** `user_subcategories` requires a parent category and scopes normalized-name uniqueness to that parent. Saved expenses keep nullable category/subcategory UUID references for traceability and separate `categoria`/`subcategoria` text snapshots for historical stability. Vocabulary deletion sets references to NULL without rewriting snapshots, and existing rows receive no inferred backfill. See ADR-022.
 
 ## Related ADRs
 
-- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/ADR-003-fsm-postgresql.md) and [ADR-017: Require Confirmation for Delayed Expense Undo](../adr/ADR-017-undo-confirmation-fsm.md) — Define the 15 FSM states stored in `conversation_states`, including `EXPENSE_UNDO_CONFIRMING`.
+- [ADR-003: Conversational State — FSM Persisted in PostgreSQL](../adr/ADR-003-fsm-postgresql.md) and [ADR-017: Require Confirmation for Delayed Expense Undo](../adr/ADR-017-undo-confirmation-fsm.md) define the original states and undo confirmation. `SETTINGS_MENU` is documented in [chat spreadsheet settings](../features/chat-spreadsheet-settings.md).
 - [ADR-004: Spreadsheet Integration — Adapter Pattern](../adr/adr.md#adr-004--integración-con-planillas-adapter-pattern) — Motivates `spreadsheet_configs`, `column_mappings`, and dynamic column mapping.
 - [ADR-007: Security — OAuth Token Storage with AES-256](../adr/adr.md#adr-007--seguridad-almacenamiento-de-tokens-oauth-con-aes-256) — Describes the encryption strategy for `oauth_tokens`.
 - [ADR-008: User Identity — Local Registration with Own userId](../adr/adr.md#adr-008--identidad-de-usuario-registro-local-con-userid-propio) — Explains the `users` / `messaging_identities` split and the internal `user_id` anchor.
