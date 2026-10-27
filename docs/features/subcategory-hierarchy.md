@@ -72,6 +72,7 @@ The deterministic Spanish/English parser supports one operation per message:
 | Remove child | `remove Cinema from Leisure`               | `quita Cine de Ocio`                         |
 
 Existing category add, rename, and remove commands remain supported.
+Commands that explicitly name `categoría` or `category` are handled as parent changes even when the category name contains words such as `a`, `de`, or `from`.
 
 - Every child command must name its source or target parent explicitly.
 - Parent lookup uses exact normalized names among active categories.

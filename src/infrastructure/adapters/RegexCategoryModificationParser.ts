@@ -163,8 +163,12 @@ function extractRenameParts(normalized: string): { from: string; to: string } | 
 export class RegexCategoryModificationParser implements CategoryModificationParserPort {
   parse(input: string): Promise<CategoryModificationIntent> {
     const normalized = normalizeInput(input);
+    const explicitCategory =
+      /^(?:falta|agregar|agrega|a[nñ]adir|a[nñ]ade|quitar|quita|eliminar|elimina|borrar|borra)\s+(?:la\s+)?categor[ií]a\s+/iu.test(
+        normalized,
+      ) || /^(?:add|missing|remove|delete)\s+(?:the\s+)?category\s+/iu.test(normalized);
 
-    const move = extractMoveSubcategory(normalized);
+    const move = explicitCategory ? null : extractMoveSubcategory(normalized);
     if (move) {
       return Promise.resolve({
         kind: 'move-subcategory',
@@ -174,7 +178,7 @@ export class RegexCategoryModificationParser implements CategoryModificationPars
       });
     }
 
-    const childRename = extractRenameSubcategory(normalized);
+    const childRename = explicitCategory ? null : extractRenameSubcategory(normalized);
     if (childRename) {
       return Promise.resolve({
         kind: 'rename-subcategory',
@@ -184,7 +188,7 @@ export class RegexCategoryModificationParser implements CategoryModificationPars
       });
     }
 
-    const childRemove = extractRemoveSubcategory(normalized);
+    const childRemove = explicitCategory ? null : extractRemoveSubcategory(normalized);
     if (childRemove) {
       return Promise.resolve({
         kind: 'remove-subcategory',
@@ -193,7 +197,7 @@ export class RegexCategoryModificationParser implements CategoryModificationPars
       });
     }
 
-    const childAdd = extractAddSubcategory(normalized);
+    const childAdd = explicitCategory ? null : extractAddSubcategory(normalized);
     if (childAdd) {
       return Promise.resolve({
         kind: 'add-subcategory',
@@ -202,7 +206,7 @@ export class RegexCategoryModificationParser implements CategoryModificationPars
       });
     }
 
-    if (looksLikeIncompleteSubcategoryCommand(normalized)) {
+    if (!explicitCategory && looksLikeIncompleteSubcategoryCommand(normalized)) {
       return Promise.resolve({ kind: 'unknown' });
     }
 
