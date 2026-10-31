@@ -104,6 +104,7 @@ export async function registerWorkers(
       spreadsheetConfigRepository: deps.spreadsheetConfigRepo,
       mappingCorrectionStateRepository: deps.mappingCorrectionStateRepository,
       cancelCloudConnection: deps.googleOAuth?.cancelCloudConnection ?? null,
+      settingsOAuthCleanup: deps.googleOAuth?.settingsOAuthCleanup ?? null,
       logger: deps.rootLogger,
     }),
     spreadsheetConfigRepository: deps.spreadsheetConfigRepo,

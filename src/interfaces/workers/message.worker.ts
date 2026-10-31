@@ -267,9 +267,7 @@ export async function processMessageJob(
           currentState === 'SETTINGS_MAPPING' ||
           currentState === 'SETTINGS_CATEGORIES' ||
           (data.callbackData === undefined && isSettingsCommand(data.rawMessage)) ||
-          (data.callbackData === undefined &&
-            currentState.startsWith('ONBOARDING_') &&
-            isExplicitCancelCommand(data.rawMessage)) ||
+          (data.callbackData === undefined && isExplicitCancelCommand(data.rawMessage)) ||
           (currentState === 'IDLE' &&
             data.callbackData === undefined &&
             isStartOnboardingCommand(data.rawMessage)) ||
@@ -561,9 +559,13 @@ async function routeByState(
 
   if (
     jobData.callbackData === undefined &&
-    currentState.startsWith('ONBOARDING_') &&
     isExplicitCancelCommand(rawMessage) &&
-    conversationState !== null
+    conversationState !== null &&
+    (currentState.startsWith('ONBOARDING_') ||
+      currentState.startsWith('SETTINGS_') ||
+      currentState === 'EXPENSE_SAVING_RETRY' ||
+      currentState === 'EXPENSE_SAVING' ||
+      currentState === 'EXPENSE_UNDO_CONFIRMING')
   ) {
     await opts.cancelConversationFlow.execute({
       userId,
@@ -1643,6 +1645,32 @@ async function handleNoHeaderResponse(
   opts: MessageWorkerDeps,
 ): Promise<void> {
   const trimmed = rawMessage.trim();
+
+  if (trimmed.toLocaleLowerCase('es') === 'otra hoja') {
+    const payload: Record<string, unknown> = {
+      selectedFileId: statePayload?.selectedFileId,
+      selectedFileName: statePayload?.selectedFileName,
+      provider: statePayload?.provider,
+      ...(Array.isArray(statePayload?.sheetList) ? { sheetList: statePayload.sheetList } : {}),
+      step: 'choose-another-sheet',
+    };
+    await opts.transitionState.execute({ userId, targetState: 'ONBOARDING_SHEET', payload });
+    if (opts.handleSheetSelection) {
+      await opts.handleSheetSelection.execute({
+        userId,
+        externalId,
+        channel,
+        rawMessage: '',
+        statePayload: payload,
+      });
+    } else {
+      await opts.messagingAdapters[channel].sendMessage(
+        externalId,
+        onboardingCopies.sheetDiscoveryFailed(),
+      );
+    }
+    return;
+  }
   const dataStartRow = Number(trimmed);
 
   if (trimmed === '' || !Number.isInteger(dataStartRow) || dataStartRow < 2) {

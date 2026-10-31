@@ -33,9 +33,9 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 
 ## FSM States
 
-| State                | Description                                   | Next                                                                                |
-| -------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `ONBOARDING_MAPPING` | User is reviewing the proposed column mapping | `ONBOARDING_CATEGORIES` (mapping accepted), self-transition (re-prompt / no-header) |
+| State                | Description                                   | Next                                                                                                                           |
+| -------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `ONBOARDING_MAPPING` | User is reviewing the proposed column mapping | `ONBOARDING_CATEGORIES` (mapping accepted), `ONBOARDING_SHEET` (choose another sheet), self-transition (re-prompt / no-header) |
 
 ## Flow Sequence
 
@@ -79,11 +79,11 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 2. `RuleBasedColumnInferenceAdapter` detects that every value in the header row looks like data (numeric, date, or currency) rather than labels.
 3. `InferColumnMapping` invokes `LLMColumnInferenceAdapter` as a fallback.
 4. If the LLM also cannot identify headers or returns no mappings, no mappings are persisted.
-5. `InferColumnMapping` sends `onboardingCopies.noHeaderPrompt()`, asking the user which row the data starts at.
+5. `InferColumnMapping` sends `onboardingCopies.noHeaderPrompt()` only for a preview with meaningful cell values. It asks for the first data row only if headers precede the data, and offers `otra hoja` or `cancelar`.
 6. The FSM self-transitions to `ONBOARDING_MAPPING` with `step: 'no-header'` in the payload.
 7. When the user replies with a row number, the message worker subtracts 1 to obtain the header row index and validates that the computed header row exists in the preview.
 8. If the reply is invalid or the computed header row is not present, the worker sends `onboardingCopies.invalidDataStartRowPrompt()` and keeps the FSM in `ONBOARDING_MAPPING` with `step: 'no-header'`.
-   Both the original and invalid-row prompts offer `cancelar`; an explicit cancel command exits to `IDLE` before the row parser runs. `no` remains a contextual reply. After cancellation, `empezar` restarts setup, and an incomplete destination cannot be used to register an expense.
+   Both prompts offer `otra hoja` and `cancelar`. `otra hoja` returns to sheet selection and displays the choices; explicit cancellation exits to `IDLE` before the row parser runs. `no` remains a contextual reply. After cancellation, `empezar` restarts setup, and an incomplete destination cannot be used to register an expense.
 9. If valid, the worker delegates to `InferColumnMapping` with `headerRowIndex` in the state payload, which skips automatic detection and uses that row as the header row.
 10. `InferColumnMapping` proceeds with header/sample extraction and inference as in Scenario 1.
 11. If the inference produces mappings, the resulting FSM payload no longer contains `step: 'no-header'`; only `mappings`, `unmappedFields`, `provider`, `fileId`, `sheetName`, and `preview` are retained.
@@ -254,7 +254,8 @@ interface IColumnMappingRepository {
 | Expired / revoked token                                  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
 | Token decryption failure                                 | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
 | Missing `SpreadsheetConfig`                              | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
-| Missing or empty preview in state payload                | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
+| Missing or malformed preview in state payload            | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
+| Preview with zero rows or only blank cells               | Returns to `ONBOARDING_SHEET` with empty-sheet guidance; no header inference.    |
 | Microsoft (`onedrive`) provider                          | `comingSoon('OneDrive')` message sent; stays in `ONBOARDING_MAPPING`.            |
 | Inference adapter failure                                | Error propagated; no mappings persisted; no state transition is written.         |
 | `columnMappingRepository.replaceBySpreadsheetId` failure | Transaction rolls back; no message is sent and the state payload is not updated. |
@@ -299,7 +300,7 @@ interface IColumnMappingRepository {
 - [x] LLM header detection fallback runs when rule-based detection is uncertain.
 - [x] Rule-based detection skips rows with a single non-empty value (sheet titles).
 - [x] Rule-based detection prefers a recognized header row below title and summary rows, including summaries with signed localized amounts.
-- [x] No-header detection: self-transition to `ONBOARDING_MAPPING` with `step: 'no-header'`, message asks which row data starts at.
+- [x] No-header detection: self-transition to `ONBOARDING_MAPPING` with `step: 'no-header'` only for nonempty previews; prompts explain when a row number helps and offer another sheet or cancellation.
 - [x] A partial mapping on row 1 (≤1 field) falls back to the no-header prompt instead of proposing a misleading mapping.
 - [x] No-header reply: valid row number is converted to `headerRowIndex` and inference re-runs; invalid reply re-prompts with `invalidDataStartRowPrompt`.
 - [x] Header row index override: `headerRowIndex` in state payload skips detection and uses the specified row.

@@ -7,6 +7,8 @@ import type {
 } from '../../../domain/ports/repositories';
 import type { TransitionConversationState } from './TransitionConversationState';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { settingsCopies } from '../../copies/settings.copies';
+import { expenseCopies } from '../../copies/expense.copies';
 import { CancelConversationFlow } from './CancelConversationFlow';
 
 function state(
@@ -38,6 +40,10 @@ function setup() {
   const load = vi.fn().mockResolvedValue(null);
   const clear = vi.fn().mockResolvedValue(undefined);
   const cleanup = vi.fn().mockResolvedValue(undefined);
+  const settingsCleanup = vi.fn().mockImplementation(() => {
+    events.push('cleanup');
+    return Promise.resolve();
+  });
   const logger = { error: vi.fn() } as unknown as Logger;
   const useCase = new CancelConversationFlow({
     transitionState: {
@@ -54,6 +60,7 @@ function setup() {
       clear,
     } as unknown as IMappingCorrectionStateRepository,
     cancelCloudConnection: { cleanup },
+    settingsOAuthCleanup: { execute: settingsCleanup },
     logger,
   });
   const execute = (observed: ConversationState) =>
@@ -65,7 +72,17 @@ function setup() {
       source: 'text',
       messagingPort: { sendMessage },
     });
-  return { execute, transition, sendMessage, findByUserId, load, clear, cleanup, events };
+  return {
+    execute,
+    transition,
+    sendMessage,
+    findByUserId,
+    load,
+    clear,
+    cleanup,
+    settingsCleanup,
+    events,
+  };
 }
 
 describe('CancelConversationFlow', () => {
@@ -122,6 +139,80 @@ describe('CancelConversationFlow', () => {
     ctx.findByUserId.mockResolvedValue({ categoriesConfirmedAt: new Date() });
     await ctx.execute(state('ONBOARDING_MAPPING'));
     expect(ctx.sendMessage).toHaveBeenCalledWith('chat-1', onboardingCopies.flowCancelled(true));
+  });
+
+  it.each([
+    'SETTINGS_MENU',
+    'SETTINGS_FILE',
+    'SETTINGS_SHEET',
+    'SETTINGS_MAPPING',
+    'SETTINGS_CATEGORIES',
+  ] as const)('discards %s without changing the active destination', async (fsmState) => {
+    const ctx = setup();
+    expect(await ctx.execute(state(fsmState, { draft: { categories: ['new'] } }))).toEqual({
+      status: 'cancelled',
+    });
+    expect(ctx.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetState: 'IDLE',
+        payload: null,
+        expiresAt: null,
+        expected: { revision: '8', currentState: fsmState, expiry: 'any' },
+      }),
+    );
+    expect(ctx.events).toEqual(['transition', 'message']);
+    expect(ctx.findByUserId).not.toHaveBeenCalled();
+    expect(ctx.sendMessage).toHaveBeenCalledWith('chat-1', settingsCopies.cancelled());
+  });
+
+  it('cleans only the owned settings OAuth nonce after the guarded exit', async () => {
+    const ctx = setup();
+    const payload = {
+      origin: 'settings',
+      flowId: 'flow-1',
+      provider: 'google',
+      sourceConfigId: 'config-1',
+      fileId: 'file-1',
+      sheetName: 'Gastos',
+      state: 'nonce-1',
+      reminderJobId: 'job-1',
+    };
+    await ctx.execute(state('SETTINGS_OAUTH', payload));
+    expect(ctx.settingsCleanup).toHaveBeenCalledWith(payload);
+    expect(ctx.events).toEqual(['transition', 'cleanup', 'message']);
+    expect(ctx.cleanup).not.toHaveBeenCalled();
+  });
+
+  it.each(['EXPENSE_SAVING_RETRY', 'EXPENSE_SAVING', 'EXPENSE_UNDO_CONFIRMING'] as const)(
+    'exits unclaimed %s without executing a financial operation',
+    async (fsmState) => {
+      const ctx = setup();
+      await ctx.execute(state(fsmState, { operationId: 'pending' }));
+      expect(ctx.events).toEqual(['transition', 'message']);
+      expect(ctx.sendMessage).toHaveBeenCalledWith(
+        'chat-1',
+        fsmState === 'EXPENSE_UNDO_CONFIRMING'
+          ? expenseCopies.undoCancelled()
+          : expenseCopies.saveRetryCancelled(),
+      );
+    },
+  );
+
+  it('rejects a claimed save without transition or success message', async () => {
+    const ctx = setup();
+    const claimed = state('EXPENSE_SAVING_RETRY', {
+      executionClaim: {
+        claimId: 'claim-1',
+        kind: 'retry',
+        operationId: 'operation-1',
+        sourceMessageId: null,
+        status: 'outcome_unknown',
+        target: {},
+      },
+    });
+    expect(await ctx.execute(claimed)).toEqual({ status: 'operation_in_progress' });
+    expect(ctx.transition).not.toHaveBeenCalled();
+    expect(ctx.sendMessage).not.toHaveBeenCalled();
   });
 
   it('does not send success or clean external state when the transition is stale', async () => {

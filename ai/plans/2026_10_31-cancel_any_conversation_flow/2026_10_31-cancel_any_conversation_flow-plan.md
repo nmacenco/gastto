@@ -44,27 +44,27 @@ Description: Deliver the visible fix for the reported no-header loop and the oth
 
 Description: Apply the approved command contract consistently to settings, undo, and failed-save retry while preserving expense-specific authorization and queue handling.
 
-- [ ] Inventory every `FsmState` against the worker routes and mark each as cancellable, already idle, or blocked by an active financial claim. Keep callback cancellation bound to its current expense review and ensure typed text cancellation reaches the deterministic FSM path before optional semantic dispatch.
-- [ ] Route explicit cancellation for `EXPENSE_SAVING_RETRY` and other uncovered user-facing states to the guarded non-expense cancellation entry point. Preserve `CancelExpenseRegistrationUseCase` for active drafts and its FIFO queue advancement. For `EXPENSE_SAVING`, reject state clearing while an execution claim is unresolved and provide the approved bounded response.
-- [ ] Ensure settings draft, destination candidate, and OAuth cancellation use their existing cleanup/commit boundaries; a canceled draft must not change the active destination, vocabulary, or credentials.
-- [ ] Add worker and use-case tests for retry cancellation, undo confirmation, settings states, `IDLE`, existing review callbacks, semantic bypass, stale revisions, and claimed financial states. Assert that no append/delete, retry, queue advancement, or destination activation occurs from an unauthorized cancel.
-- [ ] Update [expense cancellation](../../../docs/features/expense-cancellation.md), [incoming message routing](../../../docs/features/incoming-message-routing.md), [chat spreadsheet settings](../../../docs/features/chat-spreadsheet-settings.md), [conversation state management](../../../docs/features/conversation-state-management.md), and [features index](../../../docs/features/README.md) for the delivered command behavior.
-- [ ] Run `pnpm test` for affected suites and fix failures.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Inventory every `FsmState` against the worker routes and mark each as cancellable, already idle, or blocked by an active financial claim. Keep callback cancellation bound to its current expense review and ensure typed text cancellation reaches the deterministic FSM path before optional semantic dispatch.
+- [x] Route explicit cancellation for `EXPENSE_SAVING_RETRY` and other uncovered user-facing states to the guarded non-expense cancellation entry point. Preserve `CancelExpenseRegistrationUseCase` for active drafts and its FIFO queue advancement. For `EXPENSE_SAVING`, reject state clearing while an execution claim is unresolved and provide the approved bounded response.
+- [x] Ensure settings draft, destination candidate, and OAuth cancellation use their existing cleanup/commit boundaries; a canceled draft must not change the active destination, vocabulary, or credentials.
+- [x] Add worker and use-case tests for retry cancellation, undo confirmation, settings states, `IDLE`, existing review callbacks, semantic bypass, stale revisions, and claimed financial states. Assert that no append/delete, retry, queue advancement, or destination activation occurs from an unauthorized cancel.
+- [x] Update [expense cancellation](../../../docs/features/expense-cancellation.md), [incoming message routing](../../../docs/features/incoming-message-routing.md), [chat spreadsheet settings](../../../docs/features/chat-spreadsheet-settings.md), [conversation state management](../../../docs/features/conversation-state-management.md), and [features index](../../../docs/features/README.md) for the delivered command behavior.
+- [x] Run `pnpm test` for affected suites and fix failures.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Make empty-sheet and no-header recovery clear
 
 Description: Distinguish an actually empty or effectively blank preview from a nonempty sheet with unrecognized headers, and guide the user to a recoverable choice.
 
-- [ ] Add a shared, testable classification at the spreadsheet access/mapping boundary for previews with no meaningful cell values, including provider responses that contain row objects with only empty cells. Return to sheet selection for those previews instead of asking for a data-start row that cannot exist.
-- [ ] Keep the `no-header` question only for a nonempty preview where a header row might exist. State how to choose another sheet or cancel; do not imply that a header can always be manufactured by entering a number.
-- [ ] Add adapter or application boundary tests for zero rows, blank row objects, title-only rows, data without headers, and valid later headers. Add a worker regression test for the exact transcript: `no tiene`, `configuración`, `cancelar`; the final command must leave the loop and allow a fresh setup path.
-- [ ] Update [validate spreadsheet access](../../../docs/features/validate-spreadsheet-access.md), [select sheet](../../../docs/features/select-sheet.md), [infer column mapping](../../../docs/features/infer-and-propose-column-mapping.md), and [features index](../../../docs/features/README.md). Update architecture or ADR documentation and indexes if classification boundaries change materially.
-- [ ] Run `pnpm test` for affected suites, then the full `pnpm test` ship gate; fix failures.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add a shared, testable classification at the spreadsheet access/mapping boundary for previews with no meaningful cell values, including provider responses that contain row objects with only empty cells. Return to sheet selection for those previews instead of asking for a data-start row that cannot exist.
+- [x] Keep the `no-header` question only for a nonempty preview where a header row might exist. State how to choose another sheet or cancel; do not imply that a header can always be manufactured by entering a number.
+- [x] Add adapter or application boundary tests for zero rows, blank row objects, title-only rows, data without headers, and valid later headers. Add a worker regression test for the exact transcript: `no tiene`, `configuración`, `cancelar`; the final command must leave the loop and allow a fresh setup path.
+- [x] Update [validate spreadsheet access](../../../docs/features/validate-spreadsheet-access.md), [select sheet](../../../docs/features/select-sheet.md), [infer column mapping](../../../docs/features/infer-and-propose-column-mapping.md), and [features index](../../../docs/features/README.md). Update architecture or ADR documentation and indexes if classification boundaries change materially.
+- [x] Run `pnpm test` for affected suites, then the full `pnpm test` ship gate; fix failures.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Implement Phase 2 to complete cancellation across non-onboarding states while preserving expense authorization and queue behavior.
+Review the completed plan and optionally commit the changes.

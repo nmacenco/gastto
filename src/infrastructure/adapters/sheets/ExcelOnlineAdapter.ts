@@ -6,7 +6,10 @@ import type { SpreadsheetPort, Row, AppendResult, CellValue } from '../../../dom
 import type { ValidateSpreadsheetAccessPort } from '../../../domain/ports/spreadsheetAccess';
 import type { SpreadsheetAccessResult } from '../../../domain/value-objects/SpreadsheetAccessResult';
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
-import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
+import {
+  SpreadsheetPreview,
+  hasMeaningfulCellValues,
+} from '../../../domain/entities/SpreadsheetPreview';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { encodeUrlComponent, parseSpreadsheetRange } from './spreadsheetRange';
 
@@ -259,7 +262,7 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
 
     const rows = parsePreviewRows(data);
 
-    if (rows.length === 0) {
+    if (!hasMeaningfulCellValues(rows)) {
       return { kind: 'empty-sheet' };
     }
 
@@ -444,7 +447,7 @@ function parsePreviewRows(data: unknown): Row[] {
     }
     return {
       index: index + 1,
-      values: row.map((cell) => (typeof cell === 'string' ? cell : String(cell))),
+      values: row.map((cell) => (cell === null || cell === undefined ? '' : String(cell))),
     };
   });
 }

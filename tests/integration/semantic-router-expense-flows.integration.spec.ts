@@ -719,12 +719,10 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
     expect(await harness.queueRepo.findByUserId(harness.userId)).toEqual([]);
     expect(harness.appendRow).not.toHaveBeenCalled();
     expect(harness.deleteRow).not.toHaveBeenCalled();
-    expect(harness.observations).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ mode: 'shadow', policyOutcome: 'allowed_shadow' }),
-        expect.objectContaining({ mode: 'off', policyOutcome: 'disabled' }),
-      ]),
-    );
+    expect(harness.observations).toEqual([
+      expect.objectContaining({ mode: 'enabled', policyOutcome: 'allowed_enabled' }),
+      expect.objectContaining({ mode: 'shadow', policyOutcome: 'allowed_shadow' }),
+    ]);
   });
 
   async function deliverWebhook(

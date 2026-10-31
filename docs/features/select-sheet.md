@@ -6,6 +6,8 @@ The Select Sheet feature enables users to choose which sheet within their select
 
 An explicit `cancelar`, `salir`, `cancel`, or `exit` command exits initial sheet selection before the empty-sheet confirmation or selection parser runs. The initial configuration row may remain incomplete after cancellation; it does not authorize expense registration, and `empezar` restarts setup.
 
+An empty or effectively blank preview returns to `ONBOARDING_SHEET` with `step: 'empty-sheet-confirm'`. `otra hoja` lists available sheets, fetching them if the previous snapshot omitted the list; this recovery does not auto-select a single sheet. A nonempty sheet with unrecognized headers can also return from mapping with `otra hoja` and display the choices. `cancelar` exits either path.
+
 ## Scope
 
 - **In scope:** Google Sheets sheet discovery via `listSheets`, single-sheet auto-confirmation, multi-sheet selection by number or exact normalized name, revision-bound semantic references to displayed sheets, "I don't know" header description flow, invalid name re-prompt, and spreadsheet config persistence.

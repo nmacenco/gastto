@@ -101,7 +101,7 @@ export const onboardingCopies = {
     `Puedo ver tu planilla pero no tengo permiso para escribir en ella.\n\nPara corregirlo:\n• *Google Drive:* Abrí el archivo → Compartir → Agregá tu cuenta de Gastto con rol *Editor*.\n• *OneDrive:* Abrí el archivo → Compartir → Dale permisos de *Edición*.\n\nCuando lo hayas hecho, escribí *reintentar* para volver a verificar.`,
 
   emptySheetConfirm: (sheetName: string) =>
-    `La hoja *${sheetName}* parece estar vacía. ¿Es la correcta?\n\nRespondé *sí* para confirmar o escribí el nombre/número de otra hoja.`,
+    `La hoja *${sheetName}* parece estar vacía. ¿Es la correcta?\n\nRespondé *sí* para confirmar, escribí *otra hoja* para ver las opciones o *cancelar* para salir.`,
 
   emptySheetConfirmedOutOfMvp: () =>
     `Entendido. La funcionalidad de planillas vacías estará disponible próximamente. Por ahora, elegí una hoja que tenga datos para continuar.`,
@@ -142,10 +142,10 @@ export const onboardingCopies = {
   },
 
   noHeaderPrompt: () =>
-    `Parece que tu planilla no tiene una fila de encabezados.\n\n¿En qué fila comienzan los datos? Escribí el número de fila o *cancelar* para salir.`,
+    `No pude reconocer una fila de encabezados en esta hoja. Si hay encabezados antes de los datos, escribí el número de la primera fila de datos. También podés escribir *otra hoja* para elegir una distinta o *cancelar* para salir.`,
 
   invalidDataStartRowPrompt: () =>
-    `No entendí la fila. Escribí el número de fila donde comienzan los datos (tiene que ser mayor a 1 para que exista una fila de encabezados arriba), o *cancelar* para salir.`,
+    `No entendí la fila. Si hay encabezados antes de los datos, escribí el número de fila donde comienzan los datos (mayor a 1). También podés escribir *otra hoja* o *cancelar*.`,
 
   mappingConfirmedNextStep: () =>
     `¡Listo! El mapeo de columnas quedó confirmado. Ahora vamos a revisar las categorías de tu planilla.`,

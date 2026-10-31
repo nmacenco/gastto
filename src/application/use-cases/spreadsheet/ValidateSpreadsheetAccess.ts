@@ -17,6 +17,7 @@ import { onboardingCopies } from '../../copies/onboarding.copies';
 import type { Logger } from 'pino';
 import type { OAuthAccessTokenProvider } from '../../services/OAuthAccessTokenService';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { hasMeaningfulCellValues } from '../../../domain/entities/SpreadsheetPreview';
 
 const GOOGLE_SHEETS_WRITE_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -113,6 +114,10 @@ export class ValidateSpreadsheetAccess {
     sheetName: string,
   ): Promise<ValidateSpreadsheetAccessOutput> {
     const { userId, externalId, channel, statePayload } = input;
+
+    if (result.kind === 'success' && !hasMeaningfulCellValues(result.preview.rows)) {
+      result = { kind: 'empty-sheet' };
+    }
 
     switch (result.kind) {
       case 'success': {

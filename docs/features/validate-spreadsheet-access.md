@@ -8,7 +8,7 @@ Before the user can start recording expenses, the system must verify that it has
 
 - **Read and write access confirmed (success):** The adapter reads the first 10 rows of the selected sheet and verifies write permissions via the provider's API. For Google, the use case first verifies that the stored OAuth token includes the `https://www.googleapis.com/auth/spreadsheets` scope; if it does not, the user is asked to reconnect. If both succeed, the flow continues transparently to column mapping (HU-4.05) without notifying the user. The `SpreadsheetPreview` is serialized and stored in the FSM state payload so that `InferColumnMapping` can extract headers and sample rows without re-reading the sheet. Per ADR-014, after transitioning to `ONBOARDING_MAPPING` the use case **eagerly invokes `InferColumnMapping`** with the persisted payload, so the user receives the column-mapping proposal without sending another message. The eager-advance call is wrapped in an isolated `try/catch` (log code `POST_VALIDATING_ACCESS_MAPPING_FAILED`) and does not change the success outcome.
 - **Read-only access (read-only):** The adapter successfully reads the sheet but detects that write permissions are missing. Returns a structured result with a preview and a `read-only` kind. The use case sends a message explaining how to fix permissions in Google Drive or OneDrive, and stays in `ONBOARDING_VALIDATING_ACCESS` so the user can retry.
-- **Empty sheet (empty-sheet):** The adapter detects that the selected sheet contains no data. Returns a structured result with an `empty-sheet` kind. The use case asks the user to confirm the sheet or choose another, transitioning to `ONBOARDING_SHEET` with `step: 'empty-sheet-confirm'`. If the user confirms, an out-of-MVP message is sent. If they choose another sheet, the selection flow is re-invoked.
+- **Empty sheet (empty-sheet):** Google and Microsoft previews with zero rows or only empty, null, or whitespace cells are classified as empty. The application repeats this check on a provider `success` result before marking access verified or starting mapping. It asks the user to confirm the sheet, list other sheets with `otra hoja`, or cancel, transitioning to `ONBOARDING_SHEET` with `step: 'empty-sheet-confirm'`. Confirmation receives the existing out-of-MVP message; choosing another sheet shows the available choices without auto-selecting a sole sheet.
 - **Access error (access-error):** The adapter classifies network failures separately from authorization failures. For `token-expired` or `permission-denied`, the use case forces one OAuth refresh and replays the external access check once. If that recovery fails, it sends the reconnect-account message and transitions to `ONBOARDING_START`. Network and unknown errors keep `ONBOARDING_VALIDATING_ACCESS` and send the sheet-discovery failure message without restarting OAuth.
 - **Token errors:** Missing, expired, revoked, or undecryptable tokens trigger the reconnect-account message and transition to `ONBOARDING_START`.
 
@@ -86,6 +86,7 @@ The validation updates the `spreadsheet_configs.access_verified_at` field upon s
 - [x] Returns `read-only` when write permission is denied
 - [x] Returns `empty-sheet` when sheet has no content
 - [x] Returns `empty-sheet` when values array is empty
+- [x] Returns `empty-sheet` for provider row objects with only blank cells
 - [x] Returns `access-error` with `network-error` on fetch failure
 - [x] Returns `access-error` with `token-expired` on 401 from Sheets API
 - [x] Returns `access-error` with `permission-denied` on 403 from Sheets API
@@ -103,6 +104,7 @@ The validation updates the `spreadsheet_configs.access_verified_at` field upon s
 - [x] Returns `read-only` when write permission is denied
 - [x] Returns `empty-sheet` when sheet has no content
 - [x] Returns `empty-sheet` when values array is empty
+- [x] Returns `empty-sheet` for provider row objects with only blank cells
 - [x] Returns `access-error` with `network-error` on fetch failure
 - [x] Returns `access-error` with `token-expired` on 401 from Graph API
 - [x] Returns `access-error` with `permission-denied` on 403 from Graph API
@@ -140,6 +142,7 @@ The validation updates the `spreadsheet_configs.access_verified_at` field upon s
 - [x] Does not invoke `InferColumnMapping` on `read-only`, `empty-sheet`, `access-error`, or token-missing paths
 - [x] Sends read-only warning and stays in `ONBOARDING_VALIDATING_ACCESS` on read-only
 - [x] Sends empty-sheet confirm, transitions to `ONBOARDING_SHEET` with step and sheetList on empty-sheet
+- [x] Treats a provider `success` carrying blank row objects as empty before mapping or access verification
 - [x] Omits sheetList from payload when not present in statePayload on empty-sheet
 - [x] Forces one OAuth refresh and replays access validation when the provider returns an authorization error
 - [x] Sends reconnect message and transitions to `ONBOARDING_START` when the replay still has an authorization error

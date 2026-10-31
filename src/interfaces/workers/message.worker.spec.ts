@@ -590,9 +590,7 @@ describe('processMessageJob', () => {
         buildJob({ ...baseJobData, rawMessage: 'cancelar' }),
         buildMockDeps(),
       );
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
-        expect.objectContaining({ targetState: 'IDLE', payload: null }),
-      );
+      expect(mockCancelConversationFlowExecute).toHaveBeenCalledOnce();
     });
 
     it('expires a category draft without invoking the editor', async () => {
@@ -714,19 +712,19 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.unavailable());
     });
 
-    it('cancels only the observed unexpired flow', async () => {
+    it('delegates settings cancellation before semantic routing', async () => {
       mockGetConversationStateExecute.mockResolvedValue(settingsState());
       await processMessageJob(
         buildJob({ ...baseJobData, rawMessage: 'cancelar' }),
         buildMockDeps(),
       );
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'IDLE',
-        payload: null,
-        expected: { revision: '7', currentState: 'SETTINGS_MENU', expiry: 'unexpired' },
-      });
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.cancelled());
+      const cancellationInput = mockCancelConversationFlowExecute.mock.calls[0]?.[0] as {
+        state: ConversationState;
+        source: string;
+      };
+      expect(cancellationInput.state.revision).toBe('7');
+      expect(cancellationInput.source).toBe('text');
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
     });
 
     it('cancels an owned OAuth flow before cleaning up its nonce and reminder', async () => {
@@ -750,15 +748,10 @@ describe('processMessageJob', () => {
       });
       mockGetConversationStateExecute.mockResolvedValue(state);
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          targetState: 'IDLE',
-          payload: null,
-          expected: { revision: '9', currentState: 'SETTINGS_OAUTH', expiry: 'unexpired' },
-        }),
+      expect(mockCancelConversationFlowExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ state, source: 'text' }),
       );
-      expect(cleanup).toHaveBeenCalledWith(state.statePayload);
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.cancelled());
+      expect(cleanup).not.toHaveBeenCalled();
     });
 
     it('expires only the observed flow', async () => {
@@ -2508,12 +2501,10 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
 
       expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'IDLE',
-        payload: null,
-      });
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.undoCancelled());
+      const cancellationInput = mockCancelConversationFlowExecute.mock.calls[0]?.[0] as {
+        state: ConversationState;
+      };
+      expect(cancellationInput.state.currentState).toBe('EXPENSE_UNDO_CONFIRMING');
     });
   });
 
@@ -5747,6 +5738,71 @@ describe('createMessageWorker', () => {
   });
 
   describe('onboarding escape', () => {
+    it('recovers after no tiene, configuración, cancelar and permits a fresh setup', async () => {
+      const deps = buildMockDeps();
+      const stuck = buildConversationState({
+        currentState: 'ONBOARDING_MAPPING',
+        statePayload: {
+          step: 'no-header',
+          selectedFileId: 'file-1',
+          selectedSheetName: 'Gastos',
+          preview: { rows: [{ index: 1, values: ['Resumen mensual'] }] },
+        },
+      });
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(stuck)
+        .mockResolvedValueOnce(stuck)
+        .mockResolvedValueOnce(stuck)
+        .mockResolvedValueOnce(
+          buildConversationState({ currentState: 'IDLE', statePayload: null }),
+        );
+      mockSpreadsheetConfigFindByUserId.mockResolvedValue({ categoriesConfirmedAt: null });
+
+      for (const rawMessage of ['no tiene', 'configuración', 'cancelar', 'empezar']) {
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+      }
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        onboardingCopies.invalidDataStartRowPrompt(),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.finishOnboarding());
+      expect(mockCancelConversationFlowExecute).toHaveBeenCalledOnce();
+      expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledOnce();
+    });
+
+    it('returns a no-header flow to sheet choice on otra hoja', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_MAPPING',
+          statePayload: {
+            step: 'no-header',
+            selectedFileId: 'file-1',
+            selectedFileName: 'File',
+            provider: 'google',
+            sheetList: [
+              { name: 'Gastos', index: 0 },
+              { name: 'Otra', index: 1 },
+            ],
+          },
+        }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'otra hoja' }), deps);
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'ONBOARDING_SHEET',
+          payload: expect.objectContaining({ step: 'choose-another-sheet' }) as Record<
+            string,
+            unknown
+          >,
+        }),
+      );
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledOnce();
+      expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+    });
+
     it.each([
       'ONBOARDING_START',
       'ONBOARDING_DRIVE',
@@ -5838,6 +5894,65 @@ describe('createMessageWorker', () => {
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', onboardingCopies.setupRequired());
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('non-onboarding escape', () => {
+    it.each([
+      'SETTINGS_MENU',
+      'SETTINGS_OAUTH',
+      'SETTINGS_FILE',
+      'SETTINGS_SHEET',
+      'SETTINGS_MAPPING',
+      'SETTINGS_CATEGORIES',
+      'EXPENSE_SAVING_RETRY',
+      'EXPENSE_SAVING',
+      'EXPENSE_UNDO_CONFIRMING',
+    ] as const)(
+      'routes explicit cancellation from %s before semantic dispatch',
+      async (fsmState) => {
+        const deps = buildMockDeps();
+        const observed = buildConversationState({
+          currentState: fsmState,
+          statePayload: { draft: 'pending' },
+        });
+        mockGetConversationStateExecute.mockResolvedValue(observed);
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: ' EXIT ' }), deps);
+        expect(mockCancelConversationFlowExecute).toHaveBeenCalledWith(
+          expect.objectContaining({ state: observed, source: 'text' }),
+        );
+        expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+        expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+        expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
+        expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+        expect(mockStartSpreadsheetReconfigurationExecute).not.toHaveBeenCalled();
+      },
+    );
+
+    it('does not clear a claimed financial state', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: {
+            executionClaim: {
+              claimId: 'claim-1',
+              kind: 'retry',
+              operationId: 'operation-1',
+              sourceMessageId: null,
+              status: 'in_flight',
+              target: {},
+            },
+          },
+        }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      expect(mockCancelConversationFlowExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.financialOutcomeUnknown(),
+      );
+      expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
     });
   });
 });

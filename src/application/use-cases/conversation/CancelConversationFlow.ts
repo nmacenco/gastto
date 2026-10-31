@@ -1,5 +1,5 @@
 // LAYER: Application
-// Cancels an observed onboarding flow before its step-specific parser runs.
+// Cancels an observed non-expense flow before its step-specific parser runs.
 
 import type { Logger } from 'pino';
 import {
@@ -12,7 +12,11 @@ import type {
 } from '../../../domain/ports/repositories';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { settingsCopies } from '../../copies/settings.copies';
+import { expenseCopies } from '../../copies/expense.copies';
 import type { CancelCloudConnection } from '../spreadsheet/CancelCloudConnection';
+import { parseSettingsOAuthPayload } from '../spreadsheet/SettingsOAuthFlow';
+import type { SettingsOAuthCleanup } from '../spreadsheet/SettingsOAuthCleanup';
 import type { TransitionConversationState } from './TransitionConversationState';
 
 export interface CancelConversationFlowInput {
@@ -34,6 +38,7 @@ export interface CancelConversationFlowDeps {
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   mappingCorrectionStateRepository: IMappingCorrectionStateRepository;
   cancelCloudConnection?: Pick<CancelCloudConnection, 'cleanup'> | null;
+  settingsOAuthCleanup?: Pick<SettingsOAuthCleanup, 'execute'> | null;
   logger: Logger;
 }
 
@@ -42,7 +47,13 @@ export class CancelConversationFlow {
 
   async execute(input: CancelConversationFlowInput): Promise<CancelConversationFlowOutcome> {
     const { userId, externalId, state, messagingPort } = input;
-    if (!state.currentState.startsWith('ONBOARDING_')) {
+    const isOnboarding = state.currentState.startsWith('ONBOARDING_');
+    const isSettings = state.currentState.startsWith('SETTINGS_');
+    const isFinancialExit =
+      state.currentState === 'EXPENSE_SAVING_RETRY' ||
+      state.currentState === 'EXPENSE_SAVING' ||
+      state.currentState === 'EXPENSE_UNDO_CONFIRMING';
+    if (!isOnboarding && !isSettings && !isFinancialExit) {
       return { status: 'no_active_flow' };
     }
     if (getFinancialExecutionClaim(state.statePayload) !== null) {
@@ -56,6 +67,11 @@ export class CancelConversationFlow {
       expiresAt: null,
       expected: this.deps.transitionState.precondition(state, 'any'),
     });
+
+    if (state.currentState === 'SETTINGS_OAUTH') {
+      const payload = parseSettingsOAuthPayload(state);
+      if (payload) await this.deps.settingsOAuthCleanup?.execute(payload);
+    }
 
     const oauthState = state.currentState === 'ONBOARDING_DRIVE' ? state.statePayload?.state : null;
     if (typeof oauthState === 'string') {
@@ -94,13 +110,21 @@ export class CancelConversationFlow {
       }
     }
 
-    const config = await this.deps.spreadsheetConfigRepository.findByUserId(userId);
-    await messagingPort.sendMessage(
-      externalId,
-      onboardingCopies.flowCancelled(
-        config?.categoriesConfirmedAt !== null && config?.categoriesConfirmedAt !== undefined,
-      ),
-    );
+    if (isOnboarding) {
+      const config = await this.deps.spreadsheetConfigRepository.findByUserId(userId);
+      await messagingPort.sendMessage(
+        externalId,
+        onboardingCopies.flowCancelled(
+          config?.categoriesConfirmedAt !== null && config?.categoriesConfirmedAt !== undefined,
+        ),
+      );
+    } else if (isSettings) {
+      await messagingPort.sendMessage(externalId, settingsCopies.cancelled());
+    } else if (state.currentState === 'EXPENSE_UNDO_CONFIRMING') {
+      await messagingPort.sendMessage(externalId, expenseCopies.undoCancelled());
+    } else {
+      await messagingPort.sendMessage(externalId, expenseCopies.saveRetryCancelled());
+    }
     return { status: 'cancelled' };
   }
 }
