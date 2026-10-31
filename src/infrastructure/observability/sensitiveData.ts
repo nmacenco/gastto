@@ -17,6 +17,10 @@ type PinoRedactionOptions = Exclude<NonNullable<LoggerOptions['redact']>, string
 
 export const pinoRedaction: PinoRedactionOptions = {
   paths: [
+    'url',
+    'req.url',
+    'request.url',
+    '*.url',
     'authorization',
     'cookie',
     'headers.authorization',
@@ -44,7 +48,7 @@ export const pinoRedaction: PinoRedactionOptions = {
 };
 
 export function isSensitiveField(key: string): boolean {
-  return SENSITIVE_KEY.test(key);
+  return key.toLowerCase() === 'url' || SENSITIVE_KEY.test(key);
 }
 
 /**

@@ -17,7 +17,7 @@ The factory lives at `src/infrastructure/logger.ts`. It creates a Pino logger in
 
 ## Sensitive-data redaction
 
-`src/infrastructure/observability/sensitiveData.ts` defines the shared sensitive-field policy used by both the root Pino logger and Fastify's request logger. Authorization headers, cookies, tokens, secrets, OAuth state, raw messages and webhook payloads, job data, and provider error bodies are replaced with `[REDACTED]` before logging. Error logs retain safe operational metadata such as endpoint, queue, job ID, HTTP status, and error code.
+`src/infrastructure/observability/sensitiveData.ts` defines the shared sensitive-field policy used by both the root Pino logger and Fastify's request logger. Authorization headers, cookies, tokens, secrets, OAuth state, request URLs (which can carry OAuth `code` and `state` query parameters), raw messages and webhook payloads, job data, and provider error bodies are replaced with `[REDACTED]` before logging. Error logs retain safe operational metadata such as endpoint, queue, job ID, HTTP status, and error code.
 
 Sentry is initialized with the same module's `beforeSend` scrubber. It creates a bounded, cycle-safe copy of the event and redacts matching keys in request data, breadcrumbs, contexts, extras, tags, and exception metadata before transmission. The scrubber never throws, so error reporting cannot disrupt application error handling.
 
