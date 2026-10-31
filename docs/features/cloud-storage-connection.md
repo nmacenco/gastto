@@ -98,20 +98,23 @@ The reminder owns the per-user lease, commits a guarded nonce/revision self-tran
 
 ## Error Handling and Retry Behavior
 
-| Scenario                              | Behavior                                                                                                                                                      |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| User denies authorization             | `HandleOAuthCallback` catches `OAuthDeniedError`, logs `OAUTH_EXCHANGE_REJECTED`, returns `success: false` with `canRetry: true` and `oauthConnectionFailed`. |
-| Network failure during token exchange | `HandleOAuthCallback` catches `OAuthNetworkError`, logs `OAUTH_EXCHANGE_REJECTED`, returns `success: false` with `canRetry: true`.                            |
-| Expired or near-expiry access token   | Refreshes silently through `OAuthAccessTokenService`; the current spreadsheet operation continues without an onboarding transition.                           |
-| Spreadsheet/Drive HTTP 401 or 403     | Forces one refresh and replays the failed operation once; reconnects only if authorization still cannot be restored.                                          |
-| Refresh credential rejected           | Calls `markRevoked`, returns terminal `AUTH_ERROR`, and uses the existing `ONBOARDING_START` reconnection flow.                                               |
-| Transient refresh failure / HTTP 5xx  | Returns retryable `NETWORK_ERROR`; the credential remains active and onboarding is not restarted.                                                             |
-| Invalid / missing `state` on callback | `HandleOAuthCallback` logs `OAUTH_STATE_MISSING` / `OAUTH_STATE_INVALID`, returns `success: false` with `canRetry: true` and `oauthConnectionFailed`.         |
-| Token persistence failure             | `HandleOAuthCallback` logs `OAUTH_EXCHANGE_UNEXPECTED_ERROR`, returns `success: false` with `canRetry: true`; no success message is sent.                     |
-| Reminder cancellation failure         | Logged via `logger.error` but does not block callback success.                                                                                                |
-| Invalid provider requested            | `InitiateCloudConnection` throws `InvalidProviderError` (caught by caller).                                                                                   |
-| BullMQ reminder job failure           | Retries with exponential backoff (3 attempts).                                                                                                                |
-| Cancellation with missing Redis state | `CancelCloudConnection` still transitions to `IDLE` and sends the cancellation message.                                                                       |
+| Scenario                                              | Behavior                                                                                                                                                                           |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User denies authorization                             | `HandleOAuthCallback` catches `OAuthDeniedError`, logs `OAUTH_EXCHANGE_REJECTED`, returns `success: false` with `canRetry: true` and `oauthConnectionFailed`.                      |
+| Network failure during token exchange                 | `HandleOAuthCallback` catches `OAuthNetworkError`, logs `OAUTH_EXCHANGE_REJECTED`, returns `success: false` with `canRetry: true`.                                                 |
+| Expired or near-expiry access token                   | Refreshes silently through `OAuthAccessTokenService`; the current spreadsheet operation continues without an onboarding transition.                                                |
+| Spreadsheet/Drive HTTP 401 or 403                     | Forces one refresh and replays the failed operation once; reconnects only if authorization still cannot be restored.                                                               |
+| Refresh credential rejected                           | Calls `markRevoked`, returns terminal `AUTH_ERROR`, and uses the existing `ONBOARDING_START` reconnection flow.                                                                    |
+| Transient refresh failure / HTTP 5xx                  | Returns retryable `NETWORK_ERROR`; the credential remains active and onboarding is not restarted.                                                                                  |
+| Invalid / missing `state` on callback                 | `HandleOAuthCallback` logs `OAUTH_STATE_MISSING` / `OAUTH_STATE_INVALID`, returns `success: false` with `canRetry: true` and `oauthConnectionFailed`.                              |
+| Callback lock unavailable or stale conversation state | Logs `OAUTH_LOCK_UNAVAILABLE`, `OAUTH_STATE_STALE`, or `OAUTH_STATE_STALE_BEFORE_PERSIST`; returns retryable failure without persisting a token.                                   |
+| Provider returns an authorization error               | Logs `OAUTH_PROVIDER_REJECTED` with a bounded provider code; returns retryable failure without exchanging a code.                                                                  |
+| Google rejects the token exchange                     | Logs `OAUTH_EXCHANGE_REJECTED` with the error type and a safe provider error code when available (for example, `invalid_client`); no credentials or authorization code are logged. |
+| Token persistence failure                             | `HandleOAuthCallback` logs `OAUTH_EXCHANGE_UNEXPECTED_ERROR`, returns `success: false` with `canRetry: true`; no success message is sent.                                          |
+| Reminder cancellation failure                         | Logged via `logger.error` but does not block callback success.                                                                                                                     |
+| Invalid provider requested                            | `InitiateCloudConnection` throws `InvalidProviderError` (caught by caller).                                                                                                        |
+| BullMQ reminder job failure                           | Retries with exponential backoff (3 attempts).                                                                                                                                     |
+| Cancellation with missing Redis state                 | `CancelCloudConnection` still transitions to `IDLE` and sends the cancellation message.                                                                                            |
 
 ## Adapters
 
@@ -163,11 +166,13 @@ Both callbacks share the same Zod query schema and response contract.
 
 #### Response Contract
 
-| Status | Body                      | Description                                                             |
-| ------ | ------------------------- | ----------------------------------------------------------------------- |
-| 200    | `text/html`               | Success: `<html><body>You can close this window</body></html>`          |
-| 200    | `text/html`               | Failure: `<html><body>${message}</body></html>` (message from use case) |
-| 400    | JSON (Fastify validation) | Missing `code` or `state` query parameter                               |
+| Status | Body                       | Description                                                      |
+| ------ | -------------------------- | ---------------------------------------------------------------- |
+| 200    | `text/html; charset=utf-8` | Success: an HTML page telling the user they can close the window |
+| 200    | `text/html; charset=utf-8` | Failure: an HTML page with the escaped message from the use case |
+| 400    | JSON (Fastify validation)  | Missing `code` or `state` query parameter                        |
+
+The HTML page declares UTF-8 in both its content type and `<meta charset>` so accented Spanish text renders correctly.
 
 ### Application DTOs
 
