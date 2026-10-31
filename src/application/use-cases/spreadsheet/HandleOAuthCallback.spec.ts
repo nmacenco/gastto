@@ -507,6 +507,9 @@ describe('HandleOAuthCallback', () => {
       expect(mockTokenUpsert).not.toHaveBeenCalled();
       expect(mockTransitionExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'OAUTH_STATE_STALE', userId: 'user-123' }),
+      );
     });
 
     it('does not persist or advance when state changes while exchange is pending', async () => {
@@ -629,6 +632,24 @@ describe('HandleOAuthCallback', () => {
       expect(mockTokenUpsert).not.toHaveBeenCalled();
       expect(mockSendMessage).not.toHaveBeenCalled();
       expect(mockTransitionExecute).not.toHaveBeenCalled();
+    });
+
+    it('logs a safe provider code when Google rejects the client credentials', async () => {
+      mockRedisGet.mockResolvedValue(baseRedisPayload);
+      mockExchangeCode.mockRejectedValue(
+        new OAuthNetworkError('Google OAuth error (invalid_client): HTTP 401'),
+      );
+
+      const result = await new HandleOAuthCallback(buildMockDeps()).execute(baseInput);
+
+      expect(result.success).toBe(false);
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'OAUTH_EXCHANGE_REJECTED',
+          providerErrorCode: 'invalid_client',
+          errorType: 'OAuthNetworkError',
+        }),
+      );
     });
   });
 

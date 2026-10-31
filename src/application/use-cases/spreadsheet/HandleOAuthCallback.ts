@@ -132,6 +132,12 @@ export class HandleOAuthCallback {
 
     const lockToken = await this.deps.userProcessingLock.acquire(metadata.userId, 180_000);
     if (!lockToken) {
+      this.deps.logger.error({
+        msg: 'OAuth callback could not acquire user processing lock',
+        endpoint: 'HandleOAuthCallback',
+        code: 'OAUTH_LOCK_UNAVAILABLE',
+        userId: metadata.userId,
+      });
       return {
         success: false,
         nextState: 'ONBOARDING_DRIVE',
@@ -155,6 +161,12 @@ export class HandleOAuthCallback {
           ? !this.matchesSettingsNonce(observed, state, metadata)
           : !this.matchesPersistedNonce(observed, state, metadata.revision)
       ) {
+        this.deps.logger.error({
+          msg: 'OAuth callback state no longer matches the conversation',
+          endpoint: 'HandleOAuthCallback',
+          code: 'OAUTH_STATE_STALE',
+          userId: metadata.userId,
+        });
         return {
           success: false,
           nextState: observed?.currentState ?? 'IDLE',
@@ -170,6 +182,14 @@ export class HandleOAuthCallback {
       }
 
       if ('error' in input) {
+        this.deps.logger.error({
+          msg: 'OAuth provider returned an authorization error',
+          endpoint: 'HandleOAuthCallback',
+          code: 'OAUTH_PROVIDER_REJECTED',
+          userId: metadata.userId,
+          provider: metadata.provider,
+          providerErrorCode: input.error === 'access_denied' ? 'access_denied' : 'other',
+        });
         return {
           success: false,
           nextState: 'ONBOARDING_DRIVE',
@@ -208,6 +228,12 @@ export class HandleOAuthCallback {
 
           const beforePersistence = await this.deps.conversationRepo.findByUserId(metadata.userId);
           if (!this.matchesPersistedNonce(beforePersistence, state, metadata.revision)) {
+            this.deps.logger.error({
+              msg: 'OAuth callback state changed before token persistence',
+              endpoint: 'HandleOAuthCallback',
+              code: 'OAUTH_STATE_STALE_BEFORE_PERSIST',
+              userId: metadata.userId,
+            });
             return {
               success: false,
               nextState: beforePersistence?.currentState ?? 'IDLE',
@@ -238,10 +264,13 @@ export class HandleOAuthCallback {
             err instanceof OAuthStateMismatchError
           ) {
             this.deps.logger.error({
+              msg: 'OAuth token exchange rejected',
               endpoint: 'HandleOAuthCallback',
               code: 'OAUTH_EXCHANGE_REJECTED',
+              userId: metadata.userId,
               provider: metadata.provider,
               errorType: err instanceof Error ? err.constructor.name : 'unknown',
+              providerErrorCode: getProviderErrorCode(err),
             });
             return {
               success: false,
@@ -599,4 +628,12 @@ export class HandleOAuthCallback {
       payload.flowId === metadata.flowId
     );
   }
+}
+
+function getProviderErrorCode(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const match = /^Google OAuth error(?: \(([a-z_]{1,40})\)|: ([a-z_]{1,40}))(?::|$)/.exec(
+    error.message,
+  );
+  return match?.[1] ?? match?.[2];
 }
