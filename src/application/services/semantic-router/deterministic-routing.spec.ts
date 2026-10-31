@@ -10,6 +10,7 @@ describe('CurrentDeterministicRoutingPolicy', () => {
     ['hola, cómo estás', 'expense_guidance'],
     ['a'.repeat(501), 'fsm_handler'],
     ['cancelar', 'sensitive_command'],
+    ['empezar', 'fsm_handler'],
   ])('preserves IDLE lexical routing for %s', (rawMessage, kind) => {
     expect(policy.decide({ state: 'IDLE', rawMessage, hasCallback: false }).kind).toBe(kind);
   });

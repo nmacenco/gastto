@@ -99,6 +99,10 @@ export class HandleSheetSelection {
       );
     }
 
+    if (statePayload?.step === 'choose-another-sheet') {
+      return this.showAvailableSheets(userId, externalId, provider, statePayload);
+    }
+
     try {
       await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
@@ -208,6 +212,10 @@ export class HandleSheetSelection {
   ): Promise<HandleSheetSelectionOutput> {
     const trimmed = rawMessage.trim();
 
+    if (normalizeForComparison(trimmed) === 'otra hoja') {
+      return this.showAvailableSheets(userId, externalId, provider, statePayload);
+    }
+
     if (isConfirmIntent(trimmed)) {
       const message = onboardingCopies.emptySheetConfirmedOutOfMvp();
       await this.deps.messagingPort.sendMessage(externalId, message);
@@ -248,6 +256,56 @@ export class HandleSheetSelection {
       trimmed,
       sheetList,
     );
+  }
+
+  private async showAvailableSheets(
+    userId: string,
+    externalId: string,
+    provider: SpreadsheetProvider,
+    statePayload: Record<string, unknown>,
+  ): Promise<HandleSheetSelectionOutput> {
+    const fileId = statePayload.selectedFileId;
+    if (typeof fileId !== 'string' || !fileId) {
+      const message = onboardingCopies.fileAccessFailed();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+    let sheets: SheetInfo[];
+    try {
+      const existing = statePayload.sheetList;
+      sheets =
+        Array.isArray(existing) && existing.length > 0
+          ? existing.map((sheet) => new SheetInfo(sheet as { name: string; index: number }))
+          : await this.executeWithSpreadsheetPort(userId, provider, (port) =>
+              port.listSheets(fileId),
+            );
+    } catch (error) {
+      this.deps.logger.error({
+        msg: 'Failed to list sheets during recovery',
+        endpoint: 'HandleSheetSelection',
+        code: 'SHEET_RECOVERY_LIST_FAILED',
+        userId,
+        errorType: error instanceof Error ? error.constructor.name : 'unknown',
+      });
+      const message = onboardingCopies.sheetDiscoveryFailed();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+    if (sheets.length === 0) {
+      const message = 'El archivo no tiene hojas. Probá con otro archivo.';
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message };
+    }
+    const payload: Record<string, unknown> = {
+      selectedFileId: fileId,
+      selectedFileName: statePayload.selectedFileName,
+      provider,
+      sheetList: sheets,
+    };
+    await this.deps.transitionState.execute({ userId, targetState: 'ONBOARDING_SHEET', payload });
+    const message = onboardingCopies.sheetListPrompt(sheets);
+    await this.deps.messagingPort.sendMessage(externalId, message);
+    return { nextState: 'ONBOARDING_SHEET', message, payload };
   }
 
   private async handleInitialListing(

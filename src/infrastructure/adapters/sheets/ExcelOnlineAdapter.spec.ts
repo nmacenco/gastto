@@ -583,6 +583,17 @@ describe('ExcelOnlineAdapter', () => {
       expect(result.kind).toBe('empty-sheet');
     });
 
+    it('returns empty-sheet for row objects containing only blank cells', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: [[], ['', '  ', null]] }),
+      });
+      const result = await adapter.validateSpreadsheetAccess(fileId, sheetName);
+      expect(result.kind).toBe('empty-sheet');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('returns access-error with network-error on fetch failure', async () => {
       fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 

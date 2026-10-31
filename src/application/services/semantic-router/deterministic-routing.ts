@@ -1,7 +1,12 @@
 // LAYER: Application. Pure description of the existing deterministic route.
 import type { FsmState } from '../../../domain/entities/ConversationState';
 import type { ClassifyFreeTextExpenseIntent } from '../../use-cases/conversation/ClassifyFreeTextExpenseIntent';
-import { isCancelIntent, isConfirmIntent, isUndoIntent } from '../../utils/intents';
+import {
+  isCancelIntent,
+  isConfirmIntent,
+  isStartOnboardingCommand,
+  isUndoIntent,
+} from '../../utils/intents';
 
 export type DeterministicRoutingDecision =
   | { readonly kind: 'fsm_handler' }
@@ -37,6 +42,9 @@ export class CurrentDeterministicRoutingPolicy implements DeterministicRoutingPo
     readonly hasCallback: boolean;
   }): DeterministicRoutingDecision {
     if (input.hasCallback) return { kind: 'typed_callback' };
+    if (input.state === 'IDLE' && isStartOnboardingCommand(input.rawMessage)) {
+      return { kind: 'fsm_handler' };
+    }
     if (
       input.rawMessage
         .toLocaleLowerCase('es')

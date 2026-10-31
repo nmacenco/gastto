@@ -70,6 +70,7 @@ describe('CancelCloudConnection', () => {
         userId: 'user-123',
         targetState: 'IDLE',
         payload: null,
+        expiresAt: null,
       });
       expect(mockSendMessage).toHaveBeenCalledWith(
         '987654321',
@@ -95,6 +96,7 @@ describe('CancelCloudConnection', () => {
         userId: 'user-123',
         targetState: 'IDLE',
         payload: null,
+        expiresAt: null,
       });
       expect(mockSendMessage).toHaveBeenCalledWith(
         '987654321',

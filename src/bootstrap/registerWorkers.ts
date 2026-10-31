@@ -14,6 +14,7 @@ import { createSessionTimeoutWorker } from '../interfaces/workers/sessionTimeout
 import { createOAuthReminderWorker } from '../interfaces/workers/oauthReminder.worker';
 import { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
 import { GetSpreadsheetSettings } from '../application/use-cases/spreadsheet/GetSpreadsheetSettings';
+import { CancelConversationFlow } from '../application/use-cases/conversation/CancelConversationFlow';
 import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
 
 interface CloseableBullMqResource {
@@ -98,6 +99,15 @@ export async function registerWorkers(
     generateExpenseSummary: deps.generateExpenseSummary,
     resolveExpenseSummaryAction: deps.resolveExpenseSummaryAction,
     cancelExpenseRegistration: deps.cancelExpenseRegistration,
+    cancelConversationFlow: new CancelConversationFlow({
+      transitionState: deps.transitionState,
+      spreadsheetConfigRepository: deps.spreadsheetConfigRepo,
+      mappingCorrectionStateRepository: deps.mappingCorrectionStateRepository,
+      cancelCloudConnection: deps.googleOAuth?.cancelCloudConnection ?? null,
+      settingsOAuthCleanup: deps.googleOAuth?.settingsOAuthCleanup ?? null,
+      logger: deps.rootLogger,
+    }),
+    spreadsheetConfigRepository: deps.spreadsheetConfigRepo,
     resolveExpenseReviewReply: deps.resolveExpenseReviewReply,
     undoLastExpense: deps.undoLastExpense,
     presentUndoConfirmation: deps.presentUndoConfirmation,

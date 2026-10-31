@@ -29,6 +29,10 @@ describe('ConversationState FSM', () => {
       expect(canTransition('ONBOARDING_MAPPING', 'ONBOARDING_CATEGORIES')).toBe(true);
     });
 
+    it('allows mapping recovery to return to sheet selection', () => {
+      expect(canTransition('ONBOARDING_MAPPING', 'ONBOARDING_SHEET')).toBe(true);
+    });
+
     it('rejects invalid transitions from ONBOARDING_MAPPING', () => {
       expect(canTransition('ONBOARDING_MAPPING', 'EXPENSE_RECEIVING')).toBe(false);
       expect(canTransition('ONBOARDING_MAPPING', 'EXPENSE_SAVING')).toBe(false);

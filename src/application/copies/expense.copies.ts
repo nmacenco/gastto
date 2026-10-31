@@ -35,6 +35,8 @@ export const expenseCopies = {
     'No pude guardar el gasto porque la hoja o sus columnas cambiaron. Respondé *reconfigurar* para revisar la configuración.',
   saveRetryExpired: () =>
     'El tiempo para reintentar este guardado venció. Verificá tu planilla y registrá el gasto nuevamente.',
+  saveRetryCancelled: () =>
+    'Saliste del flujo de guardado. Verificá tu planilla antes de registrar el gasto nuevamente.',
   saveRetryRecoveryChoice: () =>
     'Respondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla.',
   staleFinancialAction: () =>

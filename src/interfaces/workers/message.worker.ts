@@ -19,6 +19,7 @@ import type {
   ResolveExpenseSummaryActionUseCase,
 } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { CancelExpenseRegistrationUseCase } from '../../application/use-cases/expense/CancelExpenseRegistrationUseCase';
+import type { CancelConversationFlow } from '../../application/use-cases/conversation/CancelConversationFlow';
 import type { UndoLastExpenseUseCase } from '../../application/use-cases/expense/UndoLastExpense';
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { QueuePendingExpense } from '../../application/use-cases/expense/QueuePendingExpense';
@@ -56,6 +57,7 @@ import type {
   IUserRepository,
   IMappingCorrectionStateRepository,
   IExpenseRecordRepository,
+  ISpreadsheetConfigRepository,
 } from '../../domain/ports/repositories';
 import { ColumnMappingCorrectionState } from '../../domain/value-objects/ColumnMappingCorrectionState';
 import {
@@ -97,6 +99,8 @@ import { randomUUID } from 'node:crypto';
 import {
   isConfirmIntent,
   isCancelIntent,
+  isExplicitCancelCommand,
+  isStartOnboardingCommand,
   isUndoIntent,
   isListColumnsIntent,
   isIdkVariant,
@@ -137,6 +141,8 @@ export interface MessageWorkerDeps {
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
+  cancelConversationFlow: CancelConversationFlow;
+  spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase | null;
   retryExpenseSave?: RetryExpenseSaveUseCase | null;
   undoLastExpense?: UndoLastExpenseUseCase | null | undefined;
@@ -239,6 +245,8 @@ export async function processMessageJob(
 
     const conversationState = await opts.getConversationState.execute({ userId });
     const currentState = conversationState?.currentState ?? 'IDLE';
+    const idleConfig =
+      currentState === 'IDLE' ? await opts.spreadsheetConfigRepository.findByUserId(userId) : null;
     const deterministicDecision = opts.deterministicRoutingPolicy.decide({
       state: currentState,
       rawMessage: data.rawMessage,
@@ -259,6 +267,15 @@ export async function processMessageJob(
           currentState === 'SETTINGS_MAPPING' ||
           currentState === 'SETTINGS_CATEGORIES' ||
           (data.callbackData === undefined && isSettingsCommand(data.rawMessage)) ||
+          (data.callbackData === undefined && isExplicitCancelCommand(data.rawMessage)) ||
+          (currentState === 'IDLE' &&
+            data.callbackData === undefined &&
+            isStartOnboardingCommand(data.rawMessage)) ||
+          (currentState === 'IDLE' &&
+            data.callbackData === undefined &&
+            idleConfig?.categoriesConfirmedAt === null &&
+            !isCancelIntent(data.rawMessage) &&
+            !isUndoIntent(data.rawMessage)) ||
           (currentState === 'EXPENSE_REVIEW' &&
             data.callbackData === undefined &&
             parseExpensePaymentCommand(data.rawMessage) !== null)
@@ -537,6 +554,27 @@ async function routeByState(
   // review state they must not cancel, reset, or otherwise mutate a flow.
   if (jobData.callbackData !== undefined && currentState !== 'EXPENSE_REVIEW') {
     await messaging.sendMessage(externalId, expenseCopies.noActiveReview());
+    return;
+  }
+
+  if (
+    jobData.callbackData === undefined &&
+    isExplicitCancelCommand(rawMessage) &&
+    conversationState !== null &&
+    (currentState.startsWith('ONBOARDING_') ||
+      currentState.startsWith('SETTINGS_') ||
+      currentState === 'EXPENSE_SAVING_RETRY' ||
+      currentState === 'EXPENSE_SAVING' ||
+      currentState === 'EXPENSE_UNDO_CONFIRMING')
+  ) {
+    await opts.cancelConversationFlow.execute({
+      userId,
+      externalId,
+      channel,
+      state: conversationState,
+      source: 'text',
+      messagingPort: messaging,
+    });
     return;
   }
 
@@ -838,6 +876,43 @@ async function routeByState(
   switch (currentState) {
     case 'IDLE':
     case 'EXPENSE_RECEIVING': {
+      if (currentState === 'IDLE') {
+        const config = await opts.spreadsheetConfigRepository.findByUserId(userId);
+        if (isStartOnboardingCommand(rawMessage)) {
+          if (
+            config?.categoriesConfirmedAt !== null &&
+            config?.categoriesConfirmedAt !== undefined
+          ) {
+            await messaging.sendMessage(externalId, onboardingCopies.alreadyConfigured());
+            break;
+          }
+          await opts.transitionState.execute({
+            userId,
+            targetState: 'ONBOARDING_START',
+            payload: { promptShown: true },
+          });
+          if (opts.initiateCloudConnection) {
+            await opts.initiateCloudConnection.execute({
+              userId,
+              rawMessage,
+              externalId,
+              channel,
+            });
+          } else {
+            await messaging.sendMessage(externalId, onboardingCopies.welcomePrompt());
+          }
+          break;
+        }
+        if (config?.categoriesConfirmedAt === null && !isCancelIntent(rawMessage)) {
+          await opts.transitionState.execute({
+            userId,
+            targetState: 'ONBOARDING_START',
+            payload: { promptShown: true },
+          });
+          await messaging.sendMessage(externalId, onboardingCopies.setupRequired());
+          break;
+        }
+      }
       if (currentState === 'IDLE' && isUndoIntent(rawMessage) && opts.undoLastExpense) {
         const immediateUndoExpenseId = conversationState?.statePayload?.immediateUndoExpenseId;
         if (typeof immediateUndoExpenseId === 'string') {
@@ -1019,17 +1094,7 @@ async function routeByState(
         await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
         break;
       }
-      if (isCancelIntent(rawMessage)) {
-        const state = conversationState?.statePayload?.state;
-        if (typeof state === 'string') {
-          await opts.cancelCloudConnection.execute({ userId, state, externalId, channel });
-        } else {
-          await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-          await messaging.sendMessage(externalId, onboardingCopies.cancelledMessage());
-        }
-      } else {
-        await messaging.sendMessage(externalId, onboardingCopies.waitForAuthPrompt());
-      }
+      await messaging.sendMessage(externalId, onboardingCopies.waitForAuthPrompt());
       break;
     }
 
@@ -1580,6 +1645,32 @@ async function handleNoHeaderResponse(
   opts: MessageWorkerDeps,
 ): Promise<void> {
   const trimmed = rawMessage.trim();
+
+  if (trimmed.toLocaleLowerCase('es') === 'otra hoja') {
+    const payload: Record<string, unknown> = {
+      selectedFileId: statePayload?.selectedFileId,
+      selectedFileName: statePayload?.selectedFileName,
+      provider: statePayload?.provider,
+      ...(Array.isArray(statePayload?.sheetList) ? { sheetList: statePayload.sheetList } : {}),
+      step: 'choose-another-sheet',
+    };
+    await opts.transitionState.execute({ userId, targetState: 'ONBOARDING_SHEET', payload });
+    if (opts.handleSheetSelection) {
+      await opts.handleSheetSelection.execute({
+        userId,
+        externalId,
+        channel,
+        rawMessage: '',
+        statePayload: payload,
+      });
+    } else {
+      await opts.messagingAdapters[channel].sendMessage(
+        externalId,
+        onboardingCopies.sheetDiscoveryFailed(),
+      );
+    }
+    return;
+  }
   const dataStartRow = Number(trimmed);
 
   if (trimmed === '' || !Number.isInteger(dataStartRow) || dataStartRow < 2) {

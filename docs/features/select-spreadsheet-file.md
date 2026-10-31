@@ -4,6 +4,8 @@
 
 The Select Spreadsheet File feature enables users to choose which spreadsheet file in their connected cloud storage account should receive their expense records. After completing the OAuth flow (Cloud Storage Connection), the bot enters the `ONBOARDING_FILE` state and guides the user through discovering, searching, and selecting a spreadsheet file.
 
+An explicit `cancelar`, `salir`, `cancel`, or `exit` command leaves initial file selection before search or selection parsing. The guarded exit clears the conversation payload; `empezar` can restart incomplete setup from `IDLE`.
+
 ## Scope
 
 - **In scope:** Google Drive file discovery, search by name, direct URL validation, file selection, and access validation.

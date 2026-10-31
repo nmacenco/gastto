@@ -6,7 +6,7 @@ Let users safely abandon an in-progress expense registration from any active exp
 
 ## Behavior (Implemented)
 
-- Cancellation applies only to `EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, and `EXPENSE_CORRECTING`; onboarding is unaffected.
+- Expense draft cancellation applies to `EXPENSE_RECEIVING`, `EXPENSE_CLARIFYING`, `EXPENSE_REVIEW`, and `EXPENSE_CORRECTING` and advances the pending expense queue as before. Exact cancellation in failed-save retry, saving without an active claim, and undo confirmation exits through the guarded conversation flow instead, without retrying, deleting, or advancing the queue.
 - Supported text inputs are normalized case-insensitively. Spanish commands are `no`, `cancelar`, `cancela`, `no registres`, `para`, `stop`, and `salir`; English aliases `cancel`, `cancel it`, `do not register`, and `exit` are also accepted.
 - A recognized cancellation moves the FSM to `IDLE`, clears `statePayload`, removes its expiration, and only then sends `Registro cancelado. No se guardó nada.`
 - When no expense flow is active, the system leaves the state unchanged and sends `No hay ningún registro pendiente para cancelar.`
@@ -16,6 +16,7 @@ Let users safely abandon an in-progress expense registration from any active exp
 - If pending expenses exist, cancellation clears only the active draft, delivers the cancellation copy, and then advances the oldest queued expense for review.
 - In enabled semantic mode, an unambiguous natural cancellation may reach the same use case only from the four active expense states. The control dispatcher revalidates the captured state/revision, expiry, execution-claim absence, and state-specific payload before cleanup.
 - Semantic review cancellation additionally requires the current review version to have been presented successfully. Stale, malformed, expired, mixed, unsupported, lease-lost, or financially claimed proposals send bounded guidance and cannot cancel or advance the queue.
+- An unresolved save, retry, or undo `executionClaim` prevents cancellation from clearing state. The response asks the user to check the spreadsheet before another attempt; it does not claim an append or delete was rolled back. A cancelled failed-save retry likewise asks the user to verify the spreadsheet before registering the expense again.
 
 ## API / Interface
 
@@ -39,4 +40,4 @@ The feature updates the existing `conversation_states` row only. It does not cre
 
 ## Notes
 
-Cancellation is intentionally limited to active expense registration. It never cancels onboarding or removes already confirmed expense records.
+Cancelling an active draft does not remove already confirmed expense records. Other conversational flows have their own guarded cancellation response and cleanup.

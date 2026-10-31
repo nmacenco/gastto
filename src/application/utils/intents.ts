@@ -23,6 +23,8 @@ const CONFIRM_WORDS = [
 
 const CANCEL_WORDS = ['cancelar', 'cancela', 'para', 'stop', 'salir', 'cancel', 'exit'];
 
+const EXPLICIT_CANCEL_COMMANDS = ['cancelar', 'salir', 'cancel', 'exit'];
+
 const UNDO_COMMANDS = ['deshacer', 'undo', 'borrar el ultimo'];
 
 const REJECT_MAPPING_PHRASES = [
@@ -99,6 +101,14 @@ export function isCancelIntent(rawMessage: string): boolean {
     normalized.startsWith('do not register') ||
     CANCEL_WORDS.some((w) => normalized === w || normalized.startsWith(w + ' '))
   );
+}
+
+export function isExplicitCancelCommand(rawMessage: string): boolean {
+  return EXPLICIT_CANCEL_COMMANDS.includes(rawMessage.toLocaleLowerCase('es').trim());
+}
+
+export function isStartOnboardingCommand(rawMessage: string): boolean {
+  return rawMessage.toLocaleLowerCase('es').trim() === 'empezar';
 }
 
 export function isUndoIntent(rawMessage: string): boolean {

@@ -607,6 +607,23 @@ describe('HandleSheetSelection', () => {
       sheetList: mockSheets as unknown as Record<string, unknown>[],
     };
 
+    it('lists choices from an empty sheet without auto-selecting the only sheet', async () => {
+      mockListSheets.mockResolvedValue([new SheetInfo({ name: 'Gastos', index: 0 })]);
+      const result = await new HandleSheetSelection(buildMockDeps()).execute({
+        ...baseInput,
+        rawMessage: 'otra hoja',
+        statePayload: { ...emptySheetPayload, sheetList: [] },
+      });
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockListSheets).toHaveBeenCalledWith('file-123');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.sheetListPrompt([new SheetInfo({ name: 'Gastos', index: 0 })]),
+      );
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
+
     it('sends out-of-MVP message when user confirms with "sí"', async () => {
       const deps = buildMockDeps();
       const useCase = new HandleSheetSelection(deps);
