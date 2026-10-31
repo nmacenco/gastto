@@ -307,6 +307,8 @@ function createHarness(options: HarnessOptions) {
     generateExpenseSummary: null,
     resolveExpenseSummaryAction,
     cancelExpenseRegistration: {} as never,
+    cancelConversationFlow: {} as never,
+    spreadsheetConfigRepository: spreadsheetConfigRepo as never,
     resolveExpenseReviewReply: null,
     retryExpenseSave,
     undoLastExpense,

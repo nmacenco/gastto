@@ -216,6 +216,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router shadow pip
       userRepo,
       messagingAdapters: { telegram: messaging, whatsapp: messaging },
       cancelExpenseRegistration: { execute: vi.fn() },
+      cancelConversationFlow: { execute: vi.fn() },
+      spreadsheetConfigRepository: { findByUserId: vi.fn().mockResolvedValue(null) },
     } as unknown as MessageWorkerDeps;
 
     return {

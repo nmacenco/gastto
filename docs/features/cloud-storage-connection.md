@@ -9,6 +9,8 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 - **In scope:** Google Drive OAuth2 authorization, encrypted token lifecycle and transparent access-token refresh, CSRF state management, reminder scheduling, OAuth callback handling, user cancellation during the OAuth flow.
 - **Out of scope:** OneDrive adapter, file/sheet/mapping selection.
 
+During initial onboarding, the explicit `cancelar`, `salir`, `cancel`, and `exit` commands leave `ONBOARDING_START` or `ONBOARDING_DRIVE` through a guarded transition to `IDLE`. For an active OAuth nonce, reminder and nonce cleanup happen after the transition commits, so a stale callback cannot revive the canceled flow. `empezar` from `IDLE` restarts an incomplete setup.
+
 ## FSM States
 
 | State              | Description                                                         | Next                                                                                                 | Payload                                 |

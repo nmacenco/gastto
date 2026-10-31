@@ -33,9 +33,9 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 
 ## FSM States
 
-| State              | Description                                          | Next                                                               |
-| ------------------ | ---------------------------------------------------- | ------------------------------------------------------------------ |
-| `ONBOARDING_MAPPING` | User is reviewing the proposed column mapping       | `ONBOARDING_CATEGORIES` (mapping accepted), self-transition (re-prompt / no-header) |
+| State                | Description                                   | Next                                                                                |
+| -------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `ONBOARDING_MAPPING` | User is reviewing the proposed column mapping | `ONBOARDING_CATEGORIES` (mapping accepted), self-transition (re-prompt / no-header) |
 
 ## Flow Sequence
 
@@ -83,6 +83,7 @@ This feature is part of the spreadsheet-linking epic covered by [`HU-4.05 — In
 6. The FSM self-transitions to `ONBOARDING_MAPPING` with `step: 'no-header'` in the payload.
 7. When the user replies with a row number, the message worker subtracts 1 to obtain the header row index and validates that the computed header row exists in the preview.
 8. If the reply is invalid or the computed header row is not present, the worker sends `onboardingCopies.invalidDataStartRowPrompt()` and keeps the FSM in `ONBOARDING_MAPPING` with `step: 'no-header'`.
+   Both the original and invalid-row prompts offer `cancelar`; an explicit cancel command exits to `IDLE` before the row parser runs. `no` remains a contextual reply. After cancellation, `empezar` restarts setup, and an incomplete destination cannot be used to register an expense.
 9. If valid, the worker delegates to `InferColumnMapping` with `headerRowIndex` in the state payload, which skips automatic detection and uses that row as the header row.
 10. `InferColumnMapping` proceeds with header/sample extraction and inference as in Scenario 1.
 11. If the inference produces mappings, the resulting FSM payload no longer contains `step: 'no-header'`; only `mappings`, `unmappedFields`, `provider`, `fileId`, `sheetName`, and `preview` are retained.
@@ -247,17 +248,17 @@ interface IColumnMappingRepository {
 
 ## Error Handling
 
-| Scenario                                      | Behavior                                                                 |
-| --------------------------------------------- | ------------------------------------------------------------------------ |
-| Missing OAuth token                           | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Expired / revoked token                       | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Token decryption failure                      | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Missing `SpreadsheetConfig`                   | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Missing or empty preview in state payload     | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.      |
-| Microsoft (`onedrive`) provider               | `comingSoon('OneDrive')` message sent; stays in `ONBOARDING_MAPPING`.    |
-| Inference adapter failure                     | Error propagated; no mappings persisted; no state transition is written. |
+| Scenario                                                 | Behavior                                                                         |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Missing OAuth token                                      | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
+| Expired / revoked token                                  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
+| Token decryption failure                                 | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
+| Missing `SpreadsheetConfig`                              | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
+| Missing or empty preview in state payload                | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.              |
+| Microsoft (`onedrive`) provider                          | `comingSoon('OneDrive')` message sent; stays in `ONBOARDING_MAPPING`.            |
+| Inference adapter failure                                | Error propagated; no mappings persisted; no state transition is written.         |
 | `columnMappingRepository.replaceBySpreadsheetId` failure | Transaction rolls back; no message is sent and the state payload is not updated. |
-| Malformed or invalid LLM mapping output       | Safe empty inference result; no mappings are persisted from that output. |
+| Malformed or invalid LLM mapping output                  | Safe empty inference result; no mappings are persisted from that output.         |
 
 ## QA Checklist
 

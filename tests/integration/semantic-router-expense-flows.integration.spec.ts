@@ -153,7 +153,10 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
     const user = await createUser(db, { defaultCurrency: 'EUR' });
     await createMessagingIdentity(db, { userId: user.userId, externalId: EXTERNAL_ID });
     await createConversationState(db, { userId: user.userId });
-    const spreadsheet = await createSpreadsheetConfig(db, { userId: user.userId });
+    const spreadsheet = await createSpreadsheetConfig(db, {
+      userId: user.userId,
+      categoriesConfirmedAt: new Date(),
+    });
 
     const stateRepo = new DrizzleConversationStateRepository(db);
     const userRepo = new DrizzleUserRepository(db, redis);
@@ -349,6 +352,8 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
       generateExpenseSummary,
       resolveExpenseSummaryAction,
       cancelExpenseRegistration,
+      cancelConversationFlow: { execute: vi.fn() },
+      spreadsheetConfigRepository: spreadsheetConfigRepo,
       resolveExpenseReviewReply,
       getConversationState: new GetConversationState(stateRepo),
       transitionState,

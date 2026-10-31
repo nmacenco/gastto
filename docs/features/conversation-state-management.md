@@ -15,6 +15,8 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 - `TransitionConversationState` requires an explicit observed precondition unless a shared async execution context owns the latest committed snapshot. Nested use cases reuse that context; it is invalidated if lease renewal fails.
 - Per-user Redis leases are renewed every 30 seconds with token-safe comparison. Timeout, OAuth callback/reminder, recovery, onboarding, and message-processing entries share this ownership boundary.
 - `HandleStartCommand` ensures every new user has a valid conversation state. If missing, it creates `IDLE`.
+- An explicit `cancelar`, `salir`, `cancel`, or `exit` command leaves any onboarding state through a revision-guarded transition to `IDLE`, clearing the payload and expiry before sending the response. The OAuth nonce/reminder and matching mapping-correction snapshot are cleaned only after that transition commits. `no` remains a contextual answer, including mapping rejection, rather than a global onboarding escape.
+- From `IDLE`, `empezar` starts onboarding when no completed destination exists. An expense-like message with a missing or incomplete destination moves to `ONBOARDING_START` and asks the user to finish setup instead of interpreting or saving the expense. A completed destination continues to use `configuración` for changes.
 - `TransitionConversationState` validates transitions against `FSM_TRANSITIONS`. Invalid transitions throw `InvalidStateTransitionError`.
 - `GetConversationState` reads the current state for a user, returning `null` only if the user has never interacted with the system.
 - A terminal spreadsheet `AUTH_ERROR` while saving transitions directly from `EXPENSE_SAVING` to `ONBOARDING_START` with `promptShown: true`. The next contextual `empezar` message starts the existing Google OAuth flow without replaying the failed expense.
@@ -81,8 +83,8 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 | State                          | Description                                                     | Valid Transitions                                                              |
 | ------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `IDLE`                         | No active flow                                                  | `SETTINGS_MENU`, `ONBOARDING_START`, `EXPENSE_RECEIVING`                       |
-| `SETTINGS_MENU`                | Chat spreadsheet settings with an inactivity deadline          | `SETTINGS_MENU`, `SETTINGS_OAUTH`, `IDLE`                                      |
-| `SETTINGS_OAUTH`               | Voluntary Google reauthorization with a fixed deadline         | `SETTINGS_OAUTH`, `IDLE`                                                       |
+| `SETTINGS_MENU`                | Chat spreadsheet settings with an inactivity deadline           | `SETTINGS_MENU`, `SETTINGS_OAUTH`, `IDLE`                                      |
+| `SETTINGS_OAUTH`               | Voluntary Google reauthorization with a fixed deadline          | `SETTINGS_OAUTH`, `IDLE`                                                       |
 | `ONBOARDING_START`             | First contact, no spreadsheet linked                            | `ONBOARDING_START`, `ONBOARDING_DRIVE`, `IDLE`                                 |
 | `ONBOARDING_DRIVE`             | Waiting for OAuth connection                                    | `ONBOARDING_DRIVE`, `ONBOARDING_FILE`, `IDLE`                                  |
 | `ONBOARDING_FILE`              | Waiting for file selection                                      | `ONBOARDING_FILE`, `ONBOARDING_SHEET`, `ONBOARDING_START`, `IDLE`              |

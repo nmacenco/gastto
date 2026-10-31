@@ -17,6 +17,7 @@ After column mapping, Gastto proposes the spreadsheet's active category vocabula
 - Confirmation intent has precedence over natural-language modification.
 - No HTTP route or additional FSM state is used.
 - Telegram and WhatsApp use the same payload and copy contracts.
+- An explicit `cancelar`, `salir`, `cancel`, or `exit` command leaves onboarding category or payment review before detection, confirmation, or modification runs. It clears the conversation draft; an incomplete destination cannot be used for expenses.
 
 ### Retained flat category path
 

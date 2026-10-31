@@ -30,6 +30,14 @@ export const onboardingCopies = {
   sheetDiscoveryFailed: () =>
     'No pude leer las hojas del archivo. Intentá de nuevo en unos segundos.',
   cancelledMessage: () => 'Conexión cancelada. Escribí *empezar* cuando quieras intentar de nuevo.',
+  flowCancelled: (configured: boolean) =>
+    configured
+      ? 'Configuración cancelada. Tu planilla anterior sigue activa. Escribí *configuración* para verla o cambiarla.'
+      : 'Configuración cancelada. Escribí *empezar* cuando quieras elegir una planilla de nuevo.',
+  setupRequired: () =>
+    'Tu planilla todavía no está configurada. Escribí *empezar* para continuar con la configuración.',
+  alreadyConfigured: () =>
+    'Tu planilla ya está configurada. Escribí *configuración* para verla o cambiarla.',
   waitForAuthPrompt: () =>
     'Please complete the authorization in your browser or type cancel to abort',
   reminderMessage: (url: string) =>
@@ -134,10 +142,10 @@ export const onboardingCopies = {
   },
 
   noHeaderPrompt: () =>
-    `Parece que tu planilla no tiene una fila de encabezados.\n\n¿En qué fila comienzan los datos? Escribí el número de fila.`,
+    `Parece que tu planilla no tiene una fila de encabezados.\n\n¿En qué fila comienzan los datos? Escribí el número de fila o *cancelar* para salir.`,
 
   invalidDataStartRowPrompt: () =>
-    `No entendí la fila. Escribí el número de fila donde comienzan los datos (tiene que ser mayor a 1 para que exista una fila de encabezados arriba).`,
+    `No entendí la fila. Escribí el número de fila donde comienzan los datos (tiene que ser mayor a 1 para que exista una fila de encabezados arriba), o *cancelar* para salir.`,
 
   mappingConfirmedNextStep: () =>
     `¡Listo! El mapeo de columnas quedó confirmado. Ahora vamos a revisar las categorías de tu planilla.`,

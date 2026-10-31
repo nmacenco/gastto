@@ -4,6 +4,8 @@
 
 The Select Sheet feature enables users to choose which sheet within their selected spreadsheet file contains their expense records. After completing the file selection (Select Spreadsheet File), the bot enters the `ONBOARDING_SHEET` state and guides the user through discovering available sheets, choosing by number or name, or receiving a header-based description of each sheet when they are unsure.
 
+An explicit `cancelar`, `salir`, `cancel`, or `exit` command exits initial sheet selection before the empty-sheet confirmation or selection parser runs. The initial configuration row may remain incomplete after cancellation; it does not authorize expense registration, and `empezar` restarts setup.
+
 ## Scope
 
 - **In scope:** Google Sheets sheet discovery via `listSheets`, single-sheet auto-confirmation, multi-sheet selection by number or exact normalized name, revision-bound semantic references to displayed sheets, "I don't know" header description flow, invalid name re-prompt, and spreadsheet config persistence.

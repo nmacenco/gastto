@@ -54,6 +54,8 @@ const mockQueuePendingExpenseExecute = vi.fn();
 const mockClassifyFreeTextExpenseIntentExecute = vi.fn();
 const mockInitiateCloudConnectionExecute = vi.fn();
 const mockCancelCloudConnectionExecute = vi.fn();
+const mockCancelConversationFlowExecute = vi.fn();
+const mockSpreadsheetConfigFindByUserId = vi.fn();
 const mockHandleSpreadsheetFileSelectionExecute = vi.fn();
 const mockHandleSheetSelectionExecute = vi.fn();
 const mockValidateSpreadsheetAccessExecute = vi.fn();
@@ -179,6 +181,12 @@ function buildMockDeps(): MessageWorkerDeps {
     cancelExpenseRegistration: {
       execute: mockCancelExpenseRegistrationExecute,
     } as unknown as MessageWorkerDeps['cancelExpenseRegistration'],
+    cancelConversationFlow: {
+      execute: mockCancelConversationFlowExecute,
+    } as unknown as MessageWorkerDeps['cancelConversationFlow'],
+    spreadsheetConfigRepository: {
+      findByUserId: mockSpreadsheetConfigFindByUserId,
+    } as unknown as MessageWorkerDeps['spreadsheetConfigRepository'],
     resolveExpenseReviewReply: {
       execute: mockResolveExpenseReviewReplyExecute,
     } as unknown as MessageWorkerDeps['resolveExpenseReviewReply'],
@@ -389,6 +397,8 @@ describe('processMessageJob', () => {
     );
     mockCorrectExpenseExecute.mockResolvedValue({ status: 'not_interpretable' });
     mockCancelExpenseRegistrationExecute.mockResolvedValue({ status: 'cancelled' });
+    mockCancelConversationFlowExecute.mockResolvedValue({ status: 'cancelled' });
+    mockSpreadsheetConfigFindByUserId.mockResolvedValue({ categoriesConfirmedAt: new Date() });
     mockUndoLastExpenseExecute.mockResolvedValue({
       status: 'deleted',
       expense: {
@@ -3770,29 +3780,38 @@ describe('processMessageJob', () => {
     });
 
     describe('ONBOARDING_DRIVE', () => {
-      it.each(['cancelar', 'cancel'])('triggers CancelCloudConnection for %s', async (message) => {
-        const deps = buildMockDeps();
-        mockGetConversationStateExecute.mockResolvedValue(
-          buildConversationState({
-            currentState: 'ONBOARDING_DRIVE',
-            statePayload: { provider: 'google', state: 'csrf-state-123' },
-          }),
-        );
-        mockCancelCloudConnectionExecute.mockResolvedValue({
-          nextState: 'IDLE',
-          message: onboardingCopies.cancelledMessage(),
-        });
+      it.each(['cancelar', 'cancel'])(
+        'delegates onboarding cancellation for %s',
+        async (message) => {
+          const deps = buildMockDeps();
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'ONBOARDING_DRIVE',
+              statePayload: { provider: 'google', state: 'csrf-state-123' },
+            }),
+          );
+          await processMessageJob(buildJob({ ...baseJobData, rawMessage: message }), deps);
 
-        await processMessageJob(buildJob({ ...baseJobData, rawMessage: message }), deps);
-
-        expect(mockCancelCloudConnectionExecute).toHaveBeenCalledWith({
-          userId: 'user-123',
-          state: 'csrf-state-123',
-          externalId: '123456789',
-          channel: 'telegram',
-        });
-        expect(mockSendMessage).not.toHaveBeenCalled();
-      });
+          const cancellationInput = mockCancelConversationFlowExecute.mock.calls[0]?.[0] as {
+            state: ConversationState;
+            userId: string;
+            externalId: string;
+            channel: string;
+            source: string;
+            messagingPort: MessageWorkerDeps['messagingAdapters']['telegram'];
+          };
+          expect(cancellationInput).toMatchObject({
+            userId: 'user-123',
+            externalId: '123456789',
+            channel: 'telegram',
+            source: 'text',
+            messagingPort: deps.messagingAdapters.telegram,
+          });
+          expect(cancellationInput.state.currentState).toBe('ONBOARDING_DRIVE');
+          expect(mockCancelCloudConnectionExecute).not.toHaveBeenCalled();
+          expect(mockSendMessage).not.toHaveBeenCalled();
+        },
+      );
 
       it('sends wait prompt for non-cancelar messages', async () => {
         const deps = buildMockDeps();
@@ -5725,5 +5744,100 @@ describe('createMessageWorker', () => {
     expect(
       strategy!(1, 'custom', new InvalidJobPayloadError('process-message', ['userId']), job),
     ).toBe(-1);
+  });
+
+  describe('onboarding escape', () => {
+    it.each([
+      'ONBOARDING_START',
+      'ONBOARDING_DRIVE',
+      'ONBOARDING_FILE',
+      'ONBOARDING_SHEET',
+      'ONBOARDING_VALIDATING_ACCESS',
+      'ONBOARDING_MAPPING',
+      'ONBOARDING_CATEGORIES',
+    ] as const)('routes cancelar before the %s step handler', async (fsmState) => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: fsmState, statePayload: { step: 'no-header' } }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: ' Cancelar ' }), deps);
+
+      expect(mockCancelConversationFlowExecute).toHaveBeenCalledOnce();
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+      expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      expect(mockValidateSpreadsheetAccessExecute).not.toHaveBeenCalled();
+      expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+      expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
+    });
+
+    it.each(['resume', 'no-header', 'proposal'])('escapes mapping substep %s', async (step) => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_MAPPING',
+          statePayload: step === 'proposal' ? { mappings: [] } : { step },
+        }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'salir' }), deps);
+      expect(mockCancelConversationFlowExecute).toHaveBeenCalledOnce();
+      expect(mockInferColumnMappingExecute).not.toHaveBeenCalled();
+      expect(mockCorrectColumnMappingExecute).not.toHaveBeenCalled();
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
+    it('keeps no as a contextual mapping answer', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_MAPPING',
+          statePayload: { step: 'no-header' },
+        }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'no' }), deps);
+      expect(mockCancelConversationFlowExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        onboardingCopies.invalidDataStartRowPrompt(),
+      );
+    });
+
+    it('restarts incomplete setup from IDLE with empezar', async () => {
+      const deps = buildMockDeps();
+      mockSpreadsheetConfigFindByUserId.mockResolvedValue({ categoriesConfirmedAt: null });
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'IDLE' }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'empezar' }), deps);
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledOnce();
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('does not register an expense against an incomplete destination', async () => {
+      const deps = buildMockDeps();
+      mockSpreadsheetConfigFindByUserId.mockResolvedValue({ categoriesConfirmedAt: null });
+      mockObserveSemanticRoutingExecute.mockResolvedValue({
+        status: 'expense_action',
+        decision: { action: 'register_expense' },
+      });
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'IDLE' }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Cafe 850' }), deps);
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_START',
+        payload: { promptShown: true },
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', onboardingCopies.setupRequired());
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
   });
 });

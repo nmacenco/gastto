@@ -177,7 +177,7 @@ describe('RouteIncomingMessage', () => {
       expect(mockProcessedMarkAsProcessed).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps empezar non-financial in an ordinary IDLE conversation', async () => {
+    it('queues empezar from IDLE so the worker can restart incomplete onboarding', async () => {
       mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
       const router = new RouteIncomingMessage(
         buildMockDeps() as unknown as RouteIncomingMessageDeps,
@@ -185,9 +185,12 @@ describe('RouteIncomingMessage', () => {
 
       await router.execute(buildTextPayload({ text: 'empezar' }));
 
-      expect(mockClassifyExecute).toHaveBeenCalledWith('empezar');
-      expect(mockSendGuidanceExecute).toHaveBeenCalledWith('123456789');
-      expect(mockAdd).not.toHaveBeenCalled();
+      expect(mockClassifyExecute).not.toHaveBeenCalled();
+      expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
+      expect(mockAdd).toHaveBeenCalledWith(
+        'process-message',
+        expect.objectContaining({ rawMessage: 'empezar' }),
+      );
     });
 
     it('routes empezar without guidance from the contextual ONBOARDING_START state', async () => {
