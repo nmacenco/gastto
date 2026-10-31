@@ -34,11 +34,10 @@ async function handleOAuthCallback(
     code !== undefined ? { code, state } : { error: error!, state },
   );
 
-  const html = result.success
-    ? '<html><body>You can close this window</body></html>'
-    : `<html><body>${escapeHtml(result.message)}</body></html>`;
+  const body = result.success ? 'You can close this window' : escapeHtml(result.message);
+  const html = `<html><head><meta charset="utf-8"></head><body>${body}</body></html>`;
 
-  return reply.type('text/html').send(html);
+  return reply.type('text/html; charset=utf-8').send(html);
 }
 
 function escapeHtml(value: string): string {

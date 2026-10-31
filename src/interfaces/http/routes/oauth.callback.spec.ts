@@ -69,6 +69,25 @@ describe('GET /auth/google/callback', () => {
     expect(mockExecute).toHaveBeenCalledWith({ code: 'auth-code-123', state: 'csrf-state-456' });
   });
 
+  it('declares UTF-8 for accented failure messages', async () => {
+    mockExecute.mockResolvedValue({
+      success: false,
+      nextState: 'ONBOARDING_DRIVE',
+      message: 'Hacé clic para intentar de nuevo.',
+      canRetry: true,
+    });
+
+    const { app } = buildApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/auth/google/callback?code=auth-code-123&state=csrf-state-456',
+    });
+
+    expect(response.headers['content-type']).toContain('charset=utf-8');
+    expect(response.payload).toContain('<meta charset="utf-8">');
+    expect(response.payload).toContain('Hacé clic');
+  });
+
   it('returns 400 when code query param is missing', async () => {
     const { app } = buildApp();
     const response = await app.inject({

@@ -11,7 +11,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 - [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone proposal evaluator plus checksum-pinned, fail-closed release reports, aggregate-safe rollout evidence, guarded enabled dispatch, and migration-free rollback boundaries.
 
-- [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, encrypted token lifecycle, transparent Google access-token refresh, cancellation by "cancelar" or "cancel", and reconnection that reuses a configured sheet and columns (MVP), with OneDrive planned for the future.
+- [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, encrypted token lifecycle, callback diagnostics and UTF-8 response, transparent Google access-token refresh, cancellation by "cancelar" or "cancel", and reconnection that reuses a configured sheet and columns (MVP), with OneDrive planned for the future.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery, deterministic search/direct URL handling, and revision-bound numeric or semantic displayed-file selection.
 - [`select-sheet.md`](./select-sheet.md) — Deterministic and revision-bound sheet selection, IDK header guidance, safe initial config persistence, and eager access validation within the chosen file.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation before expense recording, with one transparent OAuth refresh/replay for provider authorization failures.
