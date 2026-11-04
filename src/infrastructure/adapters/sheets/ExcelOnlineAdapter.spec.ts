@@ -1,3 +1,4 @@
+import pino from 'pino';
 // LAYER: Infrastructure / Tests
 // Contract tests for ExcelOnlineAdapter.
 // Mocks the global fetch API so no real Microsoft Graph calls are made.
@@ -14,8 +15,8 @@ describe('ExcelOnlineAdapter', () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    globalThis.fetch = fetchMock;
-    adapter = new ExcelOnlineAdapter('access-token-123');
+    globalThis.fetch = fetchMock as typeof fetch;
+    adapter = new ExcelOnlineAdapter('access-token-123', pino({ level: 'silent' }));
   });
 
   afterEach(() => {

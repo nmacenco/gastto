@@ -369,7 +369,7 @@ function buildGoogleOAuthFeature(
     cloudStorage: driveFileDiscovery,
     mappingRepository: core.columnMappingRepo,
     spreadsheetPortFactory: sheetsAdapterFactory,
-    accessPortFactory: new SpreadsheetAccessAdapterFactory(),
+    accessPortFactory: new SpreadsheetAccessAdapterFactory(infra.rootLogger),
     headerDetector: core.ruleBasedHeaderDetectionAdapter,
     columnInference: core.ruleBasedColumnInferenceAdapter,
     categoryReaderFactory,
@@ -395,7 +395,7 @@ function buildGoogleOAuthFeature(
   });
 
   const validateSpreadsheetAccess = new ValidateSpreadsheetAccess({
-    validateSpreadsheetAccessPortFactory: new SpreadsheetAccessAdapterFactory(),
+    validateSpreadsheetAccessPortFactory: new SpreadsheetAccessAdapterFactory(infra.rootLogger),
     oauthAccessTokenService: core.oauthAccessTokenService,
     transitionState: core.transitionState,
     messagingPort,
@@ -445,7 +445,7 @@ function buildGoogleOAuthFeature(
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     columnMappingRepository: core.columnMappingRepo,
     settingsCredentialCommit,
-    settingsAccessFactory: new SpreadsheetAccessAdapterFactory(),
+    settingsAccessFactory: new SpreadsheetAccessAdapterFactory(infra.rootLogger),
     settingsOAuthCleanup,
   });
 
@@ -902,7 +902,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     llmPort,
     llmHeaderDetectionAdapter,
     llmColumnInferenceAdapter,
-    spreadsheetAccessAdapterFactory: new SpreadsheetAccessAdapterFactory(),
+    spreadsheetAccessAdapterFactory: new SpreadsheetAccessAdapterFactory(infra.rootLogger),
     ruleBasedColumnInferenceAdapter,
     ruleBasedHeaderDetectionAdapter,
     mappingCorrectionStateRepository,

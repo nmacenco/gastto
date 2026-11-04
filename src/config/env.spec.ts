@@ -12,7 +12,7 @@ describe('envSchema', () => {
     DATABASE_URL: 'postgres://localhost:5432/gastto',
     REDIS_URL: 'redis://localhost:6379',
     OPENAI_API_KEY: 'sk-test-openai',
-    TELEGRAM_WEBHOOK_SECRET: 'webhook-secret',
+    TELEGRAM_WEBHOOK_SECRET: 'test-webhook-secret-32-characters-long',
     TELEGRAM_BOT_TOKEN: 'test-bot-token',
     WEBHOOK_BASE_URL: 'https://example.com',
     ENCRYPTION_KEY: 'a'.repeat(64),
@@ -332,5 +332,33 @@ describe('envSchema', () => {
       EXPENSE_REVIEW_TIMEOUT_MINUTES: '0',
     });
     expect(invalid.success).toBe(false);
+  });
+  it.each(['short', 'a'.repeat(257), 'a'.repeat(31) + '!'])(
+    'rejects invalid webhook secrets',
+    (secret) => {
+      expect(envSchema.safeParse({ ...validEnv, TELEGRAM_WEBHOOK_SECRET: secret }).success).toBe(
+        false,
+      );
+    },
+  );
+  it.each(['a'.repeat(63), 'g'.repeat(64), 'a'.repeat(65)])(
+    'rejects invalid encryption keys',
+    (key) => {
+      expect(envSchema.safeParse({ ...validEnv, ENCRYPTION_KEY: key }).success).toBe(false);
+    },
+  );
+  it.each(['0', '-1', '1.5', 'Infinity', 'NaN', '10001'])(
+    'rejects invalid security admission budgets: %s',
+    (value) => {
+      expect(envSchema.safeParse({ ...validEnv, SECURITY_OAUTH_LIMIT: value }).success).toBe(false);
+      expect(envSchema.safeParse({ ...validEnv, SECURITY_TELEGRAM_LIMIT: value }).success).toBe(
+        false,
+      );
+    },
+  );
+  it.each(['0', '999', '3600001', 'NaN'])('rejects invalid security windows: %s', (value) => {
+    expect(envSchema.safeParse({ ...validEnv, SECURITY_RATE_WINDOW_MS: value }).success).toBe(
+      false,
+    );
   });
 });

@@ -1,7 +1,7 @@
 // LAYER: Bootstrap / Unit Tests
 // Tests for route registration: health, Telegram webhook and OAuth callback.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
 import { registerRoutes } from './registerRoutes';
@@ -47,7 +47,10 @@ const baseEnv: Env = {
 function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
   return {
     db: {} as Dependencies['db'],
-    redis: {} as Dependencies['redis'],
+    redis: {
+      status: 'ready',
+      eval: vi.fn().mockResolvedValue([1, 60000]),
+    } as unknown as Dependencies['redis'],
     rootLogger: createLogger({ level: 'silent' }),
     userRepo: {} as Dependencies['userRepo'],
     conversationRepo: {} as Dependencies['conversationRepo'],

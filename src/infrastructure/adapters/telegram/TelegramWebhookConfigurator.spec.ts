@@ -17,7 +17,7 @@ describe('TelegramWebhookConfigurator', () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = fetchMock as typeof fetch;
   });
 
   afterEach(() => {

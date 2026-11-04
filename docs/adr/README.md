@@ -42,3 +42,5 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 ## Template
 
 For new ADRs, use [`docs/templates/adr.md`](../templates/adr.md).
+
+- [HTTP security boundaries and dependency evidence](2026-11-01-http-security-boundaries.md): limiter budgets, outage policy, runtime and release gates.

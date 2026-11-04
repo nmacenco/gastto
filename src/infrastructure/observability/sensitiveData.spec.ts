@@ -3,7 +3,13 @@ import type { ErrorEvent } from '@sentry/node';
 import pino from 'pino';
 import Fastify from 'fastify';
 
-import { REDACTED_VALUE, pinoRedaction, scrubSentryEvent } from './sensitiveData';
+import {
+  REDACTED_VALUE,
+  pinoRedaction,
+  scrubSentryEvent,
+  scrubLogObject,
+  pinoHooks,
+} from './sensitiveData';
 
 describe('scrubSentryEvent', () => {
   it('defines matching Pino redaction paths for request and application secrets', () => {
@@ -20,7 +26,7 @@ describe('scrubSentryEvent', () => {
   it('removes OAuth authorization codes and state from Fastify request logs', async () => {
     const lines: string[] = [];
     const logger = pino({ redact: pinoRedaction }, { write: (line) => lines.push(line) });
-    const app = Fastify({ logger });
+    const app = Fastify({ loggerInstance: logger });
     await app.inject('/auth/google/callback?code=authorization-code&state=csrf-state');
     await app.close();
 
@@ -75,4 +81,51 @@ describe('scrubSentryEvent', () => {
     expect(scrubbed.extra.token).toBe(REDACTED_VALUE);
     expect(scrubbed.extra.self).toBe('[Circular]');
   });
+});
+
+it('removes synthetic secrets from serialized errors and nested log objects', () => {
+  const canary = 'CANARY-SECRET-DO-NOT-EMIT';
+  const event = scrubSentryEvent({
+    exception: {
+      values: [{ value: canary, stacktrace: { frames: [{ vars: { token: canary } }] } }],
+    },
+    breadcrumbs: [{ message: canary }],
+    extra: { error: new Error(canary), nested: { refreshToken: canary } },
+  } as unknown as ErrorEvent);
+  expect(JSON.stringify(event)).not.toContain(canary);
+});
+
+it('scrubs actual Pino output including top-level and nested fields', () => {
+  const lines: string[] = [];
+  const logger = pino(
+    { redact: pinoRedaction, hooks: pinoHooks, formatters: { log: scrubLogObject } },
+    { write: (line) => lines.push(line) },
+  );
+  logger.error({
+    code: 'SAFE_EVENT',
+    token: 'CANARY-TOP',
+    nested: { refreshToken: 'CANARY-NESTED' },
+    err: new Error('CANARY-ERROR'),
+    headers: { 'x-telegram-bot-api-secret-token': 'CANARY-HEADER' },
+  });
+  expect(lines.join('')).not.toContain('CANARY-');
+  expect(lines.join('')).toContain('SAFE_EVENT');
+});
+
+it('bounds deep provider objects and survives throwing metadata getters', () => {
+  let nested: Record<string, unknown> = { token: 'CANARY-DEEP' };
+  for (let depth = 0; depth < 30; depth++) nested = { nested };
+  const scrubbed = scrubSentryEvent({ extra: nested } as ErrorEvent);
+  expect(JSON.stringify(scrubbed)).not.toContain('CANARY-DEEP');
+  expect(JSON.stringify(scrubbed)).toContain('[Truncated]');
+  const malformed = Object.defineProperty({}, 'error', {
+    enumerable: true,
+    get() {
+      throw new Error('CANARY-GETTER');
+    },
+  });
+  expect(scrubLogObject(malformed)).toEqual({ code: 'LOG_PAYLOAD_OMITTED' });
+  expect(JSON.stringify(scrubSentryEvent({ extra: malformed } as ErrorEvent))).not.toContain(
+    'CANARY-',
+  );
 });

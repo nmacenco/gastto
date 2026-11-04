@@ -31,3 +31,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with cancellation across active flows, incomplete-destination protection, renewable ownership, guarded timeout/queue effects, and financial claims.
 - [`deployment.md`](./deployment.md) — Merge-protected multi-environment Fly.io deployment after successful push quality gates, with configurable LLM provider and extraction fallback, provider-independent Redis-compatible brokers, persistent BullMQ worker Machines, secure cutover and rollback, graceful shutdown, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).
+
+- [Security hardening](security-hardening.md): HTTP budgets, secret validation, production/development audit gates, package-manager-free runtime, telemetry, operational runbook and hosted technical validation.
+
+- Payment methods persistence: JSONB snapshot comparison is independent of object key order (see [payment methods](payment-methods.md)).

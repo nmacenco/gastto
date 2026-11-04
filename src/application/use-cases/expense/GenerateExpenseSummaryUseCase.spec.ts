@@ -7,7 +7,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GenerateExpenseSummaryUseCase } from './GenerateExpenseSummaryUseCase';
 import type { ExpenseSummaryPresenter } from '../../ports/output/expense-summary.presenter';
-import type { ExpenseSummary } from '../../dtos/expense-summary.dto';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import type { ExtractedExpense } from '../../../domain/entities/ExpenseRecord';
 import type { IExpenseRecordRepository } from '../../../domain/ports/repositories';
@@ -27,17 +26,13 @@ function buildMockExpenseRepo(): IExpenseRecordRepository {
   };
 }
 
-function buildMockPresenter(): ExpenseSummaryPresenter & {
-  presentSummary: ReturnType<typeof vi.fn>;
-  showTimeoutWarning: ReturnType<typeof vi.fn>;
-  notifyCancellation: ReturnType<typeof vi.fn>;
-  requestHighAmountConfirmation: ReturnType<typeof vi.fn>;
-} {
+function buildMockPresenter() {
   return {
-    presentSummary: vi.fn(),
-    showTimeoutWarning: vi.fn(),
-    notifyCancellation: vi.fn(),
-    requestHighAmountConfirmation: vi.fn(),
+    presentSummary: vi.fn<ExpenseSummaryPresenter['presentSummary']>(),
+    showTimeoutWarning: vi.fn<ExpenseSummaryPresenter['showTimeoutWarning']>(),
+    notifyCancellation: vi.fn<ExpenseSummaryPresenter['notifyCancellation']>(),
+    requestHighAmountConfirmation:
+      vi.fn<ExpenseSummaryPresenter['requestHighAmountConfirmation']>(),
   };
 }
 
@@ -92,7 +87,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     expect(mockFindAverageAmountByUserId).toHaveBeenCalledWith('user-123');
     expect(presenter.presentSummary).toHaveBeenCalledTimes(1);
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.concept).toBe('Café con leche 100 EUR');
     expect(summary.amount).toBe(100);
     expect(summary.currency).toBe('EUR');
@@ -119,7 +114,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.date).toBe('today');
   });
 
@@ -133,7 +128,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.date).toBe('2026-07-20');
   });
 
@@ -147,7 +142,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.categoryConfidence).toBe('baja');
     expect(summary.categoryStatus).toBe('ambiguous');
   });
@@ -162,7 +157,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.category).toBe('');
     expect(summary.categoryStatus).toBe('none');
   });
@@ -183,7 +178,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.categoryConfidence).toBe('baja');
     expect(summary.subcategory).toBe('Restaurante');
     expect(summary.subcategoryConfidence).toBe('alta');
@@ -206,7 +201,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.subcategory).toBe('Restaurante');
     expect(summary.subcategoryConfidence).toBe(confidence);
     expect(summary.subcategoryStatus).toBe(status);
@@ -219,7 +214,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.subcategory).toBe('');
     expect(summary.subcategoryStatus).toBe('none');
     expect(summary.subcategoryEnabled).toBe(true);
@@ -238,7 +233,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.subcategory).toBe('');
     expect(summary.subcategoryConfidence).toBe('nula');
     expect(summary.subcategoryStatus).toBe('none');
@@ -255,7 +250,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.isHighAmount).toBe(true);
     expect(summary.requiresExplicitConfirmation).toBe(true);
   });
@@ -270,7 +265,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.isHighAmount).toBe(false);
     expect(summary.requiresExplicitConfirmation).toBe(false);
   });
@@ -285,7 +280,7 @@ describe('GenerateExpenseSummaryUseCase', () => {
 
     await useCase.execute({ userId: 'user-123', payload, presenter });
 
-    const summary = presenter.presentSummary.mock.calls[0]![0] as ExpenseSummary;
+    const summary = presenter.presentSummary.mock.calls[0]![0];
     expect(summary.isHighAmount).toBe(false);
     expect(summary.requiresExplicitConfirmation).toBe(false);
   });

@@ -1,3 +1,4 @@
+import type { Logger } from 'pino';
 // LAYER: Infrastructure
 // Excel Online adapter. Uses direct fetch calls to Microsoft Graph API.
 // Does not depend on @microsoft/microsoft-graph-client SDK to keep the dependency surface minimal.
@@ -48,7 +49,10 @@ function providerHttpError(operation: string, status: number): SpreadsheetError 
 }
 
 export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetAccessPort {
-  constructor(private readonly accessToken: string) {}
+  constructor(
+    private readonly accessToken: string,
+    private readonly logger: Logger,
+  ) {}
 
   async listSheets(fileId: string): Promise<SheetInfo[]> {
     const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets`;
@@ -245,7 +249,8 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     }
 
     if (!response.ok) {
-      console.error({
+      this.logger.error({
+        msg: 'Microsoft Graph request failed',
         endpoint: 'ExcelOnlineAdapter.fetchPreview',
         code: 'GRAPH_API_ERROR',
         status: response.status,
@@ -305,7 +310,8 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     }
 
     if (!response.ok) {
-      console.error({
+      this.logger.error({
+        msg: 'Microsoft Graph request failed',
         endpoint: 'ExcelOnlineAdapter.checkWritePermission',
         code: 'GRAPH_API_ERROR',
         status: response.status,

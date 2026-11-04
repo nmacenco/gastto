@@ -1,0 +1,20 @@
+{
+  "createdAt": "2026-11-02T06:41:21.718935145Z",
+  "scanner": "Trivy 0.69.3, offline, network none",
+  "imageManifest": "sha256:ed151b67fe79127f93053599d5cc74994f92b4f2334542987c9be6071adfa8e0",
+  "imageConfig": "sha256:8b47f63cbaac9d702eca9897619ce921b5ce7f53c5befdfd103904984a1ecf57",
+  "limitations": [
+    "Alpine 3.24 is absent from this scanner version EOL list; no lifecycle conclusion from scan"
+  ],
+  "results": [
+    {
+      "target": "/scan/image.tar (alpine 3.24.3)",
+      "findings": []
+    },
+    {
+      "target": "Node.js",
+      "findings": []
+    }
+  ],
+  "scanArtifactId": "sha256:fe8a0313cc4edfe90e3f2634bed3dd0edc706bf45c6914574eb30ec349f2af4a"
+}

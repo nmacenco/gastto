@@ -110,7 +110,10 @@ export const envSchema = z.object({
   SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(4096).default(256),
 
   // ── Messaging ─────────────────────────────────────────────────────────────────
-  TELEGRAM_WEBHOOK_SECRET: z.string().min(1, 'TELEGRAM_WEBHOOK_SECRET is required'),
+  TELEGRAM_WEBHOOK_SECRET: z.string().regex(/^[A-Za-z0-9_-]{32,256}$/),
+  SECURITY_RATE_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).optional(),
+  SECURITY_TELEGRAM_LIMIT: z.coerce.number().int().min(1).max(10000).optional(),
+  SECURITY_OAUTH_LIMIT: z.coerce.number().int().min(1).max(10000).optional(),
   TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required'),
   // Base URL where the Telegram webhook is reachable (e.g. https://gastto-develop.fly.dev).
   // Used to auto-register the webhook with Telegram Bot API on startup.
@@ -126,7 +129,7 @@ export const envSchema = z.object({
 
   // ── Security ──────────────────────────────────────────────────────────────────
   // AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars).
-  ENCRYPTION_KEY: z.string().min(1, 'ENCRYPTION_KEY is required'),
+  ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
 });
 
 export type Env = z.infer<typeof envSchema>;

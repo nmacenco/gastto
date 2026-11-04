@@ -664,7 +664,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
     await sql`
       update conversation_states
       set current_state = 'EXPENSE_REVIEW',
-          state_payload = ${sql.json({ legacy: true })},
+          state_payload = ${JSON.stringify({ legacy: true })}::jsonb,
           revision = revision + 1
       where user_id = ${harness.userId}
     `;

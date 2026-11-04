@@ -1,0 +1,62 @@
+{
+  "date": "2026-11-02",
+  "counts": {
+    "info": 0,
+    "low": 0,
+    "moderate": 5,
+    "high": 0,
+    "critical": 0
+  },
+  "advisories": [
+    {
+      "github_advisory_id": "GHSA-67mh-4wv8-2f99",
+      "module_name": "esbuild",
+      "severity": "moderate",
+      "vulnerable_versions": "<=0.24.2",
+      "patched_versions": ">=0.25.0",
+      "findings": [
+        {
+          "version": "0.18.20",
+          "paths": [".>drizzle-kit>@esbuild-kit/esm-loader>@esbuild-kit/core-utils>esbuild"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-67mh-4wv8-2f99"
+    },
+    {
+      "github_advisory_id": "GHSA-g3hv-75wg-m249",
+      "module_name": "minimatch",
+      "severity": "moderate",
+      "vulnerable_versions": "<11.0.1",
+      "patched_versions": ">=11.0.1",
+      "findings": [
+        {
+          "version": "10.2.6",
+          "paths": [".>eslint>minimatch"]
+        },
+        {
+          "version": "9.0.9",
+          "paths": [".>testcontainers>archiver>archiver-utils>glob>minimatch"]
+        },
+        {
+          "version": "5.1.9",
+          "paths": [".>testcontainers>archiver>readdir-glob>minimatch"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249"
+    },
+    {
+      "github_advisory_id": "GHSA-3g3m-2fjr-6pw4",
+      "module_name": "glob",
+      "severity": "moderate",
+      "vulnerable_versions": ">=9.0.0 <=14.0.1",
+      "patched_versions": ">=14.0.2",
+      "findings": [
+        {
+          "version": "10.5.0",
+          "paths": [".>testcontainers>archiver>archiver-utils>glob"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-3g3m-2fjr-6pw4"
+    }
+  ]
+}

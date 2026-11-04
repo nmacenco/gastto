@@ -272,7 +272,10 @@ describePostgres('subcategory onboarding confirmation (PostgreSQL)', () => {
       FOR EACH ROW EXECUTE FUNCTION reject_subcategory_insert()
     `);
 
-    await expect(confirm(canonicalPayload)).rejects.toThrow('induced child persistence failure');
+    await expect(confirm(canonicalPayload)).rejects.toHaveProperty(
+      'cause.message',
+      'induced child persistence failure',
+    );
 
     await expect(db.select().from(schema.userCategories)).resolves.toEqual([]);
     await expect(db.select().from(schema.userSubcategories)).resolves.toEqual([]);

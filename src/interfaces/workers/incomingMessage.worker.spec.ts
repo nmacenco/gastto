@@ -14,7 +14,7 @@ import { processIncomingMessageJob, createIncomingMessageWorker } from './incomi
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 
 vi.mock('bullmq', () => ({
-  Worker: vi.fn().mockImplementation(() => {
+  Worker: vi.fn().mockImplementation(function () {
     const events: Record<string, Array<(...args: unknown[]) => void>> = {};
     return {
       opts: { concurrency: 1 },

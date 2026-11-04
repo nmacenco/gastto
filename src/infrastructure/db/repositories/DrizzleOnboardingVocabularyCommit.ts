@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -35,9 +36,9 @@ export class DrizzleOnboardingVocabularyCommit implements OnboardingVocabularyCo
           state.revision.toString() !== input.expected.revision ||
           (state.expiresAt !== null && state.expiresAt.getTime() <= Date.now()) ||
           payload?.paymentReview !== true ||
-          JSON.stringify(payload.categories) !== JSON.stringify(input.categories) ||
-          JSON.stringify(payload.paymentMethods) !== JSON.stringify(input.paymentMethods) ||
-          JSON.stringify(payload.categoryDraft) !== JSON.stringify(input.categoryDraft) ||
+          !isDeepStrictEqual(payload.categories, input.categories) ||
+          !isDeepStrictEqual(payload.paymentMethods, input.paymentMethods) ||
+          !isDeepStrictEqual(payload.categoryDraft, input.categoryDraft) ||
           payload.executionClaim !== undefined
         )
           throw new StaleOnboardingCommit();
@@ -182,8 +183,7 @@ function buildIdentifiedDraft(
       .filter((child) => child.categoryId === parent.id)
       .map((child) => child.name),
   }));
-  if (JSON.stringify(displayed) !== JSON.stringify(categories))
-    throw new VocabularyIdentityConflict();
+  if (!isDeepStrictEqual(displayed, categories)) throw new VocabularyIdentityConflict();
   const activeIds = new Set(active.map((row) => row.id));
   const childIds = new Set(children.map((row) => row.id));
   return {

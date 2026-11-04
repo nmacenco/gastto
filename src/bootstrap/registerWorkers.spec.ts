@@ -168,7 +168,7 @@ describe('registerWorkers', () => {
     dependencyQueueCloseMocks.length = 0;
     workerCloseMocks.length = 0;
     createdQueueCloseMocks.length = 0;
-    vi.mocked(Worker).mockImplementation(() => {
+    vi.mocked(Worker).mockImplementation(function () {
       const close = vi.fn().mockResolvedValue(undefined);
       workerCloseMocks.push(close);
       return {
@@ -177,7 +177,7 @@ describe('registerWorkers', () => {
         close,
       } as unknown as Worker;
     });
-    vi.mocked(Queue).mockImplementation(() => {
+    vi.mocked(Queue).mockImplementation(function () {
       const close = vi.fn().mockResolvedValue(undefined);
       const events: Record<string, Array<(...args: unknown[]) => void>> = {};
       createdQueueCloseMocks.push(close);

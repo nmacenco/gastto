@@ -2,7 +2,6 @@
 // Groq Chat Completions adapter with an independent credential.
 
 import OpenAI from 'openai';
-import type { Fetch } from 'openai/core';
 import type {
   LLMPort,
   ExtractionExecutionOptions,
@@ -69,7 +68,7 @@ export class GroqAdapter implements LLMPort {
       apiKey,
       baseURL: 'https://api.groq.com/openai/v1',
       maxRetries: 0,
-      fetch: globalThis.fetch as unknown as Fetch,
+      fetch: globalThis.fetch,
     });
   }
 
