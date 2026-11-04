@@ -8,7 +8,12 @@
 //   5. For all other messages: enqueues to incoming-message queue (thin FIFO worker)
 //   6. Always returns HTTP 200 to avoid Telegram retry loops
 
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type {
+  FastifyInstance,
+  FastifyRequest,
+  FastifyReply,
+  onRequestAsyncHookHandler,
+} from 'fastify';
 import type { Queue } from 'bullmq';
 import { z } from 'zod';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
@@ -30,6 +35,7 @@ export interface TelegramWebhookHandlerDeps {
 
 export interface TelegramWebhookDeps extends TelegramWebhookHandlerDeps {
   webhookSecret: string;
+  admission?: onRequestAsyncHookHandler;
 }
 
 export async function handleTelegramWebhook(
@@ -148,9 +154,11 @@ export function registerTelegramWebhook(app: FastifyInstance, opts: TelegramWebh
       body: TelegramWebhookBodySchema,
       response: {
         200: z.object({ ok: z.literal(true) }),
+        403: z.object({ error: z.string() }),
+        429: z.object({ error: z.string() }),
       },
     },
-    onRequest: [validateTelegramOrigin(opts.webhookSecret)],
+    onRequest: [validateTelegramOrigin(opts.webhookSecret, opts.admission)],
     handler: async (req: FastifyRequest, reply: FastifyReply) => {
       await handleTelegramWebhook(req, reply, opts);
     },

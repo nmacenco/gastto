@@ -65,13 +65,15 @@ export async function readNvidiaStream(
 
   try {
     while (!completed) {
-      const { done, value } = await reader.read();
+      const result: { done: boolean; value?: unknown } = await reader.read();
+      const { done, value } = result;
       if (done) {
         pending += decoder.decode();
         if (pending) consumeLine(pending.replace(/\r$/, ''));
         consumeEvent();
         break;
       }
+      if (!(value instanceof Uint8Array)) throw new Error('Invalid provider stream chunk');
       pending += decoder.decode(value, { stream: true });
       let newline = pending.indexOf('\n');
       while (newline >= 0) {

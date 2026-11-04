@@ -34,8 +34,8 @@ import { settingsCopies } from '../../copies/settings.copies';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
 
 export type HandleOAuthCallbackInput =
-  | { code: string; state: string; error?: never }
-  | { error: string; state: string; code?: never };
+  | { code: string; state: string; error?: never; provider?: SpreadsheetProvider }
+  | { error: string; state: string; code?: never; provider?: SpreadsheetProvider };
 
 export interface HandleOAuthCallbackOutput {
   success: boolean;
@@ -109,6 +109,7 @@ export class HandleOAuthCallback {
         !metadata.externalId ||
         !['telegram', 'whatsapp'].includes(metadata.channel) ||
         !['google', 'microsoft'].includes(metadata.provider) ||
+        (input.provider !== undefined && input.provider !== metadata.provider) ||
         typeof metadata.reminderJobId !== 'string' ||
         (metadata.origin !== undefined && metadata.origin !== 'settings') ||
         (metadata.origin === 'settings' &&

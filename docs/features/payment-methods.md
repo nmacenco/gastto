@@ -21,3 +21,7 @@ Let users configure payment methods for the active spreadsheet destination and r
 ## Verification
 
 Domain and application tests cover catalog identity, matching, unknown review protection, detection, correction, retry normalization, and worker routing. PostgreSQL integration tests require a container runtime; the local environment used for this change does not provide one.
+
+## Persistence comparison
+
+Payment resolution and final onboarding commits compare persisted JSONB snapshots structurally, preserving array order while ignoring object property order. PostgreSQL may reorder object keys; equivalent snapshots must not be rejected as stale. Revision, expiry, identity and explicit-selection checks remain required. The OWASP remediation validation runs the previously opt-in PostgreSQL suites.

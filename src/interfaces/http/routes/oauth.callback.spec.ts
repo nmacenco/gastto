@@ -43,10 +43,15 @@ describe('GET /auth/google/callback', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.payload).toContain('You can close this window');
     expect(mockExecute).toHaveBeenCalledTimes(1);
-    expect(mockExecute).toHaveBeenCalledWith({ code: 'auth-code-123', state: 'csrf-state-456' });
+    expect(mockExecute).toHaveBeenCalledWith({
+      code: 'auth-code-123',
+      state: 'csrf-state-456',
+      provider: 'google',
+    });
   });
 
   it('returns failure HTML when use case fails', async () => {
@@ -64,9 +69,14 @@ describe('GET /auth/google/callback', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.payload).toContain('Connection failed');
-    expect(mockExecute).toHaveBeenCalledWith({ code: 'auth-code-123', state: 'csrf-state-456' });
+    expect(mockExecute).toHaveBeenCalledWith({
+      code: 'auth-code-123',
+      state: 'csrf-state-456',
+      provider: 'google',
+    });
   });
 
   it('declares UTF-8 for accented failure messages', async () => {
@@ -96,6 +106,7 @@ describe('GET /auth/google/callback', () => {
     });
 
     expect(response.statusCode).toBe(400);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
@@ -111,8 +122,13 @@ describe('GET /auth/google/callback', () => {
       url: '/auth/google/callback?error=access_denied&state=csrf-state-456&error_description=%3Cscript%3E',
     });
     expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.payload).not.toContain('<script>');
-    expect(mockExecute).toHaveBeenCalledWith({ error: 'access_denied', state: 'csrf-state-456' });
+    expect(mockExecute).toHaveBeenCalledWith({
+      error: 'access_denied',
+      state: 'csrf-state-456',
+      provider: 'google',
+    });
   });
 
   it('rejects callback without state even on provider denial', async () => {
@@ -122,6 +138,7 @@ describe('GET /auth/google/callback', () => {
       url: '/auth/google/callback?error=access_denied',
     });
     expect(response.statusCode).toBe(400);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
@@ -145,6 +162,7 @@ describe('GET /auth/google/callback', () => {
     });
 
     expect(response.statusCode).toBe(400);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(mockExecute).not.toHaveBeenCalled();
   });
 });
@@ -168,10 +186,15 @@ describe('GET /auth/microsoft/callback', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.payload).toContain('You can close this window');
     expect(mockExecute).toHaveBeenCalledTimes(1);
-    expect(mockExecute).toHaveBeenCalledWith({ code: 'auth-code-789', state: 'csrf-state-abc' });
+    expect(mockExecute).toHaveBeenCalledWith({
+      code: 'auth-code-789',
+      state: 'csrf-state-abc',
+      provider: 'microsoft',
+    });
   });
 
   it('returns failure HTML when use case fails', async () => {
@@ -189,9 +212,14 @@ describe('GET /auth/microsoft/callback', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.payload).toContain('Microsoft connection failed');
-    expect(mockExecute).toHaveBeenCalledWith({ code: 'auth-code-789', state: 'csrf-state-abc' });
+    expect(mockExecute).toHaveBeenCalledWith({
+      code: 'auth-code-789',
+      state: 'csrf-state-abc',
+      provider: 'microsoft',
+    });
   });
 
   it('returns 400 when code query param is missing', async () => {
@@ -202,6 +230,7 @@ describe('GET /auth/microsoft/callback', () => {
     });
 
     expect(response.statusCode).toBe(400);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
@@ -213,6 +242,7 @@ describe('GET /auth/microsoft/callback', () => {
     });
 
     expect(response.statusCode).toBe(400);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(mockExecute).not.toHaveBeenCalled();
   });
 });

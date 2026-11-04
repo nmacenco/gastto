@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { and, eq, gt, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type * as schema from '../schema';
@@ -37,7 +38,7 @@ export class DrizzleExpensePaymentResolutionCommit implements ExpensePaymentReso
         if (payload?.executionClaim !== undefined) throw new StalePaymentResolution();
         const current = normalizeExpenseReviewPayload(payload);
         if (
-          JSON.stringify(current) !== JSON.stringify(input.current) ||
+          !isDeepStrictEqual(current, input.current) ||
           input.next.reviewBinding?.presentedAt !== null ||
           input.next.reviewBinding?.revision !== (current.reviewBinding?.revision ?? 0) + 1
         )

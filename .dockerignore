@@ -6,3 +6,16 @@ dist
 coverage
 .vscode
 .idea
+
+.env.*
+!.env.example
+**/credentials.json
+**/secrets.*
+**/*.pem
+**/*.key
+.aws
+.codex
+.agents
+.codebase-memory
+.opencode
+ai

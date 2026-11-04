@@ -147,3 +147,7 @@ No database schema changes yet. The feature operates on transient domain value o
 - `receivedAt` for text comes from the validated channel timestamp. Telegram callback occurrence time uses authenticated webhook receipt time because callback queries do not expose a tap timestamp.
 - Review callbacks are not global cancellation commands. Outside `EXPENSE_REVIEW` they produce no state mutation or financial effect.
 - Exact text cancellation reaches the locked deterministic FSM path before optional semantic dispatch. Settings, onboarding, retry, saving, and undo-confirmation exits use a revision-guarded non-expense use case; expense drafts retain queue-aware cancellation. A persisted financial claim blocks state clearing and sends bounded guidance.
+
+## Security boundary update (2026-11-01)
+
+See [Security hardening](security-hardening.md) for the implemented HTTP admission/status contracts, production documentation availability, dependency gate, secret rotation and release evidence. These contracts supersede earlier blanket statements that every Telegram request returns 200.

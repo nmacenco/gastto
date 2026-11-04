@@ -1,0 +1,12 @@
+ALTER TABLE "column_mappings" ADD CONSTRAINT "chk_gastto_field" CHECK ("column_mappings"."gastto_field" IN ('monto','moneda','categoria','fecha','concepto','medio_pago','subcategoria'));--> statement-breakpoint
+ALTER TABLE "conversation_states" ADD CONSTRAINT "chk_conversation_state" CHECK ("conversation_states"."current_state" IN ('IDLE','SETTINGS_MENU','SETTINGS_OAUTH','SETTINGS_FILE','SETTINGS_SHEET','SETTINGS_MAPPING','SETTINGS_CATEGORIES','ONBOARDING_START','ONBOARDING_DRIVE','ONBOARDING_FILE','ONBOARDING_SHEET','ONBOARDING_VALIDATING_ACCESS','ONBOARDING_MAPPING','ONBOARDING_CATEGORIES','EXPENSE_RECEIVING','EXPENSE_CLARIFYING','EXPENSE_REVIEW','EXPENSE_CORRECTING','EXPENSE_SAVING','EXPENSE_SAVING_RETRY','EXPENSE_UNDO_CONFIRMING'));--> statement-breakpoint
+ALTER TABLE "expense_queue" ADD CONSTRAINT "chk_position_range" CHECK ("expense_queue"."position" BETWEEN 1 AND 2);--> statement-breakpoint
+ALTER TABLE "expense_queue" ADD CONSTRAINT "chk_queue_channel" CHECK ("expense_queue"."channel" IN ('telegram', 'whatsapp'));--> statement-breakpoint
+ALTER TABLE "expense_records" ADD CONSTRAINT "chk_monto" CHECK ("expense_records"."monto" >= 0);--> statement-breakpoint
+ALTER TABLE "expense_records" ADD CONSTRAINT "chk_moneda" CHECK ("expense_records"."moneda" IN ('ARS','EUR','USD','MXN','GBP','BRL'));--> statement-breakpoint
+ALTER TABLE "expense_records" ADD CONSTRAINT "chk_confidence" CHECK ("expense_records"."categoria_confidence" IN ('alta','baja','nula') OR "expense_records"."categoria_confidence" IS NULL);--> statement-breakpoint
+ALTER TABLE "messaging_identities" ADD CONSTRAINT "chk_channel" CHECK ("messaging_identities"."channel" IN ('telegram', 'whatsapp'));--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ADD CONSTRAINT "chk_provider" CHECK ("oauth_tokens"."provider" IN ('google', 'microsoft'));--> statement-breakpoint
+ALTER TABLE "spreadsheet_configs" ADD CONSTRAINT "chk_sp_provider" CHECK ("spreadsheet_configs"."provider" IN ('google', 'microsoft'));--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "chk_users_status" CHECK ("users"."status" IN ('onboarding', 'active', 'suspended'));--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "chk_users_currency" CHECK ("users"."default_currency" IN ('ARS','EUR','USD','MXN','GBP','BRL') OR "users"."default_currency" IS NULL);

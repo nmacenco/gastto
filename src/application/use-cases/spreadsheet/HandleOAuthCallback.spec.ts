@@ -758,3 +758,21 @@ describe('HandleOAuthCallback', () => {
     });
   });
 });
+
+it('rejects a nonce from another provider before locking or side effects', async () => {
+  vi.clearAllMocks();
+  mockRedisGet.mockResolvedValue(baseRedisPayload);
+  const acquire = vi.fn();
+  const deps = buildMockDeps();
+  deps.userProcessingLock.acquire = acquire;
+  const result = await new HandleOAuthCallback(deps).execute({
+    ...baseInput,
+    provider: 'microsoft',
+  });
+  expect(result.success).toBe(false);
+  expect(acquire).not.toHaveBeenCalled();
+  expect(mockExchangeCode).not.toHaveBeenCalled();
+  expect(mockTokenUpsert).not.toHaveBeenCalled();
+  expect(mockRedisDel).not.toHaveBeenCalled();
+  expect(mockSendMessage).not.toHaveBeenCalled();
+});

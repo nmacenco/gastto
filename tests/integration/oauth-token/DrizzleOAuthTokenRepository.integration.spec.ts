@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq, and } from 'drizzle-orm';
+import { encrypt, decrypt } from '../../../src/infrastructure/security/aes256gcm';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import * as schema from '../../../src/infrastructure/db/schema';
 import {
@@ -190,14 +191,20 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
   describe('OAuth Token Encryption round-trip', () => {
     it('never exposes plaintext tokens in raw DB query results', async () => {
       const user = await createUser(db);
+      const otherUser = await createUser(db);
+      const key = Buffer.from('a'.repeat(64), 'hex');
+      const accessPlaintext = 'CANARY-ACCESS-DO-NOT-PERSIST';
+      const refreshPlaintext = 'CANARY-REFRESH-DO-NOT-PERSIST';
+      const access = encrypt(accessPlaintext, key);
+      const refresh = encrypt(refreshPlaintext, key);
 
       await repo.upsert({
         userId: user.userId,
         provider: 'google',
-        accessTokenEnc: Buffer.from('encrypted-access-token-buffer'),
-        refreshTokenEnc: Buffer.from('encrypted-refresh-token-buffer'),
-        iv: Buffer.from('initialization-vector'),
-        refreshIv: Buffer.from('refresh-initialization-vector'),
+        accessTokenEnc: access.ciphertext,
+        refreshTokenEnc: refresh.ciphertext,
+        iv: access.iv,
+        refreshIv: refresh.iv,
         accessTokenExpiresAt: new Date('2026-12-31T23:59:59Z'),
         scope: ['https://www.googleapis.com/auth/drive.file'],
         grantedAt: new Date('2026-01-01T00:00:00Z'),
@@ -218,19 +225,15 @@ describe.skipIf(!isDockerAvailable())('Integration :: DrizzleOAuthTokenRepositor
       expect(rawRow.iv).toBeInstanceOf(Buffer);
       expect(rawRow.refresh_iv).toBeInstanceOf(Buffer);
 
-      // Ensure the raw buffers contain the encrypted bytes, NOT plaintext tokens
-      const accessTokenRaw = Buffer.from(rawRow.access_token_enc).toString();
-      const refreshTokenRaw = Buffer.from(rawRow.refresh_token_enc).toString();
-      expect(accessTokenRaw).toBe('encrypted-access-token-buffer');
-      expect(refreshTokenRaw).toBe('encrypted-refresh-token-buffer');
-      expect(Buffer.from(rawRow.iv).toString()).toBe('initialization-vector');
-      expect(Buffer.from(rawRow.refresh_iv).toString()).toBe('refresh-initialization-vector');
-
-      // Plaintext tokens must NEVER appear
-      expect(accessTokenRaw).not.toContain('plain');
-      expect(accessTokenRaw).not.toContain('secret');
-      expect(refreshTokenRaw).not.toContain('plain');
-      expect(refreshTokenRaw).not.toContain('secret');
+      const accessBytes = Buffer.from(rawRow.access_token_enc);
+      const refreshBytes = Buffer.from(rawRow.refresh_token_enc);
+      expect(accessBytes).toEqual(access.ciphertext);
+      expect(refreshBytes).toEqual(refresh.ciphertext);
+      expect(accessBytes.toString()).not.toContain(accessPlaintext);
+      expect(refreshBytes.toString()).not.toContain(refreshPlaintext);
+      expect(decrypt(accessBytes, Buffer.from(rawRow.iv), key)).toBe(accessPlaintext);
+      expect(decrypt(refreshBytes, Buffer.from(rawRow.refresh_iv), key)).toBe(refreshPlaintext);
+      await expect(repo.findByUserAndProvider(otherUser.userId, 'google')).resolves.toBeNull();
     });
   });
 });

@@ -108,6 +108,35 @@ describe('createFastify', () => {
     expect(response.statusCode).toBe(500);
     expect(Sentry.captureException).toHaveBeenCalledWith(expect.any(Error));
     const capturedError = vi.mocked(Sentry.captureException).mock.calls[0]?.[0] as Error;
-    expect(capturedError.message).toBe('intentional test error');
+    expect(capturedError.message).toBe('HTTP_UNEXPECTED_ERROR');
+    expect(response.payload).not.toContain('intentional test error');
+  });
+  it('hides the entire documentation surface in production', async () => {
+    app = await createFastify(
+      { ...baseEnv, NODE_ENV: 'production' },
+      createLogger({ level: 'silent' }),
+    );
+    for (const url of [
+      '/documentation',
+      '/documentation/',
+      '/documentation/json',
+      '/documentation/yaml',
+      '/documentation/static/index.html',
+    ]) {
+      expect((await app.inject(url)).statusCode).toBe(404);
+    }
+    expect(app.hasPlugin('@fastify/swagger-ui')).toBe(false);
+  });
+  it('keeps errors generic even if telemetry throws', async () => {
+    vi.mocked(Sentry.captureException).mockImplementationOnce(() => {
+      throw new Error('synthetic-telemetry-secret');
+    });
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    app.get('/telemetry-failure', () => {
+      throw new Error('synthetic-provider-secret');
+    });
+    const response = await app.inject('/telemetry-failure');
+    expect(response.statusCode).toBe(500);
+    expect(response.payload).not.toContain('synthetic-');
   });
 });

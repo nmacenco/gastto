@@ -355,3 +355,7 @@ interface OAuthAccessTokenProvider {
 ### OneDrive
 
 - **Out of scope for MVP.** The `InitiateCloudConnection` use case returns a "coming soon" message for OneDrive selections. A `MicrosoftOneDriveOAuthAdapter` and dedicated callback route wiring are planned for a future release.
+
+## Security boundary update (2026-11-01)
+
+See [Security hardening](security-hardening.md) for the implemented HTTP admission/status contracts, production documentation availability, dependency gate, secret rotation and release evidence. These contracts supersede earlier blanket statements that every Telegram request returns 200.

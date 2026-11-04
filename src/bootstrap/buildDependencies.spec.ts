@@ -72,7 +72,7 @@ function buildInfra(rootLogger: Logger = createLogger({ level: 'silent' })) {
 
 describe('buildDependencies', () => {
   beforeEach(() => {
-    vi.mocked(Queue).mockImplementation(() => {
+    vi.mocked(Queue).mockImplementation(function () {
       const events: Record<string, Array<(...args: unknown[]) => void>> = {};
       return {
         add: vi.fn().mockResolvedValue(undefined),

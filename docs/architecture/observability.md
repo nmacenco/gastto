@@ -125,3 +125,7 @@ Extraction adapters emit `llm_extraction_started` and one `llm_extraction_comple
 Error codes are `LLM_TIMEOUT`, `LLM_CANCELLED`, `LLM_EMPTY_RESPONSE`, `LLM_OUTPUT_TRUNCATED`, `LLM_INVALID_JSON`, `LLM_INVALID_SCHEMA`, and `LLM_PROVIDER_ERROR`. Exceptions crossing the adapter boundary retain only their code, never provider bodies, SDK causes, validation inputs, or reasoning content.
 
 The deterministic initial-message path uses `<channel>:<externalMessageId>` as correlation ID. `expense_context_loading`/`expense_context_loaded` mark context loading; the latter records its duration. `expense_summary_presented` records successful initial summary presentation duration. Other extraction callers receive a generated correlation ID if they supply none. Provider time excludes surrounding database and presentation work. Recovery errors are logged with `endpoint: processMessageJob` and the typed code; a recovered failure is not a BullMQ retry.
+
+## HTTP security events
+
+See [security hardening](../features/security-hardening.md) for stable event codes, bounded emission and operator alert thresholds. Both logger factories use shared object scrubbing in addition to Pino paths. Free-form exception/error fields are omitted; unexpected HTTP errors use a generic response and sanitized Sentry exception. Excel logging is injected through all concrete adapter factories. External alert delivery remains a separate operational acceptance check.

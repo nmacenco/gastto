@@ -222,3 +222,11 @@ claims remain compatible.
 `LLM_EXTRACTION_TIMEOUT_MS` applies to NVIDIA, OpenAI, and Claude `extractExpense` calls. It does not change the separate semantic-router timeout, correction/chat calls, queue wait, database queries, or message-delivery retries. Requests use an abort signal and SDK extraction calls explicitly disable automatic retries.
 
 For the exact model `z-ai/glm-5.3-flash`, NVIDIA extraction sends `reasoning_effort: low` and `max_tokens: 4096` and consumes the SSE stream to collect final-answer content. Other model IDs keep the prior 512-token extraction budget, JSON response path, and no GLM-specific reasoning option. This is an explicit exception to model-only substitution: see [ADR-026](../adr/2026-09-23-bound-expense-extraction.md) and [ADR-027](../adr/2026-10-09-stream-nvidia-expense-extraction.md). Validate any overridden model against its provider contract and observe final-response metadata before changing its budget.
+
+## HTTP security configuration
+
+The runtime now targets Node 24. `TELEGRAM_WEBHOOK_SECRET` requires 32–256 Telegram-alphabet characters; `ENCRYPTION_KEY` requires exactly 64 hexadecimal characters. Optional budgets are `SECURITY_RATE_WINDOW_MS` (default 60000, range 1000–3600000), `SECURITY_TELEGRAM_LIMIT` and `SECURITY_OAUTH_LIMIT` (each default 60, range 1–10000). Inputs must be finite integers. See [security hardening](../features/security-hardening.md) for rotation and shared-peer limitations. Production Swagger UI is disabled. `pnpm security:audit` and `pnpm security:test` enforce the dependency evidence contract.
+
+Builds pin pnpm 10.34.9. The production runtime contains Node and application dependencies, without package-manager CLIs; dependency installation belongs to build stages.
+
+Security CI runs both `pnpm security:audit` (production) and `pnpm security:audit:all` (including build/test tools). Reports are sanitized and retained for 14 days; a registry or parser failure blocks the gate.

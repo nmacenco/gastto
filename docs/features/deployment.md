@@ -389,3 +389,7 @@ Upstash remains unchanged during the rollback window but does not receive writes
 made only to Aiven. Rollback requires neither Machine scaling nor deletion of
 either broker. Do not flush, downgrade, disconnect, or delete a provider as part
 of rollback.
+
+## Security boundary update (2026-11-01)
+
+See [Security hardening](security-hardening.md) for the implemented HTTP admission/status contracts, production documentation availability, dependency gate, secret rotation and release evidence. These contracts supersede earlier blanket statements that every Telegram request returns 200.

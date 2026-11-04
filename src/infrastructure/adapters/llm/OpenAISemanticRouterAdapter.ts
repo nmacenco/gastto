@@ -3,7 +3,6 @@ import type {
   ChatCompletion,
   ChatCompletionCreateParamsNonStreaming,
 } from 'openai/resources/chat/completions';
-import type { RequestOptions } from 'openai/core';
 import { z } from 'zod';
 import type {
   SemanticRouterInput,
@@ -31,7 +30,7 @@ export const OpenAIRouterSettingsSchema = z
 export type OpenAIRouterSettings = z.infer<typeof OpenAIRouterSettingsSchema>;
 export type CompletionTransport = (
   body: ChatCompletionCreateParamsNonStreaming,
-  options: RequestOptions,
+  options: OpenAI.RequestOptions,
 ) => Promise<ChatCompletion>;
 const envelope = z.object({ decision: ConversationDecisionSchema }).strict();
 const clarificationReasons = [

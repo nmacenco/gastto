@@ -161,7 +161,7 @@ describe('OpenAI semantic router boundary', () => {
             status,
             { message: 'private financial text' },
             'private financial text',
-            {},
+            new Headers(),
           ),
         );
       const result = await new OpenAISemanticRouterAdapter(transport, settings).decide(

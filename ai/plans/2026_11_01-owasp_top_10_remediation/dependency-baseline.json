@@ -1,0 +1,853 @@
+{
+  "date": "2026-11-01",
+  "commit": "c4662770503b443a8bdd6764bb09ba1f4db45893",
+  "counts": {
+    "info": 0,
+    "low": 5,
+    "moderate": 24,
+    "high": 30,
+    "critical": 1
+  },
+  "advisories": [
+    {
+      "github_advisory_id": "GHSA-mrq3-vjjr-p77c",
+      "module_name": "fastify",
+      "severity": "low",
+      "vulnerable_versions": "<=5.7.2",
+      "patched_versions": ">=5.7.3",
+      "findings": [
+        {
+          "version": "4.29.1",
+          "paths": [".>fastify"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-mrq3-vjjr-p77c"
+    },
+    {
+      "github_advisory_id": "GHSA-jx2c-rxcm-jvmq",
+      "module_name": "fastify",
+      "severity": "high",
+      "vulnerable_versions": "<5.7.2",
+      "patched_versions": ">=5.7.2",
+      "findings": [
+        {
+          "version": "4.29.1",
+          "paths": [".>fastify"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-jx2c-rxcm-jvmq"
+    },
+    {
+      "github_advisory_id": "GHSA-444r-cwp2-x5xf",
+      "module_name": "fastify",
+      "severity": "moderate",
+      "vulnerable_versions": "<=5.8.2",
+      "patched_versions": ">=5.8.3",
+      "findings": [
+        {
+          "version": "4.29.1",
+          "paths": [".>fastify"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-444r-cwp2-x5xf"
+    },
+    {
+      "github_advisory_id": "GHSA-gpj5-g38j-94v9",
+      "module_name": "drizzle-orm",
+      "severity": "high",
+      "vulnerable_versions": "<0.45.2",
+      "patched_versions": ">=0.45.2",
+      "findings": [
+        {
+          "version": "0.31.4",
+          "paths": [".>drizzle-orm"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-gpj5-g38j-94v9"
+    },
+    {
+      "github_advisory_id": "GHSA-w5hq-g745-h8pq",
+      "module_name": "uuid",
+      "severity": "moderate",
+      "vulnerable_versions": "<11.1.1",
+      "patched_versions": ">=11.1.1",
+      "findings": [
+        {
+          "version": "9.0.1",
+          "paths": [".>googleapis>google-auth-library>gaxios>uuid"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-w5hq-g745-h8pq"
+    },
+    {
+      "github_advisory_id": "GHSA-q8mj-m7cp-5q26",
+      "module_name": "qs",
+      "severity": "moderate",
+      "vulnerable_versions": ">=6.11.1 <=6.15.1",
+      "patched_versions": ">=6.15.2",
+      "findings": [
+        {
+          "version": "6.15.1",
+          "paths": [".>googleapis>googleapis-common>qs"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-q8mj-m7cp-5q26"
+    },
+    {
+      "github_advisory_id": "GHSA-hmw2-7cc7-3qxx",
+      "module_name": "form-data",
+      "severity": "high",
+      "vulnerable_versions": ">=4.0.0 <4.0.6",
+      "patched_versions": ">=4.0.6",
+      "findings": [
+        {
+          "version": "4.0.5",
+          "paths": [".>@anthropic-ai/sdk>@types/node-fetch>form-data"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-hmw2-7cc7-3qxx"
+    },
+    {
+      "github_advisory_id": "GHSA-3jxr-9vmj-r5cp",
+      "module_name": "brace-expansion",
+      "severity": "high",
+      "vulnerable_versions": ">=2.0.0 <2.1.2",
+      "patched_versions": ">=2.1.2",
+      "findings": [
+        {
+          "version": "2.1.0",
+          "paths": [".>@fastify/swagger-ui>@fastify/static>glob>minimatch>brace-expansion"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp"
+    },
+    {
+      "github_advisory_id": "GHSA-v2hh-gcrm-f6hx",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=3.0.0 <=3.1.3",
+      "patched_versions": ">=3.1.4",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-v2hh-gcrm-f6hx"
+    },
+    {
+      "github_advisory_id": "GHSA-v2hh-gcrm-f6hx",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=2.3.1 <=2.4.2",
+      "patched_versions": ">=2.4.3",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-v2hh-gcrm-f6hx"
+    },
+    {
+      "github_advisory_id": "GHSA-c96f-x56v-gq3h",
+      "module_name": "find-my-way",
+      "severity": "high",
+      "vulnerable_versions": "<=9.6.0",
+      "patched_versions": ">=9.7.0",
+      "findings": [
+        {
+          "version": "8.2.2",
+          "paths": [".>fastify>find-my-way"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-c96f-x56v-gq3h"
+    },
+    {
+      "github_advisory_id": "GHSA-8pvw-jcv7-9cmj",
+      "module_name": "@fastify/static",
+      "severity": "moderate",
+      "vulnerable_versions": "<=10.1.1",
+      "patched_versions": ">=10.1.2",
+      "findings": [
+        {
+          "version": "7.0.4",
+          "paths": [".>@fastify/swagger-ui>@fastify/static"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-8pvw-jcv7-9cmj"
+    },
+    {
+      "github_advisory_id": "GHSA-83w8-p2f5-377r",
+      "module_name": "@fastify/static",
+      "severity": "high",
+      "vulnerable_versions": "<=10.1.0",
+      "patched_versions": ">=10.1.1",
+      "findings": [
+        {
+          "version": "7.0.4",
+          "paths": [".>@fastify/swagger-ui>@fastify/static"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-83w8-p2f5-377r"
+    },
+    {
+      "github_advisory_id": "GHSA-mh99-v99m-4gvg",
+      "module_name": "brace-expansion",
+      "severity": "high",
+      "vulnerable_versions": ">=2.0.0 <2.1.3",
+      "patched_versions": ">=2.1.3",
+      "findings": [
+        {
+          "version": "2.1.0",
+          "paths": [".>@fastify/swagger-ui>@fastify/static>glob>minimatch>brace-expansion"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "github_advisory_id": "GHSA-7p8r-x3mc-p8w7",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=3.0.0 <3.1.5",
+      "patched_versions": ">=3.1.5",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-7p8r-x3mc-p8w7"
+    },
+    {
+      "github_advisory_id": "GHSA-7p8r-x3mc-p8w7",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": "<2.4.4",
+      "patched_versions": ">=2.4.4",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-7p8r-x3mc-p8w7"
+    },
+    {
+      "github_advisory_id": "GHSA-rgw5-rvv9-x895",
+      "module_name": "brace-expansion",
+      "severity": "high",
+      "vulnerable_versions": ">=2.0.0 <2.1.4",
+      "patched_versions": ">=2.1.4",
+      "findings": [
+        {
+          "version": "2.1.0",
+          "paths": [".>@fastify/swagger-ui>@fastify/static>glob>minimatch>brace-expansion"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895"
+    },
+    {
+      "github_advisory_id": "GHSA-q3j6-qgpj-74h6",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": "<=2.4.0",
+      "patched_versions": ">=2.4.1",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-q3j6-qgpj-74h6"
+    },
+    {
+      "github_advisory_id": "GHSA-v39h-62p7-jpjc",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": "<=2.4.0",
+      "patched_versions": ">=2.4.1",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-v39h-62p7-jpjc"
+    },
+    {
+      "github_advisory_id": "GHSA-8988-4f7v-96qf",
+      "module_name": "@opentelemetry/core",
+      "severity": "moderate",
+      "vulnerable_versions": "<2.8.0",
+      "patched_versions": ">=2.8.0",
+      "findings": [
+        {
+          "version": "1.30.1",
+          "paths": [".>@sentry/node>@opentelemetry/core"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-8988-4f7v-96qf"
+    },
+    {
+      "github_advisory_id": "GHSA-x5fp-wj9c-mxmx",
+      "module_name": "qs",
+      "severity": "moderate",
+      "vulnerable_versions": ">=6.14.2 <=6.15.3",
+      "patched_versions": ">=6.16.0",
+      "findings": [
+        {
+          "version": "6.15.1",
+          "paths": [".>googleapis>googleapis-common>qs"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-x5fp-wj9c-mxmx"
+    },
+    {
+      "github_advisory_id": "GHSA-4mjr-xmp4-gh2g",
+      "module_name": "qs",
+      "severity": "moderate",
+      "vulnerable_versions": ">=2.2.5 <6.16.0",
+      "patched_versions": ">=6.16.0",
+      "findings": [
+        {
+          "version": "6.15.1",
+          "paths": [".>googleapis>googleapis-common>qs"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-4mjr-xmp4-gh2g"
+    },
+    {
+      "github_advisory_id": "GHSA-w2qp-rph6-63g4",
+      "module_name": "fastify",
+      "severity": "moderate",
+      "vulnerable_versions": "<5.12.1",
+      "patched_versions": ">=5.12.1",
+      "findings": [
+        {
+          "version": "4.29.1",
+          "paths": [".>fastify"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-w2qp-rph6-63g4"
+    },
+    {
+      "github_advisory_id": "GHSA-f65p-4m7j-42xc",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=3.0.0 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc"
+    },
+    {
+      "github_advisory_id": "GHSA-f65p-4m7j-42xc",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=2.3.1 <2.4.5",
+      "patched_versions": ">=2.4.5",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc"
+    },
+    {
+      "github_advisory_id": "GHSA-fph4-wmhf-6fwf",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=3.1.2 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf"
+    },
+    {
+      "github_advisory_id": "GHSA-jqff-g426-hqxp",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=3.0.0 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp"
+    },
+    {
+      "github_advisory_id": "GHSA-jqff-g426-hqxp",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=2.3.1 <2.4.5",
+      "patched_versions": ">=2.4.5",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp"
+    },
+    {
+      "github_advisory_id": "GHSA-4c8g-83qw-93j6",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=2.3.1 <2.4.2",
+      "patched_versions": ">=2.4.2",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-4c8g-83qw-93j6"
+    },
+    {
+      "github_advisory_id": "GHSA-4c8g-83qw-93j6",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=3.0.0 <3.1.3",
+      "patched_versions": ">=3.1.3",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-4c8g-83qw-93j6"
+    },
+    {
+      "github_advisory_id": "GHSA-qw65-cvwx-89v3",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": ">=3.0.0 <3.1.7",
+      "patched_versions": ">=3.1.7",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-qw65-cvwx-89v3"
+    },
+    {
+      "github_advisory_id": "GHSA-qw65-cvwx-89v3",
+      "module_name": "fast-uri",
+      "severity": "high",
+      "vulnerable_versions": "<2.4.6",
+      "patched_versions": ">=2.4.6",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-qw65-cvwx-89v3"
+    },
+    {
+      "github_advisory_id": "GHSA-hrr3-gc8f-f4qj",
+      "module_name": "fast-uri",
+      "severity": "moderate",
+      "vulnerable_versions": ">=3.0.0 <3.1.8",
+      "patched_versions": ">=3.1.8",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-hrr3-gc8f-f4qj"
+    },
+    {
+      "github_advisory_id": "GHSA-hrr3-gc8f-f4qj",
+      "module_name": "fast-uri",
+      "severity": "moderate",
+      "vulnerable_versions": "<2.4.7",
+      "patched_versions": ">=2.4.7",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-hrr3-gc8f-f4qj"
+    },
+    {
+      "github_advisory_id": "GHSA-q2hr-2g5m-vwhr",
+      "module_name": "brace-expansion",
+      "severity": "moderate",
+      "vulnerable_versions": ">=2.0.0 <2.1.7",
+      "patched_versions": ">=2.1.7",
+      "findings": [
+        {
+          "version": "2.1.0",
+          "paths": [".>@fastify/swagger-ui>@fastify/static>glob>minimatch>brace-expansion"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr"
+    },
+    {
+      "github_advisory_id": "GHSA-qhr7-859c-m2p7",
+      "module_name": "brace-expansion",
+      "severity": "high",
+      "vulnerable_versions": ">=2.0.0 <2.1.6",
+      "patched_versions": ">=2.1.6",
+      "findings": [
+        {
+          "version": "2.1.0",
+          "paths": [".>@fastify/swagger-ui>@fastify/static>glob>minimatch>brace-expansion"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-qhr7-859c-m2p7"
+    },
+    {
+      "github_advisory_id": "GHSA-6j4f-fj2g-mc7p",
+      "module_name": "brace-expansion",
+      "severity": "high",
+      "vulnerable_versions": ">=2.0.0 <2.1.5",
+      "patched_versions": ">=2.1.5",
+      "findings": [
+        {
+          "version": "2.1.0",
+          "paths": [".>@fastify/swagger-ui>@fastify/static>glob>minimatch>brace-expansion"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p"
+    },
+    {
+      "github_advisory_id": "GHSA-4mh8-r7rc-xpvc",
+      "module_name": "fastify",
+      "severity": "moderate",
+      "vulnerable_versions": "<5.12.5",
+      "patched_versions": ">=5.12.5",
+      "findings": [
+        {
+          "version": "4.29.1",
+          "paths": [".>fastify"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-4mh8-r7rc-xpvc"
+    },
+    {
+      "github_advisory_id": "GHSA-667r-xxjv-c9mm",
+      "module_name": "fastify",
+      "severity": "high",
+      "vulnerable_versions": "<5.12.2",
+      "patched_versions": ">=5.12.2",
+      "findings": [
+        {
+          "version": "4.29.1",
+          "paths": [".>fastify"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-667r-xxjv-c9mm"
+    },
+    {
+      "github_advisory_id": "GHSA-p68q-wchp-6fh7",
+      "module_name": "fastify",
+      "severity": "high",
+      "vulnerable_versions": ">=4.0.0 <5.12.2",
+      "patched_versions": ">=5.12.2",
+      "findings": [
+        {
+          "version": "4.29.1",
+          "paths": [".>fastify"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-p68q-wchp-6fh7"
+    },
+    {
+      "github_advisory_id": "GHSA-hwr6-493r-vm6h",
+      "module_name": "fastify",
+      "severity": "high",
+      "vulnerable_versions": "<5.12.2",
+      "patched_versions": ">=5.12.2",
+      "findings": [
+        {
+          "version": "4.29.1",
+          "paths": [".>fastify"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-hwr6-493r-vm6h"
+    },
+    {
+      "github_advisory_id": "GHSA-9q9j-q6p8-xq58",
+      "module_name": "fastify",
+      "severity": "high",
+      "vulnerable_versions": "<5.12.2",
+      "patched_versions": ">=5.12.2",
+      "findings": [
+        {
+          "version": "4.29.1",
+          "paths": [".>fastify"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-9q9j-q6p8-xq58"
+    },
+    {
+      "github_advisory_id": "GHSA-jqcg-44mw-7w3h",
+      "module_name": "proxy-addr",
+      "severity": "critical",
+      "vulnerable_versions": ">=1.1.0 <2.0.8",
+      "patched_versions": ">=2.0.8",
+      "findings": [
+        {
+          "version": "2.0.7",
+          "paths": [".>fastify>proxy-addr"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-jqcg-44mw-7w3h"
+    },
+    {
+      "github_advisory_id": "GHSA-qqmp-wf37-98f9",
+      "module_name": "@opentelemetry/instrumentation-pg",
+      "severity": "moderate",
+      "vulnerable_versions": "<0.73.0",
+      "patched_versions": ">=0.73.0",
+      "findings": [
+        {
+          "version": "0.50.0",
+          "paths": [".>@sentry/node>@opentelemetry/instrumentation-pg"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-qqmp-wf37-98f9"
+    },
+    {
+      "github_advisory_id": "GHSA-qqmp-wf37-98f9",
+      "module_name": "@opentelemetry/instrumentation-mysql2",
+      "severity": "moderate",
+      "vulnerable_versions": "<0.67.0",
+      "patched_versions": ">=0.67.0",
+      "findings": [
+        {
+          "version": "0.45.0",
+          "paths": [".>@sentry/node>@opentelemetry/instrumentation-mysql2"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-qqmp-wf37-98f9"
+    },
+    {
+      "github_advisory_id": "GHSA-qqmp-wf37-98f9",
+      "module_name": "@opentelemetry/instrumentation-knex",
+      "severity": "moderate",
+      "vulnerable_versions": "<0.65.0",
+      "patched_versions": ">=0.65.0",
+      "findings": [
+        {
+          "version": "0.44.0",
+          "paths": [".>@sentry/node>@opentelemetry/instrumentation-knex"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-qqmp-wf37-98f9"
+    },
+    {
+      "github_advisory_id": "GHSA-qqmp-wf37-98f9",
+      "module_name": "@opentelemetry/instrumentation-mysql",
+      "severity": "moderate",
+      "vulnerable_versions": "<0.67.0",
+      "patched_versions": ">=0.67.0",
+      "findings": [
+        {
+          "version": "0.45.0",
+          "paths": [".>@sentry/node>@opentelemetry/instrumentation-mysql"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-qqmp-wf37-98f9"
+    },
+    {
+      "github_advisory_id": "GHSA-qqmp-wf37-98f9",
+      "module_name": "@opentelemetry/instrumentation-mongoose",
+      "severity": "moderate",
+      "vulnerable_versions": "<0.67.0",
+      "patched_versions": ">=0.67.0",
+      "findings": [
+        {
+          "version": "0.46.0",
+          "paths": [".>@sentry/node>@opentelemetry/instrumentation-mongoose"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-qqmp-wf37-98f9"
+    },
+    {
+      "github_advisory_id": "GHSA-qqmp-wf37-98f9",
+      "module_name": "@opentelemetry/instrumentation-tedious",
+      "severity": "moderate",
+      "vulnerable_versions": "<0.40.0",
+      "patched_versions": ">=0.40.0",
+      "findings": [
+        {
+          "version": "0.18.0",
+          "paths": [".>@sentry/node>@opentelemetry/instrumentation-tedious"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-qqmp-wf37-98f9"
+    },
+    {
+      "github_advisory_id": "GHSA-jggr-w7fw-pc2j",
+      "module_name": "fast-copy",
+      "severity": "moderate",
+      "vulnerable_versions": ">=3.0.0 <3.1.0",
+      "patched_versions": ">=3.1.0",
+      "findings": [
+        {
+          "version": "3.0.2",
+          "paths": [".>pino-pretty>fast-copy"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-jggr-w7fw-pc2j"
+    },
+    {
+      "github_advisory_id": "GHSA-mrhx-c7xc-m3w5",
+      "module_name": "zod",
+      "severity": "high",
+      "vulnerable_versions": "<4.6.6",
+      "patched_versions": ">=4.6.6",
+      "findings": [
+        {
+          "version": "3.25.76",
+          "paths": [".>zod"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5"
+    },
+    {
+      "github_advisory_id": "GHSA-w74x-v6f9-j3xg",
+      "module_name": "fast-uri",
+      "severity": "moderate",
+      "vulnerable_versions": ">=3.0.0 <3.1.9",
+      "patched_versions": ">=3.1.9",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-w74x-v6f9-j3xg"
+    },
+    {
+      "github_advisory_id": "GHSA-w74x-v6f9-j3xg",
+      "module_name": "fast-uri",
+      "severity": "moderate",
+      "vulnerable_versions": "<2.4.8",
+      "patched_versions": ">=2.4.8",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-w74x-v6f9-j3xg"
+    },
+    {
+      "github_advisory_id": "GHSA-xhq7-xmqj-769h",
+      "module_name": "fast-uri",
+      "severity": "low",
+      "vulnerable_versions": ">=3.0.0 <3.1.9",
+      "patched_versions": ">=3.1.9",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-xhq7-xmqj-769h"
+    },
+    {
+      "github_advisory_id": "GHSA-xhq7-xmqj-769h",
+      "module_name": "fast-uri",
+      "severity": "low",
+      "vulnerable_versions": "<2.4.8",
+      "patched_versions": ">=2.4.8",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-xhq7-xmqj-769h"
+    },
+    {
+      "github_advisory_id": "GHSA-333x-w4r6-6crp",
+      "module_name": "fast-uri",
+      "severity": "low",
+      "vulnerable_versions": ">=3.0.0 <3.1.9",
+      "patched_versions": ">=3.1.9",
+      "findings": [
+        {
+          "version": "3.1.2",
+          "paths": [".>fastify>@fastify/ajv-compiler>ajv>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-333x-w4r6-6crp"
+    },
+    {
+      "github_advisory_id": "GHSA-333x-w4r6-6crp",
+      "module_name": "fast-uri",
+      "severity": "low",
+      "vulnerable_versions": "<2.4.8",
+      "patched_versions": ">=2.4.8",
+      "findings": [
+        {
+          "version": "2.4.0",
+          "paths": [".>fastify>@fastify/ajv-compiler>fast-uri"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-333x-w4r6-6crp"
+    },
+    {
+      "github_advisory_id": "GHSA-6pq8-jhm2-2vcw",
+      "module_name": "qs",
+      "severity": "moderate",
+      "vulnerable_versions": ">=6.7.0 <=6.16.0",
+      "patched_versions": ">=6.16.1",
+      "findings": [
+        {
+          "version": "6.15.1",
+          "paths": [".>googleapis>googleapis-common>qs"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-6pq8-jhm2-2vcw"
+    },
+    {
+      "github_advisory_id": "GHSA-g3hv-75wg-m249",
+      "module_name": "minimatch",
+      "severity": "moderate",
+      "vulnerable_versions": "<11.0.1",
+      "patched_versions": ">=11.0.1",
+      "findings": [
+        {
+          "version": "9.0.9",
+          "paths": [".>@fastify/swagger-ui>@fastify/static>glob>minimatch"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249"
+    },
+    {
+      "github_advisory_id": "GHSA-3g3m-2fjr-6pw4",
+      "module_name": "glob",
+      "severity": "moderate",
+      "vulnerable_versions": ">=9.0.0 <=14.0.1",
+      "patched_versions": ">=14.0.2",
+      "findings": [
+        {
+          "version": "10.5.0",
+          "paths": [".>@fastify/swagger-ui>@fastify/static>glob"]
+        }
+      ],
+      "url": "https://github.com/advisories/GHSA-3g3m-2fjr-6pw4"
+    }
+  ]
+}

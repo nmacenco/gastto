@@ -16,7 +16,7 @@ if (!parsed.success) {
   process.stderr.write(
     JSON.stringify({
       msg: 'Invalid environment variables',
-      errors: parsed.error.flatten().fieldErrors,
+      fields: [...new Set(parsed.error.issues.map((issue) => issue.path[0]))],
     }) + '\n',
   );
   throw new Error('Invalid environment variables — see errors above');

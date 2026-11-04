@@ -83,22 +83,28 @@ vi.mock('@sentry/node', () => ({
 const fetchMock = vi.fn();
 
 function buildMocks(): void {
-  QueueMock.mockImplementation(() => ({
-    add: vi.fn().mockResolvedValue(undefined),
-    on: vi.fn(),
-    close: vi.fn().mockResolvedValue(undefined),
-  }));
+  QueueMock.mockImplementation(function () {
+    return {
+      add: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+  });
 
-  WorkerMock.mockImplementation(() => ({
-    opts: { concurrency: 1 },
-    on: vi.fn(),
-    close: vi.fn().mockResolvedValue(undefined),
-  }));
+  WorkerMock.mockImplementation(function () {
+    return {
+      opts: { concurrency: 1 },
+      on: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+  });
 
-  RedisMock.mockImplementation(() => ({
-    on: vi.fn(),
-    quit: vi.fn().mockResolvedValue(undefined),
-  }));
+  RedisMock.mockImplementation(function () {
+    return {
+      on: vi.fn(),
+      quit: vi.fn().mockResolvedValue(undefined),
+    };
+  });
 
   PostgresMock.mockImplementation(() => ({
     end: vi.fn().mockResolvedValue(undefined),
@@ -232,8 +238,8 @@ describe('bootstrap', () => {
       url: '/documentation',
     });
 
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toMatch(/\/documentation\//);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
   });
 
   it('auto-registers Telegram webhook when WEBHOOK_BASE_URL is not localhost', async () => {
