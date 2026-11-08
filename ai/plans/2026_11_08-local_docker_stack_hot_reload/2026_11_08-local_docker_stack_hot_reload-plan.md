@@ -50,15 +50,15 @@ Description: Make the same Compose command start an ngrok agent that forwards th
 
 Public contracts: add `NGROK_AUTHTOKEN` and a local HTTPS `WEBHOOK_BASE_URL` to the ignored `.env` workflow; the same URL configures the ngrok endpoint and the existing app webhook registration. No Telegram route or payload contract changes.
 
-- [ ] Add an ngrok service to the local Compose file, forwarding to `app:3000` and binding the configured development domain. Keep its authtoken in the local `.env`; do not put secrets in the image, committed Compose defaults, command-line output, or logs.
-- [ ] Validate that the configured URL is an HTTPS origin for the assigned development domain, without a path, query, or fragment. Distinguish ngrok agent readiness from upstream app reachability. Start the agent independently of app HTTP health; any app dependency on ngrok must check only agent connection/endpoint availability, never a successful request through the app.
+- [x] Add an ngrok service to the local Compose file, forwarding to `app:3000` and binding the configured development domain. Keep its authtoken in the local `.env`; do not put secrets in the image, committed Compose defaults, command-line output, or logs.
+- [x] Validate that the configured URL is an HTTPS origin for the assigned development domain, without a path, query, or fragment. Distinguish ngrok agent readiness from upstream app reachability. Start the agent independently of app HTTP health; any app dependency on ngrok must check only agent connection/endpoint availability, never a successful request through the app.
 - [ ] Preserve the current webhook registration sequence and localhost skip behavior. Registration currently occurs before `app.listen()` and registration errors are logged without stopping startup. After the app listens, verify public endpoint reachability, `getWebhookInfo`, and actual message delivery. Use bounded waits with clear diagnostics; never introduce an app/tunnel readiness cycle or claim that container startup guarantees delivery.
-- [ ] Document the explicit non-tunneled command/configuration alongside the default all-services command so local core work remains possible without starting ngrok.
-- [ ] Document that the local bot must have its own token: registering the same bot from a laptop would replace the deployed environment's webhook.
+- [x] Document the explicit non-tunneled command/configuration alongside the default all-services command so local core work remains possible without starting ngrok.
+- [x] Document that the local bot must have its own token: registering the same bot from a laptop would replace the deployed environment's webhook.
 - [ ] Verify startup with the tunnel, successful Telegram `getWebhookInfo` for the local bot, a test message through the local route, and a clear failure when the ngrok credential or domain is invalid. Do not use a production or staging bot for this check.
-- [ ] Run `pnpm test` and fix relevant failures.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Run `pnpm test` and fix relevant failures.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Accurate first-run guide and deployment boundary
 
@@ -79,4 +79,4 @@ Public contracts: update the published local setup command and `.env.example` va
 
 ## Next step
 
-Implement Phase 2 to add the Telegram HTTPS tunnel to the local Compose stack.
+Finish Phase 2 by verifying the tunnel and Telegram delivery with a dedicated local bot, then complete the remaining checks.

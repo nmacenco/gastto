@@ -7,21 +7,48 @@ tags: ['development', 'local', 'setup', 'docker']
 
 # Local Development Setup
 
-## Local Compose core (Phase 1)
+## Local Compose with Telegram tunnel (Phase 2)
 
 For an isolated local PostgreSQL and Redis stack, copy `.env.example` to the ignored
 `.env` and fill `GASTTO_LOCAL_DB_PASSWORD` with a URL-safe password (letters,
 numbers, `_`, `-`). Fill the app's required Telegram token and webhook secret,
 Google client ID and secret, `ENCRYPTION_KEY`, and at least one LLM provider key.
-Use a dedicated local bot token. Set `WEBHOOK_BASE_URL=http://localhost:3000`;
-webhook registration is skipped until the tunnel is added in Phase 2. The Compose
-file overrides `DATABASE_URL` and `REDIS_URL` inside its containers, so values
+Use a dedicated local bot token: registering the same bot from two environments
+replaces its webhook. Get an ngrok authtoken and the HTTPS development domain
+assigned to your account. Set `COMPOSE_PROFILES=tunnel`, `NGROK_AUTHTOKEN`, and
+`WEBHOOK_BASE_URL=https://<assigned-domain>` in `.env`. The URL must be an HTTPS
+origin without a port, path, query, or fragment. Compose overrides
+`DATABASE_URL` and `REDIS_URL` inside its containers, so values
 for a hosted database are never used by this stack. Do not run host-side
 `pnpm db:migrate` with a hosted `DATABASE_URL`.
 
 ```bash
 docker compose -f compose.local.yml up --build
 ```
+
+The `tunnel` profile is enabled by `.env.example`. ngrok connects to its public
+endpoint before the app starts, but upstream HTTP availability is checked only
+after startup because webhook registration happens before `app.listen()`. A
+green Compose startup does not prove Telegram delivery. Check the ngrok and app
+logs, then run these checks from the app container. The commands read credentials
+from the container environment and do not print the bot token:
+
+```bash
+docker compose -f compose.local.yml logs ngrok ngrok-ready app
+docker compose -f compose.local.yml exec app node -e 'fetch(process.env.WEBHOOK_BASE_URL + "/health", {headers: {"ngrok-skip-browser-warning": "true"}}).then(async r => { if (!r.ok) throw Error("public health: " + r.status); console.log(await r.text()) }).catch(e => { console.error(e.message); process.exitCode = 1 })'
+docker compose -f compose.local.yml exec app node -e 'fetch("https://api.telegram.org/bot" + process.env.TELEGRAM_BOT_TOKEN + "/getWebhookInfo").then(r => r.json()).then(d => { console.log({url: d.result?.url, pending: d.result?.pending_update_count, lastError: d.result?.last_error_message}); if (!d.ok || d.result?.url !== process.env.WEBHOOK_BASE_URL + "/webhook/telegram") process.exitCode = 1 }).catch(e => { console.error(e.message); process.exitCode = 1 })'
+```
+
+Send a message to the dedicated local bot and confirm the app logs show webhook
+receipt and a worker response. If ngrok authentication or domain ownership fails,
+the readiness job times out after 30 seconds; inspect `ngrok` logs. The app will
+not start until ngrok announces the configured endpoint. Never use the deployed
+bot token for this local check.
+
+For core-only work without ngrok, set `COMPOSE_PROFILES=` and
+`WEBHOOK_BASE_URL=http://localhost:3000` in `.env`, then run the same Compose
+command. The localhost setting skips Telegram webhook registration. Restore the
+assigned HTTPS URL and `COMPOSE_PROFILES=tunnel` before testing delivery.
 
 The app is at `http://localhost:3000/health`. Check status and logs:
 
