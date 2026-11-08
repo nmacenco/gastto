@@ -7,6 +7,61 @@ tags: ['development', 'local', 'setup', 'docker']
 
 # Local Development Setup
 
+## Local Compose core (Phase 1)
+
+For an isolated local PostgreSQL and Redis stack, copy `.env.example` to the ignored
+`.env` and fill `GASTTO_LOCAL_DB_PASSWORD` with a URL-safe password (letters,
+numbers, `_`, `-`). Fill the app's required Telegram token and webhook secret,
+Google client ID and secret, `ENCRYPTION_KEY`, and at least one LLM provider key.
+Use a dedicated local bot token. Set `WEBHOOK_BASE_URL=http://localhost:3000`;
+webhook registration is skipped until the tunnel is added in Phase 2. The Compose
+file overrides `DATABASE_URL` and `REDIS_URL` inside its containers, so values
+for a hosted database are never used by this stack. Do not run host-side
+`pnpm db:migrate` with a hosted `DATABASE_URL`.
+
+```bash
+docker compose -f compose.local.yml up --build
+```
+
+The app is at `http://localhost:3000/health`. Check status and logs:
+
+```bash
+docker compose -f compose.local.yml ps -a
+docker compose -f compose.local.yml logs migrate app
+```
+
+Confirm migration completion and worker startup; `/health` alone does not
+prove workers initialized. Editing `src/` restarts `tsx watch` without rebuilding.
+PostgreSQL and Redis are internal to the Compose network and do not occupy host
+ports. The existing `docker-compose.yml` Redis workflow stays separate.
+
+```bash
+# Stop, retaining the local PostgreSQL data volume.
+docker compose -f compose.local.yml down
+# Start again with the retained database.
+docker compose -f compose.local.yml up --build
+# Recreate containers after environment changes; rebuild after dependency changes.
+docker compose -f compose.local.yml up --build --force-recreate
+# Rerun migrations after adding a migration, before restarting the app.
+docker compose -f compose.local.yml up --build --force-recreate migrate
+docker compose -f compose.local.yml up --build --force-recreate app
+```
+
+The next command **deletes the local database**. Check the Compose project name
+before running it; it affects only `gastto-local` volumes.
+
+```bash
+docker compose -f compose.local.yml down -v
+```
+
+For optional host access to PostgreSQL, add a personal Compose override with a
+loopback port mapping such as `127.0.0.1:5433:5432`. Keep that override ignored
+or outside the repository and use a port that does not collide with another
+service. Container clients use `postgres:5432` and `redis:6379`.
+
+The remaining sections describe the previous host process and shared Supabase
+workflow; the full guide will be reconciled in Phase 3.
+
 This guide walks you through running Gastto locally for development. It covers Redis (via Docker), Telegram webhooks, Google OAuth, and all required environment variables.
 
 > **Prerequisites:** Node.js >= 20.0.0, pnpm (bundled via `corepack` or installed globally), and Docker + Docker Compose (for Redis only).
