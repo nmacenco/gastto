@@ -14,6 +14,7 @@ import type { SendExpenseGuidance } from './SendExpenseGuidance';
 import type { GetConversationState } from './GetConversationState';
 import type { SemanticRoutingPolicy } from '../../services/semantic-router/runtime-policy';
 import type { DeterministicRoutingPolicy } from '../../services/semantic-router/deterministic-routing';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
 
 export interface RouteIncomingMessageDeps {
   messageQueue: Queue<ProcessMessageJobData>;
@@ -24,6 +25,7 @@ export interface RouteIncomingMessageDeps {
   sendGuidance: SendExpenseGuidance;
   getConversationState: GetConversationState;
   semanticRoutingPolicy: SemanticRoutingPolicy;
+  accessRequests?: AccessRequestRepository;
 }
 
 export class RouteIncomingMessage {
@@ -84,6 +86,7 @@ export class RouteIncomingMessage {
     // do we classify intent and send guidance for non-financial text.
     if (
       !admittedForObservation &&
+      !(payload.channel === 'telegram' && this.deps.accessRequests) &&
       (currentState === 'IDLE' || currentState === 'EXPENSE_RECEIVING')
     ) {
       const decision = this.deps.deterministicRoutingPolicy.decide({

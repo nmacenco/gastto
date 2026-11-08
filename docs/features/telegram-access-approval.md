@@ -1,0 +1,25 @@
+# Telegram access approval
+
+## Scope and status
+
+This feature is enabled only with `ACCESS_APPROVAL_ENABLED=true` and complete operator Gmail configuration. It applies to Telegram chats; the public website remains static and has no access form. A product reviewer follows the same path as any other user. The operator must add or confirm the account in the production Google Auth Platform audience separately. Gastto cannot infer that Google Cloud change; CLI approval is the explicit local signal. An email typed in chat is not compared to the Google account returned by OAuth.
+
+## First access
+
+`/start` resolves the private Telegram chat to the existing local user ID. Without an approved email, the bot asks for an email, records one pending request in PostgreSQL, replies that approval is pending, and sends an operator Gmail notice after commit. Repeating the same email leaves the request unchanged. A different email supersedes the pending request; the old request ID cannot be approved. A prelisted reviewer email still needs this local association and approval. The owner checks Google Cloud and runs `node dist/interfaces/cli/approveAccessRequest.js <request-uuid>` in the deployment environment. Approval records `project-owner` and the decision time once, then sends a Telegram notice. Repeating the command retries an unsent Telegram notice without creating another approval. The person types exactly `continuar` to receive a fresh OAuth link.
+
+If Gmail delivery fails, the request remains pending and the server logs `ACCESS_REQUEST_MAIL_FAILED` with the request ID. The owner may run `node dist/interfaces/cli/notifyAccessRequest.js <request-uuid>` to resend a pending notice. A successful Gmail API response is recorded as `notification_sent_at`. If Gmail accepted a message but its response timed out, a manual resend may produce a duplicate; the request ID identifies both. No automatic resend occurs.
+
+The access gate runs before semantic routing, including shadow observation. An approved email alone is insufficient: the bot needs a usable Google OAuth credential. Expense interpretation checks the same condition before LLM extraction, including calls from queued jobs. A missing, revoked, or rejected credential sends the user back to `continuar`. A refreshable expired token can still be usable. Google OAuth denial and callback state validation use the existing OAuth recovery path.
+
+## Changing the account
+
+An active user chooses option 7 in `configuración` to submit a replacement email. The current approved email, OAuth token, and spreadsheet remain active while the new request is pending or approved. The owner approves its request ID through the same CLI and the user receives a Telegram notice. In settings, the user chooses option 7 again and types `continuar` to authorize the replacement Google account. The new credential is encrypted in `candidate_oauth_tokens`; it does not overwrite `oauth_tokens`.
+
+The user chooses a spreadsheet visible to the candidate account, then a sheet, mapping, categories, and payment methods. The previous spreadsheet is not assumed accessible by the new account. Final confirmation refreshes the candidate credential if needed before attempting activation; a refresh failure leaves the active account unchanged. Final confirmation checks the settings flow, source configuration, candidate request and token, then promotes the new email, token, and configuration in one PostgreSQL transaction. A stale flow or failed transaction keeps the old configuration active. Canceling or expiring the settings flow deletes the candidate token; the approved replacement request remains available for another OAuth attempt. Removing the old email from Google Cloud is a separate operator task after successful cutover and does not revoke an existing OAuth token.
+
+## Operational limits
+
+The operator Gmail account uses a separate Google OAuth client with `gmail.send` and a durable refresh token. The Gmail sender and recipient, client ID, client secret, and refresh token live in deployment secrets. An External/Testing OAuth client can yield a short-lived refresh grant, so the owner must verify the chosen project's publishing and authorization state before enabling this feature. The code does not provision Google Cloud test users, verify the reviewer account remotely, or deploy secrets. Existing production users need a local approved request before this gate can be enabled for them.
+
+See [the operator and reviewer runbook](../../ai/plans/2026_11_07-telegram_access_oauth_review/reviewer-runbook.md) for release steps and test evidence.

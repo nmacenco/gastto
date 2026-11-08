@@ -32,6 +32,9 @@ import { parseSettingsOAuthPayload, type SettingsOAuthPayload } from './Settings
 import type { SettingsOAuthCleanup } from './SettingsOAuthCleanup';
 import { settingsCopies } from '../../copies/settings.copies';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
+import type { CandidateOAuthTokenService } from '../../services/CandidateOAuthTokenService';
+import type { SettingsDestinationFlow } from './SettingsDestinationFlow';
 
 export type HandleOAuthCallbackInput =
   | { code: string; state: string; error?: never; provider?: SpreadsheetProvider }
@@ -73,6 +76,9 @@ export interface HandleOAuthCallbackDeps {
   settingsCredentialCommit?: SettingsCredentialCommit;
   settingsAccessFactory?: ValidateSpreadsheetAccessPortFactory;
   settingsOAuthCleanup?: SettingsOAuthCleanup;
+  accessRequests?: AccessRequestRepository;
+  candidateTokens?: CandidateOAuthTokenService;
+  settingsDestinationFlow?: SettingsDestinationFlow;
 }
 
 export class HandleOAuthCallback {
@@ -469,6 +475,94 @@ export class HandleOAuthCallback {
         nextState: 'SETTINGS_OAUTH',
         message: settingsCopies.retry(),
         canRetry: true,
+      };
+    }
+
+    if (payload.accountChangeRequestId) {
+      const replacement = await this.deps.accessRequests?.findApprovedReplacement(metadata.userId);
+      if (
+        !replacement ||
+        replacement.id !== payload.accountChangeRequestId ||
+        !this.deps.candidateTokens ||
+        !this.deps.settingsDestinationFlow ||
+        !candidate.scope.includes('https://www.googleapis.com/auth/spreadsheets') ||
+        !candidate.scope.includes('https://www.googleapis.com/auth/drive.readonly')
+      ) {
+        return {
+          success: false,
+          nextState: 'SETTINGS_OAUTH',
+          message: settingsCopies.retry(),
+          canRetry: true,
+        };
+      }
+      const beforeStage = await this.deps.conversationRepo.findByUserId(metadata.userId);
+      const beforePayload = parseSettingsOAuthPayload(beforeStage);
+      if (
+        !beforeStage ||
+        beforeStage.revision !== metadata.revision ||
+        beforePayload?.state !== nonce ||
+        beforePayload.accountChangeRequestId !== replacement.id ||
+        !beforeStage.expiresAt ||
+        beforeStage.expiresAt.getTime() <= Date.now()
+      ) {
+        return {
+          success: false,
+          nextState: beforeStage?.currentState ?? 'IDLE',
+          message: settingsCopies.retry(),
+          canRetry: true,
+        };
+      }
+      this.deps.transitionState.assertExecutionIsValid(metadata.userId);
+      await this.deps.candidateTokens.save({
+        requestId: replacement.id,
+        userId: metadata.userId,
+        accessToken: candidate.accessToken,
+        refreshToken: candidate.refreshToken,
+        expiresAt: candidate.expiresAt,
+        scope: candidate.scope,
+      });
+      const moved = await this.deps.transitionState.execute({
+        userId: metadata.userId,
+        targetState: 'SETTINGS_FILE',
+        payload: {
+          flowId: payload.flowId,
+          sourceConfigId: payload.sourceConfigId,
+          fileId: payload.fileId,
+          fileName: config.fileName,
+          origin: 'file',
+          accountChangeRequestId: replacement.id,
+        },
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+        expected: this.deps.transitionState.precondition(beforeStage, 'unexpired'),
+      });
+      if (moved.status !== 'updated') {
+        return {
+          success: false,
+          nextState: 'SETTINGS_OAUTH',
+          message: settingsCopies.retry(),
+          canRetry: true,
+        };
+      }
+      await this.cleanupSettings(payload);
+      try {
+        await this.deps.settingsDestinationFlow.beginReplacement(moved.state, metadata.externalId);
+      } catch (error) {
+        this.deps.logger.error({
+          msg: 'Replacement spreadsheet discovery failed',
+          endpoint: 'HandleOAuthCallback',
+          code: 'ACCOUNT_CHANGE_FILE_DISCOVERY_FAILED',
+          userId: metadata.userId,
+          errorType: error instanceof Error ? error.constructor.name : 'unknown',
+        });
+        await this.sendSettingsMessage(
+          metadata.externalId,
+          'Google se conectó. Escribí buscar para elegir una planilla nueva o cancelar.',
+        );
+      }
+      return {
+        success: true,
+        nextState: 'SETTINGS_FILE',
+        message: 'Google se conectó. Elegí una planilla nueva para terminar el cambio.',
       };
     }
 

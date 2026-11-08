@@ -1,5 +1,7 @@
 # Cloud Storage Connection
 
+When Telegram access approval is enabled, an approved local email association and exact `continuar` precede the initial Google OAuth link. The callback retains its existing state/nonce checks. Account replacement through settings uses a separate encrypted candidate credential and requires selecting a new destination before promotion. See [Telegram access approval](./telegram-access-approval.md).
+
 ## Overview
 
 The Cloud Storage Connection feature enables users to link their spreadsheet (Google Drive or OneDrive) during the conversational onboarding flow. For the MVP, only **Google Drive** is supported. Selecting OneDrive returns a friendly "coming soon" message.

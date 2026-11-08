@@ -6,6 +6,8 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
+- [`telegram-access-approval.md`](./telegram-access-approval.md): Telegram email requests, manual CLI approval, Gmail notices, OAuth admission and safe account replacement.
+
 - [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, safe file and sheet changes, category and payment drafts with listed editing examples, and guarded cancellation and expiry.
 - [`payment-methods.md`](./payment-methods.md): Configuration-scoped payment catalogs, settings drafts, detection during setup, expense review resolution, and legacy compatibility.
 
@@ -35,3 +37,5 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [Security hardening](security-hardening.md): HTTP budgets, secret validation, production/development audit gates, package-manager-free runtime, telemetry, operational runbook and hosted technical validation.
 
 - Payment methods persistence: JSONB snapshot comparison is independent of object key order (see [payment methods](payment-methods.md)).
+
+- Candidate account activation renews expired credentials before cutover (see [Telegram access approval](telegram-access-approval.md)).

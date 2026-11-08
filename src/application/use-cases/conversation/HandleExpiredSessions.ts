@@ -24,6 +24,7 @@ import { advanceExpenseReviewBinding } from '../../../domain/value-objects/expen
 import { settingsCopies } from '../../copies/settings.copies';
 import type { SettingsOAuthCleanup } from '../spreadsheet/SettingsOAuthCleanup';
 import { parseSettingsOAuthPayload } from '../spreadsheet/SettingsOAuthFlow';
+import type { CandidateOAuthTokenService } from '../../services/CandidateOAuthTokenService';
 
 export class HandleExpiredSessions {
   constructor(
@@ -42,6 +43,7 @@ export class HandleExpiredSessions {
     private readonly userProcessingLock?: IUserProcessingLock,
     private readonly generateExpenseSummary?: GenerateExpenseSummaryUseCase,
     private readonly settingsOAuthCleanup?: SettingsOAuthCleanup,
+    private readonly candidateTokens?: Pick<CandidateOAuthTokenService, 'discard'>,
   ) {}
 
   async execute(): Promise<void> {
@@ -192,6 +194,10 @@ export class HandleExpiredSessions {
     if (state.currentState === 'SETTINGS_OAUTH') {
       const payload = parseSettingsOAuthPayload(state);
       if (payload) await this.settingsOAuthCleanup?.execute(payload);
+    }
+    const accountChangeRequestId = state.statePayload?.accountChangeRequestId;
+    if (typeof accountChangeRequestId === 'string') {
+      await this.candidateTokens?.discard(accountChangeRequestId);
     }
 
     const identities = await this.userRepo.findMessagingIdentitiesByUserId(userId);

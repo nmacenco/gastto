@@ -8,12 +8,12 @@ const credentialLabels = {
 
 export const settingsCopies = {
   menu: () =>
-    'Configuración de planilla:\n1. Ver estado\n2. Volver a autorizar Google\n3. Cambiar planilla\n4. Cambiar hoja\n5. Categorías y subcategorías\n6. Medios de pago\nEscribí el número de una opción o cancelar.',
+    'Configuración de planilla:\n1. Ver estado\n2. Volver a autorizar Google\n3. Cambiar planilla\n4. Cambiar hoja\n5. Categorías y subcategorías\n6. Medios de pago\n7. Cambiar email de Google\nEscribí el número de una opción o cancelar.',
   status: (summary: SettingsSummary) =>
     `Conexión: ${credentialLabels[summary.credentialStatus]}\nProveedor: ${summary.provider === 'google' ? 'Google' : summary.provider === 'microsoft' ? 'Microsoft' : 'Sin configurar'}\nPlanilla: ${summary.fileName ?? 'Sin seleccionar'}\nHoja: ${summary.sheetName ?? 'Sin seleccionar'}\nEl acceso actual no se verificó.${!summary.fileName || !summary.sheetName ? '\nCompletá la configuración inicial para elegir una planilla y una hoja.' : ''}`,
   unavailable: () =>
     'Esta opción estará disponible próximamente. Elegí 1 para ver el estado, 2 para autorizar Google o escribí cancelar.',
-  choose: () => 'Elegí una opción del 1 al 6 o escribí cancelar.',
+  choose: () => 'Elegí una opción del 1 al 7 o escribí cancelar.',
   cancelled: () => 'Saliste de configuración.',
   expired: () =>
     'La configuración expiró por inactividad. Escribí configuración para abrirla de nuevo.',
@@ -26,6 +26,8 @@ export const settingsCopies = {
     'La autorización de Google no está disponible en este momento. Intentá más tarde.',
   authLink: (url: string) =>
     `Para volver a autorizar Google, abrí este enlace: ${url}\nTu planilla actual sigue activa hasta confirmar el acceso. Escribí cancelar para salir.`,
+  accountChangeAuthLink: (url: string) =>
+    `Para conectar tu nueva cuenta de Google, abrí este enlace: ${url}\nTu cuenta y planilla anteriores siguen activas hasta confirmar una nueva planilla. Escribí cancelar para salir.`,
   waitForAuth: () =>
     'Esperando la autorización de Google. Abrí el enlace anterior o escribí cancelar.',
   reminder: (url: string) =>

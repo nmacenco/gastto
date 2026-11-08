@@ -41,6 +41,8 @@ import { CategoryVocabulary } from '../../domain/entities/CategoryVocabulary';
 import { CompleteExpenseClarification } from '../../application/use-cases/expense/CompleteExpenseClarification';
 import { PresentUndoConfirmation } from '../../application/use-cases/expense/PresentUndoConfirmation';
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
+import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
+import { accessCopies } from '../../application/copies/access.copies';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockGetConversationStateExecute = vi.fn();
@@ -422,6 +424,62 @@ describe('processMessageJob', () => {
     mockDispatchOptionSelectionExecute.mockResolvedValue({ status: 'selected', target: 'file' });
     mockSendGuidanceExecute.mockResolvedValue(undefined);
     mockDeterministicRoutingDecide.mockReturnValue({ kind: 'fsm_handler' });
+  });
+
+  describe('access admission', () => {
+    it('records an email request before any semantic or expense call', async () => {
+      const deps = buildMockDeps();
+      const submit = vi.fn().mockResolvedValue({
+        status: 'submitted',
+        result: { created: true, request: { id: 'request-1' }, previousEmail: null },
+      });
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue(null),
+        findPending: vi.fn().mockResolvedValue(null),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: submit } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = { getValidAccessToken: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['oauthAdmission']
+      >;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'User@Example.com' }), deps);
+
+      expect(submit).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawEmail: 'User@Example.com',
+        kind: 'initial',
+      });
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accessCopies.pending());
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('requires continuar and blocks semantic routing when OAuth is missing', async () => {
+      const deps = buildMockDeps();
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved-1' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('missing', { code: 'AUTH_ERROR' })),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accessCopies.continue());
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'continuar' }), deps);
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-123', rawMessage: 'google' }),
+      );
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+    });
   });
 
   describe('spreadsheet settings', () => {

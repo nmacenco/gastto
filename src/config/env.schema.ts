@@ -7,6 +7,14 @@ import { z } from 'zod';
 import { FSM_STATES, type FsmState } from '../domain/entities/ConversationState';
 
 const semanticRoutingModeSchema = z.enum(['off', 'shadow', 'enabled']);
+const optionalEmail = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.email().optional(),
+);
+const optionalSecret = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().min(1).optional(),
+);
 
 const semanticRouterStateModesSchema = z
   .string()
@@ -38,98 +46,128 @@ const semanticRouterStateModesSchema = z
     },
   );
 
-export const envSchema = z.object({
-  // ── Runtime ─────────────────────────────────────────────────────────────────
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().default(3000),
-  LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+export const envSchema = z
+  .object({
+    // ── Runtime ─────────────────────────────────────────────────────────────────
+    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    PORT: z.coerce.number().default(3000),
+    LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
 
-  // ── Database ────────────────────────────────────────────────────────────────
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+    // ── Database ────────────────────────────────────────────────────────────────
+    DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
-  // ── Cache / Queue ─────────────────────────────────────────────────────────────
-  REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
+    // ── Cache / Queue ─────────────────────────────────────────────────────────────
+    REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
 
-  // ── Mapping correction state (HU-4.06) ─────────────────────────────────────────
-  // TTL for the transient Redis-backed correction state. Default: 30 minutes.
-  MAPPING_CORRECTION_TTL_SECONDS: z.coerce.number().default(1800),
+    // ── Mapping correction state (HU-4.06) ─────────────────────────────────────────
+    // TTL for the transient Redis-backed correction state. Default: 30 minutes.
+    MAPPING_CORRECTION_TTL_SECONDS: z.coerce.number().default(1800),
 
-  // ── Category classification (E1-US-04) ──────────────────────────────────────────
-  // Minimum confidence (matched keywords / total tokens) for a keyword-based
-  // category classification to be considered high-confidence.
-  CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.6),
+    // ── Category classification (E1-US-04) ──────────────────────────────────────────
+    // Minimum confidence (matched keywords / total tokens) for a keyword-based
+    // category classification to be considered high-confidence.
+    CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.6),
 
-  // ── Expense review (E1-US-06) ─────────────────────────────────────────────────
-  // Multiplier over the user's historical average expense amount above which an
-  // amount is considered unusually high and requires explicit confirmation.
-  HIGH_AMOUNT_THRESHOLD_MULTIPLIER: z.coerce.number().min(1).default(10),
+    // ── Expense review (E1-US-06) ─────────────────────────────────────────────────
+    // Multiplier over the user's historical average expense amount above which an
+    // amount is considered unusually high and requires explicit confirmation.
+    HIGH_AMOUNT_THRESHOLD_MULTIPLIER: z.coerce.number().min(1).default(10),
 
-  // Initial review timeout before the one-time reminder is sent.
-  EXPENSE_REVIEW_TIMEOUT_MINUTES: z.coerce.number().min(1).default(10),
+    // Initial review timeout before the one-time reminder is sent.
+    EXPENSE_REVIEW_TIMEOUT_MINUTES: z.coerce.number().min(1).default(10),
 
-  // Additional timeout after the reminder before the review is auto-cancelled.
-  EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: z.coerce.number().min(1).default(10),
+    // Additional timeout after the reminder before the review is auto-cancelled.
+    EXPENSE_REVIEW_REMINDER_TIMEOUT_MINUTES: z.coerce.number().min(1).default(10),
 
-  // ── LLM ───────────────────────────────────────────────────────────────────────
-  // At least one provider key must be configured at runtime (checked in main.ts).
-  OPENAI_API_KEY: z.string().optional(),
-  ANTHROPIC_API_KEY: z.string().optional(),
-  NVIDIA_API_KEY: z.string().optional(),
-  GROQ_API_KEY: z.string().optional(),
-  LLM_PROVIDER: z.enum(['auto', 'nvidia', 'anthropic', 'openai', 'groq']).default('auto'),
-  LLM_FALLBACK_PROVIDER: z
-    .enum(['auto', 'none', 'nvidia', 'anthropic', 'openai', 'groq'])
-    .default('auto'),
-  LLM_EXTRACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(30_000),
-  NVIDIA_MODEL: z
-    .string()
-    .min(1)
-    .max(128)
-    .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?$/)
-    .default('z-ai/glm-5.3-flash'),
-  GROQ_MODEL: z
-    .string()
-    .min(1)
-    .max(128)
-    .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?$/)
-    .default('openai/gpt-oss-20b'),
+    // ── LLM ───────────────────────────────────────────────────────────────────────
+    // At least one provider key must be configured at runtime (checked in main.ts).
+    OPENAI_API_KEY: z.string().optional(),
+    ANTHROPIC_API_KEY: z.string().optional(),
+    NVIDIA_API_KEY: z.string().optional(),
+    GROQ_API_KEY: z.string().optional(),
+    LLM_PROVIDER: z.enum(['auto', 'nvidia', 'anthropic', 'openai', 'groq']).default('auto'),
+    LLM_FALLBACK_PROVIDER: z
+      .enum(['auto', 'none', 'nvidia', 'anthropic', 'openai', 'groq'])
+      .default('auto'),
+    LLM_EXTRACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(30_000),
+    NVIDIA_MODEL: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?$/)
+      .default('z-ai/glm-5.3-flash'),
+    GROQ_MODEL: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?$/)
+      .default('openai/gpt-oss-20b'),
 
-  // Semantic routing is off unless states, cohort and sampling are explicitly enabled.
-  SEMANTIC_ROUTER_STATE_MODES: semanticRouterStateModesSchema,
-  SEMANTIC_ROUTER_COHORT_PERCENT: z.coerce.number().int().min(0).max(100).default(0),
-  SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: z.coerce.number().int().min(0).max(100).default(0),
-  SEMANTIC_ROUTER_COHORT_SEED: z
-    .string()
-    .regex(/^[a-zA-Z0-9._-]{1,64}$/)
-    .default('gastto-semantic-router-v1'),
-  SEMANTIC_ROUTER_PROVIDER: z.literal('openai').default('openai'),
-  SEMANTIC_ROUTER_MODEL: z
-    .enum(['gpt-4o-mini-2024-07-18', 'gpt-4o-2024-08-06', 'gpt-4o-2024-11-20'])
-    .default('gpt-4o-mini-2024-07-18'),
-  SEMANTIC_ROUTER_TIMEOUT_MS: z.coerce.number().int().min(1).max(29_000).default(10_000),
-  SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(4096).default(256),
+    // Semantic routing is off unless states, cohort and sampling are explicitly enabled.
+    SEMANTIC_ROUTER_STATE_MODES: semanticRouterStateModesSchema,
+    SEMANTIC_ROUTER_COHORT_PERCENT: z.coerce.number().int().min(0).max(100).default(0),
+    SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT: z.coerce.number().int().min(0).max(100).default(0),
+    SEMANTIC_ROUTER_COHORT_SEED: z
+      .string()
+      .regex(/^[a-zA-Z0-9._-]{1,64}$/)
+      .default('gastto-semantic-router-v1'),
+    SEMANTIC_ROUTER_PROVIDER: z.literal('openai').default('openai'),
+    SEMANTIC_ROUTER_MODEL: z
+      .enum(['gpt-4o-mini-2024-07-18', 'gpt-4o-2024-08-06', 'gpt-4o-2024-11-20'])
+      .default('gpt-4o-mini-2024-07-18'),
+    SEMANTIC_ROUTER_TIMEOUT_MS: z.coerce.number().int().min(1).max(29_000).default(10_000),
+    SEMANTIC_ROUTER_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(4096).default(256),
 
-  // ── Messaging ─────────────────────────────────────────────────────────────────
-  TELEGRAM_WEBHOOK_SECRET: z.string().regex(/^[A-Za-z0-9_-]{32,256}$/),
-  SECURITY_RATE_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).optional(),
-  SECURITY_TELEGRAM_LIMIT: z.coerce.number().int().min(1).max(10000).optional(),
-  SECURITY_OAUTH_LIMIT: z.coerce.number().int().min(1).max(10000).optional(),
-  TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required'),
-  // Base URL where the Telegram webhook is reachable (e.g. https://gastto-develop.fly.dev).
-  // Used to auto-register the webhook with Telegram Bot API on startup.
-  WEBHOOK_BASE_URL: z.string().min(1, 'WEBHOOK_BASE_URL is required'),
+    // ── Messaging ─────────────────────────────────────────────────────────────────
+    TELEGRAM_WEBHOOK_SECRET: z.string().regex(/^[A-Za-z0-9_-]{32,256}$/),
+    SECURITY_RATE_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).optional(),
+    SECURITY_TELEGRAM_LIMIT: z.coerce.number().int().min(1).max(10000).optional(),
+    SECURITY_OAUTH_LIMIT: z.coerce.number().int().min(1).max(10000).optional(),
+    TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required'),
+    // Base URL where the Telegram webhook is reachable (e.g. https://gastto-develop.fly.dev).
+    // Used to auto-register the webhook with Telegram Bot API on startup.
+    WEBHOOK_BASE_URL: z.string().min(1, 'WEBHOOK_BASE_URL is required'),
 
-  // ── Observability ─────────────────────────────────────────────────────────────
-  SENTRY_DSN: z.string().optional(),
+    // ── Observability ─────────────────────────────────────────────────────────────
+    SENTRY_DSN: z.string().optional(),
 
-  // ── OAuth ─────────────────────────────────────────────────────────────────────
-  GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),
-  GOOGLE_CLIENT_SECRET: z.string().min(1, 'GOOGLE_CLIENT_SECRET is required'),
-  GOOGLE_REDIRECT_URI: z.string().min(1, 'GOOGLE_REDIRECT_URI is required'),
+    // ── OAuth ─────────────────────────────────────────────────────────────────────
+    GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),
+    GOOGLE_CLIENT_SECRET: z.string().min(1, 'GOOGLE_CLIENT_SECRET is required'),
+    GOOGLE_REDIRECT_URI: z.string().min(1, 'GOOGLE_REDIRECT_URI is required'),
 
-  // ── Security ──────────────────────────────────────────────────────────────────
-  // AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars).
-  ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
-});
+    // Operator-only Gmail sender. Kept separate from product-user Google OAuth.
+    ACCESS_APPROVAL_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+    ADMIN_NOTIFICATION_EMAIL: optionalEmail,
+    ADMIN_GMAIL_ADDRESS: optionalEmail,
+    ADMIN_GMAIL_CLIENT_ID: optionalSecret,
+    ADMIN_GMAIL_CLIENT_SECRET: optionalSecret,
+    ADMIN_GMAIL_REFRESH_TOKEN: optionalSecret,
+
+    // ── Security ──────────────────────────────────────────────────────────────────
+    // AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars).
+    ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.ACCESS_APPROVAL_ENABLED) return;
+    const required = [
+      'ADMIN_NOTIFICATION_EMAIL',
+      'ADMIN_GMAIL_ADDRESS',
+      'ADMIN_GMAIL_CLIENT_ID',
+      'ADMIN_GMAIL_CLIENT_SECRET',
+      'ADMIN_GMAIL_REFRESH_TOKEN',
+    ] as const;
+    for (const name of required) {
+      if (!value[name])
+        ctx.addIssue({
+          code: 'custom',
+          path: [name],
+          message: `${name} is required when access approval is enabled`,
+        });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;

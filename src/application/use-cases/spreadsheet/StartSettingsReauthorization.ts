@@ -7,6 +7,7 @@ import type { ConversationState } from '../../../domain/entities/ConversationSta
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { settingsCopies } from '../../copies/settings.copies';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
 
 export interface StartSettingsReauthorizationDeps {
   oauthService: OAuthServicePort;
@@ -17,6 +18,7 @@ export interface StartSettingsReauthorizationDeps {
   messagingPort: MessagingOutputPort;
   redirectUri: string;
   generateState?: () => string;
+  accessRequests?: AccessRequestRepository;
 }
 
 export class StartSettingsReauthorization {
@@ -26,6 +28,7 @@ export class StartSettingsReauthorization {
     state: ConversationState;
     externalId: string;
     channel: 'telegram' | 'whatsapp';
+    accountChangeRequestId?: string;
   }): Promise<void> {
     const { state: observed, externalId, channel } = input;
     const flowId = observed.statePayload?.flowId;
@@ -43,6 +46,18 @@ export class StartSettingsReauthorization {
       });
       await this.deps.messagingPort.sendMessage(externalId, settingsCopies.destinationRequired());
       return;
+    }
+    if (input.accountChangeRequestId) {
+      const request = await this.deps.accessRequests?.findById(input.accountChangeRequestId);
+      if (
+        !request ||
+        request.userId !== observed.userId ||
+        request.kind !== 'replacement' ||
+        request.status !== 'approved' ||
+        request.activatedAt !== null
+      ) {
+        throw new Error('Approved account replacement request is missing');
+      }
     }
     const nonce = (this.deps.generateState ?? (() => randomBytes(32).toString('hex')))();
     const authUrl = this.deps.oauthService.buildAuthUrl('google', nonce, this.deps.redirectUri);
@@ -66,6 +81,9 @@ export class StartSettingsReauthorization {
           sheetName: config.sheetName,
           state: nonce,
           reminderJobId,
+          ...(input.accountChangeRequestId
+            ? { accountChangeRequestId: input.accountChangeRequestId }
+            : {}),
         },
         expiresAt: new Date(Date.now() + 30 * 60 * 1000),
         expected: this.deps.transitionState.precondition(observed, 'unexpired'),
@@ -90,6 +108,11 @@ export class StartSettingsReauthorization {
         flowId,
       }),
     );
-    await this.deps.messagingPort.sendMessage(externalId, settingsCopies.authLink(authUrl));
+    await this.deps.messagingPort.sendMessage(
+      externalId,
+      input.accountChangeRequestId
+        ? settingsCopies.accountChangeAuthLink(authUrl)
+        : settingsCopies.authLink(authUrl),
+    );
   }
 }

@@ -113,6 +113,20 @@
       "when": 1792994747138,
       "tag": "0015_lethal_tyrannus",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794072583083,
+      "tag": "0016_hesitant_sersi",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794072726588,
+      "tag": "0017_graceful_overlord",
+      "breakpoints": true
     }
   ]
 }

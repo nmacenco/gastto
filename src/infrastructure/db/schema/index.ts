@@ -70,6 +70,39 @@ export const messagingIdentities = pgTable(
   }),
 );
 
+export const accessRequests = pgTable(
+  'access_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.userId, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    kind: text('kind').notNull(),
+    status: text('status').notNull().default('pending'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    decidedAt: timestamp('decided_at'),
+    decidedBy: text('decided_by'),
+    activatedAt: timestamp('activated_at'),
+    notificationSentAt: timestamp('notification_sent_at'),
+    approvalNoticeSentAt: timestamp('approval_notice_sent_at'),
+  },
+  (t) => ({
+    userStatusIdx: index('idx_access_requests_user_status').on(t.userId, t.status),
+    pendingUserUnique: uniqueIndex('uq_access_requests_pending_user')
+      .on(t.userId)
+      .where(sql`${t.status} = 'pending'`),
+    approvedUserUnique: uniqueIndex('uq_access_requests_active_user')
+      .on(t.userId)
+      .where(sql`${t.status} = 'approved' AND ${t.activatedAt} IS NOT NULL`),
+    kindCheck: check('chk_access_requests_kind', sql`${t.kind} IN ('initial', 'replacement')`),
+    statusCheck: check(
+      'chk_access_requests_status',
+      sql`${t.status} IN ('pending', 'approved', 'superseded')`,
+    ),
+  }),
+);
+
 // ── GRUPO 2: ESTADO CONVERSACIONAL ───────────────────────────────────────────
 
 export const conversationStates = pgTable(
@@ -147,6 +180,33 @@ export const oauthTokens = pgTable(
     expiresIdx: index('idx_oauth_tokens_expires').on(t.accessTokenExpiresAt),
     uniqueUserProvider: uniqueIndex('uq_user_provider').on(t.userId, t.provider),
     providerCheck: check('chk_provider', sql`${t.provider} IN ('google', 'microsoft')`),
+  }),
+);
+
+export const candidateOAuthTokens = pgTable(
+  'candidate_oauth_tokens',
+  {
+    requestId: uuid('request_id')
+      .primaryKey()
+      .references(() => accessRequests.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.userId, { onDelete: 'cascade' }),
+    accessTokenEnc: bytea('access_token_enc').notNull(),
+    refreshTokenEnc: bytea('refresh_token_enc').notNull(),
+    iv: bytea('iv').notNull(),
+    refreshIv: bytea('refresh_iv').notNull(),
+    accessTokenExpiresAt: timestamp('access_token_expires_at').notNull(),
+    scope: text('scope')
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    grantedAt: timestamp('granted_at').notNull().defaultNow(),
+    lastRefreshedAt: timestamp('last_refreshed_at'),
+    revokedAt: timestamp('revoked_at'),
+  },
+  (t) => ({
+    userIdx: index('idx_candidate_oauth_tokens_user').on(t.userId),
   }),
 );
 

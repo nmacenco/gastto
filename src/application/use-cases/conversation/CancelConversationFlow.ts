@@ -18,6 +18,7 @@ import type { CancelCloudConnection } from '../spreadsheet/CancelCloudConnection
 import { parseSettingsOAuthPayload } from '../spreadsheet/SettingsOAuthFlow';
 import type { SettingsOAuthCleanup } from '../spreadsheet/SettingsOAuthCleanup';
 import type { TransitionConversationState } from './TransitionConversationState';
+import type { CandidateOAuthTokenService } from '../../services/CandidateOAuthTokenService';
 
 export interface CancelConversationFlowInput {
   userId: string;
@@ -39,6 +40,7 @@ export interface CancelConversationFlowDeps {
   mappingCorrectionStateRepository: IMappingCorrectionStateRepository;
   cancelCloudConnection?: Pick<CancelCloudConnection, 'cleanup'> | null;
   settingsOAuthCleanup?: Pick<SettingsOAuthCleanup, 'execute'> | null;
+  candidateTokens?: Pick<CandidateOAuthTokenService, 'discard'>;
   logger: Logger;
 }
 
@@ -71,6 +73,10 @@ export class CancelConversationFlow {
     if (state.currentState === 'SETTINGS_OAUTH') {
       const payload = parseSettingsOAuthPayload(state);
       if (payload) await this.deps.settingsOAuthCleanup?.execute(payload);
+    }
+    const accountChangeRequestId = state.statePayload?.accountChangeRequestId;
+    if (typeof accountChangeRequestId === 'string') {
+      await this.deps.candidateTokens?.discard(accountChangeRequestId);
     }
 
     const oauthState = state.currentState === 'ONBOARDING_DRIVE' ? state.statePayload?.state : null;

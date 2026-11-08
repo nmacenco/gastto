@@ -171,6 +171,36 @@ describe('SettingsDestinationFlow', () => {
     expect(t.sendMessage).toHaveBeenCalledWith('chat-1', expect.stringContaining('New Expenses'));
   });
 
+  it('uses the candidate credential and keeps its request ID through file selection', async () => {
+    const t = setup();
+    const getCandidate = vi.fn().mockResolvedValue('candidate-token');
+    const flow = new SettingsDestinationFlow({
+      ...(t.flow as unknown as { deps: SettingsDestinationFlowDeps }).deps,
+      candidateTokens: { getValidAccessToken: getCandidate } as never,
+    });
+    const candidatePayload = { ...filePayload, accountChangeRequestId: 'request-1' };
+    await flow.beginReplacement(state('SETTINGS_FILE', candidatePayload), 'chat-1');
+    expect(getCandidate).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'request-1' }));
+    expect(t.listRecentSpreadsheets).toHaveBeenCalledWith('candidate-token', 'google');
+    await flow.reply(state('SETTINGS_FILE', candidatePayload), '1', 'chat-1');
+    const write = t.transition.mock.calls.at(-1)?.[0] as { payload: Record<string, unknown> };
+    expect(write.payload.accountChangeRequestId).toBe('request-1');
+    expect(t.tokenService.getValidAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('discards a replacement credential on cancellation without activating it', async () => {
+    const t = setup();
+    const discard = vi.fn().mockResolvedValue(undefined);
+    const flow = new SettingsDestinationFlow({
+      ...(t.flow as unknown as { deps: SettingsDestinationFlowDeps }).deps,
+      candidateTokens: { discard } as never,
+    });
+    await flow.reply(state('SETTINGS_FILE', { ...filePayload, accountChangeRequestId: 'request-1' }), 'cancelar', 'chat-1');
+    expect(t.transition).toHaveBeenCalledWith(expect.objectContaining({ targetState: 'IDLE', payload: null }));
+    expect(discard).toHaveBeenCalledWith('request-1');
+    expect(t.activate).not.toHaveBeenCalled();
+  });
+
   it('requires Drive discovery and Sheets scopes when starting a file change', async () => {
     const t = setup();
     await t.flow.startFile(state('SETTINGS_MENU', { flowId: 'menu' }), 'chat-1');
@@ -381,6 +411,40 @@ describe('SettingsDestinationFlow', () => {
     expect(write.payload.mappings).toEqual([
       { field: 'monto', columnIndex: 0, columnHeader: 'Amount' },
     ]);
+  });
+
+  it('refreshes the candidate before activation and prevents activation on refresh failure', async () => {
+    const t = setup();
+    const getCandidate = vi.fn().mockResolvedValue('refreshed-token');
+    const flow = new SettingsDestinationFlow({
+      ...(t.flow as unknown as { deps: SettingsDestinationFlowDeps }).deps,
+      candidateTokens: { getValidAccessToken: getCandidate } as never,
+    });
+    const reviewed = state('SETTINGS_CATEGORIES', {
+      ...payload,
+      accountChangeRequestId: 'request-1',
+      headerRowIndex: 1,
+      mappings: [{ field: 'categoria', columnIndex: 1, columnHeader: 'Category' }],
+      categories: [{ name: 'Food', subcategories: [] }],
+      stage: 'payment_methods',
+      paymentMethods: ['Visa'],
+    });
+    t.activate.mockImplementation(() => {
+      expect(getCandidate).toHaveBeenCalledWith({
+        userId: 'user-1',
+        requestId: 'request-1',
+        requiredScopes: ['https://www.googleapis.com/auth/spreadsheets'],
+      });
+      return Promise.resolve('activated');
+    });
+    await flow.reply(reviewed, 'confirmar', 'chat-1');
+    expect(t.activate).toHaveBeenCalledOnce();
+    t.activate.mockClear();
+    t.sendMessage.mockClear();
+    getCandidate.mockRejectedValue(new Error('refresh failed'));
+    await expect(flow.reply(reviewed, 'confirmar', 'chat-1')).rejects.toThrow('refresh failed');
+    expect(t.activate).not.toHaveBeenCalled();
+    expect(t.sendMessage).not.toHaveBeenCalled();
   });
 
   it('activates only after category review and sends completion only on commit', async () => {

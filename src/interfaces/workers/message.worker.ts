@@ -33,6 +33,12 @@ import type {
 } from '../../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 import type { IUserProfilePort } from '../../domain/ports/IUserProfilePort';
+import type { AccessRequestRepository } from '../../domain/ports/AccessRequestRepository';
+import type { RequestAccess } from '../../application/use-cases/user/RequestAccess';
+import type { OAuthAccessTokenProvider } from '../../application/services/OAuthAccessTokenService';
+import type { OperatorMailPort } from '../../application/ports/OperatorMailPort';
+import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
+import { accessCopies } from '../../application/copies/access.copies';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
 import type { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
 import type { IUserProcessingLock } from '../../application/ports/UserProcessingLock';
@@ -177,6 +183,10 @@ export interface MessageWorkerDeps {
   settingsDestinationFlow?: SettingsDestinationFlow | null;
   settingsVocabularyFlow?: SettingsVocabularyFlow | null;
   resolveExpensePaymentMethod?: ResolveExpensePaymentMethod | null;
+  accessRequests?: AccessRequestRepository | undefined;
+  requestAccess?: RequestAccess | undefined;
+  oauthAdmission?: OAuthAccessTokenProvider | undefined;
+  operatorMail?: OperatorMailPort | undefined;
 }
 
 export async function processMessageJob(
@@ -245,6 +255,97 @@ export async function processMessageJob(
 
     const conversationState = await opts.getConversationState.execute({ userId });
     const currentState = conversationState?.currentState ?? 'IDLE';
+    if (
+      channel === 'telegram' &&
+      opts.accessRequests &&
+      opts.requestAccess &&
+      opts.oauthAdmission
+    ) {
+      const approved = await opts.accessRequests.findApproved(userId);
+      if (!approved) {
+        const pending = await opts.accessRequests.findPending(userId);
+        if (data.callbackData !== undefined) {
+          await messaging.sendMessage(
+            externalId,
+            pending ? accessCopies.pendingAgain() : accessCopies.askEmail(),
+          );
+          return;
+        }
+        const submission = await opts.requestAccess.execute({
+          userId,
+          rawEmail: data.rawMessage,
+          kind: 'initial',
+        });
+        if (submission.status === 'invalid') {
+          await messaging.sendMessage(
+            externalId,
+            pending ? accessCopies.pendingAgain() : accessCopies.invalidEmail(),
+          );
+          return;
+        }
+        await messaging.sendMessage(
+          externalId,
+          submission.result.created ? accessCopies.pending() : accessCopies.pendingAgain(),
+        );
+        if (submission.result.created) {
+          try {
+            await opts.operatorMail?.sendAccessRequestNotice({
+              requestId: submission.result.request.id,
+              chatId: externalId,
+              email: submission.result.request.email,
+              kind: 'initial',
+              previousEmail: submission.result.previousEmail,
+            });
+            if (opts.operatorMail) {
+              await opts.accessRequests.markNotificationSent(submission.result.request.id);
+            }
+          } catch {
+            opts.logger.error({
+              msg: 'Operator access-request email failed',
+              endpoint: 'processMessageJob',
+              code: 'ACCESS_REQUEST_MAIL_FAILED',
+              userId,
+              requestId: submission.result.request.id,
+            });
+          }
+        }
+        return;
+      }
+      try {
+        await opts.oauthAdmission.getValidAccessToken({ userId, provider: 'google' });
+      } catch (error) {
+        if (!(error instanceof SpreadsheetError) || error.code !== 'AUTH_ERROR') {
+          await messaging.sendMessage(externalId, accessCopies.oauthUnavailable());
+          return;
+        }
+        if (
+          data.callbackData !== undefined ||
+          data.rawMessage.trim().toLowerCase() !== 'continuar'
+        ) {
+          await messaging.sendMessage(externalId, accessCopies.continue());
+          return;
+        }
+        if (!opts.initiateCloudConnection) {
+          await messaging.sendMessage(externalId, accessCopies.oauthUnavailable());
+          return;
+        }
+        await opts.transitionState.runForUser(userId, async () => {
+          await opts.transitionState.execute({
+            userId,
+            targetState: 'ONBOARDING_START',
+            payload: { promptShown: true, reauthorizationOnly: true },
+          });
+          await opts.initiateCloudConnection!.execute({
+            userId,
+            rawMessage: 'google',
+            externalId,
+            channel,
+            reauthorizationOnly: true,
+          });
+        });
+        return;
+      }
+    }
     const idleConfig =
       currentState === 'IDLE' ? await opts.spreadsheetConfigRepository.findByUserId(userId) : null;
     const deterministicDecision = opts.deterministicRoutingPolicy.decide({
@@ -718,6 +819,81 @@ async function routeByState(
       await messaging.sendMessage(externalId, settingsCopies.cancelled());
       return;
     }
+    if (conversationState.statePayload?.screen === 'email_change') {
+      if (!opts.requestAccess || !opts.accessRequests) {
+        await messaging.sendMessage(externalId, settingsCopies.unavailable());
+        return;
+      }
+      const active = await opts.accessRequests.findApproved(userId);
+      if (!active) {
+        await messaging.sendMessage(externalId, accessCopies.askEmail());
+        return;
+      }
+      if (rawMessage.trim().toLowerCase() === active.email) {
+        await messaging.sendMessage(externalId, 'Ese ya es tu email actual. Escribí otro email.');
+        return;
+      }
+      const submission = await opts.requestAccess.execute({
+        userId,
+        rawEmail: rawMessage,
+        kind: 'replacement',
+      });
+      if (submission.status === 'invalid') {
+        await messaging.sendMessage(externalId, accessCopies.invalidEmail());
+        return;
+      }
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(conversationState, 'unexpired'),
+      });
+      await messaging.sendMessage(
+        externalId,
+        submission.result.created ? accessCopies.pending() : accessCopies.pendingAgain(),
+      );
+      if (submission.result.created) {
+        try {
+          await opts.operatorMail?.sendAccessRequestNotice({
+            requestId: submission.result.request.id,
+            chatId: externalId,
+            email: submission.result.request.email,
+            kind: 'replacement',
+            previousEmail: submission.result.previousEmail ?? active.email,
+          });
+          if (opts.operatorMail) {
+            await opts.accessRequests.markNotificationSent(submission.result.request.id);
+          }
+        } catch {
+          opts.logger.error({
+            msg: 'Operator account-replacement email failed',
+            endpoint: 'routeByState',
+            code: 'ACCOUNT_CHANGE_MAIL_FAILED',
+            userId,
+            requestId: submission.result.request.id,
+          });
+        }
+      }
+      return;
+    }
+    if (conversationState.statePayload?.screen === 'email_change_ready') {
+      if (rawMessage.trim().toLowerCase() !== 'continuar') {
+        await messaging.sendMessage(externalId, accessCopies.replacementReady());
+        return;
+      }
+      const replacement = await opts.accessRequests?.findApprovedReplacement(userId);
+      if (!replacement || !opts.startSettingsReauthorization) {
+        await messaging.sendMessage(externalId, settingsCopies.authUnavailable());
+        return;
+      }
+      await opts.startSettingsReauthorization.execute({
+        state: conversationState,
+        externalId,
+        channel,
+        accountChangeRequestId: replacement.id,
+      });
+      return;
+    }
     const vocabulary = parseSettingsVocabularyPayload(conversationState.statePayload);
     if (
       (vocabulary?.screen === 'categories' ||
@@ -730,6 +906,38 @@ async function routeByState(
       return;
     }
     const choice = rawMessage.trim();
+    if (choice === '7') {
+      if (!opts.accessRequests || !opts.requestAccess) {
+        await messaging.sendMessage(externalId, settingsCopies.unavailable());
+        return;
+      }
+      const active = await opts.accessRequests.findApproved(userId);
+      if (!active) {
+        await messaging.sendMessage(externalId, accessCopies.askEmail());
+        return;
+      }
+      const replacement = await opts.accessRequests.findApprovedReplacement(userId);
+      const pending = await opts.accessRequests.findPending(userId);
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'SETTINGS_MENU',
+        payload: {
+          ...conversationState.statePayload,
+          screen: replacement ? 'email_change_ready' : 'email_change',
+        },
+        expiresAt: new Date(Date.now() + SETTINGS_TIMEOUT_MS),
+        expected: opts.transitionState.precondition(conversationState, 'unexpired'),
+      });
+      await messaging.sendMessage(
+        externalId,
+        replacement
+          ? accessCopies.replacementReady()
+          : pending?.kind === 'replacement'
+            ? `${accessCopies.replacementPending()}\n${accessCopies.replacementPrompt()}`
+            : accessCopies.replacementPrompt(),
+      );
+      return;
+    }
     if (choice === '5' && opts.settingsVocabularyFlow) {
       await opts.settingsVocabularyFlow.start({
         state: conversationState,

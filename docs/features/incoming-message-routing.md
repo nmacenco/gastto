@@ -1,5 +1,7 @@
 # Feature: Receive, Parse and Route Incoming Messages
 
+With Telegram access approval enabled, the message worker handles pending email requests and approved `continuar` before semantic observation or expense routing. This prevents shadow router model calls before a usable Google OAuth credential exists. See [Telegram access approval](./telegram-access-approval.md).
+
 ## Purpose
 
 Handle all incoming messages from external channels (Telegram, WhatsApp). Extract relevant data from the raw webhook payload, normalise it into a channel-agnostic domain representation, and route each message to the appropriate downstream handler based on its type. This is the foundational layer on top of which all conversational flows are built.

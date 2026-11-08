@@ -17,6 +17,7 @@ vi.mock('@sentry/node', () => ({
 }));
 
 const baseEnv: Env = {
+  ACCESS_APPROVAL_ENABLED: false,
   NODE_ENV: 'test',
   PORT: 0,
   LOG_LEVEL: 'fatal',

@@ -10,6 +10,9 @@ import type { TransitionConversationState } from './TransitionConversationState'
 import type { IUserProcessingLock } from '../../ports/UserProcessingLock';
 import { startUserProcessingLeaseRenewal } from '../../services/UserProcessingLease';
 import type { Logger } from 'pino';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
+import type { MessagingOutputPort } from '../../ports/output/messaging.port';
+import { accessCopies } from '../../copies/access.copies';
 
 export interface HandleStartCommandInput {
   userId: string;
@@ -28,6 +31,8 @@ export class HandleStartCommand {
     private readonly transitionState?: TransitionConversationState,
     private readonly userProcessingLock?: IUserProcessingLock,
     private readonly logger?: Logger,
+    private readonly accessRequests?: AccessRequestRepository,
+    private readonly messaging?: MessagingOutputPort,
   ) {}
 
   async execute(input: HandleStartCommandInput): Promise<HandleStartCommandOutput> {
@@ -61,6 +66,22 @@ export class HandleStartCommand {
   }
 
   private async executeOwned(input: HandleStartCommandInput): Promise<HandleStartCommandOutput> {
+    if (this.accessRequests && this.messaging) {
+      const approved = await this.accessRequests.findApproved(input.userId);
+      const pending = approved ? null : await this.accessRequests.findPending(input.userId);
+      const replyText = [
+        accessCopies.welcome(),
+        approved
+          ? accessCopies.approved()
+          : pending
+            ? accessCopies.pendingAgain()
+            : accessCopies.askEmail(),
+      ].join('\n\n');
+      await this.messaging.sendMessage(input.chatId, replyText);
+      const existingState = await this.conversationRepo.findByUserId(input.userId);
+      if (!existingState) await this.conversationRepo.create(input.userId);
+      return { replyText };
+    }
     const welcomeText = sharedCopies.welcome(input.username);
 
     // The use case delegates the actual delivery to the infrastructure adapter,
