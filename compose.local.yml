@@ -16,7 +16,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gastto -d gastto"]
+      test: ["CMD-SHELL", "PGPASSWORD=\"$$POSTGRES_PASSWORD\" psql -h postgres -U gastto -d gastto -tAc 'SELECT 1' >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -92,7 +92,6 @@ services:
         condition: service_healthy
       ngrok-ready:
         condition: service_completed_successfully
-        required: false
 
 volumes:
   postgres_data:

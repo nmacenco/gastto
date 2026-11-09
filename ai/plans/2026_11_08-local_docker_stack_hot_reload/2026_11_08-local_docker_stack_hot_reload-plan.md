@@ -66,17 +66,17 @@ Description: Make installation and execution instructions match the local stack 
 
 Public contracts: update the published local setup command and `.env.example` variable descriptions; explain the Google OAuth callback and actual requested scopes. Keep production secrets, Fly.io deployment commands, HTTP routes, and data schema unchanged.
 
-- [ ] Rewrite [local-setup.md](../../../docs/development/local-setup.md) around the one-time `.env` setup and the single Compose start command, including startup checks, hot reload, stop/restart, safe local-volume reset, and the fact that no hosted PostgreSQL project is needed.
-- [ ] Explain the Google Cloud project, enabled Drive and Sheets APIs, OAuth consent screen, test users, Web application client, two callback options, current `drive.readonly` and `spreadsheets` scopes, and `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. State that this is Drive/Sheets authorization during Telegram onboarding, not an independent website login.
+- [x] Rewrite [local-setup.md](../../../docs/development/local-setup.md) around the one-time `.env` setup and the single Compose start command, including startup checks, hot reload, stop/restart, safe local-volume reset, and the fact that no hosted PostgreSQL project is needed.
+- [x] Explain the Google Cloud project, enabled Drive and Sheets APIs, OAuth consent screen, test users, Web application client, two callback options, current `drive.readonly` and `spreadsheets` scopes, and `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. State that this is Drive/Sheets authorization during Telegram onboarding, not an independent website login.
 - [ ] Document callback selection explicitly: `http://localhost:3000/auth/google/callback` requires completing consent in a browser on the Docker host; mobile Telegram users must use `https://<assigned-development-domain>/auth/google/callback`. Set `GOOGLE_REDIRECT_URI` and the Google client's authorized redirect URI to the exact chosen value. Clarify that `app:3000` is an internal Docker address, never a browser callback. Validate both documented paths, with user-performed consent, before marking them verified.
-- [ ] Describe the optional `ACCESS_APPROVAL_ENABLED=true` operator Gmail setup separately; the default local flow must not require operator Gmail credentials.
-- [ ] Update [README.md](../../../README.md), [.env.example](../../../.env.example), and [config-env.md](../../../docs/architecture/config-env.md) to remove the Supabase-only local assumption, align Node 24, and distinguish host URLs from container-network URLs. Update any affected feature documentation and its `docs/features/README.md` index if feature documentation changes.
-- [ ] Record the local topology decision in a new ADR if the implementation introduces a lasting architectural trade-off; update `docs/adr/README.md` alongside any new ADR.
+- [x] Describe the optional `ACCESS_APPROVAL_ENABLED=true` operator Gmail setup separately; the default local flow must not require operator Gmail credentials.
+- [x] Update [README.md](../../../README.md), [.env.example](../../../.env.example), and [config-env.md](../../../docs/architecture/config-env.md) to remove the Supabase-only local assumption, align Node 24, and distinguish host URLs from container-network URLs. Update any affected feature documentation and its `docs/features/README.md` index if feature documentation changes.
+- [x] Record the local topology decision in a new ADR if the implementation introduces a lasting architectural trade-off; update `docs/adr/README.md` alongside any new ADR. No ADR was needed: the change is a local development workflow and does not alter deployed architecture or contracts.
 - [ ] Follow the guide from a clean checkout and empty volumes, checking migration success, HTTP health, worker operation, Telegram delivery and response, Google callback, and hot reload. Record automated results separately from user-performed credential-backed checks, and leave unavailable checks explicitly pending. Recheck that existing Fly.io configuration and production Docker build remain unchanged.
-- [ ] Run `pnpm test` and fix relevant failures.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Run `pnpm test` and fix relevant failures.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Finish Phase 2 by verifying the tunnel and Telegram delivery with a dedicated local bot, then complete the remaining checks.
+Complete the pending credential-backed Telegram and Google checks for Phases 2 and 3 using a dedicated local bot and test account.

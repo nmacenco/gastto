@@ -137,7 +137,10 @@ The following environment variables are required once the adapter is wired:
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
 
-All three are optional in `env.schema.ts` so the app can bootstrap without them during skeleton phases.
+All three are required by the current `env.schema.ts`. Local Compose uses the
+same product-user client for Telegram onboarding; see the
+[local setup guide](../development/local-setup.md) for desktop and mobile
+callback choices. Operator Gmail authorization is configured separately.
 
 ## Requested scopes
 
