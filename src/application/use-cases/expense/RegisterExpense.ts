@@ -45,6 +45,7 @@ import {
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { createExpenseReviewBinding } from '../../../domain/value-objects/expense-review-binding';
 import type { IPaymentMethodCatalogRepository } from '../../../domain/ports/PaymentMethodCatalogRepository';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
 import { ResolvePaymentMethod } from './ResolvePaymentMethod';
 import { normalizeExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import type { PaymentMethodSelection } from '../../../domain/value-objects/payment-method-selection';
@@ -105,6 +106,7 @@ export class RegisterExpenseUseCase {
     private readonly reviewTimeoutMinutes: number = 10,
     private readonly logger?: Logger,
     private readonly paymentCatalogRepo?: IPaymentMethodCatalogRepository,
+    private readonly accessRequests?: AccessRequestRepository,
   ) {}
 
   // Fase 1: interpreta el mensaje y transiciona a EXPENSE_REVIEW
@@ -119,11 +121,14 @@ export class RegisterExpenseUseCase {
     // Check the configured provider before doing any expense interpretation.
     // A terminal OAuth failure should never produce a review that cannot be saved.
     const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
-    if (config) {
+    if (this.accessRequests && !(await this.accessRequests.findApproved(input.userId))) {
+      return { status: 'authorization_required' };
+    }
+    if (config || this.accessRequests) {
       try {
         await this.oauthAccessTokenService.getValidAccessToken({
           userId: input.userId,
-          provider: config.provider,
+          provider: config?.provider ?? 'google',
         });
       } catch (error) {
         if (!(error instanceof SpreadsheetError) || error.code !== 'AUTH_ERROR') throw error;

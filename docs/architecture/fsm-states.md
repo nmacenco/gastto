@@ -1,5 +1,7 @@
 # FSM States — Gastto
 
+Telegram email requests live in `access_requests`, outside the FSM, so cancellation and expiry do not erase them. An approved Telegram chat without a usable Google token must send `continuar` before OAuth begins. Account replacement starts from option 7 in `SETTINGS_MENU`, moves through `SETTINGS_OAUTH`, `SETTINGS_FILE`, `SETTINGS_SHEET`, `SETTINGS_MAPPING`, and `SETTINGS_CATEGORIES`, and carries `accountChangeRequestId` in the state payload. Candidate OAuth tokens are removed on cancellation or expiry. Final settings activation atomically sets the new request active and returns the FSM to `IDLE`. See [Telegram access approval](../features/telegram-access-approval.md).
+
 > **Why this document exists:** The FSM is the operational heart of the system. An agent that generates message-handling code without knowing the valid states and their transitions will produce incoherent logic. ADR-003 mentions the FSM but is not the right place to consult transitions during development.
 > **Related:**
 >

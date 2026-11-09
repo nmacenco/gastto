@@ -23,6 +23,7 @@ export class DetectPaymentMethods {
     sheetName: string;
     mappings: readonly { field: GasttoField; columnIndex: number }[];
     headerRowIndex: number;
+    accessToken?: string;
   }): Promise<PaymentMethodProposal> {
     const mapping = input.mappings.find((item) => item.field === 'medio_pago');
     if (!mapping) return { names: [], columnMapped: false };
@@ -32,15 +33,17 @@ export class DetectPaymentMethods {
       mapping.columnIndex < 0
     )
       throw new Error('Invalid payment-method column mapping');
-    const token = await this.deps.tokenService.getValidAccessToken({
-      userId: input.userId,
-      provider: input.provider,
-      ...(input.provider === 'google'
-        ? { requiredScopes: ['https://www.googleapis.com/auth/spreadsheets'] }
-        : {}),
-    });
+    const token = input.accessToken
+      ? null
+      : await this.deps.tokenService.getValidAccessToken({
+          userId: input.userId,
+          provider: input.provider,
+          ...(input.provider === 'google'
+            ? { requiredScopes: ['https://www.googleapis.com/auth/spreadsheets'] }
+            : {}),
+        });
     const values = await this.deps.spreadsheetPortFactory
-      .create(token.accessToken)
+      .create(input.accessToken ?? token!.accessToken)
       .getUniqueValues(
         input.fileId,
         mapping.columnIndex,

@@ -1,5 +1,11 @@
 # Data Model
 
+## Telegram access approval additions (migrations 0016–0017)
+
+`access_requests` stores a UUID, owner `user_id` (cascade FK), normalized email, `kind` (`initial` or `replacement`), `status` (`pending`, `approved`, `superseded`), creation and decision metadata, `activated_at`, and Gmail/Telegram notice timestamps. The `(user_id, status)` index serves current lookups. Partial unique indexes allow one pending request and one active approved request per user. An approved replacement has `activated_at = NULL` until cutover, so the old approved request remains the active association. Request submission and approval lock the user row and run in transactions.
+
+`candidate_oauth_tokens` stores one encrypted OAuth credential per replacement request, with a primary-key cascade FK to `access_requests`, a cascade FK to `users`, and an index on `user_id`. It keeps encrypted access and refresh tokens, separate IVs, expiry, scopes, grant/refresh timestamps and revocation state. The active credential remains in `oauth_tokens`. Final settings activation promotes the candidate token, request and new spreadsheet configuration in one transaction and deletes the candidate row. Both tables are additive; existing rows are not backfilled. See [Telegram access approval](../features/telegram-access-approval.md).
+
 The schema groups user identity, conversational state, OAuth tokens, spreadsheet configuration, vocabulary catalogs, and expense records plus audit logs. Tables use UUID primary keys with `gen_random_uuid()` defaults and timestamps. PostgreSQL `TEXT` with `CHECK` constraints is preferred over native `ENUM` types to simplify future migrations.
 
 ## Entity Graph

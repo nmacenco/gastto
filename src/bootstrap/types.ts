@@ -10,6 +10,10 @@ import type { DrizzleUserRepository } from '../infrastructure/db/repositories/Dr
 import type { DrizzleConversationStateRepository } from '../infrastructure/db/repositories/DrizzleConversationStateRepository';
 import type { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import type { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import type { DrizzleAccessRequestRepository } from '../infrastructure/db/repositories/DrizzleAccessRequestRepository';
+import type { RequestAccess } from '../application/use-cases/user/RequestAccess';
+import type { CandidateOAuthTokenService } from '../application/services/CandidateOAuthTokenService';
+import type { OperatorMailPort } from '../application/ports/OperatorMailPort';
 import type { DrizzleSpreadsheetConfigRepository } from '../infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
 import type { DrizzleColumnMappingRepository } from '../infrastructure/db/repositories/DrizzleColumnMappingRepository';
 import type { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
@@ -124,6 +128,7 @@ export interface GoogleOAuthFeature {
   startSettingsReauthorization: StartSettingsReauthorization;
   settingsOAuthCleanup: SettingsOAuthCleanup;
   settingsDestinationFlow?: SettingsDestinationFlow;
+  candidateTokens?: CandidateOAuthTokenService;
   /** Cancels an in-flight OAuth connection attempt. */
   cancelCloudConnection: CancelCloudConnection;
   /** Lists Google Drive spreadsheet files for the user. */
@@ -170,6 +175,9 @@ export interface Dependencies {
   conversationRepo: DrizzleConversationStateRepository;
   operationLogRepo: DrizzleOperationLogRepository;
   tokenRepo: DrizzleOAuthTokenRepository;
+  accessRequests?: DrizzleAccessRequestRepository;
+  requestAccess?: RequestAccess;
+  operatorMail?: OperatorMailPort | undefined;
   spreadsheetConfigRepo: DrizzleSpreadsheetConfigRepository;
   columnMappingRepo: DrizzleColumnMappingRepository;
   categoryVocabularyRepo: DrizzleCategoryVocabularyRepository;

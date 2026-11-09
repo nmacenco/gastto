@@ -1,5 +1,7 @@
 # Deployment Operations Guide
 
+For the opt-in Telegram access gate, apply additive migrations 0016 and 0017 before setting `ACCESS_APPROVAL_ENABLED=true`. Configure the separate operator Gmail authorization and verify a durable refresh grant before rollout. Existing Telegram users need approved local requests before enabling the gate. The owner runs the approval and notice retry CLIs inside the production deployment; there is no public approval route. The [reviewer runbook](../../ai/plans/2026_11_07-telegram_access_oauth_review/reviewer-runbook.md) contains the canary, rollback and external Google Cloud checks.
+
 This document describes the multi-environment Fly.io infrastructure, including
 merge-protected deployment, persistent BullMQ worker Machines, graceful shutdown,
 environment-isolated Redis-compatible brokers, secrets management, and Telegram

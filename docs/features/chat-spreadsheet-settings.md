@@ -1,5 +1,7 @@
 # Feature: Chat spreadsheet settings
 
+When Telegram access approval is enabled, option 7 starts an email replacement request. The approved old email, OAuth token and spreadsheet stay active while the new request waits or while the user configures a new Google spreadsheet. A candidate token is stored separately and promoted with the confirmed destination in one transaction. See [Telegram access approval](./telegram-access-approval.md).
+
 ## Purpose
 
 Let a user inspect the stored Google or Microsoft connection and current spreadsheet destination from chat.

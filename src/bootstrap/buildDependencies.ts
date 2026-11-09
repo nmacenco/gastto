@@ -12,6 +12,11 @@ import { DrizzleUserProfileRepository } from '../infrastructure/db/repositories/
 import { DrizzleConversationStateRepository } from '../infrastructure/db/repositories/DrizzleConversationStateRepository';
 import { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import { DrizzleAccessRequestRepository } from '../infrastructure/db/repositories/DrizzleAccessRequestRepository';
+import { DrizzleCandidateOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleCandidateOAuthTokenRepository';
+import { RequestAccess } from '../application/use-cases/user/RequestAccess';
+import { CandidateOAuthTokenService } from '../application/services/CandidateOAuthTokenService';
+import { GmailOperatorMailAdapter } from '../infrastructure/adapters/gmail/GmailOperatorMailAdapter';
 import { DrizzleSettingsCredentialCommit } from '../infrastructure/db/repositories/DrizzleSettingsCredentialCommit';
 import { DrizzleSettingsConfigurationActivation } from '../infrastructure/db/repositories/DrizzleSettingsConfigurationActivation';
 import { DrizzleSpreadsheetConfigRepository } from '../infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
@@ -231,6 +236,7 @@ function buildTelegramFeature(
     userProcessingLock: RedisUserProcessingLock;
     semanticRoutingPolicy: Sha256SemanticRoutingPolicy;
     deterministicRoutingPolicy: CurrentDeterministicRoutingPolicy;
+    accessRequests: DrizzleAccessRequestRepository | undefined;
   },
 ): TelegramFeature | null {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -244,6 +250,8 @@ function buildTelegramFeature(
     core.transitionState,
     core.userProcessingLock,
     infra.rootLogger,
+    core.accessRequests,
+    adapter,
   );
   const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(adapter);
   const handleUnsupportedMessage = new HandleUnsupportedMessage(adapter);
@@ -260,6 +268,7 @@ function buildTelegramFeature(
     getConversationState: core.getConversationState,
     processedMessageRepository,
     semanticRoutingPolicy: core.semanticRoutingPolicy,
+    ...(core.accessRequests ? { accessRequests: core.accessRequests } : {}),
   });
 
   return {
@@ -279,6 +288,7 @@ function buildGoogleOAuthFeature(
   infra: BuildDependenciesInfra,
   core: {
     tokenRepo: DrizzleOAuthTokenRepository;
+    accessRequests: DrizzleAccessRequestRepository;
     conversationRepo: DrizzleConversationStateRepository;
     userRepo: DrizzleUserRepository;
     spreadsheetConfigRepo: DrizzleSpreadsheetConfigRepository;
@@ -301,6 +311,13 @@ function buildGoogleOAuthFeature(
   }
 
   const adapter = core.oauthAdapter;
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const candidateTokenRepo = new DrizzleCandidateOAuthTokenRepository(infra.db);
+  const candidateTokens = new CandidateOAuthTokenService(
+    candidateTokenRepo,
+    core.tokenEncryption,
+    adapter,
+  );
 
   const messagingPort = core.telegramAdapter;
   const settingsOAuthCleanup = new SettingsOAuthCleanup(
@@ -319,6 +336,7 @@ function buildGoogleOAuthFeature(
     transitionState: core.transitionState,
     messagingPort,
     redirectUri: env.GOOGLE_REDIRECT_URI,
+    accessRequests: core.accessRequests,
   });
 
   const initiateCloudConnection = new InitiateCloudConnection({
@@ -379,6 +397,7 @@ function buildGoogleOAuthFeature(
     transitionState: core.transitionState,
     messaging: messagingPort,
     detectPaymentMethods,
+    candidateTokens,
   });
 
   const inferColumnMapping = new InferColumnMapping({
@@ -447,6 +466,9 @@ function buildGoogleOAuthFeature(
     settingsCredentialCommit,
     settingsAccessFactory: new SpreadsheetAccessAdapterFactory(infra.rootLogger),
     settingsOAuthCleanup,
+    accessRequests: core.accessRequests,
+    candidateTokens,
+    settingsDestinationFlow,
   });
 
   const confirmColumnMapping = new ConfirmColumnMapping({
@@ -510,6 +532,7 @@ function buildGoogleOAuthFeature(
     settingsOAuthCleanup,
     settingsDestinationFlow,
     handleOAuthCallback,
+    candidateTokens,
     sendOAuthReminder,
     cancelCloudConnection,
     driveFileDiscovery,
@@ -544,6 +567,27 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   const operationLogRepo = new DrizzleOperationLogRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const tokenRepo = new DrizzleOAuthTokenRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const accessRequests = new DrizzleAccessRequestRepository(infra.db);
+  const requestAccess = new RequestAccess(accessRequests);
+  const operatorMail =
+    env.ACCESS_APPROVAL_ENABLED &&
+    env.ADMIN_NOTIFICATION_EMAIL &&
+    env.ADMIN_GMAIL_ADDRESS &&
+    env.ADMIN_GMAIL_CLIENT_ID &&
+    env.ADMIN_GMAIL_CLIENT_SECRET &&
+    env.ADMIN_GMAIL_REFRESH_TOKEN
+      ? new GmailOperatorMailAdapter({
+          sender: env.ADMIN_GMAIL_ADDRESS,
+          recipient: env.ADMIN_NOTIFICATION_EMAIL,
+          clientId: env.ADMIN_GMAIL_CLIENT_ID,
+          clientSecret: env.ADMIN_GMAIL_CLIENT_SECRET,
+          refreshToken: env.ADMIN_GMAIL_REFRESH_TOKEN,
+        })
+      : undefined;
+  if (env.ACCESS_APPROVAL_ENABLED && !operatorMail) {
+    throw new Error('Access approval requires operator Gmail configuration');
+  }
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const spreadsheetConfigRepo = new DrizzleSpreadsheetConfigRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
@@ -720,6 +764,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     env.EXPENSE_REVIEW_TIMEOUT_MINUTES,
     infra.rootLogger,
     paymentCatalogRepo,
+    env.ACCESS_APPROVAL_ENABLED ? accessRequests : undefined,
   );
   const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
   const completeExpenseClarification = new CompleteExpenseClarification(registerExpense);
@@ -767,10 +812,12 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     userProcessingLock,
     semanticRoutingPolicy,
     deterministicRoutingPolicy,
+    accessRequests: env.ACCESS_APPROVAL_ENABLED ? accessRequests : undefined,
   });
 
   const googleOAuth = buildGoogleOAuthFeature(env, infra, {
     tokenRepo,
+    accessRequests,
     conversationRepo,
     userRepo,
     spreadsheetConfigRepo,
@@ -874,6 +921,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     conversationRepo,
     operationLogRepo,
     tokenRepo,
+    ...(env.ACCESS_APPROVAL_ENABLED ? { accessRequests, requestAccess, operatorMail } : {}),
     spreadsheetConfigRepo,
     columnMappingRepo,
     categoryVocabularyRepo,

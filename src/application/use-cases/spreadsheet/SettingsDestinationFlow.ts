@@ -26,6 +26,7 @@ import {
   normalizePaymentMethodName,
 } from '../../../domain/entities/PaymentMethodCatalog';
 import { DomainValidationError } from '../../../domain/errors/DomainValidationError';
+import type { CandidateOAuthTokenService } from '../../services/CandidateOAuthTokenService';
 
 type Mapping = SettingsDestinationCandidate['mappings'][number];
 type Category = SettingsDestinationCandidate['categories'][number];
@@ -48,6 +49,7 @@ type Payload = Record<string, unknown> & {
   paymentColumnMapped?: boolean;
   stage?: 'categories' | 'payment_methods';
   accessVerifiedAt?: string;
+  accountChangeRequestId?: string;
 };
 
 export interface SettingsDestinationFlowDeps {
@@ -65,6 +67,7 @@ export interface SettingsDestinationFlowDeps {
   transitionState: TransitionConversationState;
   messaging: MessagingOutputPort;
   detectPaymentMethods?: DetectPaymentMethods;
+  candidateTokens?: CandidateOAuthTokenService;
 }
 
 const timeoutMs = 30 * 60 * 1000;
@@ -102,6 +105,22 @@ export function parseGoogleSpreadsheetLink(value: string): string | null {
 
 export class SettingsDestinationFlow {
   constructor(private readonly deps: SettingsDestinationFlowDeps) {}
+
+  async beginReplacement(state: ConversationState, externalId: string): Promise<void> {
+    const payload = this.payload(state);
+    if (state.currentState !== 'SETTINGS_FILE' || !payload?.accountChangeRequestId) {
+      throw new Error('Account replacement flow is missing');
+    }
+    const token = await this.token(state.userId, true, payload.accountChangeRequestId);
+    const files = await this.deps.cloudStorage.listRecentSpreadsheets(token, 'google');
+    const next: Payload = {
+      ...payload,
+      origin: 'file',
+      files: files.map(({ id, name }) => ({ id, name })),
+    };
+    await this.move(state, 'SETTINGS_FILE', next);
+    await this.deps.messaging.sendMessage(externalId, this.filePrompt(next.files ?? []));
+  }
 
   async startFile(state: ConversationState, externalId: string): Promise<void> {
     const config = await this.deps.configRepository.findByUserId(state.userId);
@@ -161,6 +180,9 @@ export class SettingsDestinationFlow {
     if (!payload) return;
     if (normalize(rawMessage) === 'cancelar') {
       await this.move(state, 'IDLE', null);
+      if (payload.accountChangeRequestId) {
+        await this.deps.candidateTokens?.discard(payload.accountChangeRequestId);
+      }
       await this.deps.messaging.sendMessage(
         externalId,
         'Saliste de configuración. Tu hoja anterior sigue activa.',
@@ -200,7 +222,7 @@ export class SettingsDestinationFlow {
         );
         return;
       }
-      const token = await this.token(state.userId, true);
+      const token = await this.token(state.userId, true, payload.accountChangeRequestId);
       const files = await this.deps.cloudStorage.searchSpreadsheets(token, 'google', query);
       const next: Payload = { ...payload, files: files.map(({ id, name }) => ({ id, name })) };
       delete next.step;
@@ -230,7 +252,7 @@ export class SettingsDestinationFlow {
       await this.deps.messaging.sendMessage(externalId, this.filePrompt(payload.files ?? []));
       return;
     }
-    const token = await this.token(state.userId, true);
+    const token = await this.token(state.userId, true, payload.accountChangeRequestId);
     if (!(await this.deps.cloudStorage.validateFileAccess(selected.id, token, 'google'))) {
       await this.deps.messaging.sendMessage(
         externalId,
@@ -249,6 +271,9 @@ export class SettingsDestinationFlow {
     const next: Payload = {
       flowId: payload.flowId,
       sourceConfigId: payload.sourceConfigId,
+      ...(payload.accountChangeRequestId
+        ? { accountChangeRequestId: payload.accountChangeRequestId }
+        : {}),
       origin: 'file',
       fileId: selected.id,
       fileName: selected.name,
@@ -271,7 +296,7 @@ export class SettingsDestinationFlow {
       await this.deps.messaging.sendMessage(externalId, this.sheetPrompt(sheets));
       return;
     }
-    const token = await this.token(state.userId);
+    const token = await this.token(state.userId, false, payload.accountChangeRequestId);
     const result = await this.deps.accessPortFactory
       .create('google', token)
       .validateSpreadsheetAccess(payload.fileId, sheet.name);
@@ -424,7 +449,7 @@ export class SettingsDestinationFlow {
       );
       return;
     }
-    const token = await this.token(state.userId);
+    const token = await this.token(state.userId, false, payload.accountChangeRequestId);
     const subcategory = payload.mappings?.find((entry) => entry.field === 'subcategoria');
     let categories: Category[];
     if (subcategory) {
@@ -491,6 +516,15 @@ export class SettingsDestinationFlow {
             sheetName: payload.sheetName,
             mappings: payload.mappings,
             headerRowIndex: payload.headerRowIndex,
+            ...(payload.accountChangeRequestId
+              ? {
+                  accessToken: await this.token(
+                    state.userId,
+                    false,
+                    payload.accountChangeRequestId,
+                  ),
+                }
+              : {}),
           });
           await this.move(state, 'SETTINGS_CATEGORIES', {
             ...payload,
@@ -510,6 +544,9 @@ export class SettingsDestinationFlow {
         }
         return;
       }
+      if (payload.accountChangeRequestId) {
+        await this.token(state.userId, false, payload.accountChangeRequestId);
+      }
       const outcome = await this.deps.activation.execute({
         userId: state.userId,
         expected: this.deps.transitionState.precondition(state, 'unexpired'),
@@ -526,14 +563,19 @@ export class SettingsDestinationFlow {
           mappings: payload.mappings,
           categories: payload.categories,
           paymentMethods: payload.paymentMethods ?? [],
+          ...(payload.accountChangeRequestId
+            ? { accountChangeRequestId: payload.accountChangeRequestId }
+            : {}),
         },
       });
       if (outcome === 'activated')
         await this.deps.messaging.sendMessage(
           externalId,
-          payload.origin === 'file'
-            ? 'La nueva planilla quedó activa. Tus gastos anteriores conservan su planilla original.'
-            : 'La nueva hoja quedó activa. Tus gastos anteriores conservan su hoja original.',
+          payload.accountChangeRequestId
+            ? 'Tu nueva cuenta y planilla ya están activas. Tus gastos anteriores conservan su planilla original.'
+            : payload.origin === 'file'
+              ? 'La nueva planilla quedó activa. Tus gastos anteriores conservan su planilla original.'
+              : 'La nueva hoja quedó activa. Tus gastos anteriores conservan su hoja original.',
         );
       return;
     }
@@ -636,7 +678,23 @@ export class SettingsDestinationFlow {
     return config?.id === payload.sourceConfigId ? config : null;
   }
 
-  private async token(userId: string, drive = false): Promise<string> {
+  private async token(
+    userId: string,
+    drive = false,
+    accountChangeRequestId?: string,
+  ): Promise<string> {
+    if (accountChangeRequestId) {
+      if (!this.deps.candidateTokens)
+        throw new Error('Candidate Google token service is unavailable');
+      return this.deps.candidateTokens.getValidAccessToken({
+        requestId: accountChangeRequestId,
+        userId,
+        requiredScopes: [
+          'https://www.googleapis.com/auth/spreadsheets',
+          ...(drive ? ['https://www.googleapis.com/auth/drive.readonly'] : []),
+        ],
+      });
+    }
     return (
       await this.deps.tokenService.getValidAccessToken({
         userId,

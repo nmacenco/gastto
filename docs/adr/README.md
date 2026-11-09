@@ -38,6 +38,7 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-029](./ADR-029-version-spreadsheet-destinations.md) | Version spreadsheet destinations for safe settings changes | Accepted |
 | [ADR-030](./ADR-030-transactional-settings-vocabulary-drafts.md) | Commit settings hierarchy drafts transactionally | Accepted |
 | [ADR-031](./ADR-031-configuration-scoped-payment-catalog.md) | Scope payment catalogs to spreadsheet configurations | Accepted |
+| [ADR-032](./ADR-032-separate-operator-gmail-authorization.md) | Separate operator Gmail authorization from product OAuth | Proposed |
 
 ## Template
 

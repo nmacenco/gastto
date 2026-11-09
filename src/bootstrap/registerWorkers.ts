@@ -105,6 +105,9 @@ export async function registerWorkers(
       mappingCorrectionStateRepository: deps.mappingCorrectionStateRepository,
       cancelCloudConnection: deps.googleOAuth?.cancelCloudConnection ?? null,
       settingsOAuthCleanup: deps.googleOAuth?.settingsOAuthCleanup ?? null,
+      ...(deps.googleOAuth?.candidateTokens
+        ? { candidateTokens: deps.googleOAuth.candidateTokens }
+        : {}),
       logger: deps.rootLogger,
     }),
     spreadsheetConfigRepository: deps.spreadsheetConfigRepo,
@@ -122,6 +125,10 @@ export async function registerWorkers(
     resolveExpensePaymentMethod: deps.resolveExpensePaymentMethod ?? null,
     recoverCorruptedState: deps.recoverCorruptedState,
     userRepo: deps.userRepo,
+    accessRequests: deps.accessRequests,
+    requestAccess: deps.requestAccess,
+    oauthAdmission: deps.oauthAccessTokenService,
+    operatorMail: deps.operatorMail,
     messagingAdapters: {
       telegram: telegramAdapter,
       // TODO: replace with real WhatsApp adapter when implemented
@@ -201,6 +208,7 @@ export async function registerWorkers(
       deps.userProcessingLock,
       deps.generateExpenseSummary,
       deps.googleOAuth?.settingsOAuthCleanup,
+      deps.googleOAuth?.candidateTokens,
     );
 
     const sessionTimeoutWorker = createSessionTimeoutWorker({

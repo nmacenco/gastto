@@ -219,6 +219,57 @@ describe('HandleOAuthCallback', () => {
       expect(mockSendMessage).toHaveBeenCalledWith('987654321', settingsCopies.reauthorized());
     });
 
+    it('stages a replacement credential without changing the active token or spreadsheet', async () => {
+      const replacementState: ConversationState = {
+        ...observed,
+        statePayload: { ...observed.statePayload, accountChangeRequestId: 'request-1' },
+      };
+      const { deps, commit } = settingsDeps(replacementState);
+      mockExchangeCode.mockResolvedValue({
+        accessToken: 'new-access',
+        refreshToken: 'new-refresh',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        scope: [
+          'https://www.googleapis.com/auth/spreadsheets',
+          'https://www.googleapis.com/auth/drive.readonly',
+        ],
+      });
+      const save = vi.fn().mockResolvedValue(undefined);
+      const beginReplacement = vi.fn().mockResolvedValue(undefined);
+      mockTransitionExecute.mockResolvedValue({
+        status: 'updated',
+        state: {
+          ...replacementState,
+          revision: '8',
+          currentState: 'SETTINGS_FILE',
+          statePayload: {
+            flowId: 'flow-1',
+            sourceConfigId: 'config-1',
+            accountChangeRequestId: 'request-1',
+          },
+        },
+      });
+      const result = await new HandleOAuthCallback({
+        ...deps,
+        accessRequests: {
+          findApprovedReplacement: vi.fn().mockResolvedValue({ id: 'request-1' }),
+        } as never,
+        candidateTokens: { save } as never,
+        settingsDestinationFlow: { beginReplacement } as never,
+      }).execute({ code: 'new-code', state: nonce });
+      expect(result).toMatchObject({ success: true, nextState: 'SETTINGS_FILE' });
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: 'request-1',
+          userId: 'user-123',
+          accessToken: 'new-access',
+        }),
+      );
+      expect(beginReplacement).toHaveBeenCalledOnce();
+      expect(mockTokenUpsert).not.toHaveBeenCalled();
+      expect(commit).not.toHaveBeenCalled();
+    });
+
     it('exits on provider denial without exchanging or replacing a token', async () => {
       const { deps, commit, cleanup } = settingsDeps();
       const result = await new HandleOAuthCallback(deps).execute({
