@@ -195,8 +195,14 @@ describe('SettingsDestinationFlow', () => {
       ...(t.flow as unknown as { deps: SettingsDestinationFlowDeps }).deps,
       candidateTokens: { discard } as never,
     });
-    await flow.reply(state('SETTINGS_FILE', { ...filePayload, accountChangeRequestId: 'request-1' }), 'cancelar', 'chat-1');
-    expect(t.transition).toHaveBeenCalledWith(expect.objectContaining({ targetState: 'IDLE', payload: null }));
+    await flow.reply(
+      state('SETTINGS_FILE', { ...filePayload, accountChangeRequestId: 'request-1' }),
+      'cancelar',
+      'chat-1',
+    );
+    expect(t.transition).toHaveBeenCalledWith(
+      expect.objectContaining({ targetState: 'IDLE', payload: null }),
+    );
     expect(discard).toHaveBeenCalledWith('request-1');
     expect(t.activate).not.toHaveBeenCalled();
   });

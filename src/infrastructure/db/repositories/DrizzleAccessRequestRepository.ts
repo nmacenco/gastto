@@ -143,8 +143,11 @@ export class DrizzleAccessRequestRepository implements AccessRequestRepository {
         .where(eq(schema.users.userId, target.userId))
         .for('update');
       if (!owner) return { status: 'not_found' };
-      const [lockedTarget] = await tx.select().from(schema.accessRequests)
-        .where(eq(schema.accessRequests.id, id)).for('update');
+      const [lockedTarget] = await tx
+        .select()
+        .from(schema.accessRequests)
+        .where(eq(schema.accessRequests.id, id))
+        .for('update');
       if (!lockedTarget) return { status: 'not_found' };
       if (lockedTarget.status === 'approved')
         return { status: 'already_approved', request: toRequest(lockedTarget) };
