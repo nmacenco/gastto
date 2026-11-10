@@ -5,6 +5,7 @@ import { createLogger } from '../../infrastructure/logger';
 import { DrizzleAccessRequestRepository } from '../../infrastructure/db/repositories/DrizzleAccessRequestRepository';
 import { DrizzleUserRepository } from '../../infrastructure/db/repositories/DrizzleUserRepository';
 import { GmailOperatorMailAdapter } from '../../infrastructure/adapters/gmail/GmailOperatorMailAdapter';
+import { operatorMailFailureContext } from '../../application/ports/OperatorMailPort';
 import * as schema from '../../infrastructure/db/schema';
 import { Redis } from 'ioredis';
 
@@ -51,7 +52,7 @@ export async function notifyAccessRequestCli(requestId: string): Promise<number>
       endpoint: 'notifyAccessRequestCli',
       code: 'ACCESS_REQUEST_MAIL_FAILED',
       requestId,
-      errorType: error instanceof Error ? error.constructor.name : 'unknown',
+      ...operatorMailFailureContext(error),
     });
     return 1;
   } finally {

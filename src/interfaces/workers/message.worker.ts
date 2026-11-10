@@ -37,6 +37,7 @@ import type { AccessRequestRepository } from '../../domain/ports/AccessRequestRe
 import type { RequestAccess } from '../../application/use-cases/user/RequestAccess';
 import type { OAuthAccessTokenProvider } from '../../application/services/OAuthAccessTokenService';
 import type { OperatorMailPort } from '../../application/ports/OperatorMailPort';
+import { operatorMailFailureContext } from '../../application/ports/OperatorMailPort';
 import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
 import { accessCopies } from '../../application/copies/access.copies';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
@@ -299,13 +300,14 @@ export async function processMessageJob(
             if (opts.operatorMail) {
               await opts.accessRequests.markNotificationSent(submission.result.request.id);
             }
-          } catch {
+          } catch (error) {
             opts.logger.error({
               msg: 'Operator access-request email failed',
               endpoint: 'processMessageJob',
               code: 'ACCESS_REQUEST_MAIL_FAILED',
               userId,
               requestId: submission.result.request.id,
+              ...operatorMailFailureContext(error),
             });
           }
         }
@@ -864,13 +866,14 @@ async function routeByState(
           if (opts.operatorMail) {
             await opts.accessRequests.markNotificationSent(submission.result.request.id);
           }
-        } catch {
+        } catch (error) {
           opts.logger.error({
             msg: 'Operator account-replacement email failed',
             endpoint: 'routeByState',
             code: 'ACCOUNT_CHANGE_MAIL_FAILED',
             userId,
             requestId: submission.result.request.id,
+            ...operatorMailFailureContext(error),
           });
         }
       }
