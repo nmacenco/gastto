@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GmailOperatorMailAdapter } from './GmailOperatorMailAdapter';
+import { OperatorMailError } from '../../../application/ports/OperatorMailPort';
 
 const config = {
   sender: 'owner@gmail.com',
@@ -54,7 +55,11 @@ describe('GmailOperatorMailAdapter', () => {
   });
 
   it('does not send if the operator refresh grant fails', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 400 });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ error: 'invalid_grant' }),
+    });
     vi.stubGlobal('fetch', fetchMock);
     await expect(
       new GmailOperatorMailAdapter(config).sendAccessRequestNotice({
@@ -64,7 +69,38 @@ describe('GmailOperatorMailAdapter', () => {
         kind: 'initial',
         previousEmail: null,
       }),
-    ).rejects.toThrow('Operator Gmail authorization failed');
+    ).rejects.toMatchObject({
+      stage: 'token_response',
+      httpStatus: 400,
+      providerReason: 'invalid_grant',
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('identifies a Gmail send rejection without exposing its response body', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ access_token: 'token' }) })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: () =>
+          Promise.resolve({
+            error: {
+              errors: [{ reason: 'insufficientPermissions', message: 'private details' }],
+            },
+          }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      new GmailOperatorMailAdapter(config).sendAccessRequestNotice({
+        requestId: 'request-1',
+        chatId: '12345',
+        email: 'user@example.com',
+        kind: 'initial',
+        previousEmail: null,
+      }),
+    ).rejects.toEqual(new OperatorMailError('send_response', 403, 'insufficientPermissions'));
   });
 });

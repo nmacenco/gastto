@@ -4,6 +4,8 @@
 
 import type { SendResult, MessagingOutputPort } from '../../ports/output/messaging.port';
 import { sharedCopies } from '../../copies/shared.copies';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
+import type { IUserRepository } from '../../../domain/ports/repositories';
 
 export interface SendImmediateAcknowledgementInput {
   readonly chatId: string;
@@ -12,10 +14,20 @@ export interface SendImmediateAcknowledgementInput {
 }
 
 export class SendImmediateAcknowledgement {
-  constructor(private readonly messagingPort: MessagingOutputPort) {}
+  constructor(
+    private readonly messagingPort: MessagingOutputPort,
+    private readonly accessRequests?: AccessRequestRepository,
+    private readonly userRepository?: IUserRepository,
+  ) {}
 
   async execute(input: SendImmediateAcknowledgementInput): Promise<SendResult> {
     try {
+      if (input.channel === 'telegram' && this.accessRequests && this.userRepository) {
+        const user = await this.userRepository.findByMessagingIdentity(input.channel, input.chatId);
+        if (!user || !(await this.accessRequests.findApproved(user.userId))) {
+          return { status: 'success' };
+        }
+      }
       return await this.messagingPort.sendMessage(
         input.chatId,
         sharedCopies.processingAcknowledgment(),

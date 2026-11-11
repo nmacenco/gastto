@@ -237,6 +237,7 @@ function buildTelegramFeature(
     semanticRoutingPolicy: Sha256SemanticRoutingPolicy;
     deterministicRoutingPolicy: CurrentDeterministicRoutingPolicy;
     accessRequests: DrizzleAccessRequestRepository | undefined;
+    userRepo: DrizzleUserRepository;
   },
 ): TelegramFeature | null {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -253,7 +254,11 @@ function buildTelegramFeature(
     core.accessRequests,
     adapter,
   );
-  const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(adapter);
+  const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(
+    adapter,
+    core.accessRequests,
+    core.userRepo,
+  );
   const handleUnsupportedMessage = new HandleUnsupportedMessage(adapter);
   const classifyFreeTextExpenseIntent = new ClassifyFreeTextExpenseIntent();
   const sendExpenseGuidance = new SendExpenseGuidance(adapter);
@@ -813,6 +818,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     semanticRoutingPolicy,
     deterministicRoutingPolicy,
     accessRequests: env.ACCESS_APPROVAL_ENABLED ? accessRequests : undefined,
+    userRepo,
   });
 
   const googleOAuth = buildGoogleOAuthFeature(env, infra, {

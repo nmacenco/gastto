@@ -1,7 +1,10 @@
 export const accessCopies = {
-  welcome: () => '¡Bienvenido a Gastto! Para empezar, necesitamos autorizar tu cuenta de Google.',
-  askEmail: () => 'Escribí el email de la cuenta de Google que vas a usar.',
-  invalidEmail: () => 'Ese email no parece válido. Revisalo y volvé a escribirlo.',
+  welcome: () =>
+    '¡Hola! Soy Gastto. Te ayudo a registrar gastos por chat en tu planilla de Google. Cuando tengas acceso, podés escribirme algo como «Almuerzo 12 euros»; te mostraré el gasto para que lo confirmes antes de guardarlo. Escribí «configuración» para ver o cambiar la planilla, la hoja, las categorías, los medios de pago y tu cuenta de Google.',
+  askEmail: () =>
+    'Para empezar, escribí el email de la cuenta de Google que querés usar. Te avisaré por este chat cuando se apruebe tu solicitud.',
+  invalidEmail: () =>
+    'El email que ingresaste no tiene un formato válido. Revisalo y volvé a escribirlo.',
   pending: () => 'Recibimos tu solicitud. Te avisaremos por Telegram cuando esté autorizada.',
   pendingAgain: () =>
     'Tu solicitud sigue pendiente. Te avisaremos por Telegram cuando esté autorizada.',

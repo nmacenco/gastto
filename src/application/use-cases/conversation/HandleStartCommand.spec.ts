@@ -7,6 +7,9 @@ import { HandleStartCommand, type HandleStartCommandInput } from './HandleStartC
 import type { IChatMessenger } from '../../ports/IChatMessenger';
 import type { IConversationStateRepository } from '../../../domain/ports/repositories';
 import { sharedCopies } from '../../copies/shared.copies';
+import { accessCopies } from '../../copies/access.copies';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
+import type { TransitionConversationState } from './TransitionConversationState';
 
 function buildMockMessenger(): {
   messenger: IChatMessenger;
@@ -74,6 +77,52 @@ describe('HandleStartCommand', () => {
     expect(sendWelcomeMock).toHaveBeenCalledWith('987654321', undefined);
     expect(mockFindByUserId).toHaveBeenCalledWith('user-2');
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('shows the access welcome only on the first /start', async () => {
+    const { messenger } = buildMockMessenger();
+    const repo = buildMockConversationRepo();
+    const initial = {
+      userId: 'user-1',
+      revision: '0',
+      currentState: 'ONBOARDING_START' as const,
+      statePayload: { promptShown: false },
+      expiresAt: null,
+    };
+    mockFindByUserId.mockResolvedValueOnce(initial).mockResolvedValueOnce({
+      ...initial,
+      revision: '1',
+      statePayload: { promptShown: false, accessWelcomeShown: true },
+    });
+    const transitionExecute = vi.fn().mockResolvedValue({ status: 'updated' });
+    const transition = {
+      execute: transitionExecute,
+      precondition: vi.fn().mockReturnValue({ revision: '0', currentState: 'ONBOARDING_START' }),
+    } as unknown as TransitionConversationState;
+    const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+    const useCase = new HandleStartCommand(
+      messenger,
+      repo,
+      transition,
+      undefined,
+      undefined,
+      {
+        findApproved: vi.fn().mockResolvedValue(null),
+        findPending: vi.fn().mockResolvedValue(null),
+      } as unknown as AccessRequestRepository,
+      { sendMessage },
+    );
+
+    await useCase.execute({ userId: 'user-1', chatId: '123' });
+    await useCase.execute({ userId: 'user-1', chatId: '123' });
+
+    expect(sendMessage).toHaveBeenNthCalledWith(
+      1,
+      '123',
+      [accessCopies.welcome(), accessCopies.askEmail()].join('\n\n'),
+    );
+    expect(sendMessage).toHaveBeenNthCalledWith(2, '123', accessCopies.askEmail());
+    expect(transitionExecute).toHaveBeenCalledTimes(1);
   });
 
   it('creates conversation state when user does not have one', async () => {

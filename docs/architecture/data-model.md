@@ -58,6 +58,8 @@ Maps external channel identifiers to the internal `user_id`.
 
 Persisted finite-state machine (FSM) state for each user. One row per user.
 
+During initial Telegram access, `state_payload.accessWelcomeShown` records whether the introductory reply was delivered. It is stored alongside onboarding context such as `promptShown` and needs no schema migration.
+
 | Column          | Type          | Constraints                        | Description                                                                                |
 | --------------- | ------------- | ---------------------------------- | ------------------------------------------------------------------------------------------ |
 | `user_id`       | `UUID`        | PK, FK → `users(user_id)`, CASCADE | 1:1 with the user.                                                                         |

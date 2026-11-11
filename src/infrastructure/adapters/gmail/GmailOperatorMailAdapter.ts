@@ -2,9 +2,26 @@ import type {
   AccessRequestNotice,
   OperatorMailPort,
 } from '../../../application/ports/OperatorMailPort';
+import { OperatorMailError } from '../../../application/ports/OperatorMailPort';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SEND_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send';
+
+async function getGoogleErrorReason(response: Response): Promise<string | null> {
+  const payload: unknown = await response.json().catch(() => null);
+  if (typeof payload !== 'object' || payload === null || !('error' in payload)) return null;
+  const error = payload.error;
+  const reason =
+    typeof error === 'string'
+      ? error
+      : typeof error === 'object' &&
+          error !== null &&
+          'errors' in error &&
+          Array.isArray(error.errors)
+        ? (error.errors[0] as { reason?: unknown } | undefined)?.reason
+        : null;
+  return typeof reason === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,63}$/.test(reason) ? reason : null;
+}
 
 export interface GmailOperatorMailConfig {
   sender: string;
@@ -28,16 +45,25 @@ export class GmailOperatorMailAdapter implements OperatorMailPort {
         grant_type: 'refresh_token',
       }),
       signal: AbortSignal.timeout(10_000),
+    }).catch(() => {
+      throw new OperatorMailError('token_request');
     });
-    if (!tokenResponse.ok) throw new Error('Operator Gmail authorization failed');
-    const tokenPayload: unknown = await tokenResponse.json();
+    if (!tokenResponse.ok)
+      throw new OperatorMailError(
+        'token_response',
+        tokenResponse.status,
+        await getGoogleErrorReason(tokenResponse),
+      );
+    const tokenPayload: unknown = await tokenResponse.json().catch(() => {
+      throw new OperatorMailError('token_response');
+    });
     if (
       typeof tokenPayload !== 'object' ||
       tokenPayload === null ||
       !('access_token' in tokenPayload) ||
       typeof tokenPayload.access_token !== 'string'
     )
-      throw new Error('Operator Gmail token response is invalid');
+      throw new OperatorMailError('token_response');
 
     const lines = [
       notice.kind === 'replacement'
@@ -77,16 +103,25 @@ export class GmailOperatorMailAdapter implements OperatorMailPort {
       },
       body: JSON.stringify({ raw: Buffer.from(raw, 'utf8').toString('base64url') }),
       signal: AbortSignal.timeout(10_000),
+    }).catch(() => {
+      throw new OperatorMailError('send_request');
     });
-    if (!response.ok) throw new Error(`Operator Gmail send failed (${response.status})`);
-    const result: unknown = await response.json();
+    if (!response.ok)
+      throw new OperatorMailError(
+        'send_response',
+        response.status,
+        await getGoogleErrorReason(response),
+      );
+    const result: unknown = await response.json().catch(() => {
+      throw new OperatorMailError('send_response');
+    });
     if (
       typeof result !== 'object' ||
       result === null ||
       !('id' in result) ||
       typeof result.id !== 'string'
     ) {
-      throw new Error('Operator Gmail did not return a message ID');
+      throw new OperatorMailError('send_response');
     }
   }
 }
