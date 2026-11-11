@@ -5,6 +5,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SendImmediateAcknowledgement } from './SendImmediateAcknowledgement';
 import type { MessagingOutputPort, SendResult } from '../../ports/output/messaging.port';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
+import type { IUserRepository } from '../../../domain/ports/repositories';
 
 const mockSendMessage = vi.fn();
 
@@ -68,6 +70,48 @@ describe('SendImmediateAcknowledgement', () => {
 
     await useCase.execute({ ...baseInput, channel: 'whatsapp' });
 
+    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
+  });
+
+  it('does not send a processing acknowledgment before Telegram access is approved', async () => {
+    const findByMessagingIdentity = vi.fn().mockResolvedValue({ userId: 'user-123' });
+    const findApproved = vi.fn().mockResolvedValue(null);
+    const useCase = new SendImmediateAcknowledgement(
+      buildMockPort(),
+      { findApproved } as unknown as AccessRequestRepository,
+      { findByMessagingIdentity } as unknown as IUserRepository,
+    );
+
+    expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
+    expect(findApproved).toHaveBeenCalledWith('user-123');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not send a processing acknowledgment before a new chat has an identity', async () => {
+    const findApproved = vi.fn();
+    const useCase = new SendImmediateAcknowledgement(
+      buildMockPort(),
+      { findApproved } as unknown as AccessRequestRepository,
+      { findByMessagingIdentity: vi.fn().mockResolvedValue(null) } as unknown as IUserRepository,
+    );
+
+    expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
+    expect(findApproved).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps the processing acknowledgment for approved Telegram users', async () => {
+    const useCase = new SendImmediateAcknowledgement(
+      buildMockPort(),
+      {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved-1' }),
+      } as unknown as AccessRequestRepository,
+      {
+        findByMessagingIdentity: vi.fn().mockResolvedValue({ userId: 'user-123' }),
+      } as unknown as IUserRepository,
+    );
+
+    expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
     expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
   });
 });

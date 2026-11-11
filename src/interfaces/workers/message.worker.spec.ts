@@ -451,7 +451,65 @@ describe('processMessageJob', () => {
         rawEmail: 'User@Example.com',
         kind: 'initial',
       });
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accessCopies.pending());
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        [accessCopies.welcome(), accessCopies.pending()].join('\n\n'),
+      );
+      expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('welcomes a new Telegram user who writes hola instead of an email', async () => {
+      const deps = buildMockDeps();
+      const initialState = buildConversationState({
+        currentState: 'ONBOARDING_START',
+        statePayload: { promptShown: false },
+      });
+      mockGetConversationStateExecute.mockResolvedValueOnce(initialState).mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_START',
+          statePayload: { promptShown: false, accessWelcomeShown: true },
+        }),
+      );
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue(null),
+        findPending: vi.fn().mockResolvedValue(null),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = {
+        execute: vi
+          .fn()
+          .mockResolvedValueOnce({ status: 'invalid' })
+          .mockResolvedValueOnce({ status: 'invalid' })
+          .mockResolvedValueOnce({
+            status: 'submitted',
+            result: { created: true, request: { id: 'request-1' }, previousEmail: null },
+          }),
+      } as unknown as NonNullable<MessageWorkerDeps['requestAccess']>;
+      deps.oauthAdmission = { getValidAccessToken: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['oauthAdmission']
+      >;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'hola' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        [accessCopies.welcome(), accessCopies.askEmail()].join('\n\n'),
+      );
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          targetState: 'ONBOARDING_START',
+          payload: { promptShown: false, accessWelcomeShown: true },
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'nicolasmace' }), deps);
+
+      expect(mockSendMessage).toHaveBeenNthCalledWith(2, '123456789', accessCopies.invalidEmail());
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'user@example.com' }), deps);
+
+      expect(mockSendMessage).toHaveBeenNthCalledWith(3, '123456789', accessCopies.pending());
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
     });

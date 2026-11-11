@@ -55,7 +55,11 @@ describe('GmailOperatorMailAdapter', () => {
   });
 
   it('does not send if the operator refresh grant fails', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 400 });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ error: 'invalid_grant' }),
+    });
     vi.stubGlobal('fetch', fetchMock);
     await expect(
       new GmailOperatorMailAdapter(config).sendAccessRequestNotice({
@@ -65,7 +69,11 @@ describe('GmailOperatorMailAdapter', () => {
         kind: 'initial',
         previousEmail: null,
       }),
-    ).rejects.toMatchObject({ stage: 'token_response', httpStatus: 400 });
+    ).rejects.toMatchObject({
+      stage: 'token_response',
+      httpStatus: 400,
+      providerReason: 'invalid_grant',
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -73,7 +81,16 @@ describe('GmailOperatorMailAdapter', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ access_token: 'token' }) })
-      .mockResolvedValueOnce({ ok: false, status: 403 });
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: () =>
+          Promise.resolve({
+            error: {
+              errors: [{ reason: 'insufficientPermissions', message: 'private details' }],
+            },
+          }),
+      });
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
@@ -84,6 +101,6 @@ describe('GmailOperatorMailAdapter', () => {
         kind: 'initial',
         previousEmail: null,
       }),
-    ).rejects.toEqual(new OperatorMailError('send_response', 403));
+    ).rejects.toEqual(new OperatorMailError('send_response', 403, 'insufficientPermissions'));
   });
 });

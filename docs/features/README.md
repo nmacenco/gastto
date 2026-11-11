@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`telegram-access-approval.md`](./telegram-access-approval.md): Telegram email requests, manual CLI approval, Gmail notices, OAuth admission and safe account replacement.
+- [`telegram-access-approval.md`](./telegram-access-approval.md): First-contact welcome, explicit invalid-email feedback, Telegram email requests, manual CLI approval, Gmail notices, OAuth admission and safe account replacement.
 
 - [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, safe file and sheet changes, category and payment drafts with listed editing examples, and guarded cancellation and expiry.
 - [`payment-methods.md`](./payment-methods.md): Configuration-scoped payment catalogs, settings drafts, detection during setup, expense review resolution, and legacy compatibility.
@@ -22,7 +22,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`category-confirmation.md`](./category-confirmation.md) — Reviews category vocabulary before payment methods in onboarding and destination changes, with cancellable onboarding and legacy layout support.
 - [`category-vocabulary.md`](./category-vocabulary.md) — Category vocabulary foundation introduced on `main`; the active confirmation flow is documented in `category-confirmation.md`.
 - [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, drafts, classifies, reviews, saves, retries, and undoes parent-scoped subcategories with stable references, explicit parent commands, and immutable snapshots.
-- [`incoming-message-routing.md`](./incoming-message-routing.md) — Strict BullMQ ingestion, sensitive-command and onboarding-restart routing, bounded lock-contention retries, and snapshot-bound expense, option, cancellation, undo, and recovery dispatch.
+- [`incoming-message-routing.md`](./incoming-message-routing.md) — Strict BullMQ ingestion, access-aware processing acknowledgments, sensitive-command and onboarding-restart routing, bounded lock-contention retries, and snapshot-bound expense, option, cancellation, undo, and recovery dispatch.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow with retained-source semantic completion, safe replacement, and queued-batch continuity.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Bounded expense extraction, structured summaries with payment resolution, and version-bound confirm, correct, and cancel actions.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Exact text/callback and revision-bound natural draft cancellation, plus guarded retry, saving, and undo exits.

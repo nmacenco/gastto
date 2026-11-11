@@ -37,6 +37,7 @@ import type { AccessRequestRepository } from '../../domain/ports/AccessRequestRe
 import type { RequestAccess } from '../../application/use-cases/user/RequestAccess';
 import type { OAuthAccessTokenProvider } from '../../application/services/OAuthAccessTokenService';
 import type { OperatorMailPort } from '../../application/ports/OperatorMailPort';
+import { markAccessWelcomeShown } from '../../application/use-cases/conversation/markAccessWelcomeShown';
 import { operatorMailFailureContext } from '../../application/ports/OperatorMailPort';
 import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
 import { accessCopies } from '../../application/copies/access.copies';
@@ -265,11 +266,19 @@ export async function processMessageJob(
       const approved = await opts.accessRequests.findApproved(userId);
       if (!approved) {
         const pending = await opts.accessRequests.findPending(userId);
-        if (data.callbackData !== undefined) {
-          await messaging.sendMessage(
+        const sendAccessReply = async (reply: string): Promise<void> => {
+          const showWelcome =
+            !pending && conversationState?.statePayload?.accessWelcomeShown !== true;
+          const result = await messaging.sendMessage(
             externalId,
-            pending ? accessCopies.pendingAgain() : accessCopies.askEmail(),
+            showWelcome ? [accessCopies.welcome(), reply].join('\n\n') : reply,
           );
+          if (showWelcome && result.status === 'success') {
+            await markAccessWelcomeShown(conversationState, opts.transitionState);
+          }
+        };
+        if (data.callbackData !== undefined) {
+          await sendAccessReply(pending ? accessCopies.pendingAgain() : accessCopies.askEmail());
           return;
         }
         const submission = await opts.requestAccess.execute({
@@ -278,14 +287,17 @@ export async function processMessageJob(
           kind: 'initial',
         });
         if (submission.status === 'invalid') {
-          await messaging.sendMessage(
-            externalId,
-            pending ? accessCopies.pendingAgain() : accessCopies.invalidEmail(),
+          await sendAccessReply(
+            pending
+              ? accessCopies.pendingAgain()
+              : conversationState?.statePayload?.accessWelcomeShown === true ||
+                  data.rawMessage.includes('@')
+                ? accessCopies.invalidEmail()
+                : accessCopies.askEmail(),
           );
           return;
         }
-        await messaging.sendMessage(
-          externalId,
+        await sendAccessReply(
           submission.result.created ? accessCopies.pending() : accessCopies.pendingAgain(),
         );
         if (submission.result.created) {

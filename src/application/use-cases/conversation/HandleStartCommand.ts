@@ -13,6 +13,7 @@ import type { Logger } from 'pino';
 import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { accessCopies } from '../../copies/access.copies';
+import { markAccessWelcomeShown } from './markAccessWelcomeShown';
 
 export interface HandleStartCommandInput {
   userId: string;
@@ -69,17 +70,21 @@ export class HandleStartCommand {
     if (this.accessRequests && this.messaging) {
       const approved = await this.accessRequests.findApproved(input.userId);
       const pending = approved ? null : await this.accessRequests.findPending(input.userId);
+      const existingState = await this.conversationRepo.findByUserId(input.userId);
+      const state = existingState ?? (await this.conversationRepo.create(input.userId));
+      const showWelcome = !approved && !pending && state.statePayload?.accessWelcomeShown !== true;
       const replyText = [
-        accessCopies.welcome(),
+        ...(showWelcome ? [accessCopies.welcome()] : []),
         approved
           ? accessCopies.approved()
           : pending
             ? accessCopies.pendingAgain()
             : accessCopies.askEmail(),
       ].join('\n\n');
-      await this.messaging.sendMessage(input.chatId, replyText);
-      const existingState = await this.conversationRepo.findByUserId(input.userId);
-      if (!existingState) await this.conversationRepo.create(input.userId);
+      const result = await this.messaging.sendMessage(input.chatId, replyText);
+      if (showWelcome && result.status === 'success' && this.transitionState) {
+        await markAccessWelcomeShown(state, this.transitionState);
+      }
       return { replyText };
     }
     const welcomeText = sharedCopies.welcome(input.username);
