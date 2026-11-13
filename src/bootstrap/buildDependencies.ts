@@ -897,6 +897,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     transitionState,
     messagingPort,
     operationLogRepo,
+    advancePendingExpense,
   });
   const resolveExpenseSummaryAction = new ResolveExpenseSummaryActionUseCase({
     registerExpense,

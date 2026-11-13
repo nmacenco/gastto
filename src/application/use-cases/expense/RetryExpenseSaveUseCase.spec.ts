@@ -4,11 +4,13 @@ import type { RegisterExpenseUseCase } from './RegisterExpense';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { expenseCopies } from '../../copies/expense.copies';
+import type { AdvancePendingExpense } from './AdvancePendingExpense';
 
 const save = vi.fn();
 const transition = vi.fn();
 const sendMessage = vi.fn();
 const createLog = vi.fn();
+const advance = vi.fn();
 
 const retryPayload = {
   expense: {
@@ -95,6 +97,7 @@ function buildUseCase(
     } as unknown as TransitionConversationState,
     messagingPort: { sendMessage },
     operationLogRepo: { create: createLog },
+    advancePendingExpense: { execute: advance } as unknown as AdvancePendingExpense,
   });
 }
 
@@ -110,12 +113,107 @@ describe('RetryExpenseSaveUseCase', () => {
     transition.mockResolvedValue({});
     sendMessage.mockResolvedValue({ status: 'success' });
     createLog.mockResolvedValue({});
+    advance.mockResolvedValue({ status: 'empty' });
+  });
+
+  it('advances the queued expense after one confirmed retry with saved undo context', async () => {
+    const queuedRetry = {
+      ...retryPayload,
+      expense: { ...retryPayload.expense, queueRegisteredCount: 1 },
+    };
+    save.mockResolvedValue({ sheetName: 'Gastos', rowIndex: 9, expenseId: 'saved-a' });
+    advance.mockResolvedValue({ status: 'advanced', pendingCount: 1 });
+
+    await buildUseCase(queuedRetry).execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      channel: 'whatsapp',
+      authorization,
+    });
+
+    expect(save).toHaveBeenCalledOnce();
+    expect(advance).toHaveBeenCalledOnce();
+    expect(advance).toHaveBeenCalledWith({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      channel: 'whatsapp',
+      reason: 'confirmed',
+      completedCount: 2,
+      immediateUndoExpenseId: 'saved-a',
+    });
+    expect(sendMessage.mock.invocationCallOrder[1]!).toBeLessThan(
+      advance.mock.invocationCallOrder[0]!,
+    );
+    expect(createLog).not.toHaveBeenCalled();
+  });
+
+  it('closes a completed batch only after finding the queue empty', async () => {
+    const lastRetry = {
+      ...retryPayload,
+      expense: { ...retryPayload.expense, queueRegisteredCount: 2 },
+    };
+    await buildUseCase(lastRetry).execute({
+      userId: 'user-123',
+      chatId: 'chat-123',
+      channel: 'telegram',
+      authorization,
+    });
+    expect(advance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        completedCount: 3,
+        reason: 'confirmed',
+        channel: 'telegram',
+      }),
+    );
+    expect(sendMessage).toHaveBeenLastCalledWith(
+      'chat-123',
+      expenseCopies.expenseQueueClosingSummary(3),
+    );
+    expect(advance.mock.invocationCallOrder[0]!).toBeLessThan(
+      sendMessage.mock.invocationCallOrder[2]!,
+    );
+    expect(save).toHaveBeenCalledOnce();
+  });
+
+  it('does not classify a failed success message as another append failure', async () => {
+    sendMessage
+      .mockResolvedValueOnce({ status: 'success' })
+      .mockRejectedValueOnce(new Error('delivery failed'));
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-123',
+        chatId: 'chat-123',
+        channel: 'telegram',
+        authorization,
+      }),
+    ).rejects.toThrow('delivery failed');
+    expect(save).toHaveBeenCalledOnce();
+    expect(advance).not.toHaveBeenCalled();
+    expect(createLog).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalledWith('chat-123', expect.stringContaining('copiar'));
+  });
+
+  it('does not classify a failed next review as another append failure', async () => {
+    advance.mockRejectedValue(new Error('next review failed'));
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-123',
+        chatId: 'chat-123',
+        channel: 'telegram',
+        authorization,
+      }),
+    ).rejects.toThrow('next review failed');
+    expect(save).toHaveBeenCalledOnce();
+    expect(advance).toHaveBeenCalledOnce();
+    expect(createLog).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it('retries the persisted expense once and sends one successful confirmation', async () => {
     await buildUseCase().execute({
       userId: 'user-123',
       chatId: 'chat-123',
+      channel: 'telegram',
       authorization,
     });
 
@@ -144,6 +242,7 @@ describe('RetryExpenseSaveUseCase', () => {
     await buildUseCase(statePayload).execute({
       userId: 'user-123',
       chatId: 'chat-123',
+      channel: 'telegram',
       authorization,
     });
 
@@ -170,6 +269,7 @@ describe('RetryExpenseSaveUseCase', () => {
     await buildUseCase(selectedPayment).execute({
       userId: 'user-123',
       chatId: 'chat-123',
+      channel: 'telegram',
       authorization,
     });
 
@@ -188,6 +288,7 @@ describe('RetryExpenseSaveUseCase', () => {
     await buildUseCase().execute({
       userId: 'user-123',
       chatId: 'chat-123',
+      channel: 'telegram',
       authorization,
     });
 
@@ -241,6 +342,7 @@ describe('RetryExpenseSaveUseCase', () => {
     await buildUseCase(retryPayload, expiresAt).execute({
       userId: 'user-123',
       chatId: 'chat-123',
+      channel: 'telegram',
       authorization,
     });
 
@@ -262,6 +364,7 @@ describe('RetryExpenseSaveUseCase', () => {
       buildUseCase({ attemptCount: 1 }).execute({
         userId: 'user-123',
         chatId: 'chat-123',
+        channel: 'telegram',
         authorization,
       }),
     ).resolves.toEqual({ status: 'invalid' });
@@ -276,6 +379,7 @@ describe('RetryExpenseSaveUseCase', () => {
       buildUseCase(retryPayload, new Date(Date.now() - 1)).execute({
         userId: 'user-123',
         chatId: 'chat-123',
+        channel: 'telegram',
         authorization,
       }),
     ).resolves.toEqual({ status: 'expired' });
@@ -299,6 +403,7 @@ describe('RetryExpenseSaveUseCase', () => {
       buildUseCase(claimed).execute({
         userId: 'user-123',
         chatId: 'chat-123',
+        channel: 'telegram',
         authorization,
       }),
     ).resolves.toEqual({ status: 'operation_in_progress' });
@@ -310,6 +415,7 @@ describe('RetryExpenseSaveUseCase', () => {
     await buildUseCase().execute({
       userId: 'user-123',
       chatId: 'chat-123',
+      channel: 'telegram',
       authorization,
     });
 

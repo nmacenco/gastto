@@ -1590,6 +1590,7 @@ async function handleExpenseSavingRetry(
     const outcome = await opts.retryExpenseSave.execute({
       userId,
       chatId: externalId,
+      channel,
       authorization: {
         receivedAt: jobData.receivedAt,
         sourceMessageId: jobData.externalMessageId,

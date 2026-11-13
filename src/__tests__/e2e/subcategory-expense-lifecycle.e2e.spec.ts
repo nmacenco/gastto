@@ -278,6 +278,7 @@ function createHarness(options: HarnessOptions) {
     transitionState,
     messagingPort,
     operationLogRepo: logRepo,
+    advancePendingExpense: { execute: vi.fn().mockResolvedValue({ status: 'empty' }) } as never,
   });
   const logger = { error: vi.fn() };
   const undoLastExpense = new UndoLastExpenseUseCase(

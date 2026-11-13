@@ -157,16 +157,23 @@ Repository paths below are relative to this plan directory.
 
 **To-do actions:**
 
-- [ ] Reproduce A in review, B queued, recoverable save failure for A, and successful retry leaving B unpresented.
-- [ ] Add channel propagation and the advancement dependency across the use case, worker caller, bootstrap, and affected fixtures.
-- [ ] Separate financial save error handling from successful-save messaging and continuation so downstream failures cannot enter the retry-failure branch.
-- [ ] Reuse FIFO advancement with the incremented completion count and saved expense ID; preserve exact-item removal and existing authorization-loss behavior.
-- [ ] Preserve successful-save messaging, batch closing feedback, and immediate-undo context consistently with ordinary confirmation.
-- [ ] Test pending and empty queues, batch counts, repeated authorization, correct channel, failed next-review presentation, and zero duplicate appends or inappropriate manual-copy fallback after success.
-- [ ] Update `expense-confirmation.md`, any changed queue behavior in `conversation-state-management.md`, and `docs/features/README.md`.
-- [ ] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Reproduce A in review, B queued, recoverable save failure for A, and successful retry leaving B unpresented.
+- [x] Add channel propagation and the advancement dependency across the use case, worker caller, bootstrap, and affected fixtures.
+- [x] Separate financial save error handling from successful-save messaging and continuation so downstream failures cannot enter the retry-failure branch.
+- [x] Reuse FIFO advancement with the incremented completion count and saved expense ID; preserve exact-item removal and existing authorization-loss behavior.
+- [x] Preserve successful-save messaging, batch closing feedback, and immediate-undo context consistently with ordinary confirmation.
+- [x] Test pending and empty queues, batch counts, repeated authorization, correct channel, failed next-review presentation, and zero duplicate appends or inappropriate manual-copy fallback after success.
+- [x] Update `expense-confirmation.md`, any changed queue behavior in `conversation-state-management.md`, and `docs/features/README.md`.
+- [x] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+
+**Validation evidence (2026-11-13):**
+
+- The successful-retry continuation regression failed against the original use case and passed after the queue handoff was added.
+- Focused retry, worker, queue, confirmation, and expense lifecycle suites: 289 tests passed. The PostgreSQL/Redis semantic retry integration suite passed 7 tests.
+- Full suite with container and local-listener access: 195 suites passed, 9 skipped; 2,688 tests passed, 45 skipped.
+- Source lint, typecheck, formatting, and `git diff --check` passed using local executables.
 
 ### Phase 5: Preserve reconnection intent across reminders
 
@@ -221,4 +228,4 @@ Repository paths below are relative to this plan directory.
 
 ## Next step
 
-After the Phase 3 review/commit decision, begin Phase 4 by reproducing the pending-expense queue stall after a successful save retry.
+After the Phase 4 review/commit decision, begin Phase 5 by reproducing loss of reconnection intent after the OAuth reminder.

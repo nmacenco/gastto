@@ -5739,6 +5739,7 @@ describe('processMessageJob', () => {
         expect.objectContaining({
           userId: 'user-123',
           chatId: '123456789',
+          channel: 'telegram',
           authorization: {
             receivedAt: baseJobData.receivedAt,
             sourceMessageId: baseJobData.externalMessageId,
