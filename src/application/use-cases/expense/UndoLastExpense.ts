@@ -17,6 +17,7 @@ import type { TransitionConversationState } from '../conversation/TransitionConv
 import { randomUUID } from 'node:crypto';
 import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
 import { getFinancialExecutionClaim } from '../../../domain/entities/ConversationState';
+import type { Logger } from 'pino';
 import { parseExpenseUndoPayload } from '../../../domain/value-objects/expense-undo-payload';
 
 export interface UndoLastExpenseOutput {
@@ -25,6 +26,8 @@ export interface UndoLastExpenseOutput {
     | 'confirmation_required'
     | 'not_found'
     | 'deletion_failed'
+    | 'preparation_failed'
+    | 'outcome_unknown'
     | 'stale'
     | 'expired'
     | 'unbound'
@@ -61,6 +64,7 @@ export class UndoLastExpenseUseCase {
     private readonly logRepo: IOperationLogRepository,
     private readonly oauthAccessTokenService: OAuthAccessTokenProvider,
     private readonly transitionState: TransitionConversationState,
+    private readonly logger: Logger,
   ) {}
 
   async execute(input: UndoLastExpenseInput): Promise<UndoLastExpenseOutput> {
@@ -109,46 +113,48 @@ export class UndoLastExpenseUseCase {
       claimId,
     });
 
-    // The offer is only valid while this remains the latest active record. Re-read
-    // after atomically consuming authorization and before starting the remote effect.
-    const claimedLatest = await this.expenseRepo.findLatestByUserId(input.userId);
-    if (
-      !claimedLatest ||
-      claimedLatest.id !== last.id ||
-      claimedLatest.sheetName !== last.sheetName ||
-      claimedLatest.rowIndex !== last.rowIndex
-    ) {
-      await this.transitionState.finalizeClaim({
-        userId: input.userId,
-        targetState: 'IDLE',
-        payload: null,
-        claimId,
-      });
-      return { status: 'not_found' };
-    }
-
-    const config = await this.spreadsheetConfigRepo.findById(last.spreadsheetId);
-    if (!config || last.rowIndex === null || config.provider !== 'google') {
-      await this.transitionState.finalizeClaim({
-        userId: input.userId,
-        targetState: 'IDLE',
-        payload: null,
-        claimId,
-      });
-      return { status: 'deletion_failed', errorType: 'STRUCTURE_ERROR' };
-    }
-
+    let remoteDeletionStarted = false;
     let remoteDeletionCompleted = false;
     try {
+      // The offer is only valid while this remains the latest active record. Re-read
+      // after atomically consuming authorization and before starting the remote effect.
+      const claimedLatest = await this.expenseRepo.findLatestByUserId(input.userId);
+      if (
+        !claimedLatest ||
+        claimedLatest.id !== last.id ||
+        claimedLatest.sheetName !== last.sheetName ||
+        claimedLatest.rowIndex !== last.rowIndex
+      ) {
+        await this.transitionState.finalizeClaim({
+          userId: input.userId,
+          targetState: 'IDLE',
+          payload: null,
+          claimId,
+        });
+        return { status: 'not_found' };
+      }
+
+      const config = await this.spreadsheetConfigRepo.findById(last.spreadsheetId);
+      if (!config || last.rowIndex === null || config.provider !== 'google') {
+        await this.transitionState.finalizeClaim({
+          userId: input.userId,
+          targetState: 'IDLE',
+          payload: null,
+          claimId,
+        });
+        return { status: 'deletion_failed', errorType: 'STRUCTURE_ERROR' };
+      }
+
       await this.transitionState.assertCanStartFinancialEffect(input.userId, claimId);
       // 2. Elimina la fila de la planilla real
       await executeWithOAuthAccessToken(
         this.oauthAccessTokenService,
         { userId: input.userId, provider: config.provider },
-        (accessToken) =>
-          this.spreadsheetPortFactory
-            .create(accessToken)
-            .deleteRow(config.fileId, last.sheetName, last.rowIndex!),
+        (accessToken) => {
+          const port = this.spreadsheetPortFactory.create(accessToken);
+          remoteDeletionStarted = true;
+          return port.deleteRow(config.fileId, last.sheetName, last.rowIndex!);
+        },
       );
       remoteDeletionCompleted = true;
 
@@ -174,29 +180,57 @@ export class UndoLastExpenseUseCase {
       if (error instanceof StaleConversationStateError) throw error;
       const errorType = this.classifyError(error);
 
-      await this.logRepo.create(input.userId, 'EXPENSE_SAVE_FAILED', { phase: 'undo' }, errorType);
-
       const outcomeUnknown =
-        remoteDeletionCompleted || (error instanceof SpreadsheetError && error.outcomeUnknown);
-      await this.transitionState.finalizeClaim(
-        outcomeUnknown
-          ? {
-              userId: input.userId,
-              targetState: 'IDLE',
-              payload: {
-                executionClaim: { ...executionClaim, status: 'outcome_unknown' },
-              },
-              claimId,
-            }
-          : {
-              userId: input.userId,
-              targetState: 'IDLE',
-              payload: null,
-              claimId,
-            },
-      );
+        remoteDeletionCompleted ||
+        (remoteDeletionStarted && (!(error instanceof SpreadsheetError) || error.outcomeUnknown));
+      try {
+        await this.transitionState.finalizeClaim({
+          userId: input.userId,
+          targetState: 'IDLE',
+          payload: outcomeUnknown
+            ? { executionClaim: { ...executionClaim, status: 'outcome_unknown' } }
+            : null,
+          claimId,
+        });
+      } catch (cleanupError) {
+        if (cleanupError instanceof StaleConversationStateError) throw cleanupError;
+        this.logger.error({
+          msg: 'Undo claim could not be finalized',
+          endpoint: 'UndoLastExpenseUseCase',
+          code: 'UNDO_CLAIM_FINALIZATION_FAILED',
+          userId: input.userId,
+          claimId,
+        });
+        // Do not claim recovery when the durable reservation could not be released.
+        return { status: 'operation_in_progress' };
+      }
 
-      return { status: 'deletion_failed', errorType };
+      // Audit availability must never prevent safe claim finalization.
+      try {
+        await this.logRepo.create(
+          input.userId,
+          'EXPENSE_SAVE_FAILED',
+          { phase: 'undo' },
+          errorType,
+        );
+      } catch {
+        this.logger.error({
+          msg: 'Undo failure audit could not be persisted',
+          endpoint: 'UndoLastExpenseUseCase',
+          code: 'UNDO_FAILURE_AUDIT_FAILED',
+          userId: input.userId,
+          claimId,
+        });
+      }
+
+      return {
+        status: outcomeUnknown
+          ? 'outcome_unknown'
+          : remoteDeletionStarted
+            ? 'deletion_failed'
+            : 'preparation_failed',
+        errorType,
+      };
     }
   }
 

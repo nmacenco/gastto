@@ -223,6 +223,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
           harness.logRepo,
           harness.oauth,
           transition,
+          { error: vi.fn() } as never,
         ).execute({
           userId: harness.userId,
           action: 'confirm',
@@ -406,6 +407,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
       logRepo,
       oauth,
       transitionState,
+      { error: vi.fn() } as never,
     );
     const presenter = new PresentUndoConfirmation({
       transitionState,

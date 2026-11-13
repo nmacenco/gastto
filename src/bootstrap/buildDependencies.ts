@@ -786,6 +786,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     operationLogRepo,
     oauthAccessTokenService,
     transitionState,
+    infra.rootLogger,
   );
   const correctExpense = new CorrectExpenseUseCase(
     {

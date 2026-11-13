@@ -27,10 +27,10 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Bounded expense extraction, structured summaries with payment resolution, and version-bound confirm, correct, and cancel actions.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Exact text/callback and revision-bound natural draft cancellation, plus guarded retry, saving, and undo exits.
 - [`expense-correction.md`](./expense-correction.md) — Contextual corrections of amount, category hierarchy, date, and payment method with guarded review revisions.
-- [`expense-confirmation.md`](./expense-confirmation.md) — Exact save and retry authorization, mapped-column append, payment-selection checks, guarded claims, and stale/expired rejection.
-- [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo using the expense's historical configuration, exact-target claims, and bound delayed confirmation.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Exact save and retry authorization, mapped-column append, payment-selection checks, guarded claims, stale/expired rejection, and administrator guidance for unresolved outcomes.
+- [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo using the expense's historical configuration, exact-target claims, bound delayed confirmation, and safe recovery from pre-deletion failures.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, and failure classification.
-- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with cancellation across active flows, incomplete-destination protection, renewable ownership, guarded timeout/queue effects, and financial claims.
+- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with cancellation across active flows, incomplete-destination protection, renewable ownership, guarded timeout/queue effects, and financial claims with administrator guidance for unresolved operations.
 - [`deployment.md`](./deployment.md) — Merge-protected multi-environment Fly.io deployment after successful push quality gates, with configurable LLM provider and extraction fallback, provider-independent Redis-compatible brokers, persistent BullMQ worker Machines, secure cutover and rollback, graceful shutdown, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).
 

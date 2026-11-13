@@ -1666,6 +1666,10 @@ async function sendUndoOutcome(
     case 'deletion_failed':
       await messaging.sendMessage(chatId, expenseCopies.undoDeletionFailed());
       return;
+    case 'preparation_failed':
+      await messaging.sendMessage(chatId, expenseCopies.undoPreparationFailed());
+      return;
+    case 'outcome_unknown':
     case 'operation_in_progress':
       await messaging.sendMessage(chatId, expenseCopies.financialOutcomeUnknown());
       return;
