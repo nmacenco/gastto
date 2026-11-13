@@ -6,6 +6,8 @@ export const sharedCopies = {
   unsupportedMessage: () =>
     'For now I only process text messages. Tell me about your expense by typing it.',
   processingAcknowledgment: () => 'Recibido, procesando tu mensaje…',
+  processingContentionExhausted: () =>
+    'No pude procesar este mensaje porque todavía estaba terminando el anterior. Cuando termine, volvé a enviar el mensaje que quedó pendiente.',
   expenseGuidance: () =>
     "¡Hola! Para registrar un gasto escribime el monto y el concepto, por ejemplo: 'Almuerzo 12 euros'.",
 };

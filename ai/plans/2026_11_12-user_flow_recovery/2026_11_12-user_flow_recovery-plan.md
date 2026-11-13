@@ -190,15 +190,22 @@ Repository paths below are relative to this plan directory.
 
 **To-do actions:**
 
-- [ ] Reproduce reconnection with `reauthorizationOnly: true`, reminder execution, and callback behavior after payload replacement.
-- [ ] Preserve the validated context required for reconnection while replacing nonce-specific fields; avoid copying obsolete authorization metadata blindly.
-- [ ] Verify nonce/revision binding rejects old links and reminders cannot revive a cancelled or completed flow.
-- [ ] Update conflicting sheet-selection guidance to include cancellation before opening settings, preserving configuration history protections.
-- [ ] Test reminder-based configuration reuse, initial onboarding without a configured destination, old nonce rejection, cancellation races, and the complete cancel-to-settings sequence.
-- [ ] Update `cloud-storage-connection.md`, `select-sheet.md`, any affected settings guidance, and `docs/features/README.md`.
-- [ ] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Reproduce reconnection with `reauthorizationOnly: true`, reminder execution, and callback behavior after payload replacement.
+- [x] Preserve the validated context required for reconnection while replacing nonce-specific fields; avoid copying obsolete authorization metadata blindly.
+- [x] Verify nonce/revision binding rejects old links and reminders cannot revive a cancelled or completed flow.
+- [x] Update conflicting sheet-selection guidance to include cancellation before opening settings, preserving configuration history protections.
+- [x] Test reminder-based configuration reuse, initial onboarding without a configured destination, old nonce rejection, cancellation races, and the complete cancel-to-settings sequence.
+- [x] Update `cloud-storage-connection.md`, `select-sheet.md`, any affected settings guidance, and `docs/features/README.md`.
+- [x] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+
+**Validation evidence (2026-11-13):**
+
+- The reminder reconnection-intent regression failed against the original payload replacement and passed after preserving the validated flag with the new nonce.
+- OAuth reminder/callback, sheet selection, notification, and message worker suites passed 339 focused tests. Callback tests reject the old link and reuse the confirmed destination after the reminder; worker tests follow cancellation into the settings destination option.
+- The full suite passed 196 suites and 2,701 tests, with 9 suites and 45 tests skipped by existing conditions. Source lint, typecheck, formatting, and `git diff --check` passed using local binaries because the installed `pnpm` launcher cannot open its database in this environment.
+- The user explicitly requested Phases 5 and 6 together, satisfying the Phase 5 continue decision.
 
 ### Phase 6: Notify users when lock-contention retries are exhausted
 
@@ -215,17 +222,23 @@ Repository paths below are relative to this plan directory.
 
 **To-do actions:**
 
-- [ ] Reproduce final lock-contention exhaustion while another message retains the user's processing lease.
-- [ ] Implement the Application notification service using the existing messaging port and structured logger, and wire it through worker dependencies.
-- [ ] Trigger notification only after confirming final contention exhaustion for validated job data; retain identity checks and avoid treating generic pre-handler or provider failures as safe resend cases.
-- [ ] Handle asynchronous notification errors explicitly so the failed-event path cannot create an unhandled rejection or rerun a side-effectful job.
-- [ ] Keep existing bounded retry timings and ensure notification does not require the same user lock that caused the exhaustion.
-- [ ] Test final exhaustion, recovery before exhaustion, intermediate failures, unrelated errors, invalid job data, channel routing, and messaging rejection without state mutation or financial replay.
-- [ ] Update `incoming-message-routing.md`, relevant delivery documentation, and `docs/features/README.md`.
-- [ ] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase and verify the six user journeys together.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Reproduce final lock-contention exhaustion while another message retains the user's processing lease.
+- [x] Implement the Application notification service using the existing messaging port and structured logger, and wire it through worker dependencies.
+- [x] Trigger notification only after confirming final contention exhaustion for validated job data; retain identity checks and avoid treating generic pre-handler or provider failures as safe resend cases.
+- [x] Handle asynchronous notification errors explicitly so the failed-event path cannot create an unhandled rejection or rerun a side-effectful job.
+- [x] Keep existing bounded retry timings and ensure notification does not require the same user lock that caused the exhaustion.
+- [x] Test final exhaustion, recovery before exhaustion, intermediate failures, unrelated errors, invalid job data, channel routing, and messaging rejection without state mutation or financial replay.
+- [x] Update `incoming-message-routing.md`, relevant delivery documentation, and `docs/features/README.md`.
+- [x] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase and verify the six user journeys together.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+
+**Validation evidence (2026-11-13):**
+
+- The isolated PostgreSQL/Redis/BullMQ test passed with a held user lease: final contention produced one notice, no expense interpretation, and no conversation-state change. Unit tests cover intermediate retries, unrelated errors, invalid job data, the wrong user, nonterminal job states, both channels, and messaging failures.
+- The full suite passed 196 suites and 2,701 tests, with 9 suites and 45 tests skipped by existing conditions. Source lint, typecheck, formatting, and `git diff --check` passed using local binaries.
+- Notice delivery is best effort. A messaging outage is logged and does not replay the failed job.
 
 ## Next step
 
-After the Phase 4 review/commit decision, begin Phase 5 by reproducing loss of reconnection intent after the OAuth reminder.
+All six phases are complete; review the changes and decide whether to commit the finished work.

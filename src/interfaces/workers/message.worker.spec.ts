@@ -45,6 +45,7 @@ import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
 import { accessCopies } from '../../application/copies/access.copies';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+const mockNotifyContention = vi.fn().mockResolvedValue(undefined);
 const mockGetConversationStateExecute = vi.fn();
 const mockLoggerError = vi.fn();
 const mockTransitionStateExecute = vi.fn<TransitionConversationState['execute']>();
@@ -214,6 +215,9 @@ function buildMockDeps(): MessageWorkerDeps {
       telegram: { sendMessage: mockSendMessage },
       whatsapp: { sendMessage: mockSendMessage },
     },
+    notifyMessageProcessingContention: {
+      execute: mockNotifyContention,
+    } as unknown as MessageWorkerDeps['notifyMessageProcessingContention'],
     expenseSummaryPresenterFactory: (messaging, chatId) => ({
       presentSummary: async (summary) => {
         const categoryMarker =
@@ -665,6 +669,29 @@ describe('processMessageJob', () => {
         statePayload: { flowId: 'flow-1' },
         expiresAt: new Date(Date.now() + 60_000),
       });
+
+    it('reaches destination settings after cancelling a conflicting sheet flow', async () => {
+      const sheetState = buildConversationState({ currentState: 'ONBOARDING_SHEET' });
+      const menuState = settingsState();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(sheetState)
+        .mockResolvedValueOnce(buildConversationState({ currentState: 'IDLE' }))
+        .mockResolvedValueOnce(menuState);
+      const deps = buildMockDeps();
+      const startFile = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = { startFile } as unknown as NonNullable<
+        MessageWorkerDeps['settingsDestinationFlow']
+      >;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      expect(mockCancelConversationFlowExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ state: sheetState }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'configuración' }), deps);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.menu());
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '3' }), deps);
+      expect(startFile).toHaveBeenCalledWith(menuState, '123456789');
+    });
 
     it('opens the menu from IDLE before semantic routing and invalidates immediate undo', async () => {
       mockGetConversationStateExecute.mockResolvedValue(
@@ -5901,6 +5928,85 @@ describe('createMessageWorker', () => {
       queue: 'process-message',
       error: 'Connection lost',
     });
+  });
+
+  it('notifies once only when a validated contention job finally fails', async () => {
+    const worker = createMessageWorker(buildMockDeps());
+    const failedJob = {
+      id: 'job-1',
+      data: baseJobData,
+      attemptsMade: 12,
+      opts: { attempts: 12 },
+      getState: vi.fn().mockResolvedValue('failed'),
+    };
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'failed',
+      failedJob,
+      new UserAlreadyProcessingError(baseJobData.userId),
+    );
+
+    await vi.waitFor(() => expect(mockNotifyContention).toHaveBeenCalledOnce());
+    expect(mockNotifyContention).toHaveBeenCalledWith({
+      channel: baseJobData.channel,
+      externalId: baseJobData.externalId,
+      externalMessageId: baseJobData.externalMessageId,
+    });
+    expect(mockGetConversationStateExecute).not.toHaveBeenCalled();
+    expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: 'intermediate retry',
+      attemptsMade: 2,
+      state: 'delayed',
+      data: baseJobData,
+      error: new UserAlreadyProcessingError(baseJobData.userId),
+    },
+    {
+      label: 'unrelated error',
+      attemptsMade: 12,
+      state: 'failed',
+      data: baseJobData,
+      error: new Error('provider failed'),
+    },
+    {
+      label: 'invalid job',
+      attemptsMade: 12,
+      state: 'failed',
+      data: { ...baseJobData, externalId: '' },
+      error: new UserAlreadyProcessingError(baseJobData.userId),
+    },
+    {
+      label: 'wrong user',
+      attemptsMade: 12,
+      state: 'failed',
+      data: baseJobData,
+      error: new UserAlreadyProcessingError('other-user'),
+    },
+    {
+      label: 'not final state',
+      attemptsMade: 12,
+      state: 'delayed',
+      data: baseJobData,
+      error: new UserAlreadyProcessingError(baseJobData.userId),
+    },
+  ])('does not notify for $label', async ({ attemptsMade, state, data, error }) => {
+    const worker = createMessageWorker(buildMockDeps());
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'failed',
+      {
+        id: 'job-1',
+        data,
+        attemptsMade,
+        opts: { attempts: 12 },
+        getState: vi.fn().mockResolvedValue(state),
+      },
+      error,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockNotifyContention).not.toHaveBeenCalled();
   });
 
   it.each([

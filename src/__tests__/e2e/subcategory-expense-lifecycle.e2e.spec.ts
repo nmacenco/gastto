@@ -324,6 +324,7 @@ function createHarness(options: HarnessOptions) {
       findByMessagingIdentity: vi.fn().mockResolvedValue({ userId }),
     } as never,
     messagingAdapters: { telegram: messagingPort, whatsapp: messagingPort },
+    notifyMessageProcessingContention: { execute: vi.fn() } as never,
   };
 
   return {

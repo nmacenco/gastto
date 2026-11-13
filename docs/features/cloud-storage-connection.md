@@ -59,7 +59,7 @@ The Redis CSRF record includes the committed conversation revision. The callback
 
 ### Reminder (`SendOAuthReminder`)
 
-The reminder owns the per-user lease, commits a guarded nonce/revision self-transition, and only then stores and sends the replacement authorization link. A stale reminder has no state or message effect.
+The reminder owns the per-user lease, commits a guarded nonce/revision self-transition, and only then stores and sends the replacement authorization link. It preserves the validated `reauthorizationOnly` flag for the same provider while replacing the old nonce; unrelated or obsolete authorization metadata is discarded. A configured user who completes the reminder link therefore reuses the existing destination and confirmed mappings when still eligible. The old nonce/revision and reminders for cancelled or completed flows cannot revive the flow. A stale reminder has no state or message effect.
 
 8. If the user has not completed authorization within **10 minutes**, the BullMQ job fires.
 9. `SendOAuthReminder`:

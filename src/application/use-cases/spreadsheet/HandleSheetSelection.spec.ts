@@ -1042,6 +1042,9 @@ describe('HandleSheetSelection', () => {
 
       expect(mockUpsertConfig).not.toHaveBeenCalled();
       expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(result.message).toBe(onboardingCopies.configuredDestinationConflict());
+      expect(result.message).toContain('cancelar');
+      expect(result.message).toContain('configuración');
     });
   });
 

@@ -3,7 +3,7 @@ import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
-import type { Job, Queue } from 'bullmq';
+import { Queue, type Job } from 'bullmq';
 import postgres from 'postgres';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import Redis from 'ioredis';
@@ -45,8 +45,11 @@ import { CompleteExpenseClarification } from '../../src/application/use-cases/ex
 import { processIncomingMessageJob } from '../../src/interfaces/workers/incomingMessage.worker';
 import {
   processMessageJob,
+  createMessageWorker,
   type MessageWorkerDeps,
 } from '../../src/interfaces/workers/message.worker';
+import { NotifyMessageProcessingContention } from '../../src/application/use-cases/conversation/NotifyMessageProcessingContention';
+import { sharedCopies } from '../../src/application/copies/shared.copies';
 import {
   registerTelegramWebhook,
   type TelegramWebhookDeps,
@@ -360,6 +363,50 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router shadow pip
     await processMessageJob(job(harness, 'hola', 'message-b'), harness.deps);
 
     expect(harness.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('notifies once after real BullMQ exhausts contention without entering a financial handler', async () => {
+    const harness = await buildHarness();
+    const workerRedis = redis.duplicate({ maxRetriesPerRequest: null });
+    const queue = new Queue<ProcessMessageJobData>('process-message', {
+      connection: redis,
+      defaultJobOptions: { attempts: 2, backoff: { type: 'custom' } },
+    });
+    const notifyMessageProcessingContention = new NotifyMessageProcessingContention(
+      harness.deps.messagingAdapters,
+      harness.deps.logger,
+    );
+    const worker = createMessageWorker({
+      ...harness.deps,
+      redis: workerRedis,
+      notifyMessageProcessingContention,
+    });
+    const lock = harness.deps.userProcessingLock;
+    const token = await lock.acquire(harness.userId, 30_000);
+    expect(token).not.toBeNull();
+    try {
+      await worker.waitUntilReady();
+      const queued = await queue.add('process-message', job(harness, 'Café 12 EUR').data);
+      await vi.waitFor(() => expect(harness.sendMessage).toHaveBeenCalledOnce(), {
+        timeout: 15_000,
+      });
+      expect(await queued.getState()).toBe('failed');
+      expect(harness.sendMessage).toHaveBeenCalledWith(
+        harness.externalId,
+        sharedCopies.processingContentionExhausted(),
+      );
+      expect(harness.registerExpenseInterpret).not.toHaveBeenCalled();
+      expect(harness.routerDecide).not.toHaveBeenCalled();
+      await expect(harness.stateRepo.findByUserId(harness.userId)).resolves.toMatchObject({
+        currentState: 'IDLE',
+        revision: '0',
+      });
+    } finally {
+      await lock.release(harness.userId, token!);
+      await worker.close();
+      await queue.close();
+      workerRedis.disconnect();
+    }
   });
 
   it('rejects identity mismatch before lock, model, or messaging effects', async () => {

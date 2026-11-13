@@ -80,6 +80,8 @@ export const onboardingCopies = {
   },
   sheetSelectedConfirmation: (sheetName: string) =>
     `Elegiste la hoja *${sheetName}*. Ahora vamos a analizar la estructura.`,
+  configuredDestinationConflict: () =>
+    'Tu planilla actual ya está configurada. Escribí cancelar para salir de este flujo, después configuración y elegí la opción para cambiar el destino sin perder el historial.',
   invalidSheetRePrompt: (sheetCount: number) =>
     `No encontré esa hoja. Escribí un número del *1* al *${sheetCount}*, o el nombre exacto.`,
   sheetNotFoundRePrompt: (sheets: SheetInfo[]) => {

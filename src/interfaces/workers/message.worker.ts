@@ -88,6 +88,7 @@ import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
+import type { NotifyMessageProcessingContention } from '../../application/use-cases/conversation/NotifyMessageProcessingContention';
 import { StaleConversationStateError } from '../../domain/errors/StaleConversationStateError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
@@ -164,6 +165,7 @@ export interface MessageWorkerDeps {
   recoverCorruptedState: RecoverCorruptedState;
   userRepo: IUserRepository;
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
+  notifyMessageProcessingContention: NotifyMessageProcessingContention;
   userProfilePort?: IUserProfilePort | null;
   expenseRecordRepo?: IExpenseRecordRepository | null;
   mappingCorrectionStateRepository?: IMappingCorrectionStateRepository | null;
@@ -1779,9 +1781,45 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
       errorType: err.constructor.name,
       error: err.message,
     });
+
+    // A failed event is also emitted for intermediate attempts. Verify that
+    // BullMQ actually moved this validated contention job to failed before
+    // telling the user to resend it.
+    if (
+      job &&
+      err instanceof UserAlreadyProcessingError &&
+      attemptsMade !== undefined &&
+      maxAttempts !== undefined &&
+      attemptsMade >= maxAttempts
+    ) {
+      void notifyFinalContention(job, err, opts).catch((error: unknown) => {
+        opts.logger.error({
+          msg: 'Failed to handle final processing contention',
+          endpoint: 'processMessageJob',
+          code: 'CONTENTION_NOTICE_HANDLER_FAILED',
+          jobId: job.id,
+          errorType: error instanceof Error ? error.constructor.name : 'unknown',
+        });
+      });
+    }
   });
 
   return worker;
+}
+
+async function notifyFinalContention(
+  job: Job<ProcessMessageJobData>,
+  error: UserAlreadyProcessingError,
+  opts: MessageWorkerDeps,
+): Promise<void> {
+  const parsed = ProcessMessageJobDataSchema.safeParse(job.data);
+  if (!parsed.success || parsed.data.userId !== error.userId) return;
+  if ((await job.getState()) !== 'failed') return;
+  await opts.notifyMessageProcessingContention.execute({
+    channel: parsed.data.channel,
+    externalId: parsed.data.externalId,
+    externalMessageId: parsed.data.externalMessageId,
+  });
 }
 
 // ── Helpers de formato ────────────────────────────────────────────────────────

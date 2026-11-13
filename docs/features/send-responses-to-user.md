@@ -17,6 +17,7 @@ Provide a reliable, channel-agnostic mechanism for sending text messages back to
   - If any fragment fails permanently, remaining fragments are not sent and the operation returns failure.
 - **Structured logging:** Every send attempt is logged with `event: 'message_sent'` containing `chatId`, `textLength`, `attempt`, and `result`. Permanent failures use `console.error` with `event: 'message_send_failed'` containing `chatId`, `textLength`, `errorCode`, and `reason`. Retry scheduling is logged with `event: 'retry_scheduled'`. Message chunking is logged with `event: 'message_chunked'`.
 - No stack traces are leaked to clients or external systems.
+- After the process-message worker exhausts lock-contention retries before entering a handler, the application attempts one fixed safe-resend notice through this port. A port failure or rejection is logged; the notice is best effort and does not retry the original financial message. See [incoming message routing](incoming-message-routing.md).
 
 ## Behavior (TODO)
 
