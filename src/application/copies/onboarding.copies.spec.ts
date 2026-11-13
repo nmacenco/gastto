@@ -162,12 +162,13 @@ describe('onboardingCopies', () => {
   });
 
   describe('noFilesFoundPrompt', () => {
-    it('returns guidance text suggesting verification and manual name entry', () => {
+    it('offers search, a supported link, and cancellation after an empty result', () => {
       const result = onboardingCopies.noFilesFoundPrompt();
 
-      expect(result).toContain('No encontré archivos de planilla');
-      expect(result).toContain('Verificá que tengas archivos en Google Drive');
-      expect(result).toContain('escribí parte del nombre para buscar');
+      expect(result).toContain('No encontré planillas');
+      expect(result).toContain('Escribí parte del nombre');
+      expect(result).toContain('enlace HTTPS de Google Sheets o Drive');
+      expect(result).toContain('cancelar');
     });
   });
 
@@ -199,10 +200,12 @@ describe('onboardingCopies', () => {
   });
 
   describe('searchByNamePrompt', () => {
-    it('returns a prompt asking the user to type part of the file name', () => {
+    it('offers all supported inputs while searching', () => {
       const result = onboardingCopies.searchByNamePrompt();
 
-      expect(result).toContain('Escribí parte del nombre del archivo');
+      expect(result).toContain('Escribí parte del nombre');
+      expect(result).toContain('enlace HTTPS de Google Sheets o Drive');
+      expect(result).toContain('cancelar');
     });
   });
 

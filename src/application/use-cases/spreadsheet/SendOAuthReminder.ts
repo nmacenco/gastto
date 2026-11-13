@@ -172,10 +172,16 @@ export class SendOAuthReminder {
 
     const reminderJobId = reminderJob.id ?? `fallback-${Date.now()}`;
 
+    // Carry only the validated flow intent. The old nonce and any other
+    // authorization metadata belong to the superseded link.
+    const reauthorizationOnly =
+      currentState.statePayload?.provider === provider &&
+      currentState.statePayload.reauthorizationOnly === true;
+
     const transition = await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_DRIVE',
-      payload: { provider, state },
+      payload: { provider, state, ...(reauthorizationOnly ? { reauthorizationOnly: true } : {}) },
       expected: this.deps.transitionState.precondition(currentState, 'any'),
     });
     if (transition.status !== 'updated') return { message: '', nextState: 'ONBOARDING_DRIVE' };

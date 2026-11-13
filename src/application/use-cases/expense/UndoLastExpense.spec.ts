@@ -32,6 +32,7 @@ function buildUseCase() {
       assertCanStartFinancialEffect: vi.fn(),
       finalizeClaim,
     } as unknown as TransitionConversationState,
+    { error: vi.fn() } as never,
   );
 }
 
@@ -290,7 +291,7 @@ describe('UndoLastExpenseUseCase', () => {
     );
   });
 
-  it('classifies an unexpected spreadsheet failure as a network error without local deletion', async () => {
+  it('retains an unknown outcome for an unexpected error after invoking deletion', async () => {
     deleteRow.mockRejectedValue(new Error('socket closed'));
 
     await expect(
@@ -300,7 +301,7 @@ describe('UndoLastExpenseUseCase', () => {
         provenance: 'deterministic_command',
         immediateExpenseId: 'expense-1',
       }),
-    ).resolves.toEqual({ status: 'deletion_failed', errorType: 'NETWORK_ERROR' });
+    ).resolves.toEqual({ status: 'outcome_unknown', errorType: 'NETWORK_ERROR' });
 
     expect(softDeleteWithAudit).not.toHaveBeenCalled();
     expect(logCreate).toHaveBeenCalledWith(

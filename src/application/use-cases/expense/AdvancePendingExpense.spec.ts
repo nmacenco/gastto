@@ -111,6 +111,26 @@ describe('AdvancePendingExpense', () => {
     expect(dequeueFirst).toHaveBeenCalledWith('user-1', 'queue-1');
   });
 
+  it('presents the next queued review with the saved expense available for immediate undo', async () => {
+    await buildUseCase().execute({
+      userId: 'user-1',
+      chatId: 'chat-1',
+      channel: 'whatsapp',
+      reason: 'confirmed',
+      completedCount: 2,
+      immediateUndoExpenseId: 'saved-a',
+    });
+    expect(interpret).toHaveBeenCalledWith({
+      userId: 'user-1',
+      rawMessage: 'Taxi 12 EUR',
+      channel: 'whatsapp',
+      queueRegisteredCount: 2,
+      immediateUndoExpenseId: 'saved-a',
+    });
+    expect(generateSummary).toHaveBeenCalledOnce();
+    expect(dequeueFirst).toHaveBeenCalledWith('user-1', 'queue-1');
+  });
+
   it.each([
     ['interpretation', () => interpret.mockRejectedValue(new Error('interpretation failed'))],
     ['presentation', () => generateSummary.mockRejectedValue(new Error('presentation failed'))],

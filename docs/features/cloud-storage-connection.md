@@ -13,6 +13,8 @@ The Cloud Storage Connection feature enables users to link their spreadsheet (Go
 
 During initial onboarding, the explicit `cancelar`, `salir`, `cancel`, and `exit` commands leave `ONBOARDING_START` or `ONBOARDING_DRIVE` through a guarded transition to `IDLE`. For an active OAuth nonce, reminder and nonce cleanup happen after the transition commits, so a stale callback cannot revive the canceled flow. `empezar` from `IDLE` restarts an incomplete setup.
 
+With access approval enabled, exact `continuar` in `ONBOARDING_DRIVE` rotates the authorization nonce via a guarded self-transition and provides a new link. The previous nonce and reminder are cleaned up after the new revision commits. A denied or expired authorization can use this path; a callback for the old revision cannot complete the renewed or cancelled flow. If credentials disappear during another active flow, the user is instructed to cancel that flow explicitly before requesting a new link.
+
 ## FSM States
 
 | State              | Description                                                         | Next                                                                                                 | Payload                                 |
@@ -57,7 +59,7 @@ The Redis CSRF record includes the committed conversation revision. The callback
 
 ### Reminder (`SendOAuthReminder`)
 
-The reminder owns the per-user lease, commits a guarded nonce/revision self-transition, and only then stores and sends the replacement authorization link. A stale reminder has no state or message effect.
+The reminder owns the per-user lease, commits a guarded nonce/revision self-transition, and only then stores and sends the replacement authorization link. It preserves the validated `reauthorizationOnly` flag for the same provider while replacing the old nonce; unrelated or obsolete authorization metadata is discarded. A configured user who completes the reminder link therefore reuses the existing destination and confirmed mappings when still eligible. The old nonce/revision and reminders for cancelled or completed flows cannot revive the flow. A stale reminder has no state or message effect.
 
 8. If the user has not completed authorization within **10 minutes**, the BullMQ job fires.
 9. `SendOAuthReminder`:

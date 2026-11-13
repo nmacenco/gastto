@@ -45,6 +45,7 @@ import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
 import { accessCopies } from '../../application/copies/access.copies';
 
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+const mockNotifyContention = vi.fn().mockResolvedValue(undefined);
 const mockGetConversationStateExecute = vi.fn();
 const mockLoggerError = vi.fn();
 const mockTransitionStateExecute = vi.fn<TransitionConversationState['execute']>();
@@ -214,6 +215,9 @@ function buildMockDeps(): MessageWorkerDeps {
       telegram: { sendMessage: mockSendMessage },
       whatsapp: { sendMessage: mockSendMessage },
     },
+    notifyMessageProcessingContention: {
+      execute: mockNotifyContention,
+    } as unknown as MessageWorkerDeps['notifyMessageProcessingContention'],
     expenseSummaryPresenterFactory: (messaging, chatId) => ({
       presentSummary: async (summary) => {
         const categoryMarker =
@@ -538,6 +542,123 @@ describe('processMessageJob', () => {
       );
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
     });
+
+    it('lets an approved user cancel pending OAuth before credential admission', async () => {
+      const deps = buildMockDeps();
+      const pendingState = buildConversationState({
+        currentState: 'ONBOARDING_DRIVE',
+        statePayload: { provider: 'google', state: 'old-nonce' },
+      });
+      mockGetConversationStateExecute.mockResolvedValue(pendingState);
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('missing', { code: 'AUTH_ERROR' })),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      expect(mockCancelConversationFlowExecute).toHaveBeenCalledOnce();
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+    });
+
+    it('renews pending OAuth without transitioning through ONBOARDING_START', async () => {
+      const deps = buildMockDeps();
+      const pendingState = buildConversationState({
+        currentState: 'ONBOARDING_DRIVE',
+        statePayload: { provider: 'google', state: 'old-nonce' },
+      });
+      mockGetConversationStateExecute.mockResolvedValue(pendingState);
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('missing', { code: 'AUTH_ERROR' })),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'continuar' }), deps);
+      expect(mockTransitionStateExecute).not.toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'ONBOARDING_START' }),
+      );
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ resumeFrom: pendingState }),
+      );
+    });
+
+    it('keeps a financial claim protected when credentials are missing', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: {
+            executionClaim: {
+              claimId: 'claim-1',
+              kind: 'retry',
+              operationId: 'operation-1',
+              sourceMessageId: null,
+              status: 'outcome_unknown',
+              target: {},
+            },
+          },
+        }),
+      );
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('missing', { code: 'AUTH_ERROR' })),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'continuar' }), deps);
+      expect(mockCancelConversationFlowExecute).not.toHaveBeenCalled();
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.financialOutcomeUnknown(),
+      );
+    });
+
+    it('keeps another active flow intact until the user explicitly cancels', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_FILE',
+          statePayload: { provider: 'google', step: 'searching' },
+        }),
+      );
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('missing', { code: 'AUTH_ERROR' })),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'continuar' }), deps);
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accessCopies.activeFlowNeedsExit());
+    });
   });
 
   describe('spreadsheet settings', () => {
@@ -548,6 +669,29 @@ describe('processMessageJob', () => {
         statePayload: { flowId: 'flow-1' },
         expiresAt: new Date(Date.now() + 60_000),
       });
+
+    it('reaches destination settings after cancelling a conflicting sheet flow', async () => {
+      const sheetState = buildConversationState({ currentState: 'ONBOARDING_SHEET' });
+      const menuState = settingsState();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(sheetState)
+        .mockResolvedValueOnce(buildConversationState({ currentState: 'IDLE' }))
+        .mockResolvedValueOnce(menuState);
+      const deps = buildMockDeps();
+      const startFile = vi.fn().mockResolvedValue(undefined);
+      deps.settingsDestinationFlow = { startFile } as unknown as NonNullable<
+        MessageWorkerDeps['settingsDestinationFlow']
+      >;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      expect(mockCancelConversationFlowExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ state: sheetState }),
+      );
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'configuración' }), deps);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', settingsCopies.menu());
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '3' }), deps);
+      expect(startFile).toHaveBeenCalledWith(menuState, '123456789');
+    });
 
     it('opens the menu from IDLE before semantic routing and invalidates immediate undo', async () => {
       mockGetConversationStateExecute.mockResolvedValue(
@@ -5622,6 +5766,7 @@ describe('processMessageJob', () => {
         expect.objectContaining({
           userId: 'user-123',
           chatId: '123456789',
+          channel: 'telegram',
           authorization: {
             receivedAt: baseJobData.receivedAt,
             sourceMessageId: baseJobData.externalMessageId,
@@ -5783,6 +5928,85 @@ describe('createMessageWorker', () => {
       queue: 'process-message',
       error: 'Connection lost',
     });
+  });
+
+  it('notifies once only when a validated contention job finally fails', async () => {
+    const worker = createMessageWorker(buildMockDeps());
+    const failedJob = {
+      id: 'job-1',
+      data: baseJobData,
+      attemptsMade: 12,
+      opts: { attempts: 12 },
+      getState: vi.fn().mockResolvedValue('failed'),
+    };
+
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'failed',
+      failedJob,
+      new UserAlreadyProcessingError(baseJobData.userId),
+    );
+
+    await vi.waitFor(() => expect(mockNotifyContention).toHaveBeenCalledOnce());
+    expect(mockNotifyContention).toHaveBeenCalledWith({
+      channel: baseJobData.channel,
+      externalId: baseJobData.externalId,
+      externalMessageId: baseJobData.externalMessageId,
+    });
+    expect(mockGetConversationStateExecute).not.toHaveBeenCalled();
+    expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: 'intermediate retry',
+      attemptsMade: 2,
+      state: 'delayed',
+      data: baseJobData,
+      error: new UserAlreadyProcessingError(baseJobData.userId),
+    },
+    {
+      label: 'unrelated error',
+      attemptsMade: 12,
+      state: 'failed',
+      data: baseJobData,
+      error: new Error('provider failed'),
+    },
+    {
+      label: 'invalid job',
+      attemptsMade: 12,
+      state: 'failed',
+      data: { ...baseJobData, externalId: '' },
+      error: new UserAlreadyProcessingError(baseJobData.userId),
+    },
+    {
+      label: 'wrong user',
+      attemptsMade: 12,
+      state: 'failed',
+      data: baseJobData,
+      error: new UserAlreadyProcessingError('other-user'),
+    },
+    {
+      label: 'not final state',
+      attemptsMade: 12,
+      state: 'delayed',
+      data: baseJobData,
+      error: new UserAlreadyProcessingError(baseJobData.userId),
+    },
+  ])('does not notify for $label', async ({ attemptsMade, state, data, error }) => {
+    const worker = createMessageWorker(buildMockDeps());
+    (worker as unknown as { emit: (event: string, ...args: unknown[]) => void }).emit(
+      'failed',
+      {
+        id: 'job-1',
+        data,
+        attemptsMade,
+        opts: { attempts: 12 },
+        getState: vi.fn().mockResolvedValue(state),
+      },
+      error,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockNotifyContention).not.toHaveBeenCalled();
   });
 
   it.each([

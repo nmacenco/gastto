@@ -10,7 +10,8 @@ import type { Queue } from 'bullmq';
 import type { OAuthServicePort } from '../../../domain/ports/oauth';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
-import type { FsmState } from '../../../domain/entities/ConversationState';
+import type { ConversationState, FsmState } from '../../../domain/entities/ConversationState';
+import type { CancelCloudConnection } from './CancelCloudConnection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
 
 export interface InitiateCloudConnectionInput {
@@ -19,6 +20,7 @@ export interface InitiateCloudConnectionInput {
   externalId: string;
   channel: 'telegram' | 'whatsapp';
   reauthorizationOnly?: boolean;
+  resumeFrom?: ConversationState;
 }
 
 export interface InitiateCloudConnectionOutput {
@@ -35,6 +37,7 @@ export interface InitiateCloudConnectionDeps {
   messagingPort: MessagingOutputPort;
   redirectUri: string;
   generateState?: () => string;
+  cancelCloudConnection?: Pick<CancelCloudConnection, 'cleanup'>;
 }
 
 function parseProviderChoice(raw: string): 'google' | 'onedrive' | 'invalid' {
@@ -95,6 +98,9 @@ export class InitiateCloudConnection {
         state,
         ...(input.reauthorizationOnly ? { reauthorizationOnly: true } : {}),
       },
+      ...(input.resumeFrom
+        ? { expected: this.deps.transitionState.precondition(input.resumeFrom, 'any') }
+        : {}),
     });
     if (transition.status !== 'updated')
       throw new Error('OAuth state transition was not committed');
@@ -111,6 +117,16 @@ export class InitiateCloudConnection {
         revision: transition.state.revision,
       }),
     );
+
+    const previousNonce = input.resumeFrom?.statePayload?.state;
+    if (typeof previousNonce === 'string' && previousNonce !== state) {
+      try {
+        await this.deps.cancelCloudConnection?.cleanup(previousNonce, userId);
+      } catch {
+        // The committed revision already invalidates the previous callback.
+        // Cleanup is best effort and must not hide the new authorization link.
+      }
+    }
 
     const message = onboardingCopies.authLink(authUrl);
     await this.deps.messagingPort.sendMessage(externalId, message);

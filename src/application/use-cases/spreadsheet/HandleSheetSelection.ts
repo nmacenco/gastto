@@ -541,8 +541,7 @@ export class HandleSheetSelection {
         current.fileId !== fileId ||
         current.sheetName !== sheet.name)
     ) {
-      const message =
-        'Tu planilla actual ya está configurada. Escribí configuración para cambiar el destino sin perder el historial.';
+      const message = onboardingCopies.configuredDestinationConflict();
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }

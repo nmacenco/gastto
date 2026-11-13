@@ -12,6 +12,8 @@ import { UndoLastExpenseUseCase } from '../../application/use-cases/expense/Undo
 import type { ProcessMessageJobData } from '../../application/ports/ProcessMessageJob';
 import type { ConversationState } from '../../domain/entities/ConversationState';
 import type { ExpenseRecord } from '../../domain/entities/ExpenseRecord';
+import { expenseCopies } from '../../application/copies/expense.copies';
+import { getFinancialExecutionClaim } from '../../domain/entities/ConversationState';
 import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
 import type {
   IConversationStateRepository,
@@ -276,7 +278,9 @@ function createHarness(options: HarnessOptions) {
     transitionState,
     messagingPort,
     operationLogRepo: logRepo,
+    advancePendingExpense: { execute: vi.fn().mockResolvedValue({ status: 'empty' }) } as never,
   });
+  const logger = { error: vi.fn() };
   const undoLastExpense = new UndoLastExpenseUseCase(
     { create: vi.fn(() => spreadsheet) } as never,
     expenseRepo,
@@ -284,10 +288,11 @@ function createHarness(options: HarnessOptions) {
     logRepo,
     oauthAccessTokenService,
     transitionState,
+    logger as never,
   );
   const deps: MessageWorkerDeps = {
     redis: {} as never,
-    logger: { error: vi.fn() } as never,
+    logger: logger as never,
     userProcessingLock: {
       acquire: vi.fn().mockResolvedValue('lock-token'),
       renew: vi.fn().mockResolvedValue(true),
@@ -319,6 +324,7 @@ function createHarness(options: HarnessOptions) {
       findByMessagingIdentity: vi.fn().mockResolvedValue({ userId }),
     } as never,
     messagingAdapters: { telegram: messagingPort, whatsapp: messagingPort },
+    notifyMessageProcessingContention: { execute: vi.fn() } as never,
   };
 
   return {
@@ -328,6 +334,11 @@ function createHarness(options: HarnessOptions) {
     appendedRows,
     deletedRows,
     messages,
+    spreadsheetConfigRepo,
+    logRepo,
+    undoLastExpense,
+    spreadsheet,
+    logger,
   };
 }
 
@@ -477,6 +488,143 @@ describe('linked-subcategory expense lifecycle through the message worker', () =
     });
     expect(harness.messages.filter((message) => message.includes('se eliminó'))).toHaveLength(1);
   });
+
+  it.each(['latest expense', 'historical configuration'])(
+    'recovers a failed post-claim %s read without deleting or blocking the chat',
+    async (read) => {
+      const harness = createHarness({ payload: basePayload, mappings: mappedBase });
+      await processMessageJob(
+        buildJob({ rawMessage: '', callbackData: { action: 'confirm' } }),
+        harness.deps,
+      );
+      if (read === 'latest expense') {
+        vi.spyOn(harness.expenseRepo, 'findLatestByUserId')
+          .mockResolvedValueOnce(harness.expenseRepo.records[0]!)
+          .mockRejectedValueOnce(new Error('database unavailable'));
+      } else {
+        harness.spreadsheetConfigRepo.findById.mockRejectedValueOnce(
+          new Error('database unavailable'),
+        );
+      }
+
+      await processMessageJob(buildJob({ rawMessage: 'deshacer' }), harness.deps);
+
+      expect(harness.deletedRows).toEqual([]);
+      expect(harness.expenseRepo.records[0]?.isDeleted).toBe(false);
+      expect(harness.conversationRepo.state).toMatchObject({
+        currentState: 'IDLE',
+        statePayload: null,
+        expiresAt: null,
+      });
+      expect(harness.messages.at(-1)).toContain('No llegué a eliminar');
+      await expect(
+        harness.undoLastExpense.execute({
+          userId,
+          action: 'request',
+          provenance: 'deterministic_command',
+        }),
+      ).resolves.toMatchObject({ status: 'confirmation_required' });
+      expect(harness.deletedRows).toEqual([]);
+      await processMessageJob(buildJob({ rawMessage: 'configuración' }), harness.deps);
+      expect(harness.conversationRepo.state.currentState).toBe('SETTINGS_MENU');
+    },
+  );
+
+  it.each(['audit unavailable', 'cleanup unavailable', 'ownership replaced'])(
+    'handles undo preparation failure safely when %s',
+    async (scenario) => {
+      const harness = createHarness({ payload: basePayload, mappings: mappedBase });
+      await processMessageJob(
+        buildJob({ rawMessage: '', callbackData: { action: 'confirm' } }),
+        harness.deps,
+      );
+      harness.spreadsheetConfigRepo.findById.mockImplementationOnce(() => {
+        if (scenario === 'audit unavailable') {
+          harness.logRepo.create.mockRejectedValueOnce(new Error('audit unavailable'));
+        } else if (scenario === 'cleanup unavailable') {
+          vi.spyOn(harness.conversationRepo, 'findByUserId').mockRejectedValueOnce(
+            new Error('cleanup unavailable'),
+          );
+        } else {
+          const claim = getFinancialExecutionClaim(harness.conversationRepo.state.statePayload)!;
+          harness.conversationRepo.state = {
+            ...harness.conversationRepo.state,
+            revision: '100',
+            statePayload: { executionClaim: { ...claim, claimId: 'new-owner' } },
+          };
+        }
+        return Promise.reject(new Error('read unavailable'));
+      });
+
+      await processMessageJob(buildJob({ rawMessage: 'deshacer' }), harness.deps);
+
+      expect(harness.deletedRows).toEqual([]);
+      expect(harness.expenseRepo.records[0]?.isDeleted).toBe(false);
+      const state = harness.conversationRepo.state;
+      if (scenario === 'audit unavailable') {
+        expect(state.statePayload).toBeNull();
+        expect(harness.messages.at(-1)).toBe(expenseCopies.undoPreparationFailed());
+        expect(harness.logger.error).toHaveBeenCalledWith(
+          expect.objectContaining({
+            code: 'UNDO_FAILURE_AUDIT_FAILED',
+            userId,
+          }),
+        );
+      } else {
+        expect(getFinancialExecutionClaim(state.statePayload)).not.toBeNull();
+        expect(harness.messages).not.toContain(expenseCopies.undoPreparationFailed());
+        if (scenario === 'ownership replaced') {
+          expect(state.revision).toBe('100');
+          expect(getFinancialExecutionClaim(state.statePayload)?.claimId).toBe('new-owner');
+        } else {
+          expect(harness.messages.at(-1)).toBe(expenseCopies.financialOutcomeUnknown());
+          expect(harness.logger.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+              code: 'UNDO_CLAIM_FINALIZATION_FAILED',
+              userId,
+            }),
+          );
+        }
+      }
+    },
+  );
+
+  it.each(['ambiguous provider', 'local persistence'])(
+    'preserves the undo claim and never deletes again after %s failure',
+    async (scenario) => {
+      const harness = createHarness({ payload: basePayload, mappings: mappedBase });
+      await processMessageJob(
+        buildJob({ rawMessage: '', callbackData: { action: 'confirm' } }),
+        harness.deps,
+      );
+      if (scenario === 'ambiguous provider') {
+        harness.spreadsheet.deleteRow.mockRejectedValueOnce(
+          new SpreadsheetError('timeout', {
+            code: 'NETWORK_ERROR',
+            outcomeUnknown: true,
+          }),
+        );
+      } else {
+        vi.spyOn(harness.expenseRepo, 'softDeleteWithAudit').mockRejectedValueOnce(
+          new Error('persistence unavailable'),
+        );
+      }
+      harness.logRepo.create.mockRejectedValueOnce(new Error('audit unavailable'));
+
+      await processMessageJob(buildJob({ rawMessage: 'deshacer' }), harness.deps);
+      expect(getFinancialExecutionClaim(harness.conversationRepo.state.statePayload)?.status).toBe(
+        'outcome_unknown',
+      );
+      expect(harness.messages.at(-1)).toBe(expenseCopies.financialOutcomeUnknown());
+      expect(harness.expenseRepo.records[0]?.isDeleted).toBe(false);
+      for (const rawMessage of ['deshacer', 'cancelar', 'configuración']) {
+        await processMessageJob(buildJob({ rawMessage }), harness.deps);
+        expect(harness.messages.at(-1)).toBe(expenseCopies.financialOutcomeUnknown());
+      }
+      expect(harness.spreadsheet.deleteRow).toHaveBeenCalledTimes(1);
+      expect(harness.messages.some((message) => message.includes('se eliminó'))).toBe(false);
+    },
+  );
 
   it('retries one failed append with the same reviewed hierarchy and succeeds once', async () => {
     const harness = createHarness({

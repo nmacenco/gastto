@@ -370,6 +370,54 @@ describe('HandleOAuthCallback', () => {
     });
   });
   describe('valid callback', () => {
+    it('reuses a configured destination after a reminder nonce rotation and rejects the old link', async () => {
+      const freshState = 'reminder-state';
+      const conversationRepo = {
+        findByUserId: vi.fn().mockResolvedValue({
+          userId: 'user-123',
+          revision: '8',
+          currentState: 'ONBOARDING_DRIVE',
+          statePayload: {
+            provider: 'google',
+            state: freshState,
+            reauthorizationOnly: true,
+          },
+        }),
+      } as unknown as IConversationStateRepository;
+      mockRedisGet.mockImplementation((key: string) =>
+        key === `oauth:state:${freshState}`
+          ? Promise.resolve(JSON.stringify({ ...JSON.parse(baseRedisPayload), revision: '8' }))
+          : Promise.resolve(null),
+      );
+      mockExchangeCode.mockResolvedValue({
+        accessToken: 'access-123',
+        refreshToken: 'refresh-456',
+        expiresAt: new Date('2026-12-31T23:59:59Z'),
+        scope: [],
+      });
+      mockFindSpreadsheetConfig.mockResolvedValue({
+        id: 'config-1',
+        provider: 'google',
+        fileId: 'file-1',
+        sheetName: 'Gastos',
+      });
+      mockFindColumnMappings.mockResolvedValue([{ confirmedAt: new Date() }]);
+      const useCase = new HandleOAuthCallback(buildMockDeps({ conversationRepo }));
+
+      const oldResult = await useCase.execute(baseInput);
+      expect(oldResult.success).toBe(false);
+      expect(mockExchangeCode).not.toHaveBeenCalled();
+      const result = await useCase.execute({ code: 'auth-code-123', state: freshState });
+      expect(result).toMatchObject({ success: true, nextState: 'IDLE' });
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'IDLE',
+          expected: { revision: '8', currentState: 'ONBOARDING_DRIVE', expiry: 'any' },
+        }),
+      );
+      expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+    });
+
     it('restores a completed spreadsheet configuration after reauthorization', async () => {
       mockRedisGet.mockResolvedValue(baseRedisPayload);
       mockExchangeCode.mockResolvedValue({

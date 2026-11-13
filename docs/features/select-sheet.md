@@ -38,7 +38,7 @@ An empty or effectively blank preview returns to `ONBOARDING_SHEET` with `step: 
 
 8. User replies with a number matching the sheet list.
 9. The use case validates that `1 <= choice <= sheetList.length`.
-10. On valid choice: `ISpreadsheetConfigRepository.createOrResumeInitial` persists the initial config with `sheetName`, `fileId`, `fileName`, and a placeholder `accessVerifiedAt`. A completed user's different destination is rejected with guidance to use `configuración`, preserving the old row and its expense references.
+10. On valid choice: `ISpreadsheetConfigRepository.createOrResumeInitial` persists the initial config with `sheetName`, `fileId`, `fileName`, and a placeholder `accessVerifiedAt`. A completed user's different destination is rejected with the executable sequence `cancelar` to leave onboarding, `configuración` from `IDLE`, then the destination-change option. The old row and its expense references remain unchanged.
 11. The FSM transitions to `ONBOARDING_VALIDATING_ACCESS` and only afterwards is the confirmation message sent via `MessagingOutputPort`. This ordering guarantees that a persistence failure cannot leak a success message to the user nor leave the FSM stuck, so a BullMQ retry will not re-send the confirmation.
 12. On invalid number (e.g. `0`, `99`): the user is re-prompted with the sheet list.
 

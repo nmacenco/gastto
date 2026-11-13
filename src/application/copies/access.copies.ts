@@ -19,6 +19,10 @@ export const accessCopies = {
   replacementPending: () =>
     'El cambio de email está pendiente. Si querés corregirlo, escribí el nuevo email en configuración.',
   continue: () => 'Escribí continuar para conectar Google.',
+  pendingOAuth: () =>
+    'La autorización de Google sigue pendiente. Escribí continuar para recibir un enlace nuevo o cancelar para salir.',
+  activeFlowNeedsExit: () =>
+    'Hay un flujo en curso. Escribí cancelar para salir y luego continuar para conectar Google. Tu borrador no se descartará automáticamente.',
   oauthUnavailable: () =>
     'La conexión con Google no está disponible en este momento. Intentá más tarde.',
 };

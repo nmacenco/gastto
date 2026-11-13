@@ -88,6 +88,7 @@ import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
+import type { NotifyMessageProcessingContention } from '../../application/use-cases/conversation/NotifyMessageProcessingContention';
 import { StaleConversationStateError } from '../../domain/errors/StaleConversationStateError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
@@ -164,6 +165,7 @@ export interface MessageWorkerDeps {
   recoverCorruptedState: RecoverCorruptedState;
   userRepo: IUserRepository;
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
+  notifyMessageProcessingContention: NotifyMessageProcessingContention;
   userProfilePort?: IUserProfilePort | null;
   expenseRecordRepo?: IExpenseRecordRepository | null;
   mappingCorrectionStateRepository?: IMappingCorrectionStateRepository | null;
@@ -325,6 +327,17 @@ export async function processMessageJob(
         }
         return;
       }
+      if (
+        data.callbackData === undefined &&
+        isExplicitCancelCommand(data.rawMessage) &&
+        conversationState !== null &&
+        currentState !== 'IDLE'
+      ) {
+        await opts.transitionState.runWithState(conversationState, async () => {
+          await routeByState(currentState, data, conversationState, opts, messaging);
+        });
+        return;
+      }
       try {
         await opts.oauthAdmission.getValidAccessToken({ userId, provider: 'google' });
       } catch (error) {
@@ -332,11 +345,30 @@ export async function processMessageJob(
           await messaging.sendMessage(externalId, accessCopies.oauthUnavailable());
           return;
         }
+        if (getFinancialExecutionClaim(conversationState?.statePayload ?? null) !== null) {
+          await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+          return;
+        }
         if (
           data.callbackData !== undefined ||
           data.rawMessage.trim().toLowerCase() !== 'continuar'
         ) {
-          await messaging.sendMessage(externalId, accessCopies.continue());
+          await messaging.sendMessage(
+            externalId,
+            currentState === 'ONBOARDING_DRIVE'
+              ? accessCopies.pendingOAuth()
+              : currentState === 'IDLE' || currentState === 'ONBOARDING_START'
+                ? accessCopies.continue()
+                : accessCopies.activeFlowNeedsExit(),
+          );
+          return;
+        }
+        if (
+          currentState !== 'IDLE' &&
+          currentState !== 'ONBOARDING_START' &&
+          currentState !== 'ONBOARDING_DRIVE'
+        ) {
+          await messaging.sendMessage(externalId, accessCopies.activeFlowNeedsExit());
           return;
         }
         if (!opts.initiateCloudConnection) {
@@ -344,17 +376,22 @@ export async function processMessageJob(
           return;
         }
         await opts.transitionState.runForUser(userId, async () => {
-          await opts.transitionState.execute({
-            userId,
-            targetState: 'ONBOARDING_START',
-            payload: { promptShown: true, reauthorizationOnly: true },
-          });
+          if (currentState === 'IDLE') {
+            await opts.transitionState.execute({
+              userId,
+              targetState: 'ONBOARDING_START',
+              payload: { promptShown: true, reauthorizationOnly: true },
+            });
+          }
           await opts.initiateCloudConnection!.execute({
             userId,
             rawMessage: 'google',
             externalId,
             channel,
             reauthorizationOnly: true,
+            ...(currentState !== 'IDLE' && conversationState
+              ? { resumeFrom: conversationState }
+              : {}),
           });
         });
         return;
@@ -1555,6 +1592,7 @@ async function handleExpenseSavingRetry(
     const outcome = await opts.retryExpenseSave.execute({
       userId,
       chatId: externalId,
+      channel,
       authorization: {
         receivedAt: jobData.receivedAt,
         sourceMessageId: jobData.externalMessageId,
@@ -1666,6 +1704,10 @@ async function sendUndoOutcome(
     case 'deletion_failed':
       await messaging.sendMessage(chatId, expenseCopies.undoDeletionFailed());
       return;
+    case 'preparation_failed':
+      await messaging.sendMessage(chatId, expenseCopies.undoPreparationFailed());
+      return;
+    case 'outcome_unknown':
     case 'operation_in_progress':
       await messaging.sendMessage(chatId, expenseCopies.financialOutcomeUnknown());
       return;
@@ -1739,9 +1781,45 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
       errorType: err.constructor.name,
       error: err.message,
     });
+
+    // A failed event is also emitted for intermediate attempts. Verify that
+    // BullMQ actually moved this validated contention job to failed before
+    // telling the user to resend it.
+    if (
+      job &&
+      err instanceof UserAlreadyProcessingError &&
+      attemptsMade !== undefined &&
+      maxAttempts !== undefined &&
+      attemptsMade >= maxAttempts
+    ) {
+      void notifyFinalContention(job, err, opts).catch((error: unknown) => {
+        opts.logger.error({
+          msg: 'Failed to handle final processing contention',
+          endpoint: 'processMessageJob',
+          code: 'CONTENTION_NOTICE_HANDLER_FAILED',
+          jobId: job.id,
+          errorType: error instanceof Error ? error.constructor.name : 'unknown',
+        });
+      });
+    }
   });
 
   return worker;
+}
+
+async function notifyFinalContention(
+  job: Job<ProcessMessageJobData>,
+  error: UserAlreadyProcessingError,
+  opts: MessageWorkerDeps,
+): Promise<void> {
+  const parsed = ProcessMessageJobDataSchema.safeParse(job.data);
+  if (!parsed.success || parsed.data.userId !== error.userId) return;
+  if ((await job.getState()) !== 'failed') return;
+  await opts.notifyMessageProcessingContention.execute({
+    channel: parsed.data.channel,
+    externalId: parsed.data.externalId,
+    externalMessageId: parsed.data.externalMessageId,
+  });
 }
 
 // ── Helpers de formato ────────────────────────────────────────────────────────

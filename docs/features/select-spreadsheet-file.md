@@ -30,9 +30,8 @@ The selected file is checked for access and its sheets are listed. The candidate
 1. After a successful OAuth callback, `HandleOAuthCallback` transitions the user to `ONBOARDING_FILE` and immediately invokes `HandleSpreadsheetFileSelection` with an empty `rawMessage`.
 2. `HandleSpreadsheetFileSelection` calls `CloudStoragePort.listRecentSpreadsheets`.
 3. The adapter queries Google Drive API v3 for the 5 most recently modified spreadsheet files.
-4. The use case formats a numbered list of files and appends a "None of these / search by name" option.
-5. The file list is stored in the FSM payload via `TransitionConversationState`.
-6. The user receives the formatted list message.
+4. A nonempty result is formatted as a numbered list with a "None of these / search by name" option. The displayed list, provider, and relevant flow context are stored before the prompt is sent.
+5. An empty result stores `step: 'searching'` with the provider and relevant flow context, then offers name search, a supported link, or cancellation. The next name is sent to `searchSpreadsheets` rather than listing recent files again.
 
 ### Selection by Number
 
@@ -57,19 +56,19 @@ The selected file is checked for access and its sheets are listed. The candidate
 12. If the user chooses "None of these / search by name", the use case prompts for a file name.
 13. When `statePayload.step === 'searching'`, the use case calls `CloudStoragePort.searchSpreadsheets` with the user's message as query.
 14. A refined list is presented and the payload is updated.
-15. If the search returns no files, the use case sends `onboardingCopies.noFilesFoundPrompt()` and stays in `ONBOARDING_FILE` so the user can refine the query or paste a URL.
+15. If the search returns no files, the use case persists `step: 'searching'` again and sends `onboardingCopies.noFilesFoundPrompt()` so the user can refine the query or paste a URL. A successful search replaces the previous displayed list and binds new numeric selections to the new state revision.
 
 ### Direct URL Validation
 
-15. If the user pastes a Google Drive or OneDrive URL, the use case extracts the `fileId`.
+15. Before search or list handling, a supported HTTPS Google Sheets (`docs.google.com/spreadsheets/d/{id}`) or Drive file (`drive.google.com/file/d/{id}` or `drive.google.com/open?id={id}`) link is parsed for a bounded file ID. Unsupported or malformed web links are rejected with input guidance and never searched or selected. OneDrive remains unavailable.
 16. `CloudStoragePort.validateFileAccess` is called to verify permissions.
 17. If accessible, the file is selected, the payload is updated with `selectedFileId`, `selectedFileName`, and `provider`, and the FSM transitions to `ONBOARDING_SHEET`.
 18. `HandleSpreadsheetFileSelection` immediately invokes `HandleSheetSelection` with an empty `rawMessage` to trigger sheet discovery automatically.
-19. If access is denied, the user is informed of permission issues.
+19. If access is denied, the user is informed of permission issues and remains in the current file-selection step. A stale transition sends no success confirmation.
 
 ### No Compatible Files
 
-18. If no compatible files are found, the use case returns a clear message suggesting verification and offering manual name entry.
+18. If no compatible files are found, the use case offers name search, a supported link, and cancellation from a persisted search-capable state.
 
 ## Adapters
 
@@ -217,8 +216,8 @@ class CloudFile {
 
 - [x] **Error path — no files found:**
   - `listRecentSpreadsheets` returns `[]`.
-  - Clear message sent suggesting verification.
-  - Manual name entry offered.
+  - Search-capable state is persisted before the prompt is sent.
+  - Name search, a supported Google link, and cancellation are offered.
 
 - [x] **Error path — invalid provider:**
   - `listRecentSpreadsheets` with `microsoft` throws `InvalidProviderError`.

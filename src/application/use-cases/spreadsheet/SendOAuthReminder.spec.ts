@@ -199,6 +199,27 @@ describe('SendOAuthReminder', () => {
     });
   });
   describe('reminder sent with fresh state', () => {
+    it('preserves reconnection intent while rotating a configured flow nonce', async () => {
+      mockConversationFind.mockResolvedValue({
+        userId: 'user-123',
+        revision: '7',
+        currentState: 'ONBOARDING_DRIVE',
+        statePayload: {
+          provider: 'google',
+          state: 'old-state',
+          reauthorizationOnly: true,
+          obsoleteMetadata: 'discard-me',
+        },
+      });
+      await new SendOAuthReminder(buildMockDeps()).execute(baseInput);
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: { provider: 'google', state: 'fresh-state-789', reauthorizationOnly: true },
+          expected: { revision: '7', currentState: 'ONBOARDING_DRIVE', expiry: 'any' },
+        }),
+      );
+    });
+
     it('generates new state, stores in Redis, schedules job, updates FSM payload, and sends message', async () => {
       const deps = buildMockDeps();
       const useCase = new SendOAuthReminder(deps);

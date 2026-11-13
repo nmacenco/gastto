@@ -14,6 +14,8 @@ If Gmail delivery fails, the request remains pending and the server logs `ACCESS
 
 The access gate runs before semantic routing, including shadow observation. An approved email alone is insufficient: the bot needs a usable Google OAuth credential. Expense interpretation checks the same condition before LLM extraction, including calls from queued jobs. A missing, revoked, or rejected credential sends the user back to `continuar`. A refreshable expired token can still be usable. Google OAuth denial and callback state validation use the existing OAuth recovery path.
 
+For an approved chat with missing credentials, exact cancellation of an active flow reaches its existing guarded handler before credential admission. A financial execution claim still blocks cancellation. Exact `continuar` starts OAuth from `IDLE` or `ONBOARDING_START`, or renews a pending `ONBOARDING_DRIVE` link through a revision-bound self-transition. Other active flows receive an instruction to cancel explicitly before continuing; admission does not discard their drafts or claims. Unapproved chats still enter only the email-request flow.
+
 ## Changing the account
 
 An active user chooses option 7 in `configuración` to submit a replacement email. The current approved email, OAuth token, and spreadsheet remain active while the new request is pending or approved. The owner approves its request ID through the same CLI and the user receives a Telegram notice. In settings, the user chooses option 7 again and types `continuar` to authorize the replacement Google account. The new credential is encrypted in `candidate_oauth_tokens`; it does not overwrite `oauth_tokens`.

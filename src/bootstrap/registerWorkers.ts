@@ -15,6 +15,7 @@ import { createOAuthReminderWorker } from '../interfaces/workers/oauthReminder.w
 import { ClassifyFreeTextExpenseIntent } from '../application/use-cases/conversation/ClassifyFreeTextExpenseIntent';
 import { GetSpreadsheetSettings } from '../application/use-cases/spreadsheet/GetSpreadsheetSettings';
 import { CancelConversationFlow } from '../application/use-cases/conversation/CancelConversationFlow';
+import { NotifyMessageProcessingContention } from '../application/use-cases/conversation/NotifyMessageProcessingContention';
 import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
 
 interface CloseableBullMqResource {
@@ -81,6 +82,11 @@ export async function registerWorkers(
   );
 
   // Thick worker (ADR-005): FSM → NLP → user response
+  const messagingAdapters = {
+    telegram: telegramAdapter,
+    // TODO: replace with real WhatsApp adapter when implemented
+    whatsapp: telegramAdapter,
+  };
   const messageWorker = createMessageWorker({
     redis: deps.redis,
     logger: deps.rootLogger,
@@ -129,11 +135,11 @@ export async function registerWorkers(
     requestAccess: deps.requestAccess,
     oauthAdmission: deps.oauthAccessTokenService,
     operatorMail: deps.operatorMail,
-    messagingAdapters: {
-      telegram: telegramAdapter,
-      // TODO: replace with real WhatsApp adapter when implemented
-      whatsapp: telegramAdapter,
-    },
+    messagingAdapters,
+    notifyMessageProcessingContention: new NotifyMessageProcessingContention(
+      messagingAdapters,
+      deps.rootLogger,
+    ),
     expenseSummaryPresenterFactory: deps.expenseSummaryPresenterFactory,
     mappingCorrectionStateRepository: deps.mappingCorrectionStateRepository,
     initiateCloudConnection: deps.googleOAuth?.initiateCloudConnection ?? null,

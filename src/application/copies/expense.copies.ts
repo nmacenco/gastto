@@ -22,7 +22,7 @@ export const expenseCopies = {
   saveNetworkFailure: () =>
     'No pude confirmar el guardado por un problema de conexión. Respondé *reintentar* dentro de los próximos 10 minutos.',
   financialOutcomeUnknown: () =>
-    'El resultado de esa operación todavía no está confirmado. Revisá la planilla antes de volver a intentarlo.',
+    'Esa operación sigue pendiente de resolución. No puedo iniciar otra hasta que el equipo de soporte la revise. Contactá al administrador de Gastto.',
   staleReview: () =>
     'Ese botón o respuesta corresponde a otro resumen. Revisá el resumen actual y confirmalo de nuevo.',
   expiredReview: () => 'Ese resumen expiró. Revisá el nuevo resumen antes de confirmar.',
@@ -104,6 +104,8 @@ export const expenseCopies = {
   undoExpired: () => 'La confirmación para eliminar ese registro venció. No se eliminó nada.',
   undoDeletionFailed: () =>
     'No pude eliminar el último registro en este momento. Verificá tu planilla e intentá de nuevo más tarde.',
+  undoPreparationFailed: () =>
+    'No llegué a eliminar el registro. Podés seguir usando el chat o escribir deshacer para solicitarlo de nuevo.',
   clarificationInterrupted: () => 'El registro anterior fue cancelado. Procesando el nuevo gasto…',
   highAmountWarning: () => '⚠️ *Monto inusualmente alto*',
   highAmountConfirmationPrompt: () =>

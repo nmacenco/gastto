@@ -3,6 +3,7 @@ import type { ConversationState } from '../../../domain/entities/ConversationSta
 import type { ConversationDecision } from '../../../domain/value-objects/conversation-decision';
 import { isIdkVariant } from '../../utils/intents';
 import { projectOptionSelectionSnapshot } from './ResolveOptionReference';
+import { looksLikeWebLink } from '../../utils/googleSpreadsheetLink';
 
 export type OptionSelectionSemanticDecision = Extract<
   ConversationDecision,
@@ -58,10 +59,5 @@ export function shouldBypassSemanticOptionSelection(
   )
     return true;
 
-  try {
-    const url = new URL(rawMessage.trim());
-    return url.hostname === 'drive.google.com';
-  } catch {
-    return false;
-  }
+  return conversationState.currentState === 'ONBOARDING_FILE' && looksLikeWebLink(rawMessage);
 }
