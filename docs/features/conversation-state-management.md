@@ -6,6 +6,8 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 
 ## Behavior (Implemented)
 
+- Approved Telegram chats may cancel an active flow despite a missing Google credential. The ordinary guarded cancellation path protects financial claims and cleans up an OAuth nonce after a committed exit. Pending OAuth can renew its link through the valid `ONBOARDING_DRIVE` self-transition; other active flows are not reset implicitly.
+
 - `ONBOARDING_CATEGORIES` and `SETTINGS_CATEGORIES` now carry a payment-review stage after category review. Legacy payloads without a stage enter category review first. Final database commits validate the reviewed stage and revision before clearing the conversation.
 - Payment resolution during `EXPENSE_REVIEW` updates the catalog and review in one transaction, advances the binding, and updates the handler's in-memory observed state before the summary is presented again.
 

@@ -2,6 +2,8 @@
 
 With Telegram access approval enabled, the message worker handles pending email requests and approved `continuar` before semantic observation or expense routing. This prevents shadow router model calls before a usable Google OAuth credential exists. See [Telegram access approval](./telegram-access-approval.md).
 
+After identity and access approval, exact cancellation of an active flow is routed through its guarded FSM handler before the missing-credential gate. Financial claims retain priority. With missing credentials, exact `continuar` starts or renews OAuth only from `IDLE`, `ONBOARDING_START`, or `ONBOARDING_DRIVE`; other active states receive an explicit safe-exit instruction.
+
 ## Purpose
 
 Handle all incoming messages from external channels (Telegram, WhatsApp). Extract relevant data from the raw webhook payload, normalise it into a channel-agnostic domain representation, and route each message to the appropriate downstream handler based on its type. This is the foundational layer on top of which all conversational flows are built.

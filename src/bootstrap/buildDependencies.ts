@@ -344,6 +344,14 @@ function buildGoogleOAuthFeature(
     accessRequests: core.accessRequests,
   });
 
+  const cancelCloudConnection = new CancelCloudConnection({
+    redis: infra.redis,
+    reminderQueue: core.reminderQueue,
+    transitionState: core.transitionState,
+    messagingPort,
+    logger: infra.rootLogger,
+  });
+
   const initiateCloudConnection = new InitiateCloudConnection({
     oauthService: adapter,
     redis: infra.redis,
@@ -351,6 +359,7 @@ function buildGoogleOAuthFeature(
     transitionState: core.transitionState,
     messagingPort,
     redirectUri: env.GOOGLE_REDIRECT_URI,
+    cancelCloudConnection,
   });
 
   const sendOAuthReminder = new SendOAuthReminder({
@@ -364,14 +373,6 @@ function buildGoogleOAuthFeature(
     userProcessingLock: new RedisUserProcessingLock(infra.redis),
     logger: infra.rootLogger,
     settingsOAuthCleanup,
-  });
-
-  const cancelCloudConnection = new CancelCloudConnection({
-    redis: infra.redis,
-    reminderQueue: core.reminderQueue,
-    transitionState: core.transitionState,
-    messagingPort,
-    logger: infra.rootLogger,
   });
 
   const driveFileDiscovery = new GoogleDriveFileDiscoveryAdapter(infra.rootLogger);

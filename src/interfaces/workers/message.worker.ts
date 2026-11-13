@@ -325,6 +325,17 @@ export async function processMessageJob(
         }
         return;
       }
+      if (
+        data.callbackData === undefined &&
+        isExplicitCancelCommand(data.rawMessage) &&
+        conversationState !== null &&
+        currentState !== 'IDLE'
+      ) {
+        await opts.transitionState.runWithState(conversationState, async () => {
+          await routeByState(currentState, data, conversationState, opts, messaging);
+        });
+        return;
+      }
       try {
         await opts.oauthAdmission.getValidAccessToken({ userId, provider: 'google' });
       } catch (error) {
@@ -332,11 +343,30 @@ export async function processMessageJob(
           await messaging.sendMessage(externalId, accessCopies.oauthUnavailable());
           return;
         }
+        if (getFinancialExecutionClaim(conversationState?.statePayload ?? null) !== null) {
+          await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+          return;
+        }
         if (
           data.callbackData !== undefined ||
           data.rawMessage.trim().toLowerCase() !== 'continuar'
         ) {
-          await messaging.sendMessage(externalId, accessCopies.continue());
+          await messaging.sendMessage(
+            externalId,
+            currentState === 'ONBOARDING_DRIVE'
+              ? accessCopies.pendingOAuth()
+              : currentState === 'IDLE' || currentState === 'ONBOARDING_START'
+                ? accessCopies.continue()
+                : accessCopies.activeFlowNeedsExit(),
+          );
+          return;
+        }
+        if (
+          currentState !== 'IDLE' &&
+          currentState !== 'ONBOARDING_START' &&
+          currentState !== 'ONBOARDING_DRIVE'
+        ) {
+          await messaging.sendMessage(externalId, accessCopies.activeFlowNeedsExit());
           return;
         }
         if (!opts.initiateCloudConnection) {
@@ -344,17 +374,22 @@ export async function processMessageJob(
           return;
         }
         await opts.transitionState.runForUser(userId, async () => {
-          await opts.transitionState.execute({
-            userId,
-            targetState: 'ONBOARDING_START',
-            payload: { promptShown: true, reauthorizationOnly: true },
-          });
+          if (currentState === 'IDLE') {
+            await opts.transitionState.execute({
+              userId,
+              targetState: 'ONBOARDING_START',
+              payload: { promptShown: true, reauthorizationOnly: true },
+            });
+          }
           await opts.initiateCloudConnection!.execute({
             userId,
             rawMessage: 'google',
             externalId,
             channel,
             reauthorizationOnly: true,
+            ...(currentState !== 'IDLE' && conversationState
+              ? { resumeFrom: conversationState }
+              : {}),
           });
         });
         return;

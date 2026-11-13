@@ -538,6 +538,123 @@ describe('processMessageJob', () => {
       );
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
     });
+
+    it('lets an approved user cancel pending OAuth before credential admission', async () => {
+      const deps = buildMockDeps();
+      const pendingState = buildConversationState({
+        currentState: 'ONBOARDING_DRIVE',
+        statePayload: { provider: 'google', state: 'old-nonce' },
+      });
+      mockGetConversationStateExecute.mockResolvedValue(pendingState);
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('missing', { code: 'AUTH_ERROR' })),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      expect(mockCancelConversationFlowExecute).toHaveBeenCalledOnce();
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+    });
+
+    it('renews pending OAuth without transitioning through ONBOARDING_START', async () => {
+      const deps = buildMockDeps();
+      const pendingState = buildConversationState({
+        currentState: 'ONBOARDING_DRIVE',
+        statePayload: { provider: 'google', state: 'old-nonce' },
+      });
+      mockGetConversationStateExecute.mockResolvedValue(pendingState);
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('missing', { code: 'AUTH_ERROR' })),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'continuar' }), deps);
+      expect(mockTransitionStateExecute).not.toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'ONBOARDING_START' }),
+      );
+      expect(mockInitiateCloudConnectionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ resumeFrom: pendingState }),
+      );
+    });
+
+    it('keeps a financial claim protected when credentials are missing', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_SAVING_RETRY',
+          statePayload: {
+            executionClaim: {
+              claimId: 'claim-1',
+              kind: 'retry',
+              operationId: 'operation-1',
+              sourceMessageId: null,
+              status: 'outcome_unknown',
+              target: {},
+            },
+          },
+        }),
+      );
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('missing', { code: 'AUTH_ERROR' })),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'continuar' }), deps);
+      expect(mockCancelConversationFlowExecute).not.toHaveBeenCalled();
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.financialOutcomeUnknown(),
+      );
+    });
+
+    it('keeps another active flow intact until the user explicitly cancels', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'ONBOARDING_FILE',
+          statePayload: { provider: 'google', step: 'searching' },
+        }),
+      );
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      deps.oauthAdmission = {
+        getValidAccessToken: vi
+          .fn()
+          .mockRejectedValue(new SpreadsheetError('missing', { code: 'AUTH_ERROR' })),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'continuar' }), deps);
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockInitiateCloudConnectionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accessCopies.activeFlowNeedsExit());
+    });
   });
 
   describe('spreadsheet settings', () => {

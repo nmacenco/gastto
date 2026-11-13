@@ -91,15 +91,23 @@ Repository paths below are relative to this plan directory.
 
 **To-do actions:**
 
-- [ ] Reproduce the approval-enabled sequence: `continuar`, pending or denied OAuth, `cancelar`, and repeated `continuar`.
-- [ ] Define admission precedence for identity/access checks, financial-claim protection, safe cancellation, and state-aware OAuth continuation; implement business recovery through Application use cases.
-- [ ] Reuse guarded cancellation and nonce/reminder cleanup. Keep callbacks bound to the current flow and revision.
-- [ ] Handle credential loss in other active states with an explicit valid continuation or safe-exit instruction, without clearing drafts or claims implicitly to force a transition.
-- [ ] Test denied and expired authorization, repeated continuation, cancellation without credentials, stale callbacks, existing claims, and unchanged rejection of unapproved access.
-- [ ] Update `telegram-access-approval.md`, `cloud-storage-connection.md`, `incoming-message-routing.md`, any changed cancellation/state contract, and `docs/features/README.md`.
-- [ ] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Reproduce the approval-enabled sequence: `continuar`, pending or denied OAuth, `cancelar`, and repeated `continuar`.
+- [x] Define admission precedence for identity/access checks, financial-claim protection, safe cancellation, and state-aware OAuth continuation; implement business recovery through Application use cases.
+- [x] Reuse guarded cancellation and nonce/reminder cleanup. Keep callbacks bound to the current flow and revision.
+- [x] Handle credential loss in other active states with an explicit valid continuation or safe-exit instruction, without clearing drafts or claims implicitly to force a transition.
+- [x] Test denied and expired authorization, repeated continuation, cancellation without credentials, stale callbacks, existing claims, and unchanged rejection of unapproved access.
+- [x] Update `telegram-access-approval.md`, `cloud-storage-connection.md`, `incoming-message-routing.md`, any changed cancellation/state contract, and `docs/features/README.md`.
+- [x] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+
+**Validation evidence (2026-11-13):**
+
+- The new approved-user cancellation and pending-link renewal worker regressions failed against the original admission branch and passed after the change.
+- Focused worker, OAuth initiation/callback, and guarded cancellation suites: 314 tests passed.
+- Full suite with container and local-listener access: 195 suites passed, 9 skipped; 2,670 tests passed, 45 skipped. The sandbox-only run had failed solely on container-runtime discovery and local-listener permission; both affected suites passed with the required access.
+- Typecheck, source lint, formatting, and `git diff --check` passed using local binaries. The installed `pnpm` launcher could not open its own database in this environment, so the matching package scripts were run through their `node_modules/.bin` executables.
+- Existing `.codebase-memory` changes were present before this phase and were left untouched.
 
 ### Phase 3: Recover file discovery from empty lists and active searches
 
@@ -206,4 +214,4 @@ Repository paths below are relative to this plan directory.
 
 ## Next step
 
-After the Phase 1 review/commit decision, begin Phase 2 by reproducing approval-enabled OAuth cancellation and continuation with real FSM validation.
+After the Phase 2 review/commit decision, begin Phase 3 by reproducing file-discovery loops from empty lists and active searches.
