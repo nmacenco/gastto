@@ -151,6 +151,7 @@ No database schema changes yet. The feature operates on transient domain value o
 - `receivedAt` for text comes from the validated channel timestamp. Telegram callback occurrence time uses authenticated webhook receipt time because callback queries do not expose a tap timestamp.
 - Review callbacks are not global cancellation commands. Outside `EXPENSE_REVIEW` they produce no state mutation or financial effect.
 - Exact text cancellation reaches the locked deterministic FSM path before optional semantic dispatch. Settings, onboarding, retry, saving, and undo-confirmation exits use a revision-guarded non-expense use case; expense drafts retain queue-aware cancellation. A persisted financial claim blocks state clearing and sends bounded guidance.
+- In `ONBOARDING_FILE`, empty or active-search payloads bypass semantic option selection and route directly to file discovery. Supported Google Sheets and Drive links, as well as unsupported web links, bypass semantic proposals so the file-selection use case validates or rejects them deterministically. A displayed nonempty list remains eligible for revision-bound semantic reference selection.
 
 ## Security boundary update (2026-11-01)
 

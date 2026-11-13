@@ -48,7 +48,7 @@ export const onboardingCopies = {
     return `Encontré estos archivos recientes:\n${lines.join('\n')}`;
   },
   noFilesFoundPrompt: () =>
-    'No encontré archivos de planilla en tu cuenta. Verificá que tengas archivos en Google Drive y probá de nuevo, o escribí parte del nombre para buscar.',
+    'No encontré planillas. Escribí parte del nombre para buscar, pegá un enlace HTTPS de Google Sheets o Drive, o escribí cancelar para salir.',
   fileSelectedConfirmation: (fileName: string) =>
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
   invalidSelectionRePrompt: (fileCount: number) =>
@@ -59,7 +59,10 @@ export const onboardingCopies = {
     'No encontré esa opción en la lista actual. Elegí el número exacto de la lista.',
   staleFileReference: () =>
     'La lista de archivos cambió. Revisá la lista actual y elegí nuevamente.',
-  searchByNamePrompt: () => 'Escribí parte del nombre del archivo que querés usar:',
+  searchByNamePrompt: () =>
+    'Escribí parte del nombre para buscar, pegá un enlace HTTPS de Google Sheets o Drive, o escribí cancelar para salir.',
+  unsupportedFileLink: () =>
+    'Ese enlace no corresponde a una planilla compatible. Pegá un enlace HTTPS de Google Sheets o Drive, escribí parte del nombre para buscar, o cancelar para salir.',
   urlValidationFailed: () =>
     'No pude acceder a ese archivo. Verificá que el enlace sea correcto y que tengas permisos.',
   urlValidationSuccess: (fileName: string) =>

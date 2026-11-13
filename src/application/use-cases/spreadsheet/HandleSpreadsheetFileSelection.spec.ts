@@ -137,7 +137,41 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.noFilesFoundPrompt());
-      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_FILE',
+        payload: { provider: 'google', step: 'searching' },
+      });
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+    });
+
+    it('searches the next name after an empty initial list', async () => {
+      mockListRecent.mockResolvedValue([]);
+      mockSearch.mockResolvedValue([mockFiles[0]]);
+      const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
+      const first = await useCase.execute(baseInput);
+      await useCase.execute({
+        ...baseInput,
+        rawMessage: 'Gastos',
+        statePayload: first.payload ?? null,
+      });
+      expect(mockListRecent).toHaveBeenCalledOnce();
+      expect(mockSearch).toHaveBeenCalledWith('decrypted-access-token', 'google', 'Gastos');
+    });
+
+    it('does not present an unbound list when the state transition fails', async () => {
+      mockListRecent.mockResolvedValue(mockFiles);
+      const transition = vi.fn().mockRejectedValue(new Error('stale state'));
+      const useCase = new HandleSpreadsheetFileSelection(
+        buildMockDeps({
+          transitionState: { execute: transition } as unknown as TransitionConversationState,
+        }),
+      );
+      await useCase.execute(baseInput);
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.fileListPrompt(mockFiles),
+      );
       expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
@@ -259,7 +293,7 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(mockTransitionExecute).toHaveBeenCalledWith({
         userId: 'user-123',
         targetState: 'ONBOARDING_FILE',
-        payload: { step: 'searching' },
+        payload: { provider: 'google', step: 'searching' },
       });
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
@@ -305,11 +339,64 @@ describe('HandleSpreadsheetFileSelection', () => {
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.noFilesFoundPrompt());
+      expect(result.payload).toEqual({ provider: 'google', step: 'searching' });
+      expect(mockTransitionExecute).toHaveBeenCalledWith({
+        userId: 'user-123',
+        targetState: 'ONBOARDING_FILE',
+        payload: { provider: 'google', step: 'searching' },
+      });
       expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+    });
+
+    it('keeps search mode across repeated empty results and accepts a later link', async () => {
+      mockSearch.mockResolvedValue([]);
+      mockValidateAccess.mockResolvedValue(true);
+      const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
+      const first = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'unknown',
+        statePayload: { provider: 'google', step: 'searching', reauthorizationOnly: true },
+      });
+      const second = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'another',
+        statePayload: first.payload ?? null,
+      });
+      expect(mockSearch).toHaveBeenNthCalledWith(2, 'decrypted-access-token', 'google', 'another');
+      expect(second.payload).toEqual({
+        provider: 'google',
+        step: 'searching',
+        reauthorizationOnly: true,
+      });
+      const selected = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'https://drive.google.com/file/d/ABC123/view',
+        statePayload: second.payload ?? null,
+      });
+      expect(selected.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockSearch).toHaveBeenCalledTimes(2);
+      expect(mockValidateAccess).toHaveBeenCalledWith('ABC123', 'decrypted-access-token', 'google');
     });
   });
 
   describe('direct URL', () => {
+    it.each([
+      { label: 'empty list', payload: { provider: 'google', fileList: [] } },
+      { label: 'active search', payload: { provider: 'google', step: 'searching' } },
+    ])('accepts a Sheets link from $label before listing or searching', async ({ payload }) => {
+      mockValidateAccess.mockResolvedValue(true);
+      const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'https://docs.google.com/spreadsheets/d/ABC123/edit',
+        statePayload: payload,
+      });
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockValidateAccess).toHaveBeenCalledWith('ABC123', 'decrypted-access-token', 'google');
+      expect(mockListRecent).not.toHaveBeenCalled();
+      expect(mockSearch).not.toHaveBeenCalled();
+      expect(mockHandleSheetSelectionExecute).toHaveBeenCalledOnce();
+    });
     it('extracts fileId, validates access, and transitions to ONBOARDING_SHEET on success', async () => {
       mockValidateAccess.mockResolvedValue(true);
 
@@ -357,6 +444,58 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(result.nextState).toBe('ONBOARDING_FILE');
       expect(result.message).toBe(onboardingCopies.urlValidationFailed());
       expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+    });
+
+    it('keeps the search flow when a linked file is inaccessible', async () => {
+      mockValidateAccess.mockResolvedValue(false);
+      const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage: 'https://docs.google.com/spreadsheets/d/ABC123/edit',
+        statePayload: { provider: 'google', step: 'searching' },
+      });
+      expect(result.message).toBe(onboardingCopies.urlValidationFailed());
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+    });
+
+    it('does not confirm a linked file when its guarded transition is stale', async () => {
+      mockValidateAccess.mockResolvedValue(true);
+      const transition = vi.fn().mockRejectedValue(new Error('stale state'));
+      const useCase = new HandleSpreadsheetFileSelection(
+        buildMockDeps({
+          transitionState: { execute: transition } as unknown as TransitionConversationState,
+        }),
+      );
+      await expect(
+        useCase.execute({
+          ...baseInput,
+          rawMessage: 'https://docs.google.com/spreadsheets/d/ABC123/edit',
+          statePayload: { provider: 'google', step: 'searching' },
+        }),
+      ).rejects.toThrow('stale state');
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.urlValidationSuccess('https://docs.google.com/spreadsheets/d/ABC123/edit'),
+      );
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'http://docs.google.com/spreadsheets/d/ABC123/edit',
+      'https://evil.example/spreadsheets/d/ABC123/edit',
+      'https://docs.google.com/spreadsheets/d/ABC%2F123/edit',
+    ])('rejects unsupported link %s without search or selection', async (rawMessage) => {
+      const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage,
+        statePayload: { provider: 'google', step: 'searching' },
+      });
+      expect(result.message).toBe(onboardingCopies.unsupportedFileLink());
+      expect(mockSearch).not.toHaveBeenCalled();
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
     });
   });
 

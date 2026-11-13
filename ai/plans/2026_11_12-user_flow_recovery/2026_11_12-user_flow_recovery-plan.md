@@ -124,16 +124,23 @@ Repository paths below are relative to this plan directory.
 
 **To-do actions:**
 
-- [ ] Reproduce initial-empty-list and search-without-results loops, including pasting a link in each state.
-- [ ] Order deterministic parsing so global cancellation remains available and supported URLs precede name-search and initial-list fallback.
-- [ ] Persist the appropriate search substep after an empty result and keep provider and relevant flow metadata intact.
-- [ ] Preserve file access validation, guarded transitions, displayed-list binding, and eager sheet discovery.
-- [ ] Align prompts with supported input and ensure invalid or unsupported URLs do not select an arbitrary file.
-- [ ] Test name search after an empty list, links in both states, repeated empty results, denied access, stale selection, cancellation, and deterministic dispatch with semantic routing enabled.
-- [ ] Update `select-spreadsheet-file.md`, any affected routing contract, and `docs/features/README.md`.
-- [ ] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Reproduce initial-empty-list and search-without-results loops, including pasting a link in each state.
+- [x] Order deterministic parsing so global cancellation remains available and supported URLs precede name-search and initial-list fallback.
+- [x] Persist the appropriate search substep after an empty result and keep provider and relevant flow metadata intact.
+- [x] Preserve file access validation, guarded transitions, displayed-list binding, and eager sheet discovery.
+- [x] Align prompts with supported input and ensure invalid or unsupported URLs do not select an arbitrary file.
+- [x] Test name search after an empty list, links in both states, repeated empty results, denied access, stale selection, cancellation, and deterministic dispatch with semantic routing enabled.
+- [x] Update `select-spreadsheet-file.md`, any affected routing contract, and `docs/features/README.md`.
+- [x] Run the focused regression and relevant isolated integration suites, then `pnpm test`; resolve failures attributable to this phase.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+
+**Validation evidence (2026-11-13):**
+
+- Four focused empty-list and Sheets-link regressions failed against the original implementation and passed after the file-selection change.
+- Focused file selection, routing, and copy suites passed after the final stale-list ordering change.
+- Full suite with container and local-listener access: 195 suites passed, 9 skipped; 2,683 tests passed, 45 skipped.
+- Source lint, typecheck, formatting, and `git diff --check` passed using the local executables because the installed `pnpm` launcher could not open its database in this environment.
 
 ### Phase 4: Resume the pending-expense queue after successful retry
 
@@ -214,4 +221,4 @@ Repository paths below are relative to this plan directory.
 
 ## Next step
 
-After the Phase 2 review/commit decision, begin Phase 3 by reproducing file-discovery loops from empty lists and active searches.
+After the Phase 3 review/commit decision, begin Phase 4 by reproducing the pending-expense queue stall after a successful save retry.
