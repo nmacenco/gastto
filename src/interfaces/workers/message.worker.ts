@@ -107,6 +107,7 @@ import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadshe
 import { randomUUID } from 'node:crypto';
 import {
   isConfirmIntent,
+  isOnboardingConfirmIntent,
   isCancelIntent,
   isExplicitCancelCommand,
   isStartOnboardingCommand,
@@ -1426,7 +1427,7 @@ async function routeByState(
           opts,
           messaging,
         );
-      } else if (isConfirmIntent(rawMessage)) {
+      } else if (isOnboardingConfirmIntent(rawMessage)) {
         if (opts.confirmCategories) {
           await opts.confirmCategories.execute({
             userId,

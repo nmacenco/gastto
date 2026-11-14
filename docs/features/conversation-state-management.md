@@ -10,6 +10,7 @@ Persist and manage the finite-state machine (FSM) that governs each user's conve
 - A confirmed retry save finalizes its financial claim before queue advancement. The retry authorization is consumed by the successful save, and the next queued expense inherits the incremented batch count and immediate-undo expense reference. A downstream presentation failure cannot turn the confirmed save into a second append attempt.
 
 - `ONBOARDING_CATEGORIES` and `SETTINGS_CATEGORIES` now carry a payment-review stage after category review. Legacy payloads without a stage enter category review first. Final database commits validate the reviewed stage and revision before clearing the conversation.
+- In `ONBOARDING_CATEGORIES`, exact `confirmar` confirms either the category proposal or the final payment proposal. Payment editing stays in the same state until final commit succeeds; only then does the conversation reach `IDLE`. This onboarding-specific command does not expand expense confirmation intent.
 - Payment resolution during `EXPENSE_REVIEW` updates the catalog and review in one transaction, advances the binding, and updates the handler's in-memory observed state before the summary is presented again.
 
 - Each user has exactly one row in `conversation_states`, referenced by `user_id` with `ON DELETE CASCADE`.

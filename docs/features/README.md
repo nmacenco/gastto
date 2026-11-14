@@ -6,10 +6,10 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`telegram-access-approval.md`](./telegram-access-approval.md): First-contact welcome, explicit invalid-email feedback, Telegram email requests, manual CLI approval, Gmail notices, guarded cancellation and continuation during OAuth admission, and safe account replacement.
+- [`telegram-access-approval.md`](./telegram-access-approval.md): First-contact welcome, explicit invalid-email feedback, Telegram email requests and request-ID lookup, manual CLI approval, Gmail notices, guarded cancellation and continuation during OAuth admission, and safe account replacement.
 
 - [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, safe file and sheet changes, category and payment drafts with listed editing examples, and guarded cancellation and expiry.
-- [`payment-methods.md`](./payment-methods.md): Configuration-scoped payment catalogs, settings drafts, detection during setup, expense review resolution, and legacy compatibility.
+- [`payment-methods.md`](./payment-methods.md): Configuration-scoped payment catalogs, settings drafts, detection during setup, exact onboarding confirmation, expense review resolution, and legacy compatibility.
 
 - [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone proposal evaluator plus checksum-pinned, fail-closed release reports, aggregate-safe rollout evidence, guarded enabled dispatch, and migration-free rollback boundaries.
 
@@ -19,7 +19,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation, blank-preview classification, and one OAuth refresh/replay for provider authorization failures.
 - [`infer-and-propose-column-mapping.md`](./infer-and-propose-column-mapping.md) — Rule-based + LLM hybrid inference, nonempty no-header recovery with sheet choice or cancellation, proposal identity, untrusted-data boundaries, and optional multilingual subcategory mapping.
 - [`confirm-or-correct-column-mapping.md`](./confirm-or-correct-column-mapping.md) — Proposal-bound onboarding confirmation and settings file or sheet candidate mapping, with header checks and isolated corrections.
-- [`category-confirmation.md`](./category-confirmation.md) — Reviews category vocabulary before payment methods in onboarding and destination changes, with cancellable onboarding and legacy layout support.
+- [`category-confirmation.md`](./category-confirmation.md) — Reviews category vocabulary before payment methods in onboarding and destination changes, including the exact `confirmar` command, cancellable onboarding, and legacy layout support.
 - [`category-vocabulary.md`](./category-vocabulary.md) — Category vocabulary foundation introduced on `main`; the active confirmation flow is documented in `category-confirmation.md`.
 - [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, drafts, classifies, reviews, saves, retries, and undoes parent-scoped subcategories with stable references, explicit parent commands, and immutable snapshots.
 - [`incoming-message-routing.md`](./incoming-message-routing.md) — Strict BullMQ ingestion, access-aware processing acknowledgments and OAuth recovery precedence, deterministic file-link and search routing, bounded lock-contention retries with final best-effort resend guidance, and snapshot-bound expense, option, cancellation, undo, and recovery dispatch.
@@ -30,7 +30,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-confirmation.md`](./expense-confirmation.md) — Exact save and retry authorization, mapped-column append, payment-selection checks, guarded claims, FIFO continuation after successful retry, stale/expired rejection, and administrator guidance for unresolved outcomes.
 - [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo using the expense's historical configuration, exact-target claims, bound delayed confirmation, and safe recovery from pre-deletion failures.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, failure classification, and best-effort contention notices.
-- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with cancellation across active flows, guarded pending OAuth renewal, incomplete-destination protection, renewable ownership, retry-to-queue continuation, guarded timeout/queue effects, and financial claims with administrator guidance for unresolved operations.
+- [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with cancellation across active flows, guarded pending OAuth renewal, exact onboarding confirmation, incomplete-destination protection, renewable ownership, retry-to-queue continuation, guarded timeout/queue effects, and financial claims with administrator guidance for unresolved operations.
 - [`deployment.md`](./deployment.md) — Merge-protected multi-environment Fly.io deployment after successful push quality gates, with configurable LLM provider and extraction fallback, provider-independent Redis-compatible brokers, persistent BullMQ worker Machines, secure cutover and rollback, graceful shutdown, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).
 
