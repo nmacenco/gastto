@@ -78,6 +78,12 @@ const mockLogger = {} as unknown as Logger;
 
 Verify logger calls in worker/use case tests by asserting on the mock's method calls.
 
+## Access-request persistence diagnostics
+
+Access-request logs use `requestId` to correlate the committed PostgreSQL row with the operator Gmail notice. The repository emits distinct `*_STARTED`, `*_COMMITTED`, and `*_FAILED` codes for request submission and the post-email `notification_sent_at` update. The latter includes `affectedRows` when PostgreSQL returned a row count; zero rows are treated as a failure. The worker emits `ACCESS_REQUEST_MAIL_ACCEPTED` only after the Gmail adapter succeeds and `ACCESS_REQUEST_NOTIFICATION_PERSIST_FAILED` if the subsequent database update fails. No email address, raw chat text, connection string, or credential is logged.
+
+If the initial or replacement submission fails, the worker emits `ACCESS_REQUEST_SUBMISSION_FAILED`, sends a retry instruction to the user, and does not call the operator mail adapter. A post-email timestamp failure is logged separately because the accepted email cannot be withdrawn.
+
 ## Semantic routing observations
 
 Runtime shadow processing emits one schema-validated

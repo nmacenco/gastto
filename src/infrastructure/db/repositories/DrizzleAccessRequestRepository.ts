@@ -1,5 +1,6 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { Logger } from 'pino';
 import type {
   AccessApprovalOutcome,
   AccessRequest,
@@ -20,7 +21,10 @@ function toRequest(row: AccessRow): AccessRequest {
 }
 
 export class DrizzleAccessRequestRepository implements AccessRequestRepository {
-  constructor(private readonly db: PostgresJsDatabase<typeof schema>) {}
+  constructor(
+    private readonly db: PostgresJsDatabase<typeof schema>,
+    private readonly logger: Logger,
+  ) {}
 
   async findApproved(userId: string): Promise<AccessRequest | null> {
     const [row] = await this.db
@@ -78,55 +82,84 @@ export class DrizzleAccessRequestRepository implements AccessRequestRepository {
     email: string,
     kind: AccessRequestKind,
   ): Promise<AccessRequestSubmission> {
-    return this.db.transaction(async (tx) => {
-      // Lock the owner row so submissions and approvals cannot race on one chat.
-      const [owner] = await tx
-        .select({ id: schema.users.userId })
-        .from(schema.users)
-        .where(eq(schema.users.userId, userId))
-        .for('update');
-      if (!owner) throw new Error('Access request owner does not exist');
+    this.logger.info({
+      msg: 'Access request database transaction started',
+      endpoint: 'DrizzleAccessRequestRepository.submit',
+      code: 'ACCESS_REQUEST_DB_SUBMIT_STARTED',
+      userId,
+      kind,
+    });
+    try {
+      const result = await this.db.transaction(async (tx) => {
+        // Lock the owner row so submissions and approvals cannot race on one chat.
+        const [owner] = await tx
+          .select({ id: schema.users.userId })
+          .from(schema.users)
+          .where(eq(schema.users.userId, userId))
+          .for('update');
+        if (!owner) throw new Error('Access request owner does not exist');
 
-      const [existing] = await tx
-        .select()
-        .from(schema.accessRequests)
-        .where(
-          and(
-            eq(schema.accessRequests.userId, userId),
-            eq(schema.accessRequests.status, 'pending'),
-          ),
-        )
-        .limit(1);
-      if (existing?.email === email && existing.kind === kind) {
-        return { request: toRequest(existing), previousEmail: null, created: false };
-      }
-      const previousEmail = existing?.email ?? null;
-      if (existing) {
-        await tx
-          .update(schema.accessRequests)
-          .set({ status: 'superseded' })
-          .where(eq(schema.accessRequests.id, existing.id));
-      }
-      if (kind === 'replacement') {
-        await tx
-          .update(schema.accessRequests)
-          .set({ status: 'superseded' })
+        const [existing] = await tx
+          .select()
+          .from(schema.accessRequests)
           .where(
             and(
               eq(schema.accessRequests.userId, userId),
-              eq(schema.accessRequests.kind, 'replacement'),
-              eq(schema.accessRequests.status, 'approved'),
-              isNull(schema.accessRequests.activatedAt),
+              eq(schema.accessRequests.status, 'pending'),
             ),
-          );
-      }
-      const [created] = await tx
-        .insert(schema.accessRequests)
-        .values({ userId, email, kind })
-        .returning();
-      if (!created) throw new Error('Failed to create access request');
-      return { request: toRequest(created), previousEmail, created: true };
-    });
+          )
+          .limit(1);
+        if (existing?.email === email && existing.kind === kind) {
+          return { request: toRequest(existing), previousEmail: null, created: false };
+        }
+        const previousEmail = existing?.email ?? null;
+        if (existing) {
+          await tx
+            .update(schema.accessRequests)
+            .set({ status: 'superseded' })
+            .where(eq(schema.accessRequests.id, existing.id));
+        }
+        if (kind === 'replacement') {
+          await tx
+            .update(schema.accessRequests)
+            .set({ status: 'superseded' })
+            .where(
+              and(
+                eq(schema.accessRequests.userId, userId),
+                eq(schema.accessRequests.kind, 'replacement'),
+                eq(schema.accessRequests.status, 'approved'),
+                isNull(schema.accessRequests.activatedAt),
+              ),
+            );
+        }
+        const [created] = await tx
+          .insert(schema.accessRequests)
+          .values({ userId, email, kind })
+          .returning();
+        if (!created) throw new Error('Failed to create access request');
+        return { request: toRequest(created), previousEmail, created: true };
+      });
+      this.logger.info({
+        msg: 'Access request database transaction committed',
+        endpoint: 'DrizzleAccessRequestRepository.submit',
+        code: 'ACCESS_REQUEST_DB_SUBMIT_COMMITTED',
+        userId,
+        kind,
+        requestId: result.request.id,
+        created: result.created,
+      });
+      return result;
+    } catch (error) {
+      this.logger.error({
+        msg: 'Access request database transaction failed',
+        endpoint: 'DrizzleAccessRequestRepository.submit',
+        code: 'ACCESS_REQUEST_DB_SUBMIT_FAILED',
+        userId,
+        kind,
+        errorType: error instanceof Error ? error.constructor.name : 'unknown',
+      });
+      throw error;
+    }
   }
 
   async approve(id: string, actor: string): Promise<AccessApprovalOutcome> {
@@ -193,10 +226,41 @@ export class DrizzleAccessRequestRepository implements AccessRequestRepository {
   }
 
   async markNotificationSent(id: string): Promise<void> {
-    await this.db
-      .update(schema.accessRequests)
-      .set({ notificationSentAt: new Date() })
-      .where(eq(schema.accessRequests.id, id));
+    this.logger.info({
+      msg: 'Access request notification database update started',
+      endpoint: 'DrizzleAccessRequestRepository.markNotificationSent',
+      code: 'ACCESS_REQUEST_DB_NOTICE_UPDATE_STARTED',
+      requestId: id,
+    });
+    let affectedRows: number | null = null;
+    try {
+      const updated = await this.db
+        .update(schema.accessRequests)
+        .set({ notificationSentAt: new Date() })
+        .where(eq(schema.accessRequests.id, id))
+        .returning({ id: schema.accessRequests.id });
+      affectedRows = updated.length;
+      if (affectedRows !== 1) {
+        throw new Error('Access request notification update matched no row');
+      }
+      this.logger.info({
+        msg: 'Access request notification database update committed',
+        endpoint: 'DrizzleAccessRequestRepository.markNotificationSent',
+        code: 'ACCESS_REQUEST_DB_NOTICE_UPDATE_COMMITTED',
+        requestId: id,
+        affectedRows,
+      });
+    } catch (error) {
+      this.logger.error({
+        msg: 'Access request notification database update failed',
+        endpoint: 'DrizzleAccessRequestRepository.markNotificationSent',
+        code: 'ACCESS_REQUEST_DB_NOTICE_UPDATE_FAILED',
+        requestId: id,
+        affectedRows,
+        errorType: error instanceof Error ? error.constructor.name : 'unknown',
+      });
+      throw error;
+    }
   }
 
   async markApprovalNoticeSent(id: string): Promise<void> {

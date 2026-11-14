@@ -18,7 +18,7 @@ export async function notifyAccessRequestCli(requestId: string): Promise<number>
   const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   try {
     const db = drizzle(sql, { schema });
-    const requests = new DrizzleAccessRequestRepository(db);
+    const requests = new DrizzleAccessRequestRepository(db, logger);
     const users = new DrizzleUserRepository(db, redis);
     const request = await requests.findById(requestId);
     if (!request || request.status !== 'pending') return 2;
@@ -43,7 +43,24 @@ export async function notifyAccessRequestCli(requestId: string): Promise<number>
       kind: request.kind,
       previousEmail: active?.email ?? null,
     });
-    await requests.markNotificationSent(requestId);
+    logger.info({
+      msg: 'Operator notification email accepted',
+      endpoint: 'notifyAccessRequestCli',
+      code: 'ACCESS_REQUEST_MAIL_ACCEPTED',
+      requestId,
+    });
+    try {
+      await requests.markNotificationSent(requestId);
+    } catch (error) {
+      logger.error({
+        msg: 'Operator email was accepted but notification timestamp was not persisted',
+        endpoint: 'notifyAccessRequestCli',
+        code: 'ACCESS_REQUEST_NOTIFICATION_PERSIST_FAILED',
+        requestId,
+        errorType: error instanceof Error ? error.constructor.name : 'unknown',
+      });
+      return 1;
+    }
     logger.info({ msg: 'Operator notification sent', requestId });
     return 0;
   } catch (error) {

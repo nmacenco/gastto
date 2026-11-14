@@ -284,12 +284,40 @@ export async function processMessageJob(
           await sendAccessReply(pending ? accessCopies.pendingAgain() : accessCopies.askEmail());
           return;
         }
-        const submission = await opts.requestAccess.execute({
+        opts.logger.info({
+          msg: 'Initial access request submission started',
+          endpoint: 'processMessageJob',
+          code: 'ACCESS_REQUEST_SUBMISSION_STARTED',
           userId,
-          rawEmail: data.rawMessage,
           kind: 'initial',
         });
+        const submission = await opts.requestAccess
+          .execute({
+            userId,
+            rawEmail: data.rawMessage,
+            kind: 'initial',
+          })
+          .catch(async (error: unknown) => {
+            opts.logger.error({
+              msg: 'Initial access request could not be saved',
+              endpoint: 'processMessageJob',
+              code: 'ACCESS_REQUEST_SUBMISSION_FAILED',
+              userId,
+              kind: 'initial',
+              errorType: error instanceof Error ? error.constructor.name : 'unknown',
+            });
+            await sendAccessReply(accessCopies.requestSaveFailed());
+            return null;
+          });
+        if (submission === null) return;
         if (submission.status === 'invalid') {
+          opts.logger.info({
+            msg: 'Initial access request input rejected before database submission',
+            endpoint: 'processMessageJob',
+            code: 'ACCESS_REQUEST_INPUT_INVALID',
+            userId,
+            kind: 'initial',
+          });
           await sendAccessReply(
             pending
               ? accessCopies.pendingAgain()
@@ -300,21 +328,34 @@ export async function processMessageJob(
           );
           return;
         }
+        opts.logger.info({
+          msg: 'Initial access request submission completed',
+          endpoint: 'processMessageJob',
+          code: 'ACCESS_REQUEST_SUBMISSION_COMPLETED',
+          userId,
+          kind: 'initial',
+          requestId: submission.result.request.id,
+          created: submission.result.created,
+        });
         await sendAccessReply(
           submission.result.created ? accessCopies.pending() : accessCopies.pendingAgain(),
         );
-        if (submission.result.created) {
+        if (submission.result.created && opts.operatorMail) {
+          opts.logger.info({
+            msg: 'Operator access-request email send started',
+            endpoint: 'processMessageJob',
+            code: 'ACCESS_REQUEST_MAIL_SEND_STARTED',
+            userId,
+            requestId: submission.result.request.id,
+          });
           try {
-            await opts.operatorMail?.sendAccessRequestNotice({
+            await opts.operatorMail.sendAccessRequestNotice({
               requestId: submission.result.request.id,
               chatId: externalId,
               email: submission.result.request.email,
               kind: 'initial',
               previousEmail: submission.result.previousEmail,
             });
-            if (opts.operatorMail) {
-              await opts.accessRequests.markNotificationSent(submission.result.request.id);
-            }
           } catch (error) {
             opts.logger.error({
               msg: 'Operator access-request email failed',
@@ -323,6 +364,26 @@ export async function processMessageJob(
               userId,
               requestId: submission.result.request.id,
               ...operatorMailFailureContext(error),
+            });
+            return;
+          }
+          opts.logger.info({
+            msg: 'Operator access-request email accepted',
+            endpoint: 'processMessageJob',
+            code: 'ACCESS_REQUEST_MAIL_ACCEPTED',
+            userId,
+            requestId: submission.result.request.id,
+          });
+          try {
+            await opts.accessRequests.markNotificationSent(submission.result.request.id);
+          } catch (error) {
+            opts.logger.error({
+              msg: 'Operator email was accepted but notification timestamp was not persisted',
+              endpoint: 'processMessageJob',
+              code: 'ACCESS_REQUEST_NOTIFICATION_PERSIST_FAILED',
+              userId,
+              requestId: submission.result.request.id,
+              errorType: error instanceof Error ? error.constructor.name : 'unknown',
             });
           }
         }
@@ -885,15 +946,52 @@ async function routeByState(
         await messaging.sendMessage(externalId, 'Ese ya es tu email actual. Escribí otro email.');
         return;
       }
-      const submission = await opts.requestAccess.execute({
+      opts.logger.info({
+        msg: 'Replacement access request submission started',
+        endpoint: 'routeByState',
+        code: 'ACCESS_REQUEST_SUBMISSION_STARTED',
         userId,
-        rawEmail: rawMessage,
         kind: 'replacement',
       });
+      const submission = await opts.requestAccess
+        .execute({
+          userId,
+          rawEmail: rawMessage,
+          kind: 'replacement',
+        })
+        .catch(async (error: unknown) => {
+          opts.logger.error({
+            msg: 'Replacement access request could not be saved',
+            endpoint: 'routeByState',
+            code: 'ACCESS_REQUEST_SUBMISSION_FAILED',
+            userId,
+            kind: 'replacement',
+            errorType: error instanceof Error ? error.constructor.name : 'unknown',
+          });
+          await messaging.sendMessage(externalId, accessCopies.replacementSaveFailed());
+          return null;
+        });
+      if (submission === null) return;
       if (submission.status === 'invalid') {
+        opts.logger.info({
+          msg: 'Replacement access request input rejected before database submission',
+          endpoint: 'routeByState',
+          code: 'ACCESS_REQUEST_INPUT_INVALID',
+          userId,
+          kind: 'replacement',
+        });
         await messaging.sendMessage(externalId, accessCopies.invalidEmail());
         return;
       }
+      opts.logger.info({
+        msg: 'Replacement access request submission completed',
+        endpoint: 'routeByState',
+        code: 'ACCESS_REQUEST_SUBMISSION_COMPLETED',
+        userId,
+        kind: 'replacement',
+        requestId: submission.result.request.id,
+        created: submission.result.created,
+      });
       await opts.transitionState.execute({
         userId,
         targetState: 'IDLE',
@@ -904,18 +1002,22 @@ async function routeByState(
         externalId,
         submission.result.created ? accessCopies.pending() : accessCopies.pendingAgain(),
       );
-      if (submission.result.created) {
+      if (submission.result.created && opts.operatorMail) {
+        opts.logger.info({
+          msg: 'Operator account-replacement email send started',
+          endpoint: 'routeByState',
+          code: 'ACCESS_REQUEST_MAIL_SEND_STARTED',
+          userId,
+          requestId: submission.result.request.id,
+        });
         try {
-          await opts.operatorMail?.sendAccessRequestNotice({
+          await opts.operatorMail.sendAccessRequestNotice({
             requestId: submission.result.request.id,
             chatId: externalId,
             email: submission.result.request.email,
             kind: 'replacement',
             previousEmail: submission.result.previousEmail ?? active.email,
           });
-          if (opts.operatorMail) {
-            await opts.accessRequests.markNotificationSent(submission.result.request.id);
-          }
         } catch (error) {
           opts.logger.error({
             msg: 'Operator account-replacement email failed',
@@ -924,6 +1026,26 @@ async function routeByState(
             userId,
             requestId: submission.result.request.id,
             ...operatorMailFailureContext(error),
+          });
+          return;
+        }
+        opts.logger.info({
+          msg: 'Operator account-replacement email accepted',
+          endpoint: 'routeByState',
+          code: 'ACCESS_REQUEST_MAIL_ACCEPTED',
+          userId,
+          requestId: submission.result.request.id,
+        });
+        try {
+          await opts.accessRequests.markNotificationSent(submission.result.request.id);
+        } catch (error) {
+          opts.logger.error({
+            msg: 'Operator email was accepted but notification timestamp was not persisted',
+            endpoint: 'routeByState',
+            code: 'ACCESS_REQUEST_NOTIFICATION_PERSIST_FAILED',
+            userId,
+            requestId: submission.result.request.id,
+            errorType: error instanceof Error ? error.constructor.name : 'unknown',
           });
         }
       }

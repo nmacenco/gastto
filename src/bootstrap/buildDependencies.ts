@@ -574,7 +574,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const tokenRepo = new DrizzleOAuthTokenRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
-  const accessRequests = new DrizzleAccessRequestRepository(infra.db);
+  const accessRequests = new DrizzleAccessRequestRepository(infra.db, infra.rootLogger);
   const requestAccess = new RequestAccess(accessRequests);
   const operatorMail =
     env.ACCESS_APPROVAL_ENABLED &&
