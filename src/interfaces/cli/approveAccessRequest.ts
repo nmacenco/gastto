@@ -25,7 +25,7 @@ export async function approveAccessRequestCli(requestId: string): Promise<number
   const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   try {
     const db = drizzle(sql, { schema });
-    const requests = new DrizzleAccessRequestRepository(db);
+    const requests = new DrizzleAccessRequestRepository(db, logger);
     const users = new DrizzleUserRepository(db, redis);
     const telegram = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN, logger);
     const useCase = new ApproveAccessRequest(requests, users, telegram);

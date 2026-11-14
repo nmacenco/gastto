@@ -48,6 +48,7 @@ const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockNotifyContention = vi.fn().mockResolvedValue(undefined);
 const mockGetConversationStateExecute = vi.fn();
 const mockLoggerError = vi.fn();
+const mockLoggerInfo = vi.fn();
 const mockTransitionStateExecute = vi.fn<TransitionConversationState['execute']>();
 const mockRecoverCorruptedStateExecute = vi.fn();
 const mockUserRepoFindById = vi.fn();
@@ -126,7 +127,10 @@ function buildMockDeps(): MessageWorkerDeps {
   const messagingPort = { sendMessage: mockSendMessage };
   return {
     redis: {} as unknown as MessageWorkerDeps['redis'],
-    logger: { error: mockLoggerError } as unknown as MessageWorkerDeps['logger'],
+    logger: {
+      error: mockLoggerError,
+      info: mockLoggerInfo,
+    } as unknown as MessageWorkerDeps['logger'],
     userProcessingLock: {
       acquire: mockAcquireLock,
       renew: vi.fn().mockResolvedValue(true),
@@ -478,11 +482,17 @@ describe('processMessageJob', () => {
         previousEmail: null,
       });
       expect(markNotificationSent).toHaveBeenCalledWith('request-1');
+      expect(mockLoggerInfo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'ACCESS_REQUEST_MAIL_ACCEPTED',
+          requestId: 'request-1',
+        }),
+      );
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
     });
 
-    it('does not claim a request was received or notify the operator when persistence fails', async () => {
+    it('asks the user to retry without notifying the operator when initial persistence fails', async () => {
       const deps = buildMockDeps();
       const sendAccessRequestNotice = vi.fn();
       deps.accessRequests = {
@@ -497,11 +507,100 @@ describe('processMessageJob', () => {
         MessageWorkerDeps['oauthAdmission']
       >;
 
-      await expect(
-        processMessageJob(buildJob({ ...baseJobData, rawMessage: 'user@example.com' }), deps),
-      ).rejects.toThrow('database unavailable');
-      expect(mockSendMessage).not.toHaveBeenCalled();
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'user@example.com' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        [accessCopies.welcome(), accessCopies.requestSaveFailed()].join('\n\n'),
+      );
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '123456789',
+        expect.stringContaining(accessCopies.pending()),
+      );
       expect(sendAccessRequestNotice).not.toHaveBeenCalled();
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'ACCESS_REQUEST_SUBMISSION_FAILED', kind: 'initial' }),
+      );
+    });
+
+    it('keeps email-change settings open and asks for retry when replacement persistence fails', async () => {
+      const deps = buildMockDeps();
+      const sendAccessRequestNotice = vi.fn();
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue({ email: 'current@example.com' }),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = {
+        execute: vi.fn().mockRejectedValue(new Error('database unavailable')),
+      } as unknown as NonNullable<MessageWorkerDeps['requestAccess']>;
+      deps.operatorMail = { sendAccessRequestNotice };
+      deps.oauthAdmission = {
+        getValidAccessToken: vi.fn().mockResolvedValue('usable-token'),
+      } as unknown as NonNullable<MessageWorkerDeps['oauthAdmission']>;
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'SETTINGS_MENU',
+          statePayload: { screen: 'email_change' },
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      );
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'new@example.com' }), deps);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        accessCopies.replacementSaveFailed(),
+      );
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(sendAccessRequestNotice).not.toHaveBeenCalled();
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'ACCESS_REQUEST_SUBMISSION_FAILED', kind: 'replacement' }),
+      );
+    });
+
+    it('reports a database timestamp failure separately after Gmail accepts the notice', async () => {
+      const deps = buildMockDeps();
+      const sendAccessRequestNotice = vi.fn().mockResolvedValue(undefined);
+      const markNotificationSent = vi.fn().mockRejectedValue(new Error('database unavailable'));
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue(null),
+        findPending: vi.fn().mockResolvedValue(null),
+        markNotificationSent,
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = {
+        execute: vi.fn().mockResolvedValue({
+          status: 'submitted',
+          result: {
+            created: true,
+            request: { id: 'request-1', email: 'user@example.com' },
+            previousEmail: null,
+          },
+        }),
+      } as unknown as NonNullable<MessageWorkerDeps['requestAccess']>;
+      deps.operatorMail = { sendAccessRequestNotice };
+      deps.oauthAdmission = { getValidAccessToken: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['oauthAdmission']
+      >;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'user@example.com' }), deps);
+
+      expect(sendAccessRequestNotice).toHaveBeenCalledOnce();
+      expect(markNotificationSent).toHaveBeenCalledWith('request-1');
+      expect(mockLoggerInfo).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'ACCESS_REQUEST_MAIL_ACCEPTED', requestId: 'request-1' }),
+      );
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'ACCESS_REQUEST_NOTIFICATION_PERSIST_FAILED',
+          requestId: 'request-1',
+        }),
+      );
+      expect(mockLoggerError).not.toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'ACCESS_REQUEST_MAIL_FAILED' }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        [accessCopies.welcome(), accessCopies.pending()].join('\n\n'),
+      );
     });
 
     it('welcomes a new Telegram user who writes hola instead of an email', async () => {

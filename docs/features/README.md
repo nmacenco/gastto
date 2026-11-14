@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`telegram-access-approval.md`](./telegram-access-approval.md): First-contact welcome, explicit invalid-email feedback, Telegram email requests and request-ID lookup, manual CLI approval, Gmail notices, guarded cancellation and continuation during OAuth admission, and safe account replacement.
+- [`telegram-access-approval.md`](./telegram-access-approval.md): First-contact welcome, explicit invalid-email and persistence-failure feedback, Telegram email requests and request-ID lookup, database and Gmail diagnostic logs, manual CLI approval, guarded cancellation and continuation during OAuth admission, and safe account replacement.
 
 - [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, safe file and sheet changes, category and payment drafts with listed editing examples, and guarded cancellation and expiry.
 - [`payment-methods.md`](./payment-methods.md): Configuration-scoped payment catalogs, settings drafts, detection during setup, exact onboarding confirmation, expense review resolution, and legacy compatibility.

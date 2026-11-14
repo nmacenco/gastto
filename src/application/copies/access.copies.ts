@@ -5,6 +5,10 @@ export const accessCopies = {
     'Para empezar, escribí el email de la cuenta de Google que querés usar. Te avisaré por este chat cuando se apruebe tu solicitud.',
   invalidEmail: () =>
     'El email que ingresaste no tiene un formato válido. Revisalo y volvé a escribirlo.',
+  requestSaveFailed: () =>
+    'No pudimos guardar tu solicitud. Volvé a enviar el email para intentarlo de nuevo.',
+  replacementSaveFailed: () =>
+    'No pudimos guardar el cambio de email. Volvé a enviarlo para intentarlo de nuevo.',
   pending: () => 'Recibimos tu solicitud. Te avisaremos por Telegram cuando esté autorizada.',
   pendingAgain: () =>
     'Tu solicitud sigue pendiente. Te avisaremos por Telegram cuando esté autorizada.',
