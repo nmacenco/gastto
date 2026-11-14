@@ -78,8 +78,8 @@ const IDK_VARIANTS = [
   'no sé cual',
 ];
 
-export function isConfirmIntent(rawMessage: string): boolean {
-  const normalized = rawMessage
+function normalizeConfirmationIntent(rawMessage: string): string {
+  return rawMessage
     .toLocaleLowerCase('es')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -88,8 +88,15 @@ export function isConfirmIntent(rawMessage: string): boolean {
     .replace(/[¿?¡!.,]+$/, '')
     .trim()
     .replace(/\s+/g, ' ');
+}
 
-  return CONFIRM_WORDS.includes(normalized);
+export function isConfirmIntent(rawMessage: string): boolean {
+  return CONFIRM_WORDS.includes(normalizeConfirmationIntent(rawMessage));
+}
+
+export function isOnboardingConfirmIntent(rawMessage: string): boolean {
+  const normalized = normalizeConfirmationIntent(rawMessage);
+  return normalized === 'confirmar' || CONFIRM_WORDS.includes(normalized);
 }
 
 export function isCancelIntent(rawMessage: string): boolean {

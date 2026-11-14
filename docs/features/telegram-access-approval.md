@@ -12,6 +12,20 @@ The first reply explains that Gastto records chat expenses in a Google spreadshe
 
 If Gmail delivery fails, the request remains pending and the server logs `ACCESS_REQUEST_MAIL_FAILED` with the request ID, failure stage, HTTP status when available, and Google's bounded error reason when provided. The owner may run `node dist/interfaces/cli/notifyAccessRequest.js <request-uuid>` to resend a pending notice. A successful Gmail API response is recorded as `notification_sent_at`. If Gmail accepted a message but its response timed out, a manual resend may produce a duplicate; the request ID identifies both. No automatic resend occurs.
 
+## Finding a submitted request
+
+The requested email is stored in `access_requests.email`, not in `users`. The operator Gmail notice includes `Solicitud: <request-uuid>`. In the PostgreSQL database used by the same deployed app, look up that UUID to distinguish a pending request from a superseded or approved one:
+
+```sql
+SELECT ar.id, ar.user_id, ar.email, ar.kind, ar.status, ar.created_at,
+       mi.channel, mi.external_id
+FROM access_requests AS ar
+LEFT JOIN messaging_identities AS mi ON mi.user_id = ar.user_id
+WHERE ar.id = '<request-uuid>';
+```
+
+Confirm the deployment environment before interpreting an empty result. Development and production use separate databases; a request sent to one bot is not visible in the other's database. If the lookup is empty in the correct environment, investigate the worker and repository logs for that request before resubmitting. Do not expose database connection strings or Gmail credentials in diagnostics.
+
 The access gate runs before semantic routing, including shadow observation. An approved email alone is insufficient: the bot needs a usable Google OAuth credential. Expense interpretation checks the same condition before LLM extraction, including calls from queued jobs. A missing, revoked, or rejected credential sends the user back to `continuar`. A refreshable expired token can still be usable. Google OAuth denial and callback state validation use the existing OAuth recovery path.
 
 For an approved chat with missing credentials, exact cancellation of an active flow reaches its existing guarded handler before credential admission. A financial execution claim still blocks cancellation. Exact `continuar` starts OAuth from `IDLE` or `ONBOARDING_START`, or renews a pending `ONBOARDING_DRIVE` link through a revision-bound self-transition. Other active flows receive an instruction to cancel explicitly before continuing; admission does not discard their drafts or claims. Unapproved chats still enter only the email-request flow.

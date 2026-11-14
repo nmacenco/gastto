@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isConfirmIntent,
+  isOnboardingConfirmIntent,
   isCancelIntent,
   isUndoIntent,
   isListColumnsIntent,
@@ -112,6 +113,26 @@ describe('isConfirmIntent', () => {
   it('returns false for partial matches that are not confirm words', () => {
     expect(isConfirmIntent('signal')).toBe(false);
     expect(isConfirmIntent('daleeee')).toBe(false);
+  });
+});
+
+describe('isOnboardingConfirmIntent', () => {
+  it.each(['confirmar', ' CONFIRMAR ', '¡Confirmar!', 'sí', 'confirmo'])(
+    'recognizes the onboarding confirmation %s',
+    (reply) => {
+      expect(isOnboardingConfirmIntent(reply)).toBe(true);
+    },
+  );
+
+  it.each(['quitar efectivo', 'renombrar Visa a Débito', 'confirmar luego', 'no confirmar'])(
+    'does not treat %s as confirmation',
+    (reply) => {
+      expect(isOnboardingConfirmIntent(reply)).toBe(false);
+    },
+  );
+
+  it('does not expand expense confirmation intent', () => {
+    expect(isConfirmIntent('confirmar')).toBe(false);
   });
 });
 

@@ -435,15 +435,23 @@ describe('processMessageJob', () => {
       const deps = buildMockDeps();
       const submit = vi.fn().mockResolvedValue({
         status: 'submitted',
-        result: { created: true, request: { id: 'request-1' }, previousEmail: null },
+        result: {
+          created: true,
+          request: { id: 'request-1', email: 'user@example.com' },
+          previousEmail: null,
+        },
       });
+      const sendAccessRequestNotice = vi.fn().mockResolvedValue(undefined);
+      const markNotificationSent = vi.fn().mockResolvedValue(undefined);
       deps.accessRequests = {
         findApproved: vi.fn().mockResolvedValue(null),
         findPending: vi.fn().mockResolvedValue(null),
+        markNotificationSent,
       } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
       deps.requestAccess = { execute: submit } as unknown as NonNullable<
         MessageWorkerDeps['requestAccess']
       >;
+      deps.operatorMail = { sendAccessRequestNotice };
       deps.oauthAdmission = { getValidAccessToken: vi.fn() } as unknown as NonNullable<
         MessageWorkerDeps['oauthAdmission']
       >;
@@ -459,8 +467,41 @@ describe('processMessageJob', () => {
         '123456789',
         [accessCopies.welcome(), accessCopies.pending()].join('\n\n'),
       );
+      expect(submit.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSendMessage.mock.invocationCallOrder[0]!,
+      );
+      expect(sendAccessRequestNotice).toHaveBeenCalledWith({
+        requestId: 'request-1',
+        chatId: '123456789',
+        email: 'user@example.com',
+        kind: 'initial',
+        previousEmail: null,
+      });
+      expect(markNotificationSent).toHaveBeenCalledWith('request-1');
       expect(mockObserveSemanticRoutingExecute).not.toHaveBeenCalled();
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+    });
+
+    it('does not claim a request was received or notify the operator when persistence fails', async () => {
+      const deps = buildMockDeps();
+      const sendAccessRequestNotice = vi.fn();
+      deps.accessRequests = {
+        findApproved: vi.fn().mockResolvedValue(null),
+        findPending: vi.fn().mockResolvedValue(null),
+      } as unknown as NonNullable<MessageWorkerDeps['accessRequests']>;
+      deps.requestAccess = {
+        execute: vi.fn().mockRejectedValue(new Error('database unavailable')),
+      } as unknown as NonNullable<MessageWorkerDeps['requestAccess']>;
+      deps.operatorMail = { sendAccessRequestNotice };
+      deps.oauthAdmission = { getValidAccessToken: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['oauthAdmission']
+      >;
+
+      await expect(
+        processMessageJob(buildJob({ ...baseJobData, rawMessage: 'user@example.com' }), deps),
+      ).rejects.toThrow('database unavailable');
+      expect(mockSendMessage).not.toHaveBeenCalled();
+      expect(sendAccessRequestNotice).not.toHaveBeenCalled();
     });
 
     it('welcomes a new Telegram user who writes hola instead of an email', async () => {
@@ -4944,29 +4985,110 @@ describe('processMessageJob', () => {
         );
       });
 
-      it('delegates to ConfirmCategories on confirm reply when categories are already in payload', async () => {
-        const deps = buildMockDeps();
-        mockGetConversationStateExecute.mockResolvedValue(
-          buildConversationState({
-            currentState: 'ONBOARDING_CATEGORIES',
+      it.each(['sí', 'confirmar'])(
+        'delegates to ConfirmCategories on %s when categories are already in payload',
+        async (reply) => {
+          const deps = buildMockDeps();
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({
+              currentState: 'ONBOARDING_CATEGORIES',
+              statePayload: { categories: ['comida', 'transporte'] },
+            }),
+          );
+          mockConfirmCategoriesExecute.mockResolvedValue({
+            nextState: 'IDLE',
+            message: onboardingCopies.onboardingComplete(),
+          });
+
+          await processMessageJob(buildJob({ ...baseJobData, rawMessage: reply }), deps);
+
+          expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
+          expect(mockConfirmCategoriesExecute).toHaveBeenCalledWith({
+            userId: 'user-123',
+            externalId: '123456789',
+            channel: 'telegram',
             statePayload: { categories: ['comida', 'transporte'] },
+          });
+          expect(mockSendMessage).not.toHaveBeenCalled();
+        },
+      );
+
+      it('finishes payment review after removing methods and sending confirmar', async () => {
+        const deps = buildMockDeps();
+        let observed = buildConversationState({
+          currentState: 'ONBOARDING_CATEGORIES',
+          revision: '1',
+          statePayload: {
+            categories: ['comida'],
+            paymentReview: true,
+            paymentColumnMapped: true,
+            paymentMethods: ['B', 'TC', 'TR', 'CREDITO SANTANDER', 'efectivo', 'tarjeta de débito'],
+          },
+        });
+        mockGetConversationStateExecute.mockImplementation(() => Promise.resolve(observed));
+        mockTransitionStateExecute.mockImplementation((input) => {
+          observed = buildConversationState({
+            currentState: input.targetState,
+            revision: String(Number(observed.revision) + 1),
+            statePayload: input.payload ?? null,
+          });
+          return Promise.resolve({ status: 'updated', state: observed });
+        });
+        vi.spyOn(deps.transitionState, 'currentState').mockImplementation(() => observed);
+        mockSpreadsheetConfigFindByUserId.mockResolvedValue({ id: 'config-1' });
+        const commit = vi.fn().mockImplementation(() => {
+          observed = buildConversationState({
+            currentState: 'IDLE',
+            revision: '4',
+            statePayload: null,
+          });
+          return Promise.resolve('committed');
+        });
+        deps.confirmCategories = new ConfirmCategories({
+          spreadsheetConfigRepository: {
+            findByUserId: mockSpreadsheetConfigFindByUserId,
+          } as unknown as ConfirmCategoriesDeps['spreadsheetConfigRepository'],
+          categoryVocabularyRepository: {
+            findBySpreadsheetId: vi.fn(),
+            save: vi.fn(),
+          },
+          userRepository: {
+            updateStatus: vi.fn(),
+          } as unknown as ConfirmCategoriesDeps['userRepository'],
+          messagingPort: { sendMessage: mockSendMessage },
+          transitionState: deps.transitionState,
+          columnMappingRepository: {
+            findBySpreadsheetId: vi.fn(),
+          } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
+          detectPaymentMethods: {
+            execute: vi.fn(),
+          } as unknown as NonNullable<ConfirmCategoriesDeps['detectPaymentMethods']>,
+          onboardingCommit: { execute: commit },
+        });
+
+        for (const [index, rawMessage] of [
+          'quitar efectivo',
+          'quitar tarjeta de débito',
+          'confirmar',
+        ].entries()) {
+          await processMessageJob(
+            buildJob({ ...baseJobData, rawMessage, externalMessageId: `msg-${index}` }),
+            deps,
+          );
+        }
+
+        expect(commit).toHaveBeenCalledOnce();
+        expect(commit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            categories: [{ name: 'comida', subcategories: [] }],
+            paymentMethods: ['B', 'TC', 'TR', 'CREDITO SANTANDER'],
           }),
         );
-        mockConfirmCategoriesExecute.mockResolvedValue({
-          nextState: 'IDLE',
-          message: onboardingCopies.onboardingComplete(),
-        });
-
-        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
-
-        expect(mockDetectCategoriesExecute).not.toHaveBeenCalled();
-        expect(mockConfirmCategoriesExecute).toHaveBeenCalledWith({
-          userId: 'user-123',
-          externalId: '123456789',
-          channel: 'telegram',
-          statePayload: { categories: ['comida', 'transporte'] },
-        });
-        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(observed).toMatchObject({ currentState: 'IDLE', statePayload: null });
+        expect(mockSendMessage).toHaveBeenLastCalledWith(
+          '123456789',
+          onboardingCopies.onboardingComplete(),
+        );
       });
 
       it('routes the next message to expense interpretation after repeated category confirmation', async () => {

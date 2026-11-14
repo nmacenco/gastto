@@ -128,4 +128,36 @@ describePostgres('onboarding vocabulary finalization (PostgreSQL)', () => {
     expect(user?.status).toBe('onboarding');
     await expect(adapter.execute(input())).resolves.toBe('stale');
   });
+
+  it('commits only the payment methods retained in the final review and rejects a replay', async () => {
+    await db
+      .update(schema.conversationStates)
+      .set({
+        statePayload: {
+          categories,
+          orphanSubcategories: [],
+          subcategoryColumnMapped: true,
+          paymentReview: true,
+          paymentMethods: ['B', 'TC', 'TR', 'CREDITO SANTANDER'],
+          categoryDraft,
+        },
+      })
+      .where(eq(schema.conversationStates.userId, userId));
+    const adapter = new DrizzleOnboardingVocabularyCommit(db);
+    const reviewed = {
+      ...input(),
+      paymentMethods: ['B', 'TC', 'TR', 'CREDITO SANTANDER'],
+    };
+
+    await expect(adapter.execute(reviewed)).resolves.toBe('committed');
+    const methods = await db
+      .select({ name: schema.userPaymentMethods.displayName })
+      .from(schema.userPaymentMethods)
+      .where(eq(schema.userPaymentMethods.spreadsheetId, configId));
+    expect(methods.map(({ name }) => name).sort()).toEqual(
+      ['B', 'TC', 'TR', 'CREDITO SANTANDER'].sort(),
+    );
+    await expect(adapter.execute(reviewed)).resolves.toBe('stale');
+    expect(await db.select().from(schema.userPaymentMethods)).toHaveLength(4);
+  });
 });

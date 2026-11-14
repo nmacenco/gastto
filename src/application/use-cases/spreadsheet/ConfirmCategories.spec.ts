@@ -210,6 +210,61 @@ describe('ConfirmCategories', () => {
     expect(mockSaveVocabulary).not.toHaveBeenCalled();
     expect(mockTransitionExecute).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { outcome: 'stale' as const, rejects: false },
+    { outcome: 'database unavailable', rejects: true },
+  ])('does not send completion when final commit is $outcome', async ({ outcome, rejects }) => {
+    const commit = rejects
+      ? vi.fn().mockRejectedValue(new Error(outcome))
+      : vi.fn().mockResolvedValue(outcome);
+    const observed = {
+      userId: 'user-123',
+      revision: '7',
+      currentState: 'ONBOARDING_CATEGORIES',
+      expiresAt: null,
+    };
+    const useCase = new ConfirmCategories(
+      buildMockDeps({
+        columnMappingRepository: { findBySpreadsheetId: vi.fn() } as unknown as NonNullable<
+          ConfirmCategoriesDeps['columnMappingRepository']
+        >,
+        detectPaymentMethods: { execute: vi.fn() } as unknown as NonNullable<
+          ConfirmCategoriesDeps['detectPaymentMethods']
+        >,
+        onboardingCommit: { execute: commit },
+        transitionState: {
+          execute: mockTransitionExecute,
+          currentState: vi.fn().mockReturnValue(observed),
+          precondition: vi.fn().mockReturnValue({
+            revision: '7',
+            currentState: 'ONBOARDING_CATEGORIES',
+            expiry: 'any',
+          }),
+        } as unknown as TransitionConversationState,
+      }),
+    );
+    const input = {
+      ...hierarchyInput,
+      statePayload: {
+        ...hierarchyInput.statePayload,
+        paymentReview: true,
+        paymentMethods: ['Visa'],
+      },
+    };
+
+    if (rejects) await expect(useCase.execute(input)).rejects.toThrow(outcome);
+    else
+      await expect(useCase.execute(input)).resolves.toMatchObject({
+        nextState: 'ONBOARDING_CATEGORIES',
+      });
+    expect(commit).toHaveBeenCalledOnce();
+    expect(mockSendMessage).not.toHaveBeenCalledWith(
+      input.externalId,
+      onboardingCopies.onboardingComplete(),
+    );
+    expect(mockTransitionExecute).not.toHaveBeenCalled();
+  });
   it('saves the complete hierarchy before timestamp, activation, IDLE, and completion', async () => {
     const result = await new ConfirmCategories(buildMockDeps()).execute(hierarchyInput);
     const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;

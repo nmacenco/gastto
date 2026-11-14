@@ -15,6 +15,7 @@ After column mapping, Gastto proposes the spreadsheet's active category vocabula
 - Entering `ONBOARDING_CATEGORIES` immediately delegates to detection in the same worker job.
 - An interrupted state with an absent, empty, or malformed proposal delegates to detection again.
 - Confirmation intent has precedence over natural-language modification.
+- The exact `confirmar` command shown in the onboarding prompts follows that confirmation path in both category and payment review; existing confirmation aliases still work.
 - No HTTP route or additional FSM state is used.
 - Telegram and WhatsApp use the same payload and copy contracts.
 - An explicit `cancelar`, `salir`, `cancel`, or `exit` command leaves onboarding category or payment review before detection, confirmation, or modification runs. It clears the conversation draft; an incomplete destination cannot be used for expenses.
