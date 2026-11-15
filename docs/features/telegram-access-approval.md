@@ -47,3 +47,7 @@ The user chooses a spreadsheet visible to the candidate account, then a sheet, m
 The operator Gmail account uses a separate Google OAuth client with `gmail.send` and a durable refresh token. The Gmail sender and recipient, client ID, client secret, and refresh token live in deployment secrets. An External/Testing OAuth client can yield a short-lived refresh grant, so the owner must verify the chosen project's publishing and authorization state before enabling this feature. The code does not provision Google Cloud test users, verify the reviewer account remotely, or deploy secrets. Existing production users need a local approved request before this gate can be enabled for them.
 
 See [the operator and reviewer runbook](../../ai/plans/2026_11_07-telegram_access_oauth_review/reviewer-runbook.md) for release steps and test evidence.
+
+## Recovery guidance (2026-11-15)
+
+Replacement email validation and persistence failures keep the settings screen open, ask for a corrected/repeated email, and offer `cancelar`. Initial admission uses separate copies and does not promise cancellation.

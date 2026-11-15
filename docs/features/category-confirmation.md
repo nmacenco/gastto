@@ -93,3 +93,7 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - `RegisterExpenseUseCase` consumes active vocabulary rows after onboarding.
 - Confirmed hierarchy capability does not make a child mandatory and does not change category-only spreadsheet row shape.
 - Linked hierarchy storage and soft-disable decisions are defined by ADR-022.
+
+## Recovery guidance (2026-11-15)
+
+Hierarchy errors and category rename/removal re-prompts retain the draft and include an explicit cancellation instruction. Existing category/payment confirmation and transactional activation remain unchanged.

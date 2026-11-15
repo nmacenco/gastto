@@ -334,3 +334,7 @@ interface IColumnMappingRepository {
 - Category and subcategory samples are treated as text only; mapping inference does not infer hierarchy relationships from sample values.
 - The confidence threshold for fuzzy match is Levenshtein ratio ≥ 0.75.
 - Future work (HU-4.06): allow the user to confirm or correct the mapping field by field and persist `confirmed_at`.
+
+## Recovery guidance (2026-11-15)
+
+Mapping recovery and missing-proposal feedback offer cancellation followed by `empezar` when a fresh setup is required. Existing `otra hoja` and row-selection commands remain unchanged. Retained onboarding prompts identify an explicit cancellation command.

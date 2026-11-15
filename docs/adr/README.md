@@ -45,3 +45,4 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 For new ADRs, use [`docs/templates/adr.md`](../templates/adr.md).
 
 - [HTTP security boundaries and dependency evidence](2026-11-01-http-security-boundaries.md): limiter budgets, outage policy, runtime and release gates.
+- [ADR-033: Require native Google spreadsheet destinations](2026-11-15-native-google-spreadsheet-destinations.md): MIME validation, explicit user conversion and safe recovery.

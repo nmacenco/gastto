@@ -102,7 +102,8 @@ describe('onboardingCopies', () => {
       const result = onboardingCopies.categoryProposalUnavailable();
 
       expect(result).toContain('No pude validar');
-      expect(result).toContain('detectar de nuevo');
+      expect(result).toContain('confirmar para detectarla de nuevo');
+      expect(result).toContain('cancelar para salir');
       expect(result).not.toContain('Todo listo');
     });
   });
@@ -304,7 +305,7 @@ describe('onboardingCopies', () => {
     it('handles empty sheet list', () => {
       const result = onboardingCopies.sheetNotFoundRePrompt([]);
 
-      expect(result).toContain('No encontré esa hoja');
+      expect(result).toContain('cancelar para salir y después empezar');
     });
   });
 

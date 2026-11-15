@@ -41,3 +41,7 @@ The feature updates the existing `conversation_states` row only. It does not cre
 ## Notes
 
 Cancelling an active draft does not remove already confirmed expense records. Other conversational flows have their own guarded cancellation response and cleanup.
+
+## Recovery guidance (2026-11-15)
+
+Recovery hints do not relax authorization: pending review bindings, financial claims, guarded cleanup and queue advancement remain enforced. Unknown current-state lookup does not promise an exit. Retry cancellation continues to instruct spreadsheet verification.

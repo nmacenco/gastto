@@ -95,7 +95,7 @@ function setup() {
     { id: 'file-other', name: 'Other Expenses' },
   ]);
   const searchSpreadsheets = vi.fn().mockResolvedValue([{ id: 'file-searched', name: 'Searched' }]);
-  const validateFileAccess = vi.fn().mockResolvedValue(true);
+  const validateFileAccess = vi.fn().mockResolvedValue({ kind: 'accessible' });
   const listSheets = vi.fn().mockResolvedValue(sheets);
   const getValidAccessToken = vi.fn().mockResolvedValue({ accessToken: 'token' });
   const detectPaymentMethods = vi.fn().mockResolvedValue({ names: ['Visa'], columnMapped: true });
@@ -278,7 +278,7 @@ describe('SettingsDestinationFlow', () => {
 
   it('accepts a direct Sheets link but rejects an inaccessible file', async () => {
     const t = setup();
-    t.validateFileAccess.mockResolvedValue(false);
+    t.validateFileAccess.mockResolvedValue({ kind: 'inaccessible' });
     await t.flow.reply(
       state('SETTINGS_FILE', filePayload),
       'https://docs.google.com/spreadsheets/d/link_7/edit',
@@ -594,4 +594,19 @@ describe('SettingsDestinationFlow', () => {
     );
     expect(t.activate).not.toHaveBeenCalled();
   });
+  it.each(['1', 'https://docs.google.com/spreadsheets/d/legacy/edit'])(
+    'retains the candidate and active destination for unsupported selection %s',
+    async (rawMessage) => {
+      const t = setup();
+      t.validateFileAccess.mockResolvedValue({ kind: 'unsupported-type' });
+      await t.flow.reply(state('SETTINGS_FILE', filePayload), rawMessage, 'chat');
+      expect(t.listSheets).not.toHaveBeenCalled();
+      expect(t.activate).not.toHaveBeenCalled();
+      expect(t.transition).not.toHaveBeenCalled();
+      expect(t.sendMessage).toHaveBeenCalledWith(
+        'chat',
+        expect.stringContaining('guardalo como una planilla de Google'),
+      );
+    },
+  );
 });

@@ -38,3 +38,7 @@ Let a user inspect the stored Google or Microsoft connection and current spreads
 ## Data Model
 
 `conversation_states.current_state` permits `SETTINGS_MENU` after migration `0010_add_settings_menu_state`, `SETTINGS_OAUTH` after `0011_add_settings_oauth_state`, sheet review states after `0013_add_settings_sheet_states`, and `SETTINGS_FILE` after `0014_add_settings_file_state`. Migration `0012_friendly_omega_flight` versions configurations. The settings payload contains flow and proposal ownership; `expires_at` contains the deadline. See [data model](../architecture/data-model.md).
+
+## Recovery guidance (2026-11-15)
+
+File choices are revalidated as native Google spreadsheets before reading sheets. Unsupported formats retain the candidate and active destination. Settings read errors offer repetition only for retryable failures; permanent errors use `cancelar`, `configuración`, option `3`. Mapping recovery commits the return to sheet selection before sending its instructions. Invalid mapping replies, missing headers, payment detection failures, empty category drafts and invalid replacement emails explain a valid continuation and cancellation. Candidate activation and credential promotion keep their existing revision guards.

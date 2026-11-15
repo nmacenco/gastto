@@ -7,8 +7,12 @@ export const accessCopies = {
     'El email que ingresaste no tiene un formato válido. Revisalo y volvé a escribirlo.',
   requestSaveFailed: () =>
     'No pudimos guardar tu solicitud. Volvé a enviar el email para intentarlo de nuevo.',
+  invalidReplacementEmail: () =>
+    'El email que ingresaste no tiene un formato válido. Revisalo y volvé a escribirlo. Escribí cancelar para salir.',
+  replacementSameEmail: () =>
+    'Ese ya es tu email actual. Escribí otro email. Escribí cancelar para salir.',
   replacementSaveFailed: () =>
-    'No pudimos guardar el cambio de email. Volvé a enviarlo para intentarlo de nuevo.',
+    'No pudimos guardar el cambio de email. Volvé a enviarlo para intentarlo de nuevo. Escribí cancelar para salir.',
   pending: () => 'Recibimos tu solicitud. Te avisaremos por Telegram cuando esté autorizada.',
   pendingAgain: () =>
     'Tu solicitud sigue pendiente. Te avisaremos por Telegram cuando esté autorizada.',

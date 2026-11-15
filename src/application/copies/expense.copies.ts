@@ -1,3 +1,4 @@
+import type { RecoveryContext } from '../services/recovery-context';
 function formatCategoryLabel(
   category: string,
   status: 'confirmed' | 'ambiguous' | 'fallback' | 'none',
@@ -14,13 +15,14 @@ function categoryStatusNote(status: 'confirmed' | 'ambiguous' | 'fallback' | 'no
 
 export const expenseCopies = {
   paymentUnresolved: () =>
-    'Antes de guardar, elegí un medio de pago existente, agregá el mostrado o dejalo vacío.',
-  clarificationAmount: () => '¿Cuánto gastaste?',
-  clarificationCurrency: () => '¿En qué moneda fue ese gasto?',
-  zeroAmountConfirmation: () => '¿Querías registrar un gasto de $0?',
+    'Antes de guardar, escribí medio de pago: Nombre, agregar medio de pago o sin medio de pago. Escribí cancelar para salir.',
+  clarificationAmount: () => '¿Cuánto gastaste? Escribí cancelar para salir.',
+  clarificationCurrency: () => '¿En qué moneda fue ese gasto? Escribí cancelar para salir.',
+  zeroAmountConfirmation: () =>
+    '¿Querías registrar un gasto de $0? Respondé sí o escribí cancelar para salir.',
   saving: () => 'Guardando tu gasto…',
   saveNetworkFailure: () =>
-    'No pude confirmar el guardado por un problema de conexión. Respondé *reintentar* dentro de los próximos 10 minutos.',
+    'No pude confirmar el guardado por un problema de conexión. Respondé *reintentar* dentro de los próximos 10 minutos. Escribí cancelar para salir; verificá tu planilla antes de registrar el gasto nuevamente.',
   financialOutcomeUnknown: () =>
     'Esa operación sigue pendiente de resolución. No puedo iniciar otra hasta que el equipo de soporte la revise. Contactá al administrador de Gastto.',
   staleReview: () =>
@@ -38,7 +40,7 @@ export const expenseCopies = {
   saveRetryCancelled: () =>
     'Saliste del flujo de guardado. Verificá tu planilla antes de registrar el gasto nuevamente.',
   saveRetryRecoveryChoice: () =>
-    'Respondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla.',
+    'Respondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla. Escribí cancelar para salir; verificá tu planilla antes de registrar el gasto nuevamente.',
   staleFinancialAction: () =>
     'Esa respuesta corresponde a otra operación. Revisá la solicitud actual y confirmala de nuevo.',
   saveManualCopyFallback: (input: { concept: string; amount: number; currency: string }): string =>
@@ -60,7 +62,8 @@ export const expenseCopies = {
   expenseQueueClosingSummary: (registeredCount: number) =>
     `¡Listo! Registré ${registeredCount} gasto${registeredCount === 1 ? '' : 's'}. Ya no tenés gastos pendientes.`,
   ambiguousResponse: () => '¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?',
-  fallbackError: () => 'Parece que algo falló. Intentá de nuevo en unos momentos.',
+  fallbackError: (context: RecoveryContext = 'unknown') =>
+    recoveryGuidance('Parece que algo falló. Revisá el último mensaje del chat.', context),
   extractionTimeout: () =>
     'La interpretación tardó demasiado. No guardé este gasto. Volvé a enviarlo para intentar de nuevo',
   extractionFailed: () =>
@@ -148,7 +151,7 @@ export const expenseCopies = {
     '• "la subcategoría es supermercado"\n' +
     '• "lo pagué con Visa" o "sin medio de pago"\n' +
     '• "fue ayer"\n' +
-    '• "no, fueron 15 y es transporte" (varios campos en un solo mensaje)',
+    '• "no, fueron 15 y es transporte" (varios campos en un solo mensaje). Escribí cancelar para salir.',
   correctionApplied: (field: string, value: string | number): string => {
     const labels: Record<string, string> = {
       monto: 'Monto',
@@ -169,20 +172,20 @@ export const expenseCopies = {
       input.allowedSubcategories.length === 0
         ? 'Esa categoría no tiene subcategorías configuradas.'
         : `Podés elegir: ${input.allowedSubcategories.join(', ')}.`;
-    return `No encontré la subcategoría "${input.attemptedSubcategory}" dentro de "${input.parentCategory}". ${guidance}`;
+    return `No encontré la subcategoría "${input.attemptedSubcategory}" dentro de "${input.parentCategory}". ${guidance} Escribí la subcategoría con su categoría padre. Escribí cancelar para salir.`;
   },
   correctionHighAmountConfirmation: () =>
     'El monto corregido es inusualmente alto. ¿Confirmamos que es correcto? Respondé *sí* o *cancelar*.',
   clarificationReformulation: (options: string[]): string => {
     if (options.length === 0) {
-      return '¿En qué moneda fue ese gasto?';
+      return '¿En qué moneda fue ese gasto? Escribí cancelar para salir.';
     }
     if (options.length === 1) {
-      return `¿El gasto fue en ${options[0]}?`;
+      return `¿El gasto fue en ${options[0]}? Escribí cancelar para salir.`;
     }
     const lastOption = options[options.length - 1];
     const precedingOptions = options.slice(0, -1).join(', ');
-    return `¿El gasto fue en ${precedingOptions} o ${lastOption}?`;
+    return `¿El gasto fue en ${precedingOptions} o ${lastOption}? Escribí cancelar para salir.`;
   },
 
   expenseSummary: (payload: {
@@ -227,3 +230,10 @@ export const expenseCopies = {
     ].join('\n');
   },
 };
+
+/** Shared feedback must not advertise actions while a financial claim is unresolved. */
+export function recoveryGuidance(message: string, context: RecoveryContext): string {
+  if (context === 'financially-blocked') return expenseCopies.financialOutcomeUnknown();
+  if (context !== 'cancellable' || /cancelar|cancelamos|cancelá/u.test(message)) return message;
+  return `${message} Escribí cancelar para salir.`;
+}

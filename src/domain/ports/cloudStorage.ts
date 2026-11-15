@@ -6,6 +6,11 @@
 import type { CloudFile } from '../entities/CloudFile';
 import type { SpreadsheetProvider } from '../entities/SpreadsheetConfig';
 
+export type FileAccessValidationResult =
+  | { kind: 'accessible' }
+  | { kind: 'inaccessible' }
+  | { kind: 'unsupported-type' };
+
 export interface CloudStoragePort {
   /** Lists the most recently modified spreadsheet files (max 5). */
   listRecentSpreadsheets(accessToken: string, provider: SpreadsheetProvider): Promise<CloudFile[]>;
@@ -22,5 +27,5 @@ export interface CloudStoragePort {
     fileId: string,
     accessToken: string,
     provider: SpreadsheetProvider,
-  ): Promise<boolean>;
+  ): Promise<FileAccessValidationResult>;
 }

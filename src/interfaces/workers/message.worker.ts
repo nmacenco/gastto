@@ -3,6 +3,13 @@
 // Consumes `process-message` jobs in the same persistent process as Fastify.
 // Responsibilities: FSM → NLP → user response.
 
+import {
+  readRecoveryState,
+  resolveRecoveryContext,
+} from '../../application/services/recovery-context';
+import { recoveryGuidance } from '../../application/copies/expense.copies';
+import { spreadsheetRecoveryCopies } from '../../application/copies/spreadsheet-recovery.copies';
+
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
@@ -519,14 +526,7 @@ export async function processMessageJob(
         if (semanticTurn?.status === 'clarification') {
           await messaging.sendMessage(
             externalId,
-            conversationState
-              ? semanticExpenseGuidance(conversationState, semanticTurn.reason)
-              : expenseCopies.semanticExpenseGuidance(
-                  semanticTurn.reason === 'ambiguous_reference' ||
-                    semanticTurn.reason === 'not_found'
-                    ? 'unsupported_action'
-                    : semanticTurn.reason,
-                ),
+            await currentSemanticGuidance(opts, userId, semanticTurn.reason),
           );
           return;
         }
@@ -586,7 +586,7 @@ export async function processMessageJob(
           } else if (outcome.status === 'clarification_required') {
             await messaging.sendMessage(
               externalId,
-              semanticExpenseGuidance(conversationState, outcome.reason),
+              await currentSemanticGuidance(opts, userId, outcome.reason),
             );
           }
           return;
@@ -599,7 +599,7 @@ export async function processMessageJob(
             });
             await messaging.sendMessage(
               externalId,
-              expenseCopies.semanticControlGuidance('unsupported_action'),
+              await currentSemanticGuidance(opts, userId, 'unsupported_action', true),
             );
             return;
           }
@@ -630,7 +630,7 @@ export async function processMessageJob(
           } else if (outcome.status === 'clarification_required') {
             await messaging.sendMessage(
               externalId,
-              expenseCopies.semanticControlGuidance(outcome.reason),
+              await currentSemanticGuidance(opts, userId, outcome.reason, true),
             );
           }
           return;
@@ -643,7 +643,7 @@ export async function processMessageJob(
             });
             await messaging.sendMessage(
               externalId,
-              semanticExpenseGuidance(conversationState, 'not_found'),
+              await currentSemanticGuidance(opts, userId, 'not_found'),
             );
             return;
           }
@@ -670,7 +670,7 @@ export async function processMessageJob(
           if (outcome.status === 'clarification_required') {
             await messaging.sendMessage(
               externalId,
-              semanticExpenseGuidance(conversationState, outcome.reason),
+              await currentSemanticGuidance(opts, userId, outcome.reason),
             );
           }
           return;
@@ -716,11 +716,24 @@ export async function processMessageJob(
         endpoint: 'processMessageJob',
         code: 'UNEXPECTED_HANDLER_ERROR',
         userId,
+        ...(err instanceof SpreadsheetError ? { providerDiagnostic: err.providerDiagnostic } : {}),
         errorType: err instanceof Error ? err.constructor.name : 'unknown',
         error: err instanceof Error ? err.message : String(err),
       });
       try {
-        await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+        const effective = await readRecoveryState(() =>
+          opts.getConversationState.execute({ userId }),
+        );
+        const context = resolveRecoveryContext(effective);
+        const message =
+          context === 'cancellable' &&
+          effective?.currentState.startsWith('SETTINGS_') &&
+          effective.revision === conversationState?.revision &&
+          effective.currentState === conversationState?.currentState &&
+          err instanceof SpreadsheetError
+            ? spreadsheetRecoveryCopies.readFailure(err, 'settings', 'la misma selección')
+            : expenseCopies.fallbackError(context);
+        await messaging.sendMessage(externalId, message);
       } catch (sendErr) {
         opts.logger.error({
           msg: 'Failed to send fallback error after handler failure',
@@ -943,7 +956,7 @@ async function routeByState(
         return;
       }
       if (rawMessage.trim().toLowerCase() === active.email) {
-        await messaging.sendMessage(externalId, 'Ese ya es tu email actual. Escribí otro email.');
+        await messaging.sendMessage(externalId, accessCopies.replacementSameEmail());
         return;
       }
       opts.logger.info({
@@ -980,7 +993,7 @@ async function routeByState(
           userId,
           kind: 'replacement',
         });
-        await messaging.sendMessage(externalId, accessCopies.invalidEmail());
+        await messaging.sendMessage(externalId, accessCopies.invalidReplacementEmail());
         return;
       }
       opts.logger.info({
@@ -1607,7 +1620,7 @@ async function routeByState(
       } else {
         // Estado válido pero no manejado: forzar reset a IDLE para no dejar al usuario atascado
         await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-        await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+        await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
       }
     }
   }
@@ -2383,7 +2396,7 @@ async function handleExpenseReview(
         action: 'action' in callbackData ? callbackData.action : 'invalid',
       });
       await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-      await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+      await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
       return;
     }
 
@@ -2428,7 +2441,7 @@ async function handleExpenseReview(
       userId,
     });
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
     return;
   }
 
@@ -2469,7 +2482,7 @@ async function handleExpenseCorrection(
       error: err instanceof Error ? err.message : String(err),
     });
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
     return;
   }
 
@@ -2597,7 +2610,7 @@ async function handleClarification(
       userId,
     });
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
     return;
   }
 
@@ -2613,7 +2626,7 @@ async function handleClarification(
       error: err instanceof Error ? err.message : String(err),
     });
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
     return;
   }
 
@@ -2704,6 +2717,16 @@ function semanticExpenseGuidance(
     if (reason === 'stale_context') return onboardingCopies.staleSheetReference();
     return onboardingCopies.sheetReferenceNotFound();
   }
+  if (
+    conversationState.currentState.startsWith('ONBOARDING_') ||
+    conversationState.currentState.startsWith('SETTINGS_')
+  ) {
+    return expenseCopies.fallbackError();
+  }
+  if (conversationState.currentState === 'EXPENSE_CORRECTING')
+    return expenseCopies.expenseCorrectionPrompt();
+  if (conversationState.currentState === 'EXPENSE_SAVING_RETRY')
+    return expenseCopies.saveRetryRecoveryChoice();
   const expenseReason =
     reason === 'ambiguous_reference' || reason === 'not_found' ? 'unsupported_action' : reason;
   if (conversationState.currentState === 'EXPENSE_CLARIFYING') {
@@ -2720,4 +2743,25 @@ function semanticExpenseGuidance(
     return expenseCopies.ambiguousResponse();
   }
   return expenseCopies.semanticExpenseGuidance(expenseReason);
+}
+
+async function currentSemanticGuidance(
+  opts: MessageWorkerDeps,
+  userId: string,
+  reason: Parameters<typeof semanticExpenseGuidance>[1],
+  control = false,
+): Promise<string> {
+  const state = await readRecoveryState(() => opts.getConversationState.execute({ userId }));
+  const context = resolveRecoveryContext(state);
+  if (context === 'unknown') return expenseCopies.fallbackError(context);
+  const message =
+    state && !control
+      ? semanticExpenseGuidance(state, reason)
+      : expenseCopies.semanticControlGuidance('stale_context');
+  return recoveryGuidance(message, context);
+}
+
+async function currentFallbackGuidance(opts: MessageWorkerDeps, userId: string): Promise<string> {
+  const state = await readRecoveryState(() => opts.getConversationState.execute({ userId }));
+  return expenseCopies.fallbackError(resolveRecoveryContext(state));
 }

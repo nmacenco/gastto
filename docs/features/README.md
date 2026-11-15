@@ -39,3 +39,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - Payment methods persistence: JSONB snapshot comparison is independent of object key order (see [payment methods](payment-methods.md)).
 
 - Candidate account activation renews expired credentials before cutover (see [Telegram access approval](telegram-access-approval.md)).
+
+## Recovery update (2026-11-15)
+
+Native-file validation and state-aware recovery are documented in [select-spreadsheet-file](./select-spreadsheet-file.md), [select-sheet](./select-sheet.md), [chat-spreadsheet-settings](./chat-spreadsheet-settings.md), [validate-spreadsheet-access](./validate-spreadsheet-access.md), [infer-and-propose-column-mapping](./infer-and-propose-column-mapping.md), [confirm-or-correct-column-mapping](./confirm-or-correct-column-mapping.md), [category-confirmation](./category-confirmation.md), [payment-methods](./payment-methods.md), [cloud-storage-connection](./cloud-storage-connection.md), [telegram-access-approval](./telegram-access-approval.md), [clarification-request](./clarification-request.md), [expense-correction](./expense-correction.md), [expense-summary-review](./expense-summary-review.md), [expense-confirmation](./expense-confirmation.md), [expense-cancellation](./expense-cancellation.md), [incoming-message-routing](./incoming-message-routing.md), [conversation-state-management](./conversation-state-management.md).

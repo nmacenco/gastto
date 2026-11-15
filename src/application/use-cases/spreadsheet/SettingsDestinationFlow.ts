@@ -1,3 +1,5 @@
+import { settingsCopies } from '../../copies/settings.copies';
+import { spreadsheetRecoveryCopies } from '../../copies/spreadsheet-recovery.copies';
 import { randomUUID } from 'node:crypto';
 import type { ConversationState, FsmState } from '../../../domain/entities/ConversationState';
 import type { GasttoField, SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
@@ -125,10 +127,7 @@ export class SettingsDestinationFlow {
   async startFile(state: ConversationState, externalId: string): Promise<void> {
     const config = await this.deps.configRepository.findByUserId(state.userId);
     if (!config || config.provider !== 'google' || !config.fileId || !config.sheetName) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'Primero completá la configuración de una planilla y una hoja de Google.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.destinationRequired());
       return;
     }
     const token = await this.token(state.userId, true);
@@ -148,19 +147,13 @@ export class SettingsDestinationFlow {
   async startSheet(state: ConversationState, externalId: string): Promise<void> {
     const config = await this.deps.configRepository.findByUserId(state.userId);
     if (!config || config.provider !== 'google' || !config.fileId || !config.sheetName) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'Primero completá la configuración de una planilla y una hoja de Google.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.destinationRequired());
       return;
     }
     const token = await this.token(state.userId);
     const sheets = await this.deps.spreadsheetPortFactory.create(token).listSheets(config.fileId);
     if (!sheets.length) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'No encontramos hojas en la planilla actual.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.emptyCurrent());
       return;
     }
     const payload: Payload = {
@@ -216,10 +209,7 @@ export class SettingsDestinationFlow {
     if (!directId && (payload.step === 'searching' || /^buscar\s+\S/i.test(trimmed))) {
       const query = trimmed.replace(/^buscar\s+/i, '');
       if (query.length < 2) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'Escribí al menos dos letras para buscar una planilla.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.searchTooShort());
         return;
       }
       const token = await this.token(state.userId, true, payload.accountChangeRequestId);
@@ -232,10 +222,7 @@ export class SettingsDestinationFlow {
     }
     if (normalize(trimmed) === 'buscar') {
       await this.move(state, 'SETTINGS_FILE', { ...payload, step: 'searching' });
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'Escribí el nombre de la planilla que querés buscar.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.searchName());
       return;
     }
     const index = Number(trimmed);
@@ -253,19 +240,23 @@ export class SettingsDestinationFlow {
       return;
     }
     const token = await this.token(state.userId, true, payload.accountChangeRequestId);
-    if (!(await this.deps.cloudStorage.validateFileAccess(selected.id, token, 'google'))) {
+    const validation = await this.deps.cloudStorage.validateFileAccess(
+      selected.id,
+      token,
+      'google',
+    );
+    if (validation.kind !== 'accessible') {
       await this.deps.messaging.sendMessage(
         externalId,
-        'No tenés acceso a esa planilla. Elegí otra o escribí cancelar.',
+        validation.kind === 'unsupported-type'
+          ? spreadsheetRecoveryCopies.unsupportedFormat()
+          : 'No tenés acceso a esa planilla. Elegí otra. Escribí cancelar para salir.',
       );
       return;
     }
     const sheets = await this.deps.spreadsheetPortFactory.create(token).listSheets(selected.id);
     if (!sheets.length) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'La planilla no tiene hojas disponibles. Elegí otra.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.emptyCandidate());
       return;
     }
     const next: Payload = {
@@ -331,10 +322,7 @@ export class SettingsDestinationFlow {
     if (payload.step === 'same-columns') {
       const answer = normalize(reply);
       if (!['si', 'no'].includes(answer)) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'Respondé sí o no sobre las posiciones de las columnas.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.columnPositions());
         return;
       }
       const source = await this.source(state.userId, payload);
@@ -347,12 +335,9 @@ export class SettingsDestinationFlow {
         })),
       );
       if (!headerRowIndex) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'No pudimos encontrar los encabezados de esa hoja. Elegí otra hoja.',
-        );
         const { sheetName: _sheetName, preview: _preview, step: _step, ...reset } = payload;
         await this.move(state, 'SETTINGS_SHEET', reset);
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.headersUnavailable());
         return;
       }
       const headerRow = rows.find((row) => row.index === headerRowIndex);
@@ -390,12 +375,9 @@ export class SettingsDestinationFlow {
         }));
       }
       if (!mappings.length) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'No pudimos proponer un mapeo. Elegí otra hoja.',
-        );
         const { step: _step, ...reset } = payload;
         await this.move(state, 'SETTINGS_SHEET', reset);
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.mappingUnavailable());
         return;
       }
       const next = { ...payload, step: 'review', headerRowIndex, mappings };
@@ -504,7 +486,7 @@ export class SettingsDestinationFlow {
         if (!this.deps.detectPaymentMethods) {
           await this.deps.messaging.sendMessage(
             externalId,
-            'No se puede detectar el medio de pago ahora. Escribí confirmar para reintentar.',
+            settingsCopies.paymentDetectionUnavailable(),
           );
           return;
         }

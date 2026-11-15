@@ -366,3 +366,7 @@ interface OAuthAccessTokenProvider {
 ## Security boundary update (2026-11-01)
 
 See [Security hardening](security-hardening.md) for the implemented HTTP admission/status contracts, production documentation availability, dependency gate, secret rotation and release evidence. These contracts supersede earlier blanket statements that every Telegram request returns 200.
+
+## Recovery guidance (2026-11-15)
+
+Invalid provider replies include the accepted numbered provider choices and an explicit cancellation command. Reconnection feedback retains the existing OAuth flow and offers cancellation from the onboarding state.

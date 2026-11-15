@@ -90,3 +90,7 @@ The `EXPENSE_REVIEW` JSONB payload includes `reviewBinding: { operationId, revis
 ## Notes
 
 `message.worker.ts` is an Interfaces-layer adapter: it validates the review payload, delegates a text reply once, and renders the typed outcome. It does not guess correction intent with a regular expression. `ResolveExpenseReviewReplyUseCase` owns confirmation, cancellation, contextual correction, and new-expense queue precedence without depending on Telegram, WhatsApp, workers, or infrastructure adapters. The persisted FSM follows ADR-003; the asynchronous worker pipeline follows ADR-005 and ADR-011.
+
+## Recovery guidance (2026-11-15)
+
+Unclaimed save-retry offers now include cancellation and spreadsheet-verification guidance before registering again. The HTTP diagnostic extension leaves append/delete `outcomeUnknown` classification and durable claim protection unchanged.

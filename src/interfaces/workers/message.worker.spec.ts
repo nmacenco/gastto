@@ -1,3 +1,6 @@
+import { CancelConversationFlow } from '../../application/use-cases/conversation/CancelConversationFlow';
+import { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
+import type { IConversationStateRepository } from '../../domain/ports/repositories';
 // LAYER: Interfaces / Tests
 // Contract tests for the message worker (process-message queue).
 // Mocks bullmq.Worker so no real Redis is needed.
@@ -30,7 +33,7 @@ import type { StartSettingsReauthorization } from '../../application/use-cases/s
 import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
-import { expenseCopies } from '../../application/copies/expense.copies';
+import { expenseCopies, recoveryGuidance } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { settingsCopies } from '../../application/copies/settings.copies';
 import { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
@@ -40,7 +43,7 @@ import type { SpreadsheetPort } from '../../domain/ports/services';
 import { CategoryVocabulary } from '../../domain/entities/CategoryVocabulary';
 import { CompleteExpenseClarification } from '../../application/use-cases/expense/CompleteExpenseClarification';
 import { PresentUndoConfirmation } from '../../application/use-cases/expense/PresentUndoConfirmation';
-import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
+import { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
 import { accessCopies } from '../../application/copies/access.copies';
 
@@ -2555,7 +2558,7 @@ describe('processMessageJob', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        expenseCopies.semanticControlGuidance('stale_context'),
+        recoveryGuidance(expenseCopies.semanticControlGuidance('stale_context'), 'cancellable'),
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
       expect(mockCancelExpenseRegistrationExecute).not.toHaveBeenCalled();
@@ -2726,7 +2729,7 @@ describe('processMessageJob', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        onboardingCopies.ambiguousFileReference(),
+        recoveryGuidance(onboardingCopies.ambiguousFileReference(), 'cancellable'),
       );
       expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
@@ -2803,7 +2806,10 @@ describe('processMessageJob', () => {
 
         await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'movimientos' }), deps);
 
-        expect(mockSendMessage).toHaveBeenCalledWith('123456789', copy);
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          recoveryGuidance(copy, 'cancellable'),
+        );
         expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
         expect(mockTransitionStateExecute).not.toHaveBeenCalled();
       },
@@ -3136,12 +3142,14 @@ describe('processMessageJob', () => {
 
     it('logs and safely resets a malformed review before text resolution', async () => {
       const deps = buildMockDeps();
-      mockGetConversationStateExecute.mockResolvedValue(
-        buildConversationState({
-          currentState: 'EXPENSE_REVIEW',
-          statePayload: { rawMessage: 'incomplete' },
-        }),
-      );
+      mockGetConversationStateExecute
+        .mockResolvedValue(buildConversationState())
+        .mockResolvedValueOnce(
+          buildConversationState({
+            currentState: 'EXPENSE_REVIEW',
+            statePayload: { rawMessage: 'incomplete' },
+          }),
+        );
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'sí' }), deps);
 
@@ -3723,16 +3731,18 @@ describe('processMessageJob', () => {
 
     it('recovers an invalid correction state and logs the validation failure', async () => {
       const deps = buildMockDeps();
-      mockGetConversationStateExecute.mockResolvedValue(
-        buildConversationState({
-          currentState: 'EXPENSE_CORRECTING',
-          statePayload: {
-            _type: 'ExpenseCorrectionState',
-            payload: { invalid: true },
-            correctionCycles: 0,
-          },
-        }),
-      );
+      mockGetConversationStateExecute
+        .mockResolvedValue(buildConversationState())
+        .mockResolvedValueOnce(
+          buildConversationState({
+            currentState: 'EXPENSE_CORRECTING',
+            statePayload: {
+              _type: 'ExpenseCorrectionState',
+              payload: { invalid: true },
+              correctionCycles: 0,
+            },
+          }),
+        );
 
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'corrige el monto' }), deps);
 
@@ -4031,7 +4041,7 @@ describe('processMessageJob', () => {
       expect(mockFindRecentCurrenciesByUserId).toHaveBeenCalledWith('user-123', 5);
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)?',
+        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)? Escribí cancelar para salir.',
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
     });
@@ -5562,9 +5572,9 @@ describe('processMessageJob', () => {
 
     it('transitions to IDLE and sends fallback when RecoverCorruptedState does not recover', async () => {
       const deps = buildMockDeps();
-      mockGetConversationStateExecute.mockResolvedValue(
-        buildConversationState({ currentState: 'EXPENSE_SAVING' }),
-      );
+      mockGetConversationStateExecute
+        .mockResolvedValue(buildConversationState())
+        .mockResolvedValueOnce(buildConversationState({ currentState: 'EXPENSE_SAVING' }));
       mockRecoverCorruptedStateExecute.mockResolvedValue({ recovered: false, message: '' });
 
       await processMessageJob(buildJob(baseJobData), deps);
@@ -5707,7 +5717,10 @@ describe('processMessageJob', () => {
         }),
       );
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.fallbackError());
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.fallbackError('cancellable'),
+      );
     });
 
     it('does not re-send the message on subsequent retries (single attempt outcome)', async () => {
@@ -5728,12 +5741,12 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenNthCalledWith(
         1,
         '123456789',
-        expenseCopies.fallbackError(),
+        expenseCopies.fallbackError('cancellable'),
       );
       expect(mockSendMessage).toHaveBeenNthCalledWith(
         2,
         '123456789',
-        expenseCopies.fallbackError(),
+        expenseCopies.fallbackError('cancellable'),
       );
     });
 
@@ -5933,7 +5946,7 @@ describe('processMessageJob', () => {
       expect(mockFindRecentCurrenciesByUserId).toHaveBeenCalledWith('user-123', 5);
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)?',
+        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)? Escribí cancelar para salir.',
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
     });
@@ -6112,6 +6125,190 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledOnce();
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.saveRetryExpired());
     });
+  });
+
+  it.each(['ONBOARDING_SHEET', 'SETTINGS_FILE'] as const)(
+    'recovers %s through cancellation and a new setup/menu with real guarded transitions',
+    async (initial) => {
+      const deps = buildMockDeps();
+      let persisted = buildConversationState({
+        currentState: initial,
+        statePayload: { selectedFileId: 'file', draft: 'candidate' },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      const repository: IConversationStateRepository = {
+        findByUserId: () => Promise.resolve(persisted),
+        create: () => Promise.resolve(persisted),
+        findExpired: () => Promise.resolve([]),
+        transition: (input) => {
+          if (input.expected.revision !== persisted.revision)
+            return Promise.resolve({ status: 'stale' });
+          persisted = {
+            ...persisted,
+            currentState: input.nextState,
+            statePayload: input.payload,
+            expiresAt: input.expiresAt,
+            revision: String(Number(persisted.revision) + 1),
+          };
+          return Promise.resolve({ status: 'updated', state: persisted });
+        },
+      };
+      deps.transitionState = new TransitionConversationState(repository);
+      deps.getConversationState = new GetConversationState(repository);
+      deps.cancelConversationFlow = new CancelConversationFlow({
+        transitionState: deps.transitionState,
+        spreadsheetConfigRepository: deps.spreadsheetConfigRepository,
+        mappingCorrectionStateRepository: deps.mappingCorrectionStateRepository!,
+        logger: deps.logger,
+      });
+      mockSpreadsheetConfigFindByUserId.mockResolvedValue(
+        initial === 'ONBOARDING_SHEET'
+          ? { categoriesConfirmedAt: null }
+          : { categoriesConfirmedAt: new Date() },
+      );
+      const startFile = vi.fn();
+      const error = new SpreadsheetError('private provider text', { code: 'STRUCTURE_ERROR' });
+      if (initial === 'ONBOARDING_SHEET')
+        mockHandleSheetSelectionExecute.mockRejectedValueOnce(error);
+      else
+        deps.settingsDestinationFlow = {
+          reply: () => Promise.reject(error),
+          startFile,
+        } as unknown as NonNullable<MessageWorkerDeps['settingsDestinationFlow']>;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '1' }), deps);
+      expect(persisted.currentState).toBe(initial);
+      expect(mockSendMessage.mock.calls.at(-1)?.[1]).toContain('cancelar');
+      expect(mockSendMessage.mock.calls.at(-1)?.[1]).not.toContain('private provider text');
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      expect(persisted.currentState).toBe('IDLE');
+      expect(persisted.statePayload).toBeNull();
+      expect(mockSendMessage.mock.calls.at(-1)?.[1]).not.toContain('cancelar para salir');
+      await processMessageJob(
+        buildJob({
+          ...baseJobData,
+          rawMessage: initial === 'ONBOARDING_SHEET' ? 'empezar' : 'configuración',
+        }),
+        deps,
+      );
+      expect(persisted.currentState).toBe(
+        initial === 'ONBOARDING_SHEET' ? 'ONBOARDING_START' : 'SETTINGS_MENU',
+      );
+      if (initial === 'SETTINGS_FILE') {
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: '3' }), deps);
+        expect(startFile).toHaveBeenCalledOnce();
+      }
+      expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
+      expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+    },
+  );
+
+  describe('effective recovery state', () => {
+    it.each(['IDLE', 'ONBOARDING_MAPPING', 'EXPENSE_SAVING_RETRY', 'lookup-failed', 'claimed'])(
+      'uses %s after the handler changes context',
+      async (destination) => {
+        const deps = buildMockDeps();
+        const initial = buildConversationState({ currentState: 'ONBOARDING_SHEET' });
+        const effective = buildConversationState({
+          revision: '9',
+          currentState:
+            destination === 'claimed'
+              ? 'EXPENSE_SAVING_RETRY'
+              : destination === 'lookup-failed'
+                ? 'IDLE'
+                : (destination as ConversationState['currentState']),
+          statePayload:
+            destination === 'claimed'
+              ? {
+                  executionClaim: {
+                    claimId: 'c',
+                    kind: 'retry',
+                    operationId: 'o',
+                    sourceMessageId: null,
+                    status: 'outcome_unknown',
+                    target: {},
+                  },
+                }
+              : null,
+        });
+        mockGetConversationStateExecute.mockResolvedValueOnce(initial);
+        if (destination === 'lookup-failed')
+          mockGetConversationStateExecute.mockRejectedValueOnce(new Error('db unavailable'));
+        else mockGetConversationStateExecute.mockResolvedValueOnce(effective);
+        mockHandleSheetSelectionExecute.mockRejectedValueOnce(new Error('provider secret'));
+        await processMessageJob(buildJob(baseJobData), deps);
+        const expectedContext =
+          destination === 'claimed'
+            ? 'financially-blocked'
+            : destination === 'lookup-failed'
+              ? 'unknown'
+              : destination === 'IDLE'
+                ? 'idle'
+                : 'cancellable';
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expenseCopies.fallbackError(expectedContext),
+        );
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+        expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+        expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
+      },
+    );
+    it.each(['IDLE', 'EXPENSE_CLARIFYING', 'claimed', 'lookup-failed'])(
+      'reloads %s after semantic dispatch rejects a stale reference',
+      async (destination) => {
+        const deps = buildMockDeps();
+        const initial = buildConversationState({
+          currentState: 'ONBOARDING_FILE',
+          revision: '7',
+          statePayload: { fileList: [] },
+        });
+        mockGetConversationStateExecute.mockResolvedValueOnce(initial);
+        if (destination === 'lookup-failed')
+          mockGetConversationStateExecute.mockRejectedValueOnce(new Error('db'));
+        else
+          mockGetConversationStateExecute.mockResolvedValueOnce(
+            buildConversationState({
+              currentState:
+                destination === 'claimed'
+                  ? 'EXPENSE_SAVING'
+                  : (destination as ConversationState['currentState']),
+              revision: '9',
+              statePayload:
+                destination === 'claimed'
+                  ? {
+                      executionClaim: {
+                        claimId: 'c',
+                        kind: 'save',
+                        operationId: 'o',
+                        sourceMessageId: null,
+                        status: 'outcome_unknown',
+                        target: {},
+                      },
+                    }
+                  : null,
+            }),
+          );
+        mockObserveSemanticRoutingExecute.mockResolvedValueOnce({
+          status: 'option_selection',
+          decision: { action: 'select_option', userReference: 'primera' },
+          expected: { revision: '7', currentState: 'ONBOARDING_FILE', expiry: 'unexpired' },
+          snapshot: { revision: '7', state: 'ONBOARDING_FILE', substep: null, options: [] },
+        });
+        mockDispatchOptionSelectionExecute.mockResolvedValueOnce({
+          status: 'clarification_required',
+          reason: 'stale_context',
+        });
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'primera' }), deps);
+        const message = String(mockSendMessage.mock.calls.at(-1)?.[1]);
+        expect(message).not.toContain('lista de archivos');
+        expect(message.includes('cancelar')).toBe(destination === 'EXPENSE_CLARIFYING');
+        if (destination === 'claimed')
+          expect(message).toBe(expenseCopies.financialOutcomeUnknown());
+        expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+        expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      },
+    );
   });
 });
 

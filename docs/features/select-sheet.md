@@ -194,12 +194,12 @@ interface ISpreadsheetConfigRepository {
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Invalid provider (`microsoft`)           | `comingSoon` message returned; stays in `ONBOARDING_SHEET`.                                              |
 | Missing OAuth token                      | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                      |
-| Expired / revoked token                  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                      |
+| Revoked / unrefreshable token                  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                      |
 | Token decryption failure                 | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                      |
 | Missing `fileId` in statePayload         | `fileAccessFailed` message returned; stays in `ONBOARDING_SHEET`.                                        |
-| Network failure during `listSheets`      | `SpreadsheetError` thrown; `sheetDiscoveryFailed` returned.                                              |
-| Non-2xx HTTP from Sheets API             | `SpreadsheetError` thrown with HTTP status; error message returned.                                      |
-| Invalid JSON response                    | `SpreadsheetError` thrown; `sheetDiscoveryFailed` returned.                                              |
+| Network failure during `listSheets`      | `SpreadsheetError` thrown; contextual retry or file-recovery copy returned.                                              |
+| Non-2xx HTTP from Sheets API             | `SpreadsheetError` thrown with HTTP status; safe contextual recovery returned.                                      |
+| Invalid JSON response                    | `SpreadsheetError` thrown; contextual retry or file-recovery copy returned.                                              |
 | Empty sheet list (0 sheets)              | Error message sent; no state transition.                                                                 |
 | Invalid selection number (0, 99)         | Re-prompt with sheet list; stays in `ONBOARDING_SHEET`.                                                  |
 | Invalid name (no normalized exact match) | Re-prompt with sheet list; stays in `ONBOARDING_SHEET`.                                                  |
@@ -305,17 +305,17 @@ interface ISpreadsheetConfigRepository {
 - [x] **Error path — network failure during listSheets:**
   - `fetch` throws network error.
   - `SpreadsheetError` propagated.
-  - `sheetDiscoveryFailed` message sent.
+  - Safe transient retry instructions sent.
 
 - [x] **Error path — API error during listSheets:**
   - Google Sheets returns 403/500.
   - `SpreadsheetError` thrown with HTTP status.
-  - Error message returned to user.
+  - Application-owned recovery instructions returned without provider text.
 
 - [x] **Error path — API error during getHeaders:**
   - Google Sheets returns 404 during IDK flow.
   - `SpreadsheetError` thrown with HTTP status.
-  - Error message returned to user.
+  - Application-owned recovery instructions returned without provider text.
 
 - [x] **Error path — empty sheet list:**
   - File has 0 sheets.
@@ -325,3 +325,7 @@ interface ISpreadsheetConfigRepository {
 ### OneDrive
 
 - **Out of scope for MVP.** The use case returns a "coming soon" message for `microsoft` provider selections.
+
+## Recovery guidance (2026-11-15)
+
+Initial and recovery listing and header-description failures use application-owned messages, never raw provider text. Retryable errors offer `reintentar` for listing, `otra hoja` for empty-sheet recovery, or `no sé` for header descriptions. Permanent/unknown failures and empty lists offer `cancelar`, then `empezar` to choose another file. OAuth authorization failures retain refresh/reconnection behavior. No new back-navigation transition is introduced.

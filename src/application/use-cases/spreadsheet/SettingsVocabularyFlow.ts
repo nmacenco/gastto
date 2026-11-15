@@ -1,3 +1,4 @@
+import { settingsCopies } from '../../copies/settings.copies';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
@@ -165,10 +166,7 @@ export class SettingsVocabularyFlow {
     if (/^confirmar$/iu.test(rawMessage.trim())) {
       if (!payload.draft.categories.some((entry) => entry.isActive)) {
         await this.touch(state, payload);
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'Debe quedar al menos una categoría activa.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.categoryRequired());
         return;
       }
       const outcome = await this.deps.commit.execute({
@@ -261,18 +259,12 @@ export class SettingsVocabularyFlow {
     const command = rawMessage.trim();
     if (/^detectar$/iu.test(command)) {
       if (!this.deps.detectPaymentMethods) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'La detección no está disponible. Podés agregar medios manualmente.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.manualPayment());
         return;
       }
       const config = await this.deps.configRepository.findByUserId(state.userId);
       if (!config || config.id !== payload.sourceConfigId) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'La configuración cambió. Abrí configuración de nuevo.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.configurationChanged());
         return;
       }
       try {
@@ -310,10 +302,7 @@ export class SettingsVocabularyFlow {
           this.renderPayments(draft, payload.paymentColumnMapped),
         );
       } catch {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'No pudimos leer los medios de pago. Escribí detectar para reintentar o agregalos manualmente.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.paymentDetectionFailed());
       }
       return;
     }

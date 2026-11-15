@@ -156,3 +156,7 @@ No database schema changes yet. The feature operates on transient domain value o
 ## Security boundary update (2026-11-01)
 
 See [Security hardening](security-hardening.md) for the implemented HTTP admission/status contracts, production documentation availability, dependency gate, secret rotation and release evidence. These contracts supersede earlier blanket statements that every Telegram request returns 200.
+
+## Recovery guidance (2026-11-15)
+
+The worker resolves shared generic and semantic recovery from a fresh state read using `cancellable | idle | financially-blocked | unknown`. Only cancellable context receives an exit hint; financial claims receive administrator/manual-resolution feedback. A failed lookup uses bounded feedback with no retry or cancellation promise. No recovery response mutates state or executes a financial effect.

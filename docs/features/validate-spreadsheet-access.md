@@ -10,7 +10,7 @@ Before the user can start recording expenses, the system must verify that it has
 - **Read-only access (read-only):** The adapter successfully reads the sheet but detects that write permissions are missing. Returns a structured result with a preview and a `read-only` kind. The use case sends a message explaining how to fix permissions in Google Drive or OneDrive, and stays in `ONBOARDING_VALIDATING_ACCESS` so the user can retry.
 - **Empty sheet (empty-sheet):** Google and Microsoft previews with zero rows or only empty, null, or whitespace cells are classified as empty. The application repeats this check on a provider `success` result before marking access verified or starting mapping. It asks the user to confirm the sheet, list other sheets with `otra hoja`, or cancel, transitioning to `ONBOARDING_SHEET` with `step: 'empty-sheet-confirm'`. Confirmation receives the existing out-of-MVP message; choosing another sheet shows the available choices without auto-selecting a sole sheet.
 - **Access error (access-error):** The adapter classifies network failures separately from authorization failures. For `token-expired` or `permission-denied`, the use case forces one OAuth refresh and replays the external access check once. If that recovery fails, it sends the reconnect-account message and transitions to `ONBOARDING_START`. Network and unknown errors keep `ONBOARDING_VALIDATING_ACCESS` and send the sheet-discovery failure message without restarting OAuth.
-- **Token errors:** Missing, expired, revoked, or undecryptable tokens trigger the reconnect-account message and transition to `ONBOARDING_START`.
+- **Token errors:** Missing, revoked, or undecryptable credentials trigger the reconnect-account message and transition to `ONBOARDING_START`.
 
 ## API / Interface
 
@@ -76,7 +76,7 @@ export class SpreadsheetPreview {
 
 ## Data Model
 
-The validation updates the `spreadsheet_configs.access_verified_at` field upon successful validation. The FSM adds a new state `ONBOARDING_VALIDATING_ACCESS` which transitions to `ONBOARDING_MAPPING` on success, `ONBOARDING_SHEET` on empty-sheet, and `ONBOARDING_START` on persistent errors.
+The validation updates the `spreadsheet_configs.access_verified_at` field upon successful validation. The FSM adds a new state `ONBOARDING_VALIDATING_ACCESS` which transitions to `ONBOARDING_MAPPING` on success, `ONBOARDING_SHEET` on empty-sheet, and `ONBOARDING_START` on unrecoverable authorization errors; other errors retain validation.
 
 ## Tests
 
@@ -187,3 +187,7 @@ The validation updates the `spreadsheet_configs.access_verified_at` field upon s
 - The `SpreadsheetPreview` includes the first 10 rows, which may be used by the column mapping use case (HU-4.05) to infer column roles.
 - Both adapters use direct `fetch` calls rather than SDK dependencies (`googleapis`, `@microsoft/microsoft-graph-client`) to keep the dependency surface minimal.
 - The `retryable` flag communicates provider retryability, but transparent replay is reserved for authorization recovery to prevent duplicate or unbounded external operations.
+
+## Recovery guidance (2026-11-15)
+
+Access checks retain the existing authorization-only refresh replay. Non-authorization access failures retain the validation state and offer `reintentar` or cancellation; missing credentials reconnect, while refresh transport failures remain retryable. An empty preview returns to sheet selection. Persistent errors do not universally return to `ONBOARDING_START`.

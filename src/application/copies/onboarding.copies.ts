@@ -8,13 +8,14 @@ export const onboardingCopies = {
   welcomePrompt: () =>
     '¡Hola! Bienvenido a Gastto. Soy tu asistente financiero conversacional. Para empezar, ¿dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
   providerPrompt: () => '¿Dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
-  invalidRePrompt: () => 'No entendí. Escribí _1_ para Google Drive o _2_ para OneDrive.',
+  invalidRePrompt: () =>
+    'No entendí. Escribí _1_ para Google Drive o _2_ para OneDrive. Escribí cancelar para salir.',
   comingSoon: (provider: string) =>
-    `${provider} está en camino 🚧. Escribí _1_ para usar Google Drive por ahora.`,
+    `${provider} está en camino 🚧. Escribí cancelar para salir y después empezar para elegir Google Drive.`,
   authLink: (url: string) =>
     `Hacé clic en este enlace para autorizar a Gastto: ${url}\nTenés 10 minutos.`,
   onboardingPlaceholder: () =>
-    'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
+    'Estamos configurando tu cuenta. Seguí las instrucciones del último paso. Escribí cancelar para salir.',
   googleConnectedSuccess: () => '¡Google Drive conectado! Ahora elegí el archivo de tu planilla.',
   googleReconnectedSuccess: () =>
     '¡Google Drive reconectado! Conservé tu planilla y columnas. Enviá el gasto nuevamente para registrarlo.',
@@ -24,11 +25,11 @@ export const onboardingCopies = {
       ? 'No se pudo conectar con Google Drive. Hacé clic en el enlace de arriba para intentar de nuevo.'
       : 'No se pudo conectar. Escribí *cancelar* para salir o contactá a soporte.',
   fileDiscoveryFailed: () =>
-    'No pude consultar tus archivos de Google Drive. Intentá de nuevo en unos segundos.',
+    'No pude consultar tus archivos de Google Drive. Enviá parte del nombre para buscar de nuevo. Escribí cancelar para salir.',
   fileAccessFailed: () =>
-    'No pude acceder a ese archivo en Google Drive. Verificá los permisos o intentá con otro.',
+    'No pude acceder a ese archivo en Google Drive. Verificá los permisos. Escribí cancelar para salir y después empezar para elegir el archivo de nuevo.',
   sheetDiscoveryFailed: () =>
-    'No pude leer las hojas del archivo. Intentá de nuevo en unos segundos.',
+    'No pude consultar la planilla. Enviá reintentar para volver a consultar. Escribí cancelar para salir.',
   cancelledMessage: () => 'Conexión cancelada. Escribí *empezar* cuando quieras intentar de nuevo.',
   flowCancelled: (configured: boolean) =>
     configured
@@ -52,7 +53,9 @@ export const onboardingCopies = {
   fileSelectedConfirmation: (fileName: string) =>
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
   invalidSelectionRePrompt: (fileCount: number) =>
-    `No entendí. Escribí un número del *1* al *${fileCount}*, o *${fileCount + 1}* para buscar por nombre.`,
+    fileCount === 0
+      ? onboardingCopies.searchByNamePrompt()
+      : `No entendí. Escribí un número del *1* al *${fileCount}*, o *${fileCount + 1}* para buscar por nombre. Escribí cancelar para salir.`,
   ambiguousFileReference: () =>
     'Encontré más de una opción con esa referencia. Elegí el número exacto de la lista.',
   fileReferenceNotFound: () =>
@@ -64,7 +67,7 @@ export const onboardingCopies = {
   unsupportedFileLink: () =>
     'Ese enlace no corresponde a una planilla compatible. Pegá un enlace HTTPS de Google Sheets o Drive, escribí parte del nombre para buscar, o cancelar para salir.',
   urlValidationFailed: () =>
-    'No pude acceder a ese archivo. Verificá que el enlace sea correcto y que tengas permisos.',
+    'No pude acceder a ese archivo. Verificá que el enlace sea correcto y que tengas permisos. Escribí cancelar para salir.',
   urlValidationSuccess: (fileName: string) =>
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
 
@@ -83,10 +86,11 @@ export const onboardingCopies = {
   configuredDestinationConflict: () =>
     'Tu planilla actual ya está configurada. Escribí cancelar para salir de este flujo, después configuración y elegí la opción para cambiar el destino sin perder el historial.',
   invalidSheetRePrompt: (sheetCount: number) =>
-    `No encontré esa hoja. Escribí un número del *1* al *${sheetCount}*, o el nombre exacto.`,
+    `No encontré esa hoja. Escribí un número del *1* al *${sheetCount}*, o el nombre exacto. Escribí cancelar para salir.`,
   sheetNotFoundRePrompt: (sheets: SheetInfo[]) => {
+    if (sheets.length === 0) return onboardingCopies.fileAccessFailed();
     const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
-    return `No encontré esa hoja. Elegí una de estas:\n${lines.join('\n')}`;
+    return `No encontré esa hoja. Elegí una de estas:\n${lines.join('\n')} Escribí cancelar para salir.`;
   },
   ambiguousSheetReference: () =>
     'Encontré más de una hoja con esa referencia. Elegí el número exacto de la lista.',
@@ -103,16 +107,16 @@ export const onboardingCopies = {
   sheetMappingTransition: () => `Ahora vamos a analizar la estructura.`,
 
   readOnlyWarning: () =>
-    `Puedo ver tu planilla pero no tengo permiso para escribir en ella.\n\nPara corregirlo:\n• *Google Drive:* Abrí el archivo → Compartir → Agregá tu cuenta de Gastto con rol *Editor*.\n• *OneDrive:* Abrí el archivo → Compartir → Dale permisos de *Edición*.\n\nCuando lo hayas hecho, escribí *reintentar* para volver a verificar.`,
+    `Puedo ver tu planilla pero no tengo permiso para escribir en ella.\n\nPara corregirlo:\n• *Google Drive:* Abrí el archivo → Compartir → Dale a la cuenta de Google conectada el rol *Editor*.\n• *OneDrive:* Abrí el archivo → Compartir → Dale permisos de *Edición*.\n\nCuando lo hayas hecho, escribí *reintentar* para volver a verificar. Escribí cancelar para salir.`,
 
   emptySheetConfirm: (sheetName: string) =>
     `La hoja *${sheetName}* parece estar vacía. ¿Es la correcta?\n\nRespondé *sí* para confirmar, escribí *otra hoja* para ver las opciones o *cancelar* para salir.`,
 
   emptySheetConfirmedOutOfMvp: () =>
-    `Entendido. La funcionalidad de planillas vacías estará disponible próximamente. Por ahora, elegí una hoja que tenga datos para continuar.`,
+    `Entendido. La funcionalidad de planillas vacías estará disponible próximamente. Por ahora, escribí otra hoja para elegir una que tenga datos. Escribí cancelar para salir.`,
 
   reconnectAccount: () =>
-    `No pude acceder a tu planilla. Puede que la conexión con tu cuenta se haya vencido.\n\nEscribí *empezar* para reconectar tu cuenta e intentar de nuevo.`,
+    `No pude acceder a tu planilla. Puede que la conexión con tu cuenta se haya vencido.\n\nEscribí *empezar* para reconectar tu cuenta e intentar de nuevo. Escribí cancelar para salir.`,
 
   // Column mapping copies (HU-4.05)
   mappingProposalHighConfidence: (
@@ -181,10 +185,10 @@ export const onboardingCopies = {
   },
 
   noMappingToConfirm: () =>
-    `Todavía no tengo una propuesta de mapeo para confirmar. Esperá un momento o escribí *empezar* para reconectar.`,
+    `Todavía no tengo una propuesta de mapeo para confirmar. Escribí cancelar para salir y después empezar para configurar la planilla de nuevo.`,
 
   categoryProposalUnavailable: () =>
-    'No pude validar la propuesta de categorías. La voy a detectar de nuevo antes de completar la configuración.',
+    'No pude validar la propuesta de categorías. Enviá confirmar para detectarla de nuevo antes de completar la configuración. Escribí cancelar para salir.',
 
   unmappedFieldsNote: (fields: GasttoField[]) => formatUnmappedFields(fields),
 
@@ -211,7 +215,7 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
   },
 
   mappingProposalRecoveryPrompt: () =>
-    'No pude validar el mapeo que estabas revisando. Voy a generar una propuesta nueva antes de guardarlo.',
+    'No pude validar el mapeo que estabas revisando. Voy a generar una propuesta nueva antes de guardarlo. Escribí cancelar para salir.',
 
   invalidColumnPrompt: (
     columnRef: string,
@@ -220,7 +224,7 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     const lines = availableColumns.map(
       (c) => `${columnIndexToLetter(c.index)} - ${c.columnHeader}`,
     );
-    return `No encontré la columna *${columnRef}* en tu planilla. Las columnas disponibles son:\n${lines.join('\n')}\n\nEscribí la letra, número o nombre correcto.`;
+    return `No encontré la columna *${columnRef}* en tu planilla. Las columnas disponibles son:\n${lines.join('\n')}\n\nEscribí la letra, número o nombre correcto. Escribí cancelar para salir.`;
   },
 
   mappingRejectionPrompt: (availableColumns: { index: number; columnHeader: string }[]) => {
@@ -230,14 +234,14 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
       return `${columnIndexToLetter(c.index)} - ${label}`;
     });
     const fieldLines = SUPPORTED_GASTTO_FIELDS.map((f) => `• ${GASTTO_FIELD_LABELS[f]}`);
-    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}\n\nIndicame un solo campo por mensaje. Por ejemplo: "la categoría está en la columna E".`;
+    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}\n\nIndicame un solo campo por mensaje. Por ejemplo: "la categoría está en la columna E". Escribí cancelar para salir.`;
   },
 
   correctionParseFailurePrompt: () =>
-    `No entendí la corrección. Enviá una sola corrección por mensaje, por ejemplo: "la categoría está en la columna E" o "el monto va en B".`,
+    `No entendí la corrección. Enviá una sola corrección por mensaje, por ejemplo: "la categoría está en la columna E" o "el monto va en B". Escribí cancelar para salir.`,
 
   multipleMappingCorrectionsPrompt: () =>
-    `Detecté varios campos en el mismo mensaje. Para evitar cambios parciales, enviá una sola corrección por mensaje. Por ejemplo: "medio de pago en A".`,
+    `Detecté varios campos en el mismo mensaje. Para evitar cambios parciales, enviá una sola corrección por mensaje. Por ejemplo: "medio de pago en A". Escribí cancelar para salir.`,
 
   onboardingComplete: () =>
     '¡Todo listo! Ya podés empezar a registrar gastos. Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
@@ -249,17 +253,17 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
 
   categoryNotFoundForRename: (from: string, categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');
-    return `No encontré la categoría "${from}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés cambiar.`;
+    return `No encontré la categoría "${from}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés cambiar. Escribí cancelar para salir.`;
   },
 
   categoryNotFoundForRemoval: (name: string, categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');
-    return `No encontré la categoría "${name}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés quitar.`;
+    return `No encontré la categoría "${name}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés quitar. Escribí cancelar para salir.`;
   },
 
   categoryUpdateError: (_errorMessage: string, categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');
-    return `No pude actualizar la categoría. Las categorías actuales son:\n${list}\n\n¿Están bien? Respondé *sí* o intentá de nuevo.`;
+    return `No pude actualizar la categoría. Las categorías actuales son:\n${list}\n\n¿Están bien? Respondé *sí* o intentá de nuevo. Escribí cancelar para salir.`;
   },
 
   hierarchyUpdatedPrompt: (state: {
@@ -272,33 +276,33 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     categories: CategoryOnboardingCategory[];
     orphanSubcategories: string[];
   }) =>
-    `No entendí el cambio. Indicá siempre la categoría padre de una subcategoría. Por ejemplo: "agregar Peajes a Transporte".\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    `No entendí el cambio. Indicá siempre la categoría padre de una subcategoría. Por ejemplo: "agregar Peajes a Transporte".\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)} Escribí cancelar para salir.`,
 
   hierarchyParentNotFound: (
     parent: string,
     state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
   ) =>
-    `No encontré la categoría padre "${parent}". Podés elegir una de estas categorías:\n${formatCategoryNames(state.categories)}\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    `No encontré la categoría padre "${parent}". Podés elegir una de estas categorías:\n${formatCategoryNames(state.categories)}\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)} Escribí cancelar para salir.`,
 
   hierarchyParentAmbiguous: (
     parent: string,
     candidates: string[],
     state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
   ) =>
-    `La categoría padre "${parent}" es ambigua. Coincide con:\n${candidates.map((candidate) => `• ${candidate}`).join('\n')}\n\nElegí un nombre de categoría padre inequívoco.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    `La categoría padre "${parent}" es ambigua. Coincide con:\n${candidates.map((candidate) => `• ${candidate}`).join('\n')}\n\nElegí un nombre de categoría padre inequívoco.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)} Escribí cancelar para salir.`,
 
   hierarchyChildNotFound: (
     child: string,
     parent: string,
     state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
   ) =>
-    `No encontré la subcategoría "${child}" dentro de "${parent}". Revisá el nombre y la categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    `No encontré la subcategoría "${child}" dentro de "${parent}". Revisá el nombre y la categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)} Escribí cancelar para salir.`,
 
   hierarchyDuplicateOrCollision: (
     _errorMessage: string,
     state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
   ) =>
-    `No pude aplicar el cambio porque generaría un nombre duplicado o una colisión en esa categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    `No pude aplicar el cambio porque generaría un nombre duplicado o una colisión en esa categoría padre. Probá con un nombre diferente.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)} Escribí cancelar para salir.`,
 
   mappingResumePrompt: (
     mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
@@ -308,7 +312,7 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
         `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
     );
     return `Encontré una corrección en progreso:
-${lines.join('\n')}\n\n¿Querés continuar desde donde la dejaste? Respondé *sí* para continuar o *no* para empezar de nuevo.`;
+${lines.join('\n')}\n\n¿Querés continuar desde donde la dejaste? Respondé *sí* para continuar o *no* para empezar de nuevo. Escribí cancelar para salir.`;
   },
 };
 

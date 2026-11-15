@@ -14,7 +14,7 @@ describe('expenseCopies', () => {
       expect(expenseCopies.saveStructureFailure()).toContain('reconfigurar');
       expect(expenseCopies.saveRetryExpired()).toContain('venció');
       expect(expenseCopies.saveRetryRecoveryChoice()).toBe(
-        'Respondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla.',
+        'Respondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla. Escribí cancelar para salir; verificá tu planilla antes de registrar el gasto nuevamente.',
       );
     });
 
@@ -191,13 +191,13 @@ describe('expenseCopies', () => {
     it('returns the default question when no options are provided', () => {
       const result = expenseCopies.clarificationReformulation([]);
 
-      expect(result).toBe('¿En qué moneda fue ese gasto?');
+      expect(result).toBe('¿En qué moneda fue ese gasto? Escribí cancelar para salir.');
     });
 
     it('returns a single-option question', () => {
       const result = expenseCopies.clarificationReformulation(['pesos argentinos (ARS)']);
 
-      expect(result).toBe('¿El gasto fue en pesos argentinos (ARS)?');
+      expect(result).toBe('¿El gasto fue en pesos argentinos (ARS)? Escribí cancelar para salir.');
     });
 
     it('returns a two-option question joined by "o"', () => {
@@ -206,7 +206,9 @@ describe('expenseCopies', () => {
         'euros (EUR)',
       ]);
 
-      expect(result).toBe('¿El gasto fue en pesos argentinos (ARS) o euros (EUR)?');
+      expect(result).toBe(
+        '¿El gasto fue en pesos argentinos (ARS) o euros (EUR)? Escribí cancelar para salir.',
+      );
     });
 
     it('returns a multi-option question with comma-separated preceding options', () => {
@@ -216,7 +218,9 @@ describe('expenseCopies', () => {
         'dólares (USD)',
       ]);
 
-      expect(result).toBe('¿El gasto fue en pesos argentinos (ARS), euros (EUR) o dólares (USD)?');
+      expect(result).toBe(
+        '¿El gasto fue en pesos argentinos (ARS), euros (EUR) o dólares (USD)? Escribí cancelar para salir.',
+      );
     });
   });
 });
