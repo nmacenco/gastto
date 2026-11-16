@@ -67,15 +67,31 @@ export const onboardingCopies = {
       action: 'Enviá reintentar para volver a consultar.',
       exit: CANCEL_EXIT_HINT,
     }),
-  cancelledMessage: () => 'Conexión cancelada. Escribí *empezar* cuando quieras intentar de nuevo.',
+  cancelledMessage: () =>
+    composeMessage({
+      explanation: 'Conexión cancelada.',
+      action: 'Escribí *empezar* cuando quieras intentar de nuevo.',
+    }),
   flowCancelled: (configured: boolean) =>
     configured
-      ? 'Configuración cancelada. Tu planilla anterior sigue activa. Escribí *configuración* para verla o cambiarla.'
-      : 'Configuración cancelada. Escribí *empezar* cuando quieras elegir una planilla de nuevo.',
+      ? composeMessage({
+          explanation: 'Configuración cancelada. Tu planilla anterior sigue activa.',
+          action: 'Escribí *configuración* para verla o cambiarla.',
+        })
+      : composeMessage({
+          explanation: 'Configuración cancelada.',
+          action: 'Escribí *empezar* cuando quieras elegir una planilla de nuevo.',
+        }),
   setupRequired: () =>
-    'Tu planilla todavía no está configurada. Escribí *empezar* para continuar con la configuración.',
+    composeMessage({
+      explanation: 'Tu planilla todavía no está configurada.',
+      action: 'Escribí *empezar* para continuar con la configuración.',
+    }),
   alreadyConfigured: () =>
-    'Tu planilla ya está configurada. Escribí *configuración* para verla o cambiarla.',
+    composeMessage({
+      explanation: 'Tu planilla ya está configurada.',
+      action: 'Escribí *configuración* para verla o cambiarla.',
+    }),
   waitForAuthPrompt: () =>
     composeMessage({ action: 'Completá la autorización en tu navegador.', exit: CANCEL_EXIT_HINT }),
   reminderMessage: (url: string) =>
@@ -109,11 +125,20 @@ export const onboardingCopies = {
           exit: CANCEL_EXIT_HINT,
         }),
   ambiguousFileReference: () =>
-    'Encontré más de una opción con esa referencia. Elegí el número exacto de la lista.',
+    composeMessage({
+      explanation: 'Encontré más de una opción con esa referencia.',
+      action: 'Elegí el número exacto de la lista.',
+    }),
   fileReferenceNotFound: () =>
-    'No encontré esa opción en la lista actual. Elegí el número exacto de la lista.',
+    composeMessage({
+      explanation: 'No encontré esa opción en la lista actual.',
+      action: 'Elegí el número exacto de la lista.',
+    }),
   staleFileReference: () =>
-    'La lista de archivos cambió. Revisá la lista actual y elegí nuevamente.',
+    composeMessage({
+      explanation: 'La lista de archivos cambió.',
+      action: 'Revisá la lista actual y elegí nuevamente.',
+    }),
   searchByNamePrompt: () =>
     composeMessage({
       action:
@@ -173,10 +198,20 @@ export const onboardingCopies = {
     });
   },
   ambiguousSheetReference: () =>
-    'Encontré más de una hoja con esa referencia. Elegí el número exacto de la lista.',
+    composeMessage({
+      explanation: 'Encontré más de una hoja con esa referencia.',
+      action: 'Elegí el número exacto de la lista.',
+    }),
   sheetReferenceNotFound: () =>
-    'No encontré esa hoja en la lista actual. Elegí el número exacto de la lista.',
-  staleSheetReference: () => 'La lista de hojas cambió. Revisá la lista actual y elegí nuevamente.',
+    composeMessage({
+      explanation: 'No encontré esa hoja en la lista actual.',
+      action: 'Elegí el número exacto de la lista.',
+    }),
+  staleSheetReference: () =>
+    composeMessage({
+      explanation: 'La lista de hojas cambió.',
+      action: 'Revisá la lista actual y elegí nuevamente.',
+    }),
   sheetHeadersDescription: (sheetName: string, headers: string[]) =>
     `Hoja *${sheetName}*: tiene las columnas ${headers.join(', ')}`,
   sheetHeaderDescription: (descriptions: { sheetName: string; headers: string[] }[]) =>
@@ -372,7 +407,10 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
       exit: CANCEL_EXIT_HINT,
     }),
   onboardingComplete: () =>
-    '¡Todo listo! Ya podés empezar a registrar gastos. Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
+    composeMessage({
+      explanation: '¡Todo listo! Ya podés empezar a registrar gastos.',
+      action: 'Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
+    }),
 
   categoryUpdatedPrompt: (categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');

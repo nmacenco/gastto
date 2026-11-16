@@ -136,20 +136,20 @@ The second example intentionally has no optional exit footer: cancellation is al
 
 **Contracts:** Complete remaining chat-copy layout changes and final formatting acceptance coverage. Document the implemented scope and intentional exceptions.
 
-- [ ] Audit user-facing text in copies, use cases, services, worker responses, and presenters for remaining concatenated instructions and old optional-exit literals. Use semantic inspection as well as literal searches; distinguish mandatory restart steps from optional footers.
-- [ ] Migrate remaining in-scope messages and record intentional exceptions such as single-line acknowledgements, already structured summaries, and required cancellation steps. Exclude logs, provider prompts, and unrelated HTML/email content from blanket rewrites.
-- [ ] Review a representative set spanning success, invalid input, retryable failure, permanent failure, lists, settings restart, and financially protected outcomes. Confirm one intention per paragraph and no redundant footer.
-- [ ] Verify plain text paragraph/list preservation through the active Telegram and WhatsApp delivery paths. Preserve existing fragmentation and delivery behavior; new blank lines may affect length boundaries, so check representative long messages without adding extra sends per block.
-- [ ] Add delivery-level assertions only where existing coverage does not establish newline preservation or long-message behavior. Avoid snapshots for every string and tests that merely repeat the composer implementation.
-- [ ] Reconcile the formatting feature document and affected feature docs with actual behavior; update `docs/features/README.md`. Add an ADR only if implementation introduces an architectural decision beyond the agreed formatting utility, and update the ADR index if one is added.
-- [ ] Run `pnpm test`, the required integration checks for affected flows under the repository's documented setup, and formatting checks for changed files. Fix regressions without weakening cancellation or financial-effect assertions.
-- [ ] Record validation results, migrated scope, and any unresolved limitations in this plan. Mark implementation tasks complete only after their checks pass.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Audit user-facing text in copies, use cases, services, worker responses, and presenters for remaining concatenated instructions and old optional-exit literals. Use semantic inspection as well as literal searches; distinguish mandatory restart steps from optional footers.
+- [x] Migrate remaining in-scope messages and record intentional exceptions such as single-line acknowledgements, already structured summaries, and required cancellation steps. Exclude logs, provider prompts, and unrelated HTML/email content from blanket rewrites.
+- [x] Review a representative set spanning success, invalid input, retryable failure, permanent failure, lists, settings restart, and financially protected outcomes. Confirm one intention per paragraph and no redundant footer.
+- [x] Verify plain text paragraph/list preservation through the active Telegram and WhatsApp delivery paths. Preserve existing fragmentation and delivery behavior; new blank lines may affect length boundaries, so check representative long messages without adding extra sends per block.
+- [x] Add delivery-level assertions only where existing coverage does not establish newline preservation or long-message behavior. Avoid snapshots for every string and tests that merely repeat the composer implementation.
+- [x] Reconcile the formatting feature document and affected feature docs with actual behavior; update `docs/features/README.md`. Add an ADR only if implementation introduces an architectural decision beyond the agreed formatting utility, and update the ADR index if one is added.
+- [x] Run `pnpm test`, the required integration checks for affected flows under the repository's documented setup, and formatting checks for changed files. Fix regressions without weakening cancellation or financial-effect assertions.
+- [x] Record validation results, migrated scope, and any unresolved limitations in this plan. Mark implementation tasks complete only after their checks pass.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Review Phase 3 and decide whether to commit it or proceed with Phase 4: cross-flow consistency and delivery verification.
+All four phases are complete; review the final changes and decide whether to commit them.
 
 ## Phase 1 validation (2026-11-16)
 
@@ -182,3 +182,17 @@ Review Phase 3 and decide whether to commit it or proceed with Phase 4: cross-fl
 - Final full suite (`pnpm test --maxWorkers=2`): 202 files passed, 10 skipped; 2,794 tests passed, 50 skipped. Optional integration suites were not enabled.
 - Focused recovery/copies/semantic-input/worker/presenter verification: six files and 350 tests passed. An outdated queue-reminder expectation found by the earlier full run was corrected before the successful final run.
 - Updated affected feature documentation and the feature index. No commit created by this execution. Phase 4 remains pending.
+
+## Phase 4 validation and completion (2026-11-16)
+
+- Audited user-facing copies and literal call sites in application use cases/services, worker responses, and Telegram presenters/delivery. Graph coverage reported no recorded gaps for the inspected scopes; source and literal inspection were used for the message inventory. This is a bounded source review, not a claim about future or external channel implementations.
+- Migrated residual access/approval, exit/restart, stale-selection, queue-full, welcome, unsupported-message, and contention instructions. Telegram welcome delivery now reuses `sharedCopies.welcome`.
+- The remaining exact old cancellation literals are mandatory numbered exit/restart steps, not optional footers. Short acknowledgements, automatic transition notices and already structured summaries are intentional exceptions. Logs, provider prompts, and unrelated email content were excluded.
+- Reviewed representative success, invalid-input, retryable/permanent failure, selection lists, settings restart, and financially blocked output against the composer/copy/worker/presenter tests. Preserved commands, field order, nested indentation, and financial guards.
+- Added Telegram transport assertions for paragraph/list/URL preservation, one send for short multi-paragraph messages, keyboard bindings, and exact reconstruction of long messages.
+- Boundary tests first reproduced three failures: paragraph separators at offsets 4,095/4,096 and a sentence separator at 4,095 could exceed the 4,096-character fragment limit. The splitter now reserves both separator characters before choosing a boundary. All 22 adapter tests passed after the fix.
+- Delivery limitation: `registerWorkers` currently maps the WhatsApp key to the Telegram adapter as a placeholder. Native WhatsApp sending/rendering is not implemented and was not added or claimed as validated. Existing inline-keyboard messages retain single-request delivery; this plan does not add keyboard-message fragmentation.
+- Final `pnpm run lint` and `pnpm run typecheck` passed; the existing package module-type warning remains informational. Prettier passed for all `src/**/*.ts`; `git diff --check` passed.
+- Final `RUN_POSTGRES_INTEGRATION=true pnpm test --maxWorkers=2`: **212 files and 2,850 tests passed, zero skipped**, including PostgreSQL integration suites in test containers.
+- Reconciled canonical feature documentation and README indexes. No new architectural decision was needed. This plan has no associated user-story task file to update.
+- All implementation phases are complete. No commit was created by this execution. The final review/commit choice is presented to the user; there is no next implementation phase.

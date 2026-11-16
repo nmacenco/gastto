@@ -374,3 +374,7 @@ Invalid provider replies include the accepted numbered provider choices and an e
 ## Setup message formatting (2026-11-16)
 
 OAuth chat instructions separate context, authorization links, and optional exit guidance. Authorization URLs remain unchanged. The callback HTML escapes the complete failure text before rendering its newlines as `<br>` elements; plain chat text contains no HTML. Retry eligibility and nonce/state guards remain unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+Cancellation and already/incompletely configured notices separate their outcome from the command to restart or open settings. Short connection confirmations remain concise. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

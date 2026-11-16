@@ -4,7 +4,7 @@
 
 File and sheet selection and spreadsheet recovery messages use explicit paragraphs to separate explanations, actions, and optional cancellation. This applies to onboarding copies, settings destination selection, and shared spreadsheet recovery copies. Existing short confirmations remain concise.
 
-Onboarding and settings recovery, OAuth guidance, mapping corrections, category errors, payment setup, and access replacement messages also follow the convention. Existing structured summaries and short acknowledgements retain their layout. Expense clarification, correction, review, retry, undo, and current-state recovery messages now follow the convention. The final cross-flow audit remains pending under phase 4 of the [readability plan](../../ai/plans/2026_11_15-readable_conversation_messages/2026_11_15-readable_conversation_messages-plan.md).
+Onboarding and settings recovery, OAuth guidance, mapping corrections, category errors, payment setup, and access replacement messages also follow the convention. Existing structured summaries and short acknowledgements retain their layout. Expense clarification, correction, review, retry, undo, and current-state recovery messages now follow the convention. Residual access, exit/restart, stale-selection, shared welcome, and contention guidance were reconciled in phase 4 of the [readability plan](../../ai/plans/2026_11_15-readable_conversation_messages/2026_11_15-readable_conversation_messages-plan.md).
 
 ## Composition contract
 
@@ -59,3 +59,16 @@ Setup-formatting tests assert full menus, column lists, nested categories, payme
 `recoveryGuidance(blocks: MessageBlocks, context: RecoveryContext): string` formats explicit blocks. It does not inspect prose for cancellation words. Cancellable context renders a supplied exit once or supplies the standard exit when omitted; `exit: ''` explicitly suppresses an optional footer. Idle and unknown contexts remove the optional exit. Financially blocked context ignores every supplied block and renders only administrator guidance. Callers must supply unrendered blocks with the exit separate from the action.
 
 `expenseGuidanceBlocks` shares clarification, correction, retry, review, and fallback content between direct replies and worker recovery. The worker resolves eligibility from the effective state after a handler or semantic dispatch completes. Tests cover no duplicate footer, explicit suppression, failed reads, return to `IDLE`, unresolved financial claims, complete expense messages, and unchanged review buttons.
+
+## Audit scope and intentional exceptions
+
+The final review covered application copies, user-facing literals in use cases/services and the message worker, plus the Telegram summary presenter and messenger. Literal searches were combined with consumer inspection; logs, provider prompts and unrelated email/HTML content were excluded.
+
+- Short acknowledgements, success/cancellation notices, and automatic next-step notices may remain one line when no separate user action is requested.
+- Existing mapping/category/expense summaries retain their ordered fields, nested lists and existing paragraph boundaries.
+- Required exit/restart sequences retain `cancelar para salir` as a numbered action, without the optional footer.
+- Queue-full guidance still asks users to finish or cancel the current expense before adding another; it is a prerequisite instruction, not an optional exit footer.
+- Initial admission and unknown/idle recovery do not gain cancellation options. Financially blocked recovery remains administrator-only.
+- Copy language and command spellings are preserved; this change does not localize existing English copy.
+
+Telegram JSON delivery preserves line breaks for plain messages and keyboard summaries. Long plain text is reconstructed exactly from fragments no longer than 4,096 characters, including paragraph delimiters near the limit. See [send responses](./send-responses-to-user.md). WhatsApp delivery remains unimplemented: the current worker maps its channel key to the Telegram adapter as a placeholder, so native WhatsApp rendering cannot be verified.

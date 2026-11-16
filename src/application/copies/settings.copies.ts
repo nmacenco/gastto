@@ -142,7 +142,10 @@ export const settingsCopies = {
   choose: () => composeMessage({ action: 'Elegí una opción del 1 al 7.', exit: CANCEL_EXIT_HINT }),
   cancelled: () => 'Saliste de configuración.',
   expired: () =>
-    'La configuración expiró por inactividad. Escribí configuración para abrirla de nuevo.',
+    composeMessage({
+      explanation: 'La configuración expiró por inactividad.',
+      action: 'Escribí configuración para abrirla de nuevo.',
+    }),
   finishExpense: () => 'Terminá o cancelá el gasto actual antes de abrir configuración.',
   finishOnboarding: () =>
     'Terminá o cancelá la configuración inicial antes de abrir configuración.',

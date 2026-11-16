@@ -53,3 +53,7 @@ Paragraphs and cancellation guidance now cover [cloud connection](./cloud-storag
 ## Expense readability update (2026-11-16)
 
 Formatting and explicit cancellation ownership now cover [clarification](./clarification-request.md), [correction](./expense-correction.md), [review](./expense-summary-review.md), [confirmation/retry](./expense-confirmation.md), [cancellation](./expense-cancellation.md), [undo](./undo-last-expense.md), [payments](./payment-methods.md), and [worker recovery](./incoming-message-routing.md). See [conversational message formatting](./conversational-message-formatting.md) for the block contract.
+
+## Readability completion (2026-11-16)
+
+The [formatting convention](./conversational-message-formatting.md) now documents the final audit and intentional exceptions. [Delivery](./send-responses-to-user.md) covers newline preservation, bounded Telegram fragments, and the WhatsApp placeholder limitation. Residual guidance is documented in [file selection](./select-spreadsheet-file.md), [sheet selection](./select-sheet.md), [cloud connection](./cloud-storage-connection.md), [settings](./chat-spreadsheet-settings.md), [access approval](./telegram-access-approval.md), [routing](./incoming-message-routing.md), and [expense review](./expense-summary-review.md).

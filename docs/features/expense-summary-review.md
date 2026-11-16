@@ -147,3 +147,7 @@ Shared semantic feedback reloads the persisted state before choosing recovery in
 ## Expense message formatting (2026-11-16)
 
 Review summaries preserve field ordering, amounts, dates, hierarchy markers, payment labels, and callback bindings. Confirmation/correction instructions and the optional cancellation footer occupy separate paragraphs. High-amount warnings stay separate, and the final cancellation footer appears only once. Unresolved-payment guidance lists the accepted commands and still omits the Confirmar button. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+Queue-full guidance separates the queue limit from the instruction to finish or cancel the active expense. Queue size, callback eligibility and ordering remain unchanged. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

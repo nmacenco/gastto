@@ -55,3 +55,7 @@ Replacement email validation and persistence failures keep the settings screen o
 ## Setup message formatting (2026-11-16)
 
 Initial admission validation/persistence errors use explanation/action paragraphs without offering cancellation. Replacement-email errors and pending OAuth continuation retain supported cancellation with the exact footer `Escribí cancelar si quieres salir.` in its own paragraph. Mandatory exit/continuation sequences use numbered steps. Email replacement and authorization guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+Approval notifications, pending-replacement guidance, and temporary unavailability separate their status from continuation instructions; initial admission still does not offer cancellation. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

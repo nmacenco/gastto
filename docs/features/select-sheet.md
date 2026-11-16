@@ -333,3 +333,7 @@ Initial and recovery listing and header-description failures use application-own
 ## Message readability
 
 File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.
+
+## Final readability audit (2026-11-16)
+
+Stale, ambiguous, and unavailable sheet references separate their explanation from the next selection instruction. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

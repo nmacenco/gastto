@@ -70,7 +70,7 @@ describe('expenseCopies', () => {
       const copy = expenseCopies.expenseQueueFull();
 
       expect(copy).toBe(
-        'Ya tenés 3 gastos en curso. Confirmá o cancelá el actual antes de agregar otro.',
+        'Ya tenés 3 gastos en curso.\n\nConfirmá o cancelá el actual antes de agregar otro.',
       );
       expect(copy).not.toContain('You already have');
     });

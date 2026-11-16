@@ -43,8 +43,16 @@ export const accessCopies = {
   pending: () => 'Recibimos tu solicitud. Te avisaremos por Telegram cuando esté autorizada.',
   pendingAgain: () =>
     'Tu solicitud sigue pendiente. Te avisaremos por Telegram cuando esté autorizada.',
-  approved: () => 'Tu cuenta ya está autorizada. Escribí continuar para conectar Google.',
-  approvedNotice: () => 'Tu acceso fue aprobado. Escribí continuar para conectar Google.',
+  approved: () =>
+    composeMessage({
+      explanation: 'Tu cuenta ya está autorizada.',
+      action: 'Escribí continuar para conectar Google.',
+    }),
+  approvedNotice: () =>
+    composeMessage({
+      explanation: 'Tu acceso fue aprobado.',
+      action: 'Escribí continuar para conectar Google.',
+    }),
   replacementApprovedNotice: () =>
     composeMessage({
       explanation: 'El nuevo email fue aprobado.',
@@ -64,7 +72,10 @@ export const accessCopies = {
       exit: CANCEL_EXIT_HINT,
     }),
   replacementPending: () =>
-    'El cambio de email está pendiente. Si querés corregirlo, escribí el nuevo email en configuración.',
+    composeMessage({
+      explanation: 'El cambio de email está pendiente.',
+      action: 'Si querés corregirlo, escribí el nuevo email en configuración.',
+    }),
   continue: () => 'Escribí continuar para conectar Google.',
   pendingOAuth: () =>
     composeMessage({
@@ -78,5 +89,8 @@ export const accessCopies = {
       action: '1. Escribí cancelar para salir.\n2. Escribí continuar para conectar Google.',
     }),
   oauthUnavailable: () =>
-    'La conexión con Google no está disponible en este momento. Intentá más tarde.',
+    composeMessage({
+      explanation: 'La conexión con Google no está disponible en este momento.',
+      action: 'Intentá más tarde.',
+    }),
 };

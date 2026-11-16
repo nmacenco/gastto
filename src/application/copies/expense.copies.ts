@@ -135,7 +135,10 @@ export const expenseCopies = {
   cancelled: () => 'Registro cancelado. No se guardó nada.',
   noActiveExpenseToCancel: () => 'No hay ningún registro pendiente para cancelar.',
   expenseQueueFull: () =>
-    'Ya tenés 3 gastos en curso. Confirmá o cancelá el actual antes de agregar otro.',
+    composeMessage({
+      explanation: 'Ya tenés 3 gastos en curso.',
+      action: 'Confirmá o cancelá el actual antes de agregar otro.',
+    }),
   expenseQueueNotice: (pendingCount: 1 | 2) =>
     `Tenés ${pendingCount} gasto${pendingCount === 1 ? '' : 's'} pendiente${pendingCount === 1 ? '' : 's'}. Vamos con el siguiente:`,
   expenseQueueNonFinancialReminder: (pendingCount: number) =>

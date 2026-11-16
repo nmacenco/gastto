@@ -248,3 +248,7 @@ Google discovery and search return only native `application/vnd.google-apps.spre
 ## Message readability
 
 File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.
+
+## Final readability audit (2026-11-16)
+
+Stale, ambiguous, and unavailable file references separate their explanation from the instruction to choose a current list item. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

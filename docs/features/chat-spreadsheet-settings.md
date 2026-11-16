@@ -50,3 +50,7 @@ File/sheet selection and recovery messages separate explanations, actions, and o
 ## Setup message formatting (2026-11-16)
 
 The menu preserves options 1–7 and separates the number prompt from cancellation. OAuth links, mapping/category review instructions, payment examples, and draft warnings use explicit paragraphs. The exact optional exit is `Escribí cancelar si quieres salir.`. Mandatory exit/reopen sequences use numbered steps; no extra optional exit is appended. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+The expiry notice separates its outcome from the `configuración` command. No cancellation is advertised after the flow has expired. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.
