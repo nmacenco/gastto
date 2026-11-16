@@ -329,3 +329,7 @@ interface ISpreadsheetConfigRepository {
 ## Recovery guidance (2026-11-15)
 
 Initial and recovery listing and header-description failures use application-owned messages, never raw provider text. Retryable errors offer `reintentar` for listing, `otra hoja` for empty-sheet recovery, or `no sé` for header descriptions. Permanent/unknown failures and empty lists offer `cancelar`, then `empezar` to choose another file. OAuth authorization failures retain refresh/reconnection behavior. No new back-navigation transition is introduced.
+
+## Message readability
+
+File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.

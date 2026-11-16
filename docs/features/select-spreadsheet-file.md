@@ -244,3 +244,7 @@ class CloudFile {
 ## Recovery guidance (2026-11-15)
 
 Google discovery and search return only native `application/vnd.google-apps.spreadsheet` files. Every selection, including historical displayed references and direct URLs, validates `id,mimeType` before listing sheets. `validateFileAccess` returns `accessible`, `inaccessible`, or `unsupported-type`; malformed metadata and provider failures remain typed errors. XLSX/ODS users must save a native Google spreadsheet themselves and select its new link. Rejection retains file selection, offers cancellation, and performs no Sheets call or configuration activation.
+
+## Message readability
+
+File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.

@@ -305,7 +305,9 @@ describe('onboardingCopies', () => {
     it('handles empty sheet list', () => {
       const result = onboardingCopies.sheetNotFoundRePrompt([]);
 
-      expect(result).toContain('cancelar para salir y después empezar');
+      expect(result).toBe(
+        'No pude acceder a ese archivo en Google Drive.\n\nVerificá los permisos. Para elegir otro archivo:\n1. Escribí cancelar para salir de la configuración actual.\n2. Escribí empezar.',
+      );
     });
   });
 

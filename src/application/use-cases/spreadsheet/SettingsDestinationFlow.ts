@@ -121,7 +121,7 @@ export class SettingsDestinationFlow {
       files: files.map(({ id, name }) => ({ id, name })),
     };
     await this.move(state, 'SETTINGS_FILE', next);
-    await this.deps.messaging.sendMessage(externalId, this.filePrompt(next.files ?? []));
+    await this.deps.messaging.sendMessage(externalId, settingsCopies.filePrompt(next.files ?? []));
   }
 
   async startFile(state: ConversationState, externalId: string): Promise<void> {
@@ -141,7 +141,10 @@ export class SettingsDestinationFlow {
       files: files.map(({ id, name }) => ({ id, name })),
     };
     await this.move(state, 'SETTINGS_FILE', payload);
-    await this.deps.messaging.sendMessage(externalId, this.filePrompt(payload.files ?? []));
+    await this.deps.messaging.sendMessage(
+      externalId,
+      settingsCopies.filePrompt(payload.files ?? []),
+    );
   }
 
   async startSheet(state: ConversationState, externalId: string): Promise<void> {
@@ -165,7 +168,7 @@ export class SettingsDestinationFlow {
       sheets: sheets.map(({ name, index }) => ({ name, index })),
     };
     await this.move(state, 'SETTINGS_SHEET', payload);
-    await this.deps.messaging.sendMessage(externalId, this.sheetPrompt(sheets));
+    await this.deps.messaging.sendMessage(externalId, settingsCopies.sheetPrompt(sheets));
   }
 
   async reply(state: ConversationState, rawMessage: string, externalId: string): Promise<void> {
@@ -217,7 +220,10 @@ export class SettingsDestinationFlow {
       const next: Payload = { ...payload, files: files.map(({ id, name }) => ({ id, name })) };
       delete next.step;
       await this.move(state, 'SETTINGS_FILE', next);
-      await this.deps.messaging.sendMessage(externalId, this.filePrompt(next.files ?? []));
+      await this.deps.messaging.sendMessage(
+        externalId,
+        settingsCopies.filePrompt(next.files ?? []),
+      );
       return;
     }
     if (normalize(trimmed) === 'buscar') {
@@ -236,7 +242,10 @@ export class SettingsDestinationFlow {
           })
         : null);
     if (!selected) {
-      await this.deps.messaging.sendMessage(externalId, this.filePrompt(payload.files ?? []));
+      await this.deps.messaging.sendMessage(
+        externalId,
+        settingsCopies.filePrompt(payload.files ?? []),
+      );
       return;
     }
     const token = await this.token(state.userId, true, payload.accountChangeRequestId);
@@ -250,7 +259,7 @@ export class SettingsDestinationFlow {
         externalId,
         validation.kind === 'unsupported-type'
           ? spreadsheetRecoveryCopies.unsupportedFormat()
-          : 'No tenés acceso a esa planilla. Elegí otra. Escribí cancelar para salir.',
+          : settingsCopies.fileAccessFailed(),
       );
       return;
     }
@@ -271,7 +280,7 @@ export class SettingsDestinationFlow {
       sheets: sheets.map(({ name, index: sheetIndex }) => ({ name, index: sheetIndex })),
     };
     await this.move(state, 'SETTINGS_SHEET', next);
-    await this.deps.messaging.sendMessage(externalId, this.sheetPrompt(sheets));
+    await this.deps.messaging.sendMessage(externalId, settingsCopies.sheetPrompt(sheets));
   }
 
   private async selectSheet(
@@ -284,7 +293,7 @@ export class SettingsDestinationFlow {
     const index = Number(reply.trim());
     const sheet = Number.isInteger(index) ? sheets[index - 1] : undefined;
     if (!sheet) {
-      await this.deps.messaging.sendMessage(externalId, this.sheetPrompt(sheets));
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.sheetPrompt(sheets));
       return;
     }
     const token = await this.token(state.userId, false, payload.accountChangeRequestId);
@@ -292,10 +301,7 @@ export class SettingsDestinationFlow {
       .create('google', token)
       .validateSpreadsheetAccess(payload.fileId, sheet.name);
     if (result.kind !== 'success' || !result.preview.rows.length) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'No pudimos confirmar lectura y escritura de esa hoja. Elegí otra hoja o escribí cancelar.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.sheetAccessFailed());
       return;
     }
     const next: Payload = {
@@ -701,14 +707,6 @@ export class SettingsDestinationFlow {
       expiresAt: targetState === 'IDLE' ? null : new Date(Date.now() + timeoutMs),
       expected: this.deps.transitionState.precondition(state, 'unexpired'),
     });
-  }
-
-  private sheetPrompt(sheets: ReadonlyArray<{ name: string }>): string {
-    return `Elegí una hoja:\n${sheets.map((sheet, index) => `${index + 1}. ${sheet.name}`).join('\n')}\nEscribí el número o cancelar.`;
-  }
-
-  private filePrompt(files: ReadonlyArray<{ name: string }>): string {
-    return `Elegí una planilla:\n${files.length ? files.map((file, index) => `${index + 1}. ${file.name}`).join('\n') : 'No encontramos planillas recientes.'}\nEscribí el número, buscar, buscar seguido del nombre, un enlace de Google Sheets o cancelar.`;
   }
 
   private mappingPrompt(mappings: Mapping[]): string {

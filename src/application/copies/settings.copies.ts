@@ -1,3 +1,4 @@
+import { CANCEL_EXIT_HINT, composeMessage } from './compose-message';
 import type { SettingsSummary } from '../use-cases/spreadsheet/GetSpreadsheetSettings';
 
 const credentialLabels = {
@@ -7,14 +8,57 @@ const credentialLabels = {
 } as const;
 
 export const settingsCopies = {
+  filePrompt: (files: ReadonlyArray<{ name: string }>) =>
+    composeMessage({
+      explanation: files.length
+        ? `Elegí una planilla:\n${files.map((file, index) => `${index + 1}. ${file.name}`).join('\n')}`
+        : 'No encontramos planillas recientes.',
+      action: 'Escribí el número, buscar, buscar seguido del nombre o un enlace de Google Sheets.',
+      exit: CANCEL_EXIT_HINT,
+    }),
+  sheetPrompt: (sheets: ReadonlyArray<{ name: string }>) =>
+    composeMessage({
+      explanation: `Elegí una hoja:\n${sheets.map((sheet, index) => `${index + 1}. ${sheet.name}`).join('\n')}`,
+      action: 'Escribí el número.',
+      exit: CANCEL_EXIT_HINT,
+    }),
+  fileAccessFailed: () =>
+    composeMessage({
+      explanation: 'No tenés acceso a esa planilla.',
+      action: 'Elegí otra.',
+      exit: CANCEL_EXIT_HINT,
+    }),
+  sheetAccessFailed: () =>
+    composeMessage({
+      explanation: 'No pudimos confirmar lectura y escritura de esa hoja.',
+      action: 'Elegí otra hoja.',
+      exit: CANCEL_EXIT_HINT,
+    }),
+
   searchTooShort: () =>
-    'Escribí al menos dos letras para buscar una planilla. Escribí cancelar para salir.',
+    composeMessage({
+      explanation: '',
+      action: 'Escribí al menos dos letras para buscar una planilla.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   searchName: () =>
-    'Escribí el nombre de la planilla que querés buscar. Escribí cancelar para salir.',
+    composeMessage({
+      explanation: '',
+      action: 'Escribí el nombre de la planilla que querés buscar.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   emptyCandidate: () =>
-    'La planilla no tiene hojas disponibles. Elegí otro número o pegá otro enlace. Escribí cancelar para salir.',
+    composeMessage({
+      explanation: 'La planilla no tiene hojas disponibles.',
+      action: 'Elegí otro número o pegá otro enlace.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   emptyCurrent: () =>
-    'No encontramos hojas en la planilla actual. Elegí 3 para cambiar de archivo. Escribí cancelar para salir.',
+    composeMessage({
+      explanation: 'No encontramos hojas en la planilla actual.',
+      action: 'Elegí 3 para cambiar de archivo.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   columnPositions: () =>
     'Respondé sí o no sobre las posiciones de las columnas. Escribí cancelar para salir.',
   headersUnavailable: () =>

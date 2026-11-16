@@ -533,7 +533,9 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toContain('después empezar');
+      expect(result.message).toBe(
+        'No pude leer las hojas o su estructura.\n\nRevisá el archivo en Google Sheets. Para elegir otro archivo:\n1. Escribí cancelar para salir de la configuración actual.\n2. Escribí empezar.',
+      );
     });
 
     it('returns error message on SpreadsheetError during getHeaders', async () => {
@@ -564,7 +566,9 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toContain('después empezar');
+      expect(result.message).toBe(
+        'No pude leer las hojas o su estructura.\n\nRevisá el archivo en Google Sheets. Para elegir otro archivo:\n1. Escribí cancelar para salir de la configuración actual.\n2. Escribí empezar.',
+      );
     });
 
     it('returns file access failed when fileId is missing from statePayload', async () => {

@@ -42,3 +42,7 @@ Let a user inspect the stored Google or Microsoft connection and current spreads
 ## Recovery guidance (2026-11-15)
 
 File choices are revalidated as native Google spreadsheets before reading sheets. Unsupported formats retain the candidate and active destination. Settings read errors offer repetition only for retryable failures; permanent errors use `cancelar`, `configuración`, option `3`. Mapping recovery commits the return to sheet selection before sending its instructions. Invalid mapping replies, missing headers, payment detection failures, empty category drafts and invalid replacement emails explain a valid continuation and cancellation. Candidate activation and credential promotion keep their existing revision guards.
+
+## Message readability
+
+File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.

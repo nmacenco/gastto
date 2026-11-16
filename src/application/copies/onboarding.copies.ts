@@ -1,3 +1,5 @@
+import { CANCEL_EXIT_HINT, composeMessage } from './compose-message';
+import { spreadsheetRecoveryCopies } from './spreadsheet-recovery.copies';
 import type { CloudFile } from '../../domain/entities/CloudFile';
 import type { SheetInfo } from '../../domain/entities/SheetInfo';
 import type { ColumnInferenceMapping } from '../../domain/ports/columnInference';
@@ -25,11 +27,22 @@ export const onboardingCopies = {
       ? 'No se pudo conectar con Google Drive. Hacé clic en el enlace de arriba para intentar de nuevo.'
       : 'No se pudo conectar. Escribí *cancelar* para salir o contactá a soporte.',
   fileDiscoveryFailed: () =>
-    'No pude consultar tus archivos de Google Drive. Enviá parte del nombre para buscar de nuevo. Escribí cancelar para salir.',
+    composeMessage({
+      explanation: 'No pude consultar tus archivos de Google Drive.',
+      action: 'Enviá parte del nombre para buscar de nuevo.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   fileAccessFailed: () =>
-    'No pude acceder a ese archivo en Google Drive. Verificá los permisos. Escribí cancelar para salir y después empezar para elegir el archivo de nuevo.',
+    composeMessage({
+      explanation: 'No pude acceder a ese archivo en Google Drive.',
+      action: `Verificá los permisos. ${spreadsheetRecoveryCopies.chooseAnotherFile('onboarding')}`,
+    }),
   sheetDiscoveryFailed: () =>
-    'No pude consultar la planilla. Enviá reintentar para volver a consultar. Escribí cancelar para salir.',
+    composeMessage({
+      explanation: 'No pude consultar la planilla.',
+      action: 'Enviá reintentar para volver a consultar.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   cancelledMessage: () => 'Conexión cancelada. Escribí *empezar* cuando quieras intentar de nuevo.',
   flowCancelled: (configured: boolean) =>
     configured
@@ -46,16 +59,28 @@ export const onboardingCopies = {
   fileListPrompt: (files: CloudFile[]) => {
     const lines = files.map((f, i) => `${i + 1}. ${f.name}`);
     lines.push(`${files.length + 1}. Ninguno de estos / buscar por nombre`);
-    return `Encontré estos archivos recientes:\n${lines.join('\n')}`;
+    return composeMessage({
+      explanation: 'Encontré estos archivos recientes:',
+      action: lines.join('\n'),
+    });
   },
   noFilesFoundPrompt: () =>
-    'No encontré planillas. Escribí parte del nombre para buscar, pegá un enlace HTTPS de Google Sheets o Drive, o escribí cancelar para salir.',
+    composeMessage({
+      explanation: 'No encontré planillas.',
+      action:
+        'Escribí parte del nombre para buscar o pegá un enlace HTTPS de Google Sheets o Drive.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   fileSelectedConfirmation: (fileName: string) =>
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
   invalidSelectionRePrompt: (fileCount: number) =>
     fileCount === 0
       ? onboardingCopies.searchByNamePrompt()
-      : `No entendí. Escribí un número del *1* al *${fileCount}*, o *${fileCount + 1}* para buscar por nombre. Escribí cancelar para salir.`,
+      : composeMessage({
+          explanation: 'No entendí.',
+          action: `Escribí un número del *1* al *${fileCount}*, o *${fileCount + 1}* para buscar por nombre.`,
+          exit: CANCEL_EXIT_HINT,
+        }),
   ambiguousFileReference: () =>
     'Encontré más de una opción con esa referencia. Elegí el número exacto de la lista.',
   fileReferenceNotFound: () =>
@@ -63,11 +88,24 @@ export const onboardingCopies = {
   staleFileReference: () =>
     'La lista de archivos cambió. Revisá la lista actual y elegí nuevamente.',
   searchByNamePrompt: () =>
-    'Escribí parte del nombre para buscar, pegá un enlace HTTPS de Google Sheets o Drive, o escribí cancelar para salir.',
+    composeMessage({
+      action:
+        'Escribí parte del nombre para buscar o pegá un enlace HTTPS de Google Sheets o Drive.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   unsupportedFileLink: () =>
-    'Ese enlace no corresponde a una planilla compatible. Pegá un enlace HTTPS de Google Sheets o Drive, escribí parte del nombre para buscar, o cancelar para salir.',
+    composeMessage({
+      explanation: 'Ese enlace no corresponde a una planilla compatible.',
+      action:
+        'Pegá un enlace HTTPS de Google Sheets o Drive o escribí parte del nombre para buscar.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   urlValidationFailed: () =>
-    'No pude acceder a ese archivo. Verificá que el enlace sea correcto y que tengas permisos. Escribí cancelar para salir.',
+    composeMessage({
+      explanation: 'No pude acceder a ese archivo.',
+      action: 'Verificá que el enlace sea correcto y que tengas permisos.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   urlValidationSuccess: (fileName: string) =>
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
 
@@ -79,18 +117,29 @@ export const onboardingCopies = {
   sheetListPrompt: (sheets: SheetInfo[]) => {
     const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
     lines.push(`${sheets.length + 1}. No sé / ninguna de estas`);
-    return `El archivo tiene ${sheets.length} hojas. ¿Cuál querés usar?\n${lines.join('\n')}`;
+    return composeMessage({
+      explanation: `El archivo tiene ${sheets.length} hojas. ¿Cuál querés usar?`,
+      action: lines.join('\n'),
+    });
   },
   sheetSelectedConfirmation: (sheetName: string) =>
     `Elegiste la hoja *${sheetName}*. Ahora vamos a analizar la estructura.`,
   configuredDestinationConflict: () =>
     'Tu planilla actual ya está configurada. Escribí cancelar para salir de este flujo, después configuración y elegí la opción para cambiar el destino sin perder el historial.',
   invalidSheetRePrompt: (sheetCount: number) =>
-    `No encontré esa hoja. Escribí un número del *1* al *${sheetCount}*, o el nombre exacto. Escribí cancelar para salir.`,
+    composeMessage({
+      explanation: 'No encontré esa hoja.',
+      action: `Escribí un número del *1* al *${sheetCount}*, o el nombre exacto.`,
+      exit: CANCEL_EXIT_HINT,
+    }),
   sheetNotFoundRePrompt: (sheets: SheetInfo[]) => {
     if (sheets.length === 0) return onboardingCopies.fileAccessFailed();
     const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
-    return `No encontré esa hoja. Elegí una de estas:\n${lines.join('\n')} Escribí cancelar para salir.`;
+    return composeMessage({
+      explanation: 'No encontré esa hoja.',
+      action: `Elegí una de estas:\n${lines.join('\n')}`,
+      exit: CANCEL_EXIT_HINT,
+    });
   },
   ambiguousSheetReference: () =>
     'Encontré más de una hoja con esa referencia. Elegí el número exacto de la lista.',
