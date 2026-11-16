@@ -135,3 +135,7 @@ The deterministic initial-message path uses `<channel>:<externalMessageId>` as c
 ## HTTP security events
 
 See [security hardening](../features/security-hardening.md) for stable event codes, bounded emission and operator alert thresholds. Both logger factories use shared object scrubbing in addition to Pino paths. Free-form exception/error fields are omitted; unexpected HTTP errors use a generic response and sanitized Sentry exception. Excel logging is injected through all concrete adapter factories. External alert delivery remains a separate operational acceptance check.
+
+## Spreadsheet provider diagnostics
+
+`SpreadsheetError.providerDiagnostic` retains an HTTP status and optional allowlisted provider status/reason. Arbitrary messages, URLs, credentials, response bodies and spreadsheet contents are excluded. Non-JSON error bodies do not replace HTTP classification. Sheet-selection errors log this bounded object; append/delete uncertainty remains determined by the operation and HTTP result, never diagnostic text. A 400 alone is not evidence of an unsupported file format; compatibility is determined from Drive MIME metadata.

@@ -349,3 +349,11 @@ interface MappingCorrectionStateSnapshot {
 - `ColumnMappingCorrectionState` is immutable; each correction returns a new value object and its current mapping includes corrected fields that were absent from the original proposal.
 - The parser is deterministic and dependency-free so it can be replaced by an LLM-based adapter later without changing the use case.
 - `MAPPING_CORRECTION_TTL_SECONDS` is configurable via environment variables; the default is 1800 seconds (30 minutes).
+
+## Recovery guidance (2026-11-15)
+
+Invalid columns, unparseable or multiple corrections, rejected mappings and resumption prompts include `Escribí cancelar si quieres salir.`. Settings header/mapping failures first persist `SETTINGS_SHEET`, then ask for a number from the existing sheet list. No failed correction changes the active destination.
+
+## Setup message formatting (2026-11-16)
+
+Invalid-column lists, correction examples, rejected proposals, and resume prompts separate context, action, and the exact optional footer `Escribí cancelar si quieres salir.`. Required cancellation/restart sequences use numbered steps without an optional footer. Field labels, column numbers, and proposal guards are preserved. See [conversational message formatting](./conversational-message-formatting.md).

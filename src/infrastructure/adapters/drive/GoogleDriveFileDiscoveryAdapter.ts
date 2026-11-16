@@ -2,7 +2,10 @@
 // Google Drive file discovery adapter. Uses direct fetch calls to Google Drive API v3.
 // Does not depend on googleapis SDK to keep the dependency surface minimal.
 
-import type { CloudStoragePort } from '../../../domain/ports/cloudStorage';
+import type {
+  CloudStoragePort,
+  FileAccessValidationResult,
+} from '../../../domain/ports/cloudStorage';
 import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetConfig';
 import type { Logger } from 'pino';
 import { CloudFile } from '../../../domain/entities/CloudFile';
@@ -11,11 +14,7 @@ import { InvalidProviderError } from '../../../domain/errors/InvalidProviderErro
 
 const GOOGLE_DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
 
-const SPREADSHEET_MIME_TYPES = [
-  'application/vnd.google-apps.spreadsheet',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.oasis.opendocument.spreadsheet',
-];
+const SPREADSHEET_MIME_TYPES = ['application/vnd.google-apps.spreadsheet'];
 
 function buildMimeTypeQuery(): string {
   return SPREADSHEET_MIME_TYPES.map((type) => `mimeType = '${type}'`).join(' or ');
@@ -64,12 +63,12 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
     fileId: string,
     accessToken: string,
     provider: SpreadsheetProvider,
-  ): Promise<boolean> {
+  ): Promise<FileAccessValidationResult> {
     if (provider !== 'google') {
       throw new InvalidProviderError(provider);
     }
 
-    const url = `${GOOGLE_DRIVE_API_URL}/${fileId}?fields=id`;
+    const url = `${GOOGLE_DRIVE_API_URL}/${fileId}?fields=id,mimeType`;
 
     let response: Response;
     try {
@@ -84,11 +83,30 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
     }
 
     if (response.status === 200) {
-      return true;
+      let data: unknown;
+      try {
+        data = await response.json();
+      } catch {
+        throw new FileDiscoveryError('Invalid file metadata JSON');
+      }
+      if (
+        typeof data !== 'object' ||
+        data === null ||
+        !('id' in data) ||
+        data.id !== fileId ||
+        !('mimeType' in data) ||
+        typeof data.mimeType !== 'string' ||
+        !/^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$/.test(data.mimeType)
+      ) {
+        throw new FileDiscoveryError('Invalid file metadata');
+      }
+      return {
+        kind: data.mimeType === SPREADSHEET_MIME_TYPES[0] ? 'accessible' : 'unsupported-type',
+      };
     }
 
     if (response.status === 404) {
-      return false;
+      return { kind: 'inaccessible' };
     }
 
     if (response.status === 401 || response.status === 403) {
@@ -124,15 +142,6 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
       });
     }
 
-    let data: unknown;
-    try {
-      data = await response.json();
-    } catch {
-      throw new FileDiscoveryError(
-        `Invalid JSON response from Google Drive API: HTTP ${response.status}`,
-      );
-    }
-
     if (!response.ok) {
       this.logger.error({
         endpoint: 'GoogleDriveFileDiscovery',
@@ -153,6 +162,15 @@ export class GoogleDriveFileDiscoveryAdapter implements CloudStoragePort {
       );
     }
 
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new FileDiscoveryError(
+        `Invalid JSON response from Google Drive API: HTTP ${response.status}`,
+      );
+    }
+
     return parseFilesResponse(data);
   }
 }
@@ -167,26 +185,28 @@ function parseFilesResponse(data: unknown): CloudFile[] {
     throw new FileDiscoveryError('Unexpected response format from Google Drive API');
   }
 
-  return files.map((item) => {
-    if (typeof item !== 'object' || item === null) {
-      throw new FileDiscoveryError('Invalid file item in Google Drive API response');
-    }
+  return files
+    .map((item) => {
+      if (typeof item !== 'object' || item === null) {
+        throw new FileDiscoveryError('Invalid file item in Google Drive API response');
+      }
 
-    const obj = item as Record<string, unknown>;
-    const id = typeof obj.id === 'string' ? obj.id : '';
-    const name = typeof obj.name === 'string' ? obj.name : '';
-    const mimeType = typeof obj.mimeType === 'string' ? obj.mimeType : '';
-    const modifiedTime = typeof obj.modifiedTime === 'string' ? obj.modifiedTime : '';
+      const obj = item as Record<string, unknown>;
+      const id = typeof obj.id === 'string' ? obj.id : '';
+      const name = typeof obj.name === 'string' ? obj.name : '';
+      const mimeType = typeof obj.mimeType === 'string' ? obj.mimeType : '';
+      const modifiedTime = typeof obj.modifiedTime === 'string' ? obj.modifiedTime : '';
 
-    if (!id || !name || !mimeType || !modifiedTime) {
-      throw new FileDiscoveryError('Invalid file item in Google Drive API response');
-    }
+      if (!id || !name || !mimeType || !modifiedTime) {
+        throw new FileDiscoveryError('Invalid file item in Google Drive API response');
+      }
 
-    return new CloudFile({
-      id,
-      name,
-      mimeType,
-      modifiedAt: new Date(modifiedTime),
-    });
-  });
+      return new CloudFile({
+        id,
+        name,
+        mimeType,
+        modifiedAt: new Date(modifiedTime),
+      });
+    })
+    .filter((file) => file.mimeType === SPREADSHEET_MIME_TYPES[0]);
 }

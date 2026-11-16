@@ -1,3 +1,5 @@
+import { CANCEL_EXIT_HINT, composeMessage } from './compose-message';
+import { spreadsheetRecoveryCopies } from './spreadsheet-recovery.copies';
 import type { CloudFile } from '../../domain/entities/CloudFile';
 import type { SheetInfo } from '../../domain/entities/SheetInfo';
 import type { ColumnInferenceMapping } from '../../domain/ports/columnInference';
@@ -6,65 +8,156 @@ import type { CategoryOnboardingCategory } from '../dtos/CategoryOnboardingState
 
 export const onboardingCopies = {
   welcomePrompt: () =>
-    '¡Hola! Bienvenido a Gastto. Soy tu asistente financiero conversacional. Para empezar, ¿dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
+    composeMessage({
+      explanation: '¡Hola! Bienvenido a Gastto. Soy tu asistente financiero conversacional.',
+      action: 'Para empezar, ¿dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
+    }),
   providerPrompt: () => '¿Dónde tenés tu planilla?\n1. Google Drive\n2. OneDrive',
-  invalidRePrompt: () => 'No entendí. Escribí _1_ para Google Drive o _2_ para OneDrive.',
+  invalidRePrompt: () =>
+    composeMessage({
+      explanation: 'No entendí.',
+      action: 'Escribí _1_ para Google Drive o _2_ para OneDrive.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   comingSoon: (provider: string) =>
-    `${provider} está en camino 🚧. Escribí _1_ para usar Google Drive por ahora.`,
+    composeMessage({
+      explanation: `${provider} está en camino 🚧.`,
+      action: '1. Escribí cancelar para salir.\n2. Escribí empezar para elegir Google Drive.',
+    }),
   authLink: (url: string) =>
-    `Hacé clic en este enlace para autorizar a Gastto: ${url}\nTenés 10 minutos.`,
+    composeMessage({
+      explanation: 'Tenés 10 minutos.',
+      action: `Hacé clic en este enlace para autorizar a Gastto: ${url}`,
+    }),
   onboardingPlaceholder: () =>
-    'Estamos configurando tu cuenta. Por favor sigue las instrucciones anteriores.',
+    composeMessage({
+      explanation: 'Estamos configurando tu cuenta.',
+      action: 'Seguí las instrucciones del último paso.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   googleConnectedSuccess: () => '¡Google Drive conectado! Ahora elegí el archivo de tu planilla.',
   googleReconnectedSuccess: () =>
     '¡Google Drive reconectado! Conservé tu planilla y columnas. Enviá el gasto nuevamente para registrarlo.',
   onedriveConnectedSuccess: () => '¡OneDrive conectado! Ahora elegí el archivo de tu planilla.',
   oauthConnectionFailed: (canRetry: boolean) =>
     canRetry
-      ? 'No se pudo conectar con Google Drive. Hacé clic en el enlace de arriba para intentar de nuevo.'
-      : 'No se pudo conectar. Escribí *cancelar* para salir o contactá a soporte.',
+      ? composeMessage({
+          explanation: 'No se pudo conectar con Google Drive.',
+          action: 'Hacé clic en el enlace de arriba para intentar de nuevo.',
+        })
+      : composeMessage({
+          explanation: 'No se pudo conectar.',
+          action: 'Podés contactar a soporte.',
+          exit: CANCEL_EXIT_HINT,
+        }),
   fileDiscoveryFailed: () =>
-    'No pude consultar tus archivos de Google Drive. Intentá de nuevo en unos segundos.',
+    composeMessage({
+      explanation: 'No pude consultar tus archivos de Google Drive.',
+      action: 'Enviá parte del nombre para buscar de nuevo.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   fileAccessFailed: () =>
-    'No pude acceder a ese archivo en Google Drive. Verificá los permisos o intentá con otro.',
+    composeMessage({
+      explanation: 'No pude acceder a ese archivo en Google Drive.',
+      action: `Verificá los permisos. ${spreadsheetRecoveryCopies.chooseAnotherFile('onboarding')}`,
+    }),
   sheetDiscoveryFailed: () =>
-    'No pude leer las hojas del archivo. Intentá de nuevo en unos segundos.',
-  cancelledMessage: () => 'Conexión cancelada. Escribí *empezar* cuando quieras intentar de nuevo.',
+    composeMessage({
+      explanation: 'No pude consultar la planilla.',
+      action: 'Enviá reintentar para volver a consultar.',
+      exit: CANCEL_EXIT_HINT,
+    }),
+  cancelledMessage: () =>
+    composeMessage({
+      explanation: 'Conexión cancelada.',
+      action: 'Escribí *empezar* cuando quieras intentar de nuevo.',
+    }),
   flowCancelled: (configured: boolean) =>
     configured
-      ? 'Configuración cancelada. Tu planilla anterior sigue activa. Escribí *configuración* para verla o cambiarla.'
-      : 'Configuración cancelada. Escribí *empezar* cuando quieras elegir una planilla de nuevo.',
+      ? composeMessage({
+          explanation: 'Configuración cancelada. Tu planilla anterior sigue activa.',
+          action: 'Escribí *configuración* para verla o cambiarla.',
+        })
+      : composeMessage({
+          explanation: 'Configuración cancelada.',
+          action: 'Escribí *empezar* cuando quieras elegir una planilla de nuevo.',
+        }),
   setupRequired: () =>
-    'Tu planilla todavía no está configurada. Escribí *empezar* para continuar con la configuración.',
+    composeMessage({
+      explanation: 'Tu planilla todavía no está configurada.',
+      action: 'Escribí *empezar* para continuar con la configuración.',
+    }),
   alreadyConfigured: () =>
-    'Tu planilla ya está configurada. Escribí *configuración* para verla o cambiarla.',
+    composeMessage({
+      explanation: 'Tu planilla ya está configurada.',
+      action: 'Escribí *configuración* para verla o cambiarla.',
+    }),
   waitForAuthPrompt: () =>
-    'Please complete the authorization in your browser or type cancel to abort',
+    composeMessage({ action: 'Completá la autorización en tu navegador.', exit: CANCEL_EXIT_HINT }),
   reminderMessage: (url: string) =>
-    `Todavía no completaste la autorización. Hacé clic acá para continuar: ${url}\nTenés 10 minutos.`,
+    composeMessage({
+      explanation: 'Todavía no completaste la autorización. Tenés 10 minutos.',
+      action: `Hacé clic acá para continuar: ${url}`,
+    }),
   fileListPrompt: (files: CloudFile[]) => {
     const lines = files.map((f, i) => `${i + 1}. ${f.name}`);
     lines.push(`${files.length + 1}. Ninguno de estos / buscar por nombre`);
-    return `Encontré estos archivos recientes:\n${lines.join('\n')}`;
+    return composeMessage({
+      explanation: 'Encontré estos archivos recientes:',
+      action: lines.join('\n'),
+    });
   },
   noFilesFoundPrompt: () =>
-    'No encontré planillas. Escribí parte del nombre para buscar, pegá un enlace HTTPS de Google Sheets o Drive, o escribí cancelar para salir.',
+    composeMessage({
+      explanation: 'No encontré planillas.',
+      action:
+        'Escribí parte del nombre para buscar o pegá un enlace HTTPS de Google Sheets o Drive.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   fileSelectedConfirmation: (fileName: string) =>
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
   invalidSelectionRePrompt: (fileCount: number) =>
-    `No entendí. Escribí un número del *1* al *${fileCount}*, o *${fileCount + 1}* para buscar por nombre.`,
+    fileCount === 0
+      ? onboardingCopies.searchByNamePrompt()
+      : composeMessage({
+          explanation: 'No entendí.',
+          action: `Escribí un número del *1* al *${fileCount}*, o *${fileCount + 1}* para buscar por nombre.`,
+          exit: CANCEL_EXIT_HINT,
+        }),
   ambiguousFileReference: () =>
-    'Encontré más de una opción con esa referencia. Elegí el número exacto de la lista.',
+    composeMessage({
+      explanation: 'Encontré más de una opción con esa referencia.',
+      action: 'Elegí el número exacto de la lista.',
+    }),
   fileReferenceNotFound: () =>
-    'No encontré esa opción en la lista actual. Elegí el número exacto de la lista.',
+    composeMessage({
+      explanation: 'No encontré esa opción en la lista actual.',
+      action: 'Elegí el número exacto de la lista.',
+    }),
   staleFileReference: () =>
-    'La lista de archivos cambió. Revisá la lista actual y elegí nuevamente.',
+    composeMessage({
+      explanation: 'La lista de archivos cambió.',
+      action: 'Revisá la lista actual y elegí nuevamente.',
+    }),
   searchByNamePrompt: () =>
-    'Escribí parte del nombre para buscar, pegá un enlace HTTPS de Google Sheets o Drive, o escribí cancelar para salir.',
+    composeMessage({
+      action:
+        'Escribí parte del nombre para buscar o pegá un enlace HTTPS de Google Sheets o Drive.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   unsupportedFileLink: () =>
-    'Ese enlace no corresponde a una planilla compatible. Pegá un enlace HTTPS de Google Sheets o Drive, escribí parte del nombre para buscar, o cancelar para salir.',
+    composeMessage({
+      explanation: 'Ese enlace no corresponde a una planilla compatible.',
+      action:
+        'Pegá un enlace HTTPS de Google Sheets o Drive o escribí parte del nombre para buscar.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   urlValidationFailed: () =>
-    'No pude acceder a ese archivo. Verificá que el enlace sea correcto y que tengas permisos.',
+    composeMessage({
+      explanation: 'No pude acceder a ese archivo.',
+      action: 'Verificá que el enlace sea correcto y que tengas permisos.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   urlValidationSuccess: (fileName: string) =>
     `Elegiste *${fileName}*. Ahora vamos a seleccionar la hoja dentro del archivo.`,
 
@@ -76,23 +169,49 @@ export const onboardingCopies = {
   sheetListPrompt: (sheets: SheetInfo[]) => {
     const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
     lines.push(`${sheets.length + 1}. No sé / ninguna de estas`);
-    return `El archivo tiene ${sheets.length} hojas. ¿Cuál querés usar?\n${lines.join('\n')}`;
+    return composeMessage({
+      explanation: `El archivo tiene ${sheets.length} hojas. ¿Cuál querés usar?`,
+      action: lines.join('\n'),
+    });
   },
   sheetSelectedConfirmation: (sheetName: string) =>
     `Elegiste la hoja *${sheetName}*. Ahora vamos a analizar la estructura.`,
   configuredDestinationConflict: () =>
-    'Tu planilla actual ya está configurada. Escribí cancelar para salir de este flujo, después configuración y elegí la opción para cambiar el destino sin perder el historial.',
+    composeMessage({
+      explanation: 'Tu planilla actual ya está configurada.',
+      action:
+        '1. Escribí cancelar para salir de este flujo.\n2. Escribí configuración.\n3. Elegí la opción para cambiar el destino sin perder el historial.',
+    }),
   invalidSheetRePrompt: (sheetCount: number) =>
-    `No encontré esa hoja. Escribí un número del *1* al *${sheetCount}*, o el nombre exacto.`,
+    composeMessage({
+      explanation: 'No encontré esa hoja.',
+      action: `Escribí un número del *1* al *${sheetCount}*, o el nombre exacto.`,
+      exit: CANCEL_EXIT_HINT,
+    }),
   sheetNotFoundRePrompt: (sheets: SheetInfo[]) => {
+    if (sheets.length === 0) return onboardingCopies.fileAccessFailed();
     const lines = sheets.map((s, i) => `${i + 1}. ${s.name}`);
-    return `No encontré esa hoja. Elegí una de estas:\n${lines.join('\n')}`;
+    return composeMessage({
+      explanation: 'No encontré esa hoja.',
+      action: `Elegí una de estas:\n${lines.join('\n')}`,
+      exit: CANCEL_EXIT_HINT,
+    });
   },
   ambiguousSheetReference: () =>
-    'Encontré más de una hoja con esa referencia. Elegí el número exacto de la lista.',
+    composeMessage({
+      explanation: 'Encontré más de una hoja con esa referencia.',
+      action: 'Elegí el número exacto de la lista.',
+    }),
   sheetReferenceNotFound: () =>
-    'No encontré esa hoja en la lista actual. Elegí el número exacto de la lista.',
-  staleSheetReference: () => 'La lista de hojas cambió. Revisá la lista actual y elegí nuevamente.',
+    composeMessage({
+      explanation: 'No encontré esa hoja en la lista actual.',
+      action: 'Elegí el número exacto de la lista.',
+    }),
+  staleSheetReference: () =>
+    composeMessage({
+      explanation: 'La lista de hojas cambió.',
+      action: 'Revisá la lista actual y elegí nuevamente.',
+    }),
   sheetHeadersDescription: (sheetName: string, headers: string[]) =>
     `Hoja *${sheetName}*: tiene las columnas ${headers.join(', ')}`,
   sheetHeaderDescription: (descriptions: { sheetName: string; headers: string[] }[]) =>
@@ -103,18 +222,32 @@ export const onboardingCopies = {
   sheetMappingTransition: () => `Ahora vamos a analizar la estructura.`,
 
   readOnlyWarning: () =>
-    `Puedo ver tu planilla pero no tengo permiso para escribir en ella.\n\nPara corregirlo:\n• *Google Drive:* Abrí el archivo → Compartir → Agregá tu cuenta de Gastto con rol *Editor*.\n• *OneDrive:* Abrí el archivo → Compartir → Dale permisos de *Edición*.\n\nCuando lo hayas hecho, escribí *reintentar* para volver a verificar.`,
-
+    composeMessage({
+      explanation: 'Puedo ver tu planilla pero no tengo permiso para escribir en ella.',
+      action:
+        'Para corregirlo:\n• *Google Drive:* Abrí el archivo → Compartir → Dale a la cuenta de Google conectada el rol *Editor*.\n• *OneDrive:* Abrí el archivo → Compartir → Dale permisos de *Edición*.\n\nCuando lo hayas hecho, escribí *reintentar* para volver a verificar.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   emptySheetConfirm: (sheetName: string) =>
-    `La hoja *${sheetName}* parece estar vacía. ¿Es la correcta?\n\nRespondé *sí* para confirmar, escribí *otra hoja* para ver las opciones o *cancelar* para salir.`,
-
+    composeMessage({
+      explanation: `La hoja *${sheetName}* parece estar vacía. ¿Es la correcta?`,
+      action: 'Respondé *sí* para confirmar o escribí *otra hoja* para ver las opciones.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   emptySheetConfirmedOutOfMvp: () =>
-    `Entendido. La funcionalidad de planillas vacías estará disponible próximamente. Por ahora, elegí una hoja que tenga datos para continuar.`,
-
+    composeMessage({
+      explanation:
+        'Entendido. La funcionalidad de planillas vacías estará disponible próximamente.',
+      action: 'Por ahora, escribí otra hoja para elegir una que tenga datos.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   reconnectAccount: () =>
-    `No pude acceder a tu planilla. Puede que la conexión con tu cuenta se haya vencido.\n\nEscribí *empezar* para reconectar tu cuenta e intentar de nuevo.`,
-
-  // Column mapping copies (HU-4.05)
+    composeMessage({
+      explanation:
+        'No pude acceder a tu planilla. Puede que la conexión con tu cuenta se haya vencido.',
+      action: 'Escribí *empezar* para reconectar tu cuenta e intentar de nuevo.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   mappingProposalHighConfidence: (
     mappings: ColumnInferenceMapping[],
     unmappedFields: GasttoField[],
@@ -147,11 +280,19 @@ export const onboardingCopies = {
   },
 
   noHeaderPrompt: () =>
-    `No pude reconocer una fila de encabezados en esta hoja. Si hay encabezados antes de los datos, escribí el número de la primera fila de datos. También podés escribir *otra hoja* para elegir una distinta o *cancelar* para salir.`,
-
+    composeMessage({
+      explanation: 'No pude reconocer una fila de encabezados en esta hoja.',
+      action:
+        'Si hay encabezados antes de los datos, escribí el número de la primera fila de datos.\n\nTambién podés escribir *otra hoja* para elegir una distinta.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   invalidDataStartRowPrompt: () =>
-    `No entendí la fila. Si hay encabezados antes de los datos, escribí el número de fila donde comienzan los datos (mayor a 1). También podés escribir *otra hoja* o *cancelar*.`,
-
+    composeMessage({
+      explanation: 'No entendí la fila.',
+      action:
+        'Si hay encabezados antes de los datos, escribí el número de fila donde comienzan los datos (mayor a 1).\n\nTambién podés escribir *otra hoja*.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   mappingConfirmedNextStep: () =>
     `¡Listo! El mapeo de columnas quedó confirmado. Ahora vamos a revisar las categorías de tu planilla.`,
 
@@ -181,11 +322,17 @@ export const onboardingCopies = {
   },
 
   noMappingToConfirm: () =>
-    `Todavía no tengo una propuesta de mapeo para confirmar. Esperá un momento o escribí *empezar* para reconectar.`,
-
+    composeMessage({
+      explanation: 'Todavía no tengo una propuesta de mapeo para confirmar.',
+      action:
+        '1. Escribí cancelar para salir.\n2. Escribí empezar para configurar la planilla de nuevo.',
+    }),
   categoryProposalUnavailable: () =>
-    'No pude validar la propuesta de categorías. La voy a detectar de nuevo antes de completar la configuración.',
-
+    composeMessage({
+      explanation: 'No pude validar la propuesta de categorías.',
+      action: 'Enviá confirmar para detectarla de nuevo antes de completar la configuración.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   unmappedFieldsNote: (fields: GasttoField[]) => formatUnmappedFields(fields),
 
   // Mapping correction copies (HU-4.06)
@@ -211,8 +358,11 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
   },
 
   mappingProposalRecoveryPrompt: () =>
-    'No pude validar el mapeo que estabas revisando. Voy a generar una propuesta nueva antes de guardarlo.',
-
+    composeMessage({
+      explanation: 'No pude validar el mapeo que estabas revisando.',
+      action: 'Voy a generar una propuesta nueva antes de guardarlo.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   invalidColumnPrompt: (
     columnRef: string,
     availableColumns: { index: number; columnHeader: string }[],
@@ -220,7 +370,11 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     const lines = availableColumns.map(
       (c) => `${columnIndexToLetter(c.index)} - ${c.columnHeader}`,
     );
-    return `No encontré la columna *${columnRef}* en tu planilla. Las columnas disponibles son:\n${lines.join('\n')}\n\nEscribí la letra, número o nombre correcto.`;
+    return composeMessage({
+      explanation: `No encontré la columna *${columnRef}* en tu planilla.\n\nLas columnas disponibles son:\n${lines.join('\n')}`,
+      action: 'Escribí la letra, número o nombre correcto.',
+      exit: CANCEL_EXIT_HINT,
+    });
   },
 
   mappingRejectionPrompt: (availableColumns: { index: number; columnHeader: string }[]) => {
@@ -230,17 +384,33 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
       return `${columnIndexToLetter(c.index)} - ${label}`;
     });
     const fieldLines = SUPPORTED_GASTTO_FIELDS.map((f) => `• ${GASTTO_FIELD_LABELS[f]}`);
-    return `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}\n\nIndicame un solo campo por mensaje. Por ejemplo: "la categoría está en la columna E".`;
+    return composeMessage({
+      explanation: `Entendido. Las columnas disponibles son:\n${lines.join('\n')}\n\nLos campos que podés indicar son:\n${fieldLines.join('\n')}`,
+      action:
+        'Indicame un solo campo por mensaje. Por ejemplo: "la categoría está en la columna E".',
+      exit: CANCEL_EXIT_HINT,
+    });
   },
 
   correctionParseFailurePrompt: () =>
-    `No entendí la corrección. Enviá una sola corrección por mensaje, por ejemplo: "la categoría está en la columna E" o "el monto va en B".`,
-
+    composeMessage({
+      explanation: 'No entendí la corrección.',
+      action:
+        'Enviá una sola corrección por mensaje, por ejemplo: "la categoría está en la columna E" o "el monto va en B".',
+      exit: CANCEL_EXIT_HINT,
+    }),
   multipleMappingCorrectionsPrompt: () =>
-    `Detecté varios campos en el mismo mensaje. Para evitar cambios parciales, enviá una sola corrección por mensaje. Por ejemplo: "medio de pago en A".`,
-
+    composeMessage({
+      explanation: 'Detecté varios campos en el mismo mensaje.',
+      action:
+        'Para evitar cambios parciales, enviá una sola corrección por mensaje. Por ejemplo: "medio de pago en A".',
+      exit: CANCEL_EXIT_HINT,
+    }),
   onboardingComplete: () =>
-    '¡Todo listo! Ya podés empezar a registrar gastos. Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
+    composeMessage({
+      explanation: '¡Todo listo! Ya podés empezar a registrar gastos.',
+      action: 'Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
+    }),
 
   categoryUpdatedPrompt: (categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');
@@ -249,17 +419,29 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
 
   categoryNotFoundForRename: (from: string, categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');
-    return `No encontré la categoría "${from}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés cambiar.`;
+    return composeMessage({
+      explanation: `No encontré la categoría "${from}".\n\nLas categorías actuales son:\n${list}`,
+      action: 'Escribí el nombre exacto de la categoría que querés cambiar.',
+      exit: CANCEL_EXIT_HINT,
+    });
   },
 
   categoryNotFoundForRemoval: (name: string, categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');
-    return `No encontré la categoría "${name}". Las categorías actuales son:\n${list}\n\nEscribí el nombre exacto de la categoría que querés quitar.`;
+    return composeMessage({
+      explanation: `No encontré la categoría "${name}".\n\nLas categorías actuales son:\n${list}`,
+      action: 'Escribí el nombre exacto de la categoría que querés quitar.',
+      exit: CANCEL_EXIT_HINT,
+    });
   },
 
   categoryUpdateError: (_errorMessage: string, categories: string[]) => {
     const list = categories.map((c) => `• ${c}`).join('\n');
-    return `No pude actualizar la categoría. Las categorías actuales son:\n${list}\n\n¿Están bien? Respondé *sí* o intentá de nuevo.`;
+    return composeMessage({
+      explanation: `No pude actualizar la categoría.\n\nLas categorías actuales son:\n${list}`,
+      action: '¿Están bien? Respondé *sí* o intentá de nuevo.',
+      exit: CANCEL_EXIT_HINT,
+    });
   },
 
   hierarchyUpdatedPrompt: (state: {
@@ -272,33 +454,53 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     categories: CategoryOnboardingCategory[];
     orphanSubcategories: string[];
   }) =>
-    `No entendí el cambio. Indicá siempre la categoría padre de una subcategoría. Por ejemplo: "agregar Peajes a Transporte".\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    composeMessage({
+      explanation: `No entendí el cambio.`,
+      action: `Indicá siempre la categoría padre de una subcategoría. Por ejemplo: "agregar Peajes a Transporte".\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+      exit: CANCEL_EXIT_HINT,
+    }),
 
   hierarchyParentNotFound: (
     parent: string,
     state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
   ) =>
-    `No encontré la categoría padre "${parent}". Podés elegir una de estas categorías:\n${formatCategoryNames(state.categories)}\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    composeMessage({
+      explanation: `No encontré la categoría padre "${parent}".`,
+      action: `Podés elegir una de estas categorías:\n${formatCategoryNames(state.categories)}\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+      exit: CANCEL_EXIT_HINT,
+    }),
 
   hierarchyParentAmbiguous: (
     parent: string,
     candidates: string[],
     state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
   ) =>
-    `La categoría padre "${parent}" es ambigua. Coincide con:\n${candidates.map((candidate) => `• ${candidate}`).join('\n')}\n\nElegí un nombre de categoría padre inequívoco.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    composeMessage({
+      explanation: `La categoría padre "${parent}" es ambigua. Coincide con:\n${candidates.map((candidate) => `• ${candidate}`).join('\n')}`,
+      action: `Elegí un nombre de categoría padre inequívoco.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+      exit: CANCEL_EXIT_HINT,
+    }),
 
   hierarchyChildNotFound: (
     child: string,
     parent: string,
     state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
   ) =>
-    `No encontré la subcategoría "${child}" dentro de "${parent}". Revisá el nombre y la categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    composeMessage({
+      explanation: `No encontré la subcategoría "${child}" dentro de "${parent}".`,
+      action: `Revisá el nombre y la categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+      exit: CANCEL_EXIT_HINT,
+    }),
 
   hierarchyDuplicateOrCollision: (
     _errorMessage: string,
     state: { categories: CategoryOnboardingCategory[]; orphanSubcategories: string[] },
   ) =>
-    `No pude aplicar el cambio porque generaría un nombre duplicado o una colisión en esa categoría padre.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+    composeMessage({
+      explanation: `No pude aplicar el cambio porque generaría un nombre duplicado o una colisión en esa categoría padre.`,
+      action: `Probá con un nombre diferente.\n\nJerarquía actual:\n${formatCategoryHierarchy(state.categories)}${onboardingCopies.orphanSubcategoriesWarning(state.orphanSubcategories)}`,
+      exit: CANCEL_EXIT_HINT,
+    }),
 
   mappingResumePrompt: (
     mappings: { gasttoField: GasttoField; columnIndex: number; columnHeader: string }[],
@@ -307,8 +509,12 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
       (m) =>
         `${GASTTO_FIELD_EMOJI[m.gasttoField]} ${GASTTO_FIELD_LABELS[m.gasttoField]} → columna ${columnIndexToLetter(m.columnIndex)} (${m.columnHeader})`,
     );
-    return `Encontré una corrección en progreso:
-${lines.join('\n')}\n\n¿Querés continuar desde donde la dejaste? Respondé *sí* para continuar o *no* para empezar de nuevo.`;
+    return composeMessage({
+      explanation: `Encontré una corrección en progreso:\n${lines.join('\n')}`,
+      action:
+        '¿Querés continuar desde donde la dejaste? Respondé *sí* para continuar o *no* para empezar de nuevo.',
+      exit: CANCEL_EXIT_HINT,
+    });
   },
 };
 
@@ -358,7 +564,7 @@ function formatUnmappedFields(fields: GasttoField[]): string {
     );
   }
 
-  return messages.join(' ');
+  return messages.join('\n\n');
 }
 
 function formatCategoryHierarchy(categories: CategoryOnboardingCategory[]): string {

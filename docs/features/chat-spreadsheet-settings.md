@@ -38,3 +38,19 @@ Let a user inspect the stored Google or Microsoft connection and current spreads
 ## Data Model
 
 `conversation_states.current_state` permits `SETTINGS_MENU` after migration `0010_add_settings_menu_state`, `SETTINGS_OAUTH` after `0011_add_settings_oauth_state`, sheet review states after `0013_add_settings_sheet_states`, and `SETTINGS_FILE` after `0014_add_settings_file_state`. Migration `0012_friendly_omega_flight` versions configurations. The settings payload contains flow and proposal ownership; `expires_at` contains the deadline. See [data model](../architecture/data-model.md).
+
+## Recovery guidance (2026-11-15)
+
+File choices are revalidated as native Google spreadsheets before reading sheets. Unsupported formats retain the candidate and active destination. Settings read errors offer repetition only for retryable failures; permanent errors use `cancelar`, `configuración`, option `3`. Mapping recovery commits the return to sheet selection before sending its instructions. Invalid mapping replies, missing headers, payment detection failures, empty category drafts and invalid replacement emails explain a valid continuation and cancellation. Candidate activation and credential promotion keep their existing revision guards.
+
+## Message readability
+
+File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.
+
+## Setup message formatting (2026-11-16)
+
+The menu preserves options 1–7 and separates the number prompt from cancellation. OAuth links, mapping/category review instructions, payment examples, and draft warnings use explicit paragraphs. The exact optional exit is `Escribí cancelar si quieres salir.`. Mandatory exit/reopen sequences use numbered steps; no extra optional exit is appended. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+The expiry notice separates its outcome from the `configuración` command. No cancellation is advertised after the flow has expired. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

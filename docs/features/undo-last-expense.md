@@ -60,3 +60,7 @@ Apply migration `0006_add_undo_confirming_state.sql` with `pnpm db:migrate` to e
 ## Related User Stories
 
 - `docs/user-stories/01-mvp/02-Registro de Gastos/E1-US-11-undo-the-last-registered-expense/E1-US-11 — Undo the last registered expense.md`
+
+## Expense message formatting (2026-11-16)
+
+Undo confirmation separates the record identity/time, the `sí` instruction, and optional cancellation footer. Failure guidance separates the outcome from the next action. Operation claims, confirmation binding, deletion rules, and timestamp/amount formatting are unchanged. See [conversational message formatting](./conversational-message-formatting.md).

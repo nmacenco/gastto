@@ -32,18 +32,50 @@ function networkError(
   });
 }
 
-function providerHttpError(
+async function providerHttpError(
   operation: string,
-  status: number,
+  response: Response,
   outcomeUnknown: boolean = false,
-): SpreadsheetError {
+): Promise<SpreadsheetError> {
+  const status = response.status;
+  const providerDiagnostic: { httpStatus: number; status?: string; reason?: string } = {
+    httpStatus: status,
+  };
+  try {
+    const body: unknown = await response.json();
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      'error' in body &&
+      typeof body.error === 'object' &&
+      body.error !== null
+    ) {
+      const detail = body.error;
+      if ('status' in detail && typeof detail.status === 'string')
+        providerDiagnostic.status = detail.status;
+      if ('errors' in detail && Array.isArray(detail.errors)) {
+        const first: unknown = detail.errors[0];
+        if (
+          typeof first === 'object' &&
+          first !== null &&
+          'reason' in first &&
+          typeof first.reason === 'string'
+        )
+          providerDiagnostic.reason = first.reason;
+      }
+    }
+  } catch {
+    /* Diagnostics never change HTTP classification or mutation uncertainty. */
+  }
   if (status === 401 || status === 403) {
     return new SpreadsheetError(`Google authorization error during ${operation}: HTTP ${status}`, {
+      providerDiagnostic,
       code: 'AUTH_ERROR',
     });
   }
   if (status >= 500) {
     return new SpreadsheetError(`Google API error during ${operation}: HTTP ${status}`, {
+      providerDiagnostic,
       code: 'NETWORK_ERROR',
       retryable: true,
       outcomeUnknown,
@@ -51,10 +83,12 @@ function providerHttpError(
   }
   if (status === 400 || status === 404) {
     return new SpreadsheetError(`Google structure error during ${operation}: HTTP ${status}`, {
+      providerDiagnostic,
       code: 'STRUCTURE_ERROR',
     });
   }
   return new SpreadsheetError(`Google API error during ${operation}: HTTP ${status}`, {
+    providerDiagnostic,
     code: 'UNKNOWN',
   });
 }
@@ -90,7 +124,7 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      throw providerHttpError('sheet listing', response.status);
+      throw await providerHttpError('sheet listing', response);
     }
 
     let data: unknown;
@@ -124,7 +158,7 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      throw providerHttpError('header retrieval', response.status);
+      throw await providerHttpError('header retrieval', response);
     }
 
     let data: unknown;
@@ -172,7 +206,7 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      throw providerHttpError('row retrieval', response.status);
+      throw await providerHttpError('row retrieval', response);
     }
 
     let data: unknown;
@@ -210,7 +244,7 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      throw providerHttpError('row append', response.status, response.status >= 500);
+      throw await providerHttpError('row append', response, response.status >= 500);
     }
 
     let data: unknown;
@@ -238,7 +272,7 @@ export class GoogleSheetsAdapter
     }
 
     if (!metadataResponse.ok) {
-      throw providerHttpError('sheet lookup', metadataResponse.status);
+      throw await providerHttpError('sheet lookup', metadataResponse);
     }
 
     let metadata: unknown;
@@ -280,7 +314,7 @@ export class GoogleSheetsAdapter
       throw networkError('row deletion', error, true);
     }
     if (!deleteResponse.ok) {
-      throw providerHttpError('row deletion', deleteResponse.status, deleteResponse.status >= 500);
+      throw await providerHttpError('row deletion', deleteResponse, deleteResponse.status >= 500);
     }
   }
 
@@ -305,7 +339,7 @@ export class GoogleSheetsAdapter
     }
 
     if (!response.ok) {
-      throw providerHttpError('unique values retrieval', response.status);
+      throw await providerHttpError('unique values retrieval', response);
     }
 
     let data: unknown;

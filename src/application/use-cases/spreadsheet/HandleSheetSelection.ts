@@ -11,6 +11,9 @@
 // transitions the FSM to ONBOARDING_VALIDATING_ACCESS, sends the user the
 // confirmation copy, and eagerly invokes ValidateSpreadsheetAccess.
 
+import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import { spreadsheetRecoveryCopies } from '../../copies/spreadsheet-recovery.copies';
+
 import type { Logger } from 'pino';
 import type { SpreadsheetPort, SpreadsheetPortFactory } from '../../../domain/ports/services';
 import type { ISpreadsheetConfigRepository } from '../../../domain/ports/repositories';
@@ -106,6 +109,7 @@ export class HandleSheetSelection {
     try {
       await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
       }
@@ -159,6 +163,7 @@ export class HandleSheetSelection {
     try {
       await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
       }
@@ -240,6 +245,7 @@ export class HandleSheetSelection {
     try {
       await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
       }
@@ -280,6 +286,7 @@ export class HandleSheetSelection {
               port.listSheets(fileId),
             );
     } catch (error) {
+      if (error instanceof StaleConversationStateError) throw error;
       this.deps.logger.error({
         msg: 'Failed to list sheets during recovery',
         endpoint: 'HandleSheetSelection',
@@ -287,12 +294,19 @@ export class HandleSheetSelection {
         userId,
         errorType: error instanceof Error ? error.constructor.name : 'unknown',
       });
-      const message = onboardingCopies.sheetDiscoveryFailed();
+      if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
+        return this.handleReconnect(externalId, userId, 'SHEET_LIST_AUTH_ERROR', error);
+      }
+      const message = spreadsheetRecoveryCopies.readFailure(
+        error,
+        'onboarding',
+        statePayload.step === 'empty-sheet-confirm' ? 'otra hoja' : 'reintentar',
+      );
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }
     if (sheets.length === 0) {
-      const message = 'El archivo no tiene hojas. Probá con otro archivo.';
+      const message = spreadsheetRecoveryCopies.emptySheets('onboarding');
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }
@@ -322,7 +336,7 @@ export class HandleSheetSelection {
       );
 
       if (sheets.length === 0) {
-        const message = 'El archivo no tiene hojas. Probá con otro archivo.';
+        const message = spreadsheetRecoveryCopies.emptySheets('onboarding');
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_SHEET', message };
       }
@@ -358,6 +372,7 @@ export class HandleSheetSelection {
 
       return { nextState: 'ONBOARDING_SHEET', message, payload };
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'SHEET_LIST_AUTH_ERROR', err);
@@ -368,9 +383,9 @@ export class HandleSheetSelection {
           code: 'SHEET_LIST_ERROR',
           userId,
           fileId,
-          error: errorMessage,
+          providerDiagnostic: err.providerDiagnostic,
         });
-        const message = `Hubo un problema al listar las hojas: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        const message = spreadsheetRecoveryCopies.readFailure(err, 'onboarding');
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_SHEET', message };
       }
@@ -383,7 +398,7 @@ export class HandleSheetSelection {
         errorType: err instanceof Error ? err.constructor.name : 'unknown',
         error: errorMessage,
       });
-      const message = onboardingCopies.sheetDiscoveryFailed();
+      const message = spreadsheetRecoveryCopies.readFailure(err, 'onboarding');
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }
@@ -479,6 +494,7 @@ export class HandleSheetSelection {
 
       return { nextState: 'ONBOARDING_SHEET', message, payload };
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'SHEET_HEADERS_AUTH_ERROR', err);
@@ -489,9 +505,9 @@ export class HandleSheetSelection {
           code: 'SHEET_HEADERS_ERROR',
           userId,
           fileId,
-          error: errorMessage,
+          providerDiagnostic: err.providerDiagnostic,
         });
-        const message = `Hubo un problema al leer las hojas: ${errorMessage}. Intentá de nuevo.`;
+        const message = spreadsheetRecoveryCopies.readFailure(err, 'onboarding', 'no sé');
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_SHEET', message };
       }
@@ -504,7 +520,7 @@ export class HandleSheetSelection {
         errorType: err instanceof Error ? err.constructor.name : 'unknown',
         error: errorMessage,
       });
-      const message = onboardingCopies.sheetDiscoveryFailed();
+      const message = spreadsheetRecoveryCopies.readFailure(err, 'onboarding');
       await this.deps.messagingPort.sendMessage(externalId, message);
       return { nextState: 'ONBOARDING_SHEET', message };
     }
@@ -599,6 +615,7 @@ export class HandleSheetSelection {
         statePayload: payload,
       });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       this.deps.logger.error({
         endpoint: 'HandleSheetSelection',
         code: 'POST_SHEET_VALIDATING_ACCESS_FAILED',

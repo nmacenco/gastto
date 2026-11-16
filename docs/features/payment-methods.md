@@ -26,3 +26,15 @@ Domain and application tests cover catalog identity, matching, unknown review pr
 ## Persistence comparison
 
 Payment resolution and final onboarding commits compare persisted JSONB snapshots structurally, preserving array order while ignoring object property order. PostgreSQL may reorder object keys; equivalent snapshots must not be rejected as stale. Revision, expiry, identity and explicit-selection checks remain required. The OWASP remediation validation runs the previously opt-in PostgreSQL suites.
+
+## Recovery guidance (2026-11-15)
+
+Unresolved expense payments advertise the accepted `medio de pago: Nombre`, `agregar medio de pago`, and `sin medio de pago` commands plus cancellation. Settings detection failures retain manual editing and `detectar`, and explicitly offer cancellation. These messages do not authorize saving or add a catalog value implicitly.
+
+## Setup message formatting (2026-11-16)
+
+Setup payment reviews and settings drafts show editing options/examples on individual bullet lines. Unmapped-column warnings, confirmation instructions, draft-discard guidance, and optional cancellation are separate paragraphs. Setup retry failures retain `confirmar`; settings detection failures retain `detectar` and manual editing. Expense messages are outside this formatting migration. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Expense message formatting (2026-11-16)
+
+Expense unresolved-payment guidance presents `medio de pago: Nombre`, `agregar medio de pago`, and `sin medio de pago` on separate bullet lines, followed by the optional cancellation footer. The review remains unsavable until payment resolution; callback button eligibility is unchanged. See [conversational message formatting](./conversational-message-formatting.md).

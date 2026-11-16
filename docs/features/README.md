@@ -6,6 +6,8 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
+- [`conversational-message-formatting.md`](./conversational-message-formatting.md): Explicit paragraphs, list preservation, and separate cancellation guidance for file/sheet selection and recovery.
+
 - [`telegram-access-approval.md`](./telegram-access-approval.md): First-contact welcome, explicit invalid-email and persistence-failure feedback, Telegram email requests and request-ID lookup, database and Gmail diagnostic logs, manual CLI approval, guarded cancellation and continuation during OAuth admission, and safe account replacement.
 
 - [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, safe file and sheet changes, category and payment drafts with listed editing examples, and guarded cancellation and expiry.
@@ -39,3 +41,19 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - Payment methods persistence: JSONB snapshot comparison is independent of object key order (see [payment methods](payment-methods.md)).
 
 - Candidate account activation renews expired credentials before cutover (see [Telegram access approval](telegram-access-approval.md)).
+
+## Recovery update (2026-11-15)
+
+Native-file validation and state-aware recovery are documented in [select-spreadsheet-file](./select-spreadsheet-file.md), [select-sheet](./select-sheet.md), [chat-spreadsheet-settings](./chat-spreadsheet-settings.md), [validate-spreadsheet-access](./validate-spreadsheet-access.md), [infer-and-propose-column-mapping](./infer-and-propose-column-mapping.md), [confirm-or-correct-column-mapping](./confirm-or-correct-column-mapping.md), [category-confirmation](./category-confirmation.md), [payment-methods](./payment-methods.md), [cloud-storage-connection](./cloud-storage-connection.md), [telegram-access-approval](./telegram-access-approval.md), [clarification-request](./clarification-request.md), [expense-correction](./expense-correction.md), [expense-summary-review](./expense-summary-review.md), [expense-confirmation](./expense-confirmation.md), [expense-cancellation](./expense-cancellation.md), [incoming-message-routing](./incoming-message-routing.md), [conversation-state-management](./conversation-state-management.md).
+
+## Setup readability update (2026-11-16)
+
+Paragraphs and cancellation guidance now cover [cloud connection](./cloud-storage-connection.md), [access validation](./validate-spreadsheet-access.md), [mapping inference](./infer-and-propose-column-mapping.md), [mapping correction](./confirm-or-correct-column-mapping.md), [categories](./category-confirmation.md), [payments](./payment-methods.md), [settings](./chat-spreadsheet-settings.md), and [access approval](./telegram-access-approval.md). Shared rules and OAuth HTML rendering are documented in [conversational message formatting](./conversational-message-formatting.md).
+
+## Expense readability update (2026-11-16)
+
+Formatting and explicit cancellation ownership now cover [clarification](./clarification-request.md), [correction](./expense-correction.md), [review](./expense-summary-review.md), [confirmation/retry](./expense-confirmation.md), [cancellation](./expense-cancellation.md), [undo](./undo-last-expense.md), [payments](./payment-methods.md), and [worker recovery](./incoming-message-routing.md). See [conversational message formatting](./conversational-message-formatting.md) for the block contract.
+
+## Readability completion (2026-11-16)
+
+The [formatting convention](./conversational-message-formatting.md) now documents the final audit and intentional exceptions. [Delivery](./send-responses-to-user.md) covers newline preservation, bounded Telegram fragments, and the WhatsApp placeholder limitation. Residual guidance is documented in [file selection](./select-spreadsheet-file.md), [sheet selection](./select-sheet.md), [cloud connection](./cloud-storage-connection.md), [settings](./chat-spreadsheet-settings.md), [access approval](./telegram-access-approval.md), [routing](./incoming-message-routing.md), and [expense review](./expense-summary-review.md).

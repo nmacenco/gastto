@@ -1,3 +1,4 @@
+import { settingsCopies } from '../../copies/settings.copies';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
@@ -165,10 +166,7 @@ export class SettingsVocabularyFlow {
     if (/^confirmar$/iu.test(rawMessage.trim())) {
       if (!payload.draft.categories.some((entry) => entry.isActive)) {
         await this.touch(state, payload);
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'Debe quedar al menos una categoría activa.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.categoryRequired());
         return;
       }
       const outcome = await this.deps.commit.execute({
@@ -230,14 +228,14 @@ export class SettingsVocabularyFlow {
       });
       await this.deps.messaging.sendMessage(
         externalId,
-        `${children.length ? `También se desactivarán: ${children.join(', ')}.\n` : ''}${this.render(draft, payload.subcategoryColumnMapped)}`,
+        `${children.length ? `También se desactivarán: ${children.join(', ')}.\n\n` : ''}${this.render(draft, payload.subcategoryColumnMapped)}`,
       );
     } catch (error) {
       if (!(error instanceof DomainValidationError)) throw error;
       await this.touch(state, payload);
       await this.deps.messaging.sendMessage(
         externalId,
-        `${error.message}\n${this.render(payload.draft, payload.subcategoryColumnMapped)}`,
+        `${error.message}\n\n${this.render(payload.draft, payload.subcategoryColumnMapped)}`,
       );
     }
   }
@@ -261,18 +259,12 @@ export class SettingsVocabularyFlow {
     const command = rawMessage.trim();
     if (/^detectar$/iu.test(command)) {
       if (!this.deps.detectPaymentMethods) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'La detección no está disponible. Podés agregar medios manualmente.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.manualPayment());
         return;
       }
       const config = await this.deps.configRepository.findByUserId(state.userId);
       if (!config || config.id !== payload.sourceConfigId) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'La configuración cambió. Abrí configuración de nuevo.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.configurationChanged());
         return;
       }
       try {
@@ -310,10 +302,7 @@ export class SettingsVocabularyFlow {
           this.renderPayments(draft, payload.paymentColumnMapped),
         );
       } catch {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'No pudimos leer los medios de pago. Escribí detectar para reintentar o agregalos manualmente.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.paymentDetectionFailed());
       }
       return;
     }
@@ -390,7 +379,7 @@ export class SettingsVocabularyFlow {
       await this.touch(state, payload);
       await this.deps.messaging.sendMessage(
         externalId,
-        `${error.message}\n${this.renderPayments(payload.draft, payload.paymentColumnMapped)}`,
+        `${error.message}\n\n${this.renderPayments(payload.draft, payload.paymentColumnMapped)}`,
       );
     }
   }
@@ -399,7 +388,7 @@ export class SettingsVocabularyFlow {
     const methods = draft.methods
       .filter((method) => method.isActive)
       .map((method) => `• ${method.name}`);
-    return `Borrador de medios de pago:\n${methods.join('\n') || '(sin medios de pago)'}${paymentColumnMapped ? '' : '\nLos medios de pago se conservarán en Gastto, pero no se escribirán en la planilla porque no hay una columna mapeada.'}\n\nEjemplos: detectar; agregar Efectivo; renombrar Efectivo a Dinero; quitar Dinero.\nEscribí confirmar para guardar este catálogo, incluso si está vacío, o cancelar para descartarlo.`;
+    return settingsCopies.paymentDraft(methods, paymentColumnMapped);
   }
 
   render(draft: VocabularySnapshot, subcategoryColumnMapped = true): string {
@@ -411,15 +400,6 @@ export class SettingsVocabularyFlow {
           .map((child) => child.name);
         return `• ${entry.name}${children.length ? `: ${children.join(', ')}` : ''}`;
       });
-    const examples = [
-      'agregar categoría Comida',
-      'Comida se llama Alimentación',
-      'quitar Comida',
-      'agregar subcategoría Café a Comida',
-      'en Comida renombrar Café a Cafetería',
-      'mover Café de Comida a Ocio',
-      'quitar Café de Comida',
-    ];
-    return `Borrador de categorías y subcategorías:\n${lines.join('\n') || '(sin categorías activas)'}${subcategoryColumnMapped ? '' : '\nLas subcategorías se conservarán en Gastto, pero no se escribirán en la planilla porque no hay una columna mapeada.'}\n\nEjemplos:\n${examples.map((example) => `• ${example}`).join('\n')}\n\nEscribí confirmar para guardar todos los cambios o cancelar para descartarlos.`;
+    return settingsCopies.categoryDraft(lines, subcategoryColumnMapped);
   }
 }

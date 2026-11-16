@@ -1,3 +1,7 @@
+import { paymentSetupCopies } from '../../copies/payment-setup.copies';
+import { composeMessage } from '../../copies/compose-message';
+import { settingsCopies } from '../../copies/settings.copies';
+import { spreadsheetRecoveryCopies } from '../../copies/spreadsheet-recovery.copies';
 import { randomUUID } from 'node:crypto';
 import type { ConversationState, FsmState } from '../../../domain/entities/ConversationState';
 import type { GasttoField, SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
@@ -119,16 +123,13 @@ export class SettingsDestinationFlow {
       files: files.map(({ id, name }) => ({ id, name })),
     };
     await this.move(state, 'SETTINGS_FILE', next);
-    await this.deps.messaging.sendMessage(externalId, this.filePrompt(next.files ?? []));
+    await this.deps.messaging.sendMessage(externalId, settingsCopies.filePrompt(next.files ?? []));
   }
 
   async startFile(state: ConversationState, externalId: string): Promise<void> {
     const config = await this.deps.configRepository.findByUserId(state.userId);
     if (!config || config.provider !== 'google' || !config.fileId || !config.sheetName) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'Primero completá la configuración de una planilla y una hoja de Google.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.destinationRequired());
       return;
     }
     const token = await this.token(state.userId, true);
@@ -142,25 +143,22 @@ export class SettingsDestinationFlow {
       files: files.map(({ id, name }) => ({ id, name })),
     };
     await this.move(state, 'SETTINGS_FILE', payload);
-    await this.deps.messaging.sendMessage(externalId, this.filePrompt(payload.files ?? []));
+    await this.deps.messaging.sendMessage(
+      externalId,
+      settingsCopies.filePrompt(payload.files ?? []),
+    );
   }
 
   async startSheet(state: ConversationState, externalId: string): Promise<void> {
     const config = await this.deps.configRepository.findByUserId(state.userId);
     if (!config || config.provider !== 'google' || !config.fileId || !config.sheetName) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'Primero completá la configuración de una planilla y una hoja de Google.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.destinationRequired());
       return;
     }
     const token = await this.token(state.userId);
     const sheets = await this.deps.spreadsheetPortFactory.create(token).listSheets(config.fileId);
     if (!sheets.length) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'No encontramos hojas en la planilla actual.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.emptyCurrent());
       return;
     }
     const payload: Payload = {
@@ -172,7 +170,7 @@ export class SettingsDestinationFlow {
       sheets: sheets.map(({ name, index }) => ({ name, index })),
     };
     await this.move(state, 'SETTINGS_SHEET', payload);
-    await this.deps.messaging.sendMessage(externalId, this.sheetPrompt(sheets));
+    await this.deps.messaging.sendMessage(externalId, settingsCopies.sheetPrompt(sheets));
   }
 
   async reply(state: ConversationState, rawMessage: string, externalId: string): Promise<void> {
@@ -216,10 +214,7 @@ export class SettingsDestinationFlow {
     if (!directId && (payload.step === 'searching' || /^buscar\s+\S/i.test(trimmed))) {
       const query = trimmed.replace(/^buscar\s+/i, '');
       if (query.length < 2) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'Escribí al menos dos letras para buscar una planilla.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.searchTooShort());
         return;
       }
       const token = await this.token(state.userId, true, payload.accountChangeRequestId);
@@ -227,15 +222,15 @@ export class SettingsDestinationFlow {
       const next: Payload = { ...payload, files: files.map(({ id, name }) => ({ id, name })) };
       delete next.step;
       await this.move(state, 'SETTINGS_FILE', next);
-      await this.deps.messaging.sendMessage(externalId, this.filePrompt(next.files ?? []));
+      await this.deps.messaging.sendMessage(
+        externalId,
+        settingsCopies.filePrompt(next.files ?? []),
+      );
       return;
     }
     if (normalize(trimmed) === 'buscar') {
       await this.move(state, 'SETTINGS_FILE', { ...payload, step: 'searching' });
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'Escribí el nombre de la planilla que querés buscar.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.searchName());
       return;
     }
     const index = Number(trimmed);
@@ -249,23 +244,30 @@ export class SettingsDestinationFlow {
           })
         : null);
     if (!selected) {
-      await this.deps.messaging.sendMessage(externalId, this.filePrompt(payload.files ?? []));
+      await this.deps.messaging.sendMessage(
+        externalId,
+        settingsCopies.filePrompt(payload.files ?? []),
+      );
       return;
     }
     const token = await this.token(state.userId, true, payload.accountChangeRequestId);
-    if (!(await this.deps.cloudStorage.validateFileAccess(selected.id, token, 'google'))) {
+    const validation = await this.deps.cloudStorage.validateFileAccess(
+      selected.id,
+      token,
+      'google',
+    );
+    if (validation.kind !== 'accessible') {
       await this.deps.messaging.sendMessage(
         externalId,
-        'No tenés acceso a esa planilla. Elegí otra o escribí cancelar.',
+        validation.kind === 'unsupported-type'
+          ? spreadsheetRecoveryCopies.unsupportedFormat()
+          : settingsCopies.fileAccessFailed(),
       );
       return;
     }
     const sheets = await this.deps.spreadsheetPortFactory.create(token).listSheets(selected.id);
     if (!sheets.length) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'La planilla no tiene hojas disponibles. Elegí otra.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.emptyCandidate());
       return;
     }
     const next: Payload = {
@@ -280,7 +282,7 @@ export class SettingsDestinationFlow {
       sheets: sheets.map(({ name, index: sheetIndex }) => ({ name, index: sheetIndex })),
     };
     await this.move(state, 'SETTINGS_SHEET', next);
-    await this.deps.messaging.sendMessage(externalId, this.sheetPrompt(sheets));
+    await this.deps.messaging.sendMessage(externalId, settingsCopies.sheetPrompt(sheets));
   }
 
   private async selectSheet(
@@ -293,7 +295,7 @@ export class SettingsDestinationFlow {
     const index = Number(reply.trim());
     const sheet = Number.isInteger(index) ? sheets[index - 1] : undefined;
     if (!sheet) {
-      await this.deps.messaging.sendMessage(externalId, this.sheetPrompt(sheets));
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.sheetPrompt(sheets));
       return;
     }
     const token = await this.token(state.userId, false, payload.accountChangeRequestId);
@@ -301,10 +303,7 @@ export class SettingsDestinationFlow {
       .create('google', token)
       .validateSpreadsheetAccess(payload.fileId, sheet.name);
     if (result.kind !== 'success' || !result.preview.rows.length) {
-      await this.deps.messaging.sendMessage(
-        externalId,
-        'No pudimos confirmar lectura y escritura de esa hoja. Elegí otra hoja o escribí cancelar.',
-      );
+      await this.deps.messaging.sendMessage(externalId, settingsCopies.sheetAccessFailed());
       return;
     }
     const next: Payload = {
@@ -331,10 +330,7 @@ export class SettingsDestinationFlow {
     if (payload.step === 'same-columns') {
       const answer = normalize(reply);
       if (!['si', 'no'].includes(answer)) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'Respondé sí o no sobre las posiciones de las columnas.',
-        );
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.columnPositions());
         return;
       }
       const source = await this.source(state.userId, payload);
@@ -347,12 +343,9 @@ export class SettingsDestinationFlow {
         })),
       );
       if (!headerRowIndex) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'No pudimos encontrar los encabezados de esa hoja. Elegí otra hoja.',
-        );
         const { sheetName: _sheetName, preview: _preview, step: _step, ...reset } = payload;
         await this.move(state, 'SETTINGS_SHEET', reset);
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.headersUnavailable());
         return;
       }
       const headerRow = rows.find((row) => row.index === headerRowIndex);
@@ -390,12 +383,9 @@ export class SettingsDestinationFlow {
         }));
       }
       if (!mappings.length) {
-        await this.deps.messaging.sendMessage(
-          externalId,
-          'No pudimos proponer un mapeo. Elegí otra hoja.',
-        );
         const { step: _step, ...reset } = payload;
         await this.move(state, 'SETTINGS_SHEET', reset);
+        await this.deps.messaging.sendMessage(externalId, settingsCopies.mappingUnavailable());
         return;
       }
       const next = { ...payload, step: 'review', headerRowIndex, mappings };
@@ -504,7 +494,7 @@ export class SettingsDestinationFlow {
         if (!this.deps.detectPaymentMethods) {
           await this.deps.messaging.sendMessage(
             externalId,
-            'No se puede detectar el medio de pago ahora. Escribí confirmar para reintentar.',
+            settingsCopies.paymentDetectionUnavailable(),
           );
           return;
         }
@@ -534,13 +524,10 @@ export class SettingsDestinationFlow {
           });
           await this.deps.messaging.sendMessage(
             externalId,
-            this.paymentPrompt(proposal.names, proposal.columnMapped),
+            paymentSetupCopies.settingsReview(proposal.names, proposal.columnMapped),
           );
         } catch {
-          await this.deps.messaging.sendMessage(
-            externalId,
-            'No pudimos leer los medios de pago. Escribí confirmar para reintentar o cancelar.',
-          );
+          await this.deps.messaging.sendMessage(externalId, paymentSetupCopies.readFailure());
         }
         return;
       }
@@ -605,7 +592,10 @@ export class SettingsDestinationFlow {
         } else {
           await this.deps.messaging.sendMessage(
             externalId,
-            this.paymentPrompt(payload.paymentMethods ?? [], payload.paymentColumnMapped === true),
+            paymentSetupCopies.settingsReview(
+              payload.paymentMethods ?? [],
+              payload.paymentColumnMapped === true,
+            ),
           );
           return;
         }
@@ -617,13 +607,13 @@ export class SettingsDestinationFlow {
         });
         await this.deps.messaging.sendMessage(
           externalId,
-          this.paymentPrompt(paymentMethods, payload.paymentColumnMapped === true),
+          paymentSetupCopies.settingsReview(paymentMethods, payload.paymentColumnMapped === true),
         );
       } catch (error) {
         if (!(error instanceof DomainValidationError)) throw error;
         await this.deps.messaging.sendMessage(
           externalId,
-          `${error.message}\n${this.paymentPrompt(payload.paymentMethods ?? [], payload.paymentColumnMapped === true)}`,
+          `${error.message}\n${paymentSetupCopies.settingsReview(payload.paymentMethods ?? [], payload.paymentColumnMapped === true)}`,
         );
       }
       return;
@@ -721,30 +711,24 @@ export class SettingsDestinationFlow {
     });
   }
 
-  private sheetPrompt(sheets: ReadonlyArray<{ name: string }>): string {
-    return `Elegí una hoja:\n${sheets.map((sheet, index) => `${index + 1}. ${sheet.name}`).join('\n')}\nEscribí el número o cancelar.`;
-  }
-
-  private filePrompt(files: ReadonlyArray<{ name: string }>): string {
-    return `Elegí una planilla:\n${files.length ? files.map((file, index) => `${index + 1}. ${file.name}`).join('\n') : 'No encontramos planillas recientes.'}\nEscribí el número, buscar, buscar seguido del nombre, un enlace de Google Sheets o cancelar.`;
-  }
-
   private mappingPrompt(mappings: Mapping[]): string {
-    return `Revisá las columnas:\n${mappings
-      .map((mapping) => `${mapping.field}: ${mapping.columnIndex + 1} (${mapping.columnHeader})`)
-      .join('\n')}\nEscribí confirmar o corregí con campo=número (por ejemplo, monto=2).`;
+    return composeMessage({
+      explanation: `Revisá las columnas:\n${mappings
+        .map((mapping) => `${mapping.field}: ${mapping.columnIndex + 1} (${mapping.columnHeader})`)
+        .join('\n')}`,
+      action: 'Escribí confirmar o corregí con campo=número (por ejemplo, monto=2).',
+    });
   }
 
   private categoryPrompt(categories: Category[]): string {
-    return `Revisá las categorías:\n${categories
-      .map(
-        (category) =>
-          `${category.name}${category.subcategories.length ? ` > ${category.subcategories.join(', ')}` : ''}`,
-      )
-      .join('\n')}\nEscribí confirmar o categorías: Nombre; Otra > Subcategoría.`;
-  }
-
-  private paymentPrompt(names: string[], columnMapped: boolean): string {
-    return `Revisá los medios de pago:\n${names.map((name) => `• ${name}`).join('\n') || '(sin medios de pago)'}${columnMapped ? '' : '\nNo hay columna de medio de pago; los valores que agregues se guardarán solo en Gastto.'}\nEscribí confirmar, agregar Nombre, renombrar Nombre a Otro, quitar Nombre o cancelar.`;
+    return composeMessage({
+      explanation: `Revisá las categorías:\n${categories
+        .map(
+          (category) =>
+            `${category.name}${category.subcategories.length ? ` > ${category.subcategories.join(', ')}` : ''}`,
+        )
+        .join('\n')}`,
+      action: 'Escribí confirmar o categorías: Nombre; Otra > Subcategoría.',
+    });
   }
 }

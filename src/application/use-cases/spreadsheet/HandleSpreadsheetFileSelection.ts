@@ -3,6 +3,7 @@
 // Retrieves the user's OAuth token, calls CloudStoragePort to list/search/validate
 // spreadsheet files, handles the user's reply, and transitions FSM accordingly.
 
+import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
 import type { Logger } from 'pino';
 import type { CloudStoragePort } from '../../../domain/ports/cloudStorage';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
@@ -15,6 +16,7 @@ import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetCo
 import { CloudFile } from '../../../domain/entities/CloudFile';
 import type { HandleSheetSelection } from './HandleSheetSelection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { spreadsheetRecoveryCopies } from '../../copies/spreadsheet-recovery.copies';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import {
@@ -89,6 +91,7 @@ export class HandleSpreadsheetFileSelection {
     try {
       await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
       }
@@ -160,6 +163,7 @@ export class HandleSpreadsheetFileSelection {
     try {
       await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
       }
@@ -241,6 +245,7 @@ export class HandleSpreadsheetFileSelection {
 
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'FILE_DISCOVERY_AUTH_ERROR', err);
@@ -252,7 +257,7 @@ export class HandleSpreadsheetFileSelection {
           userId,
           error: errorMessage,
         });
-        const message = `Hubo un problema al buscar archivos: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        const message = onboardingCopies.fileDiscoveryFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
@@ -295,13 +300,17 @@ export class HandleSpreadsheetFileSelection {
           this.deps.cloudStorage.validateFileAccess(selected.id, accessToken, provider),
       );
 
-      if (!hasAccess) {
-        const message = onboardingCopies.urlValidationFailed();
+      if (hasAccess.kind !== 'accessible') {
+        const message =
+          hasAccess.kind === 'unsupported-type'
+            ? spreadsheetRecoveryCopies.unsupportedFormat()
+            : onboardingCopies.urlValidationFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
       this.deps.transitionState.assertExecutionIsValid?.(userId);
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'FILE_ACCESS_AUTH_ERROR', err);
@@ -314,7 +323,7 @@ export class HandleSpreadsheetFileSelection {
           fileId: selected.id,
           error: errorMessage,
         });
-        const message = `Hubo un problema al validar el acceso: ${errorMessage}. Intentá de nuevo.`;
+        const message = onboardingCopies.fileAccessFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
@@ -418,6 +427,7 @@ export class HandleSpreadsheetFileSelection {
 
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'FILE_SEARCH_AUTH_ERROR', err);
@@ -430,7 +440,7 @@ export class HandleSpreadsheetFileSelection {
           query,
           error: errorMessage,
         });
-        const message = `Hubo un problema al buscar archivos: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        const message = onboardingCopies.fileDiscoveryFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
@@ -465,13 +475,17 @@ export class HandleSpreadsheetFileSelection {
         (accessToken) => this.deps.cloudStorage.validateFileAccess(fileId, accessToken, provider),
       );
 
-      if (!hasAccess) {
-        const message = onboardingCopies.urlValidationFailed();
+      if (hasAccess.kind !== 'accessible') {
+        const message =
+          hasAccess.kind === 'unsupported-type'
+            ? spreadsheetRecoveryCopies.unsupportedFormat()
+            : onboardingCopies.urlValidationFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
       this.deps.transitionState.assertExecutionIsValid?.(userId);
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'URL_ACCESS_AUTH_ERROR', err);
@@ -484,7 +498,7 @@ export class HandleSpreadsheetFileSelection {
           fileId,
           error: errorMessage,
         });
-        const message = `Hubo un problema al validar el acceso: ${errorMessage}. Intentá de nuevo.`;
+        const message = onboardingCopies.fileAccessFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
@@ -541,6 +555,7 @@ export class HandleSpreadsheetFileSelection {
         statePayload: { selectedFileId: fileId, selectedFileName: fileName, provider },
       });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.deps.logger.error({
         endpoint: 'HandleSpreadsheetFileSelection',

@@ -51,7 +51,7 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
 
       const result = await adapter.listRecentSpreadsheets('access-token-123', 'google');
 
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(1);
       const first = result[0];
       if (!first) throw new Error('Expected first to be defined');
       expect(first).toBeInstanceOf(CloudFile);
@@ -71,11 +71,11 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
       const parsedUrl = new URL(url);
       const q = parsedUrl.searchParams.get('q');
       expect(q).toContain("mimeType = 'application/vnd.google-apps.spreadsheet'");
-      expect(q).toContain('or');
-      expect(q).toContain(
+      expect(q).not.toContain(' or ');
+      expect(q).not.toContain(
         "mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'",
       );
-      expect(q).toContain("mimeType = 'application/vnd.oasis.opendocument.spreadsheet'");
+      expect(q).not.toContain("mimeType = 'application/vnd.oasis.opendocument.spreadsheet'");
     });
 
     it('returns empty array when no files found', async () => {
@@ -167,7 +167,7 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
       const parsedUrl = new URL(url);
       const q = parsedUrl.searchParams.get('q');
       expect(q).toContain("mimeType = 'application/vnd.google-apps.spreadsheet'");
-      expect(q).toContain('or');
+      expect(q).not.toContain(' or ');
       expect(q).toContain("name contains 'Budget'");
     });
 
@@ -193,17 +193,19 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
   });
 
   describe('validateFileAccess', () => {
-    it('returns true on HTTP 200', async () => {
+    it('accepts native metadata on HTTP 200', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
+        json: () =>
+          Promise.resolve({ id: 'file-123', mimeType: 'application/vnd.google-apps.spreadsheet' }),
       });
 
       const result = await adapter.validateFileAccess('file-123', 'token', 'google');
-      expect(result).toBe(true);
+      expect(result).toEqual({ kind: 'accessible' });
 
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe('https://www.googleapis.com/drive/v3/files/file-123?fields=id');
+      expect(url).toBe('https://www.googleapis.com/drive/v3/files/file-123?fields=id,mimeType');
       expect(init.headers).toEqual({ Authorization: 'Bearer token' });
     });
 
@@ -225,7 +227,7 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
       });
 
       const result = await adapter.validateFileAccess('file-123', 'token', 'google');
-      expect(result).toBe(false);
+      expect(result).toEqual({ kind: 'inaccessible' });
     });
 
     it('throws InvalidProviderError for non-google providers', async () => {
@@ -262,4 +264,48 @@ describe('GoogleDriveFileDiscoveryAdapter', () => {
       ).rejects.toBeInstanceOf(FileDiscoveryError);
     });
   });
+  it.each([
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.oasis.opendocument.spreadsheet',
+  ])('rejects %s metadata regardless of filename', async (mimeType) => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: () => Promise.resolve({ id: 'file-123', mimeType }),
+    });
+    await expect(adapter.validateFileAccess('file-123', 'token', 'google')).resolves.toEqual({
+      kind: 'unsupported-type',
+    });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          files: [{ id: 'file-123', name: 'Native looking', mimeType, modifiedTime: '2026-01-01' }],
+        }),
+    });
+    await expect(adapter.searchSpreadsheets('token', 'google', 'Native')).resolves.toEqual([]);
+  });
+  it.each([
+    {},
+    { id: 'file-123' },
+    { id: 'file-123', mimeType: null },
+    { id: 'wrong', mimeType: 'application/vnd.google-apps.spreadsheet' },
+  ])('does not classify malformed metadata as accessible or unsupported: %j', async (body) => {
+    fetchMock.mockResolvedValue({ status: 200, json: () => Promise.resolve(body) });
+    await expect(adapter.validateFileAccess('file-123', 'token', 'google')).rejects.toBeInstanceOf(
+      FileDiscoveryError,
+    );
+  });
+  it.each([401, 503])(
+    'preserves HTTP classification with non-JSON discovery errors: %s',
+    async (status) => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status,
+        json: () => Promise.reject(new Error('html')),
+      });
+      await expect(adapter.listRecentSpreadsheets('token', 'google')).rejects.toMatchObject({
+        code: status === 401 ? 'AUTH_ERROR' : 'NETWORK_ERROR',
+      });
+    },
+  );
 });

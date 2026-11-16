@@ -54,6 +54,59 @@ describe('TelegramMessengerAdapter', () => {
       expect(body.parse_mode).toBeUndefined();
     });
 
+    it('preserves paragraph breaks, nested lists and URLs in a single request', async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      const text =
+        'Revisá las opciones:\n• Comida\n  ◦ Café\n\nAbrí https://example.com/?x=1&y=2\n\nEscribí cancelar si quieres salir.';
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
+      expect(await adapter.sendMessage(CHAT_ID, text)).toEqual({ status: 'success' });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const body = JSON.parse(
+        (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+      ) as TelegramSendMessageBody;
+      expect(body.text).toBe(text);
+      expect(body.parse_mode).toBeUndefined();
+    });
+
+    it.each([4094, 4095, 4096])(
+      'keeps fragments within the limit with a paragraph at %i',
+      async (boundary) => {
+        fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
+        const text =
+          'A'.repeat(boundary) + '\n\n• Opción\n  ◦ Detalle\n\nEscribí cancelar si quieres salir.';
+        const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
+        expect(await adapter.sendMessage(CHAT_ID, text)).toEqual({ status: 'success' });
+        const fragments = fetchMock.mock.calls.map(
+          (call) =>
+            (
+              JSON.parse(
+                (call as [string, RequestInit])[1].body as string,
+              ) as TelegramSendMessageBody
+            ).text,
+        );
+        expect(fragments).toHaveLength(2);
+        expect(fragments.every((fragment) => fragment.length > 0 && fragment.length <= 4096)).toBe(
+          true,
+        );
+        expect(fragments.join('')).toBe(text);
+        if (boundary === 4094) expect(fragments[0]).toBe('A'.repeat(boundary) + '\n\n');
+      },
+    );
+
+    it('keeps sentence separators inside the size limit without losing content', async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      const text = 'A'.repeat(4095) + '. Continuación.';
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
+      expect(await adapter.sendMessage(CHAT_ID, text)).toEqual({ status: 'success' });
+      const fragments = fetchMock.mock.calls.map(
+        (call) =>
+          (JSON.parse((call as [string, RequestInit])[1].body as string) as TelegramSendMessageBody)
+            .text,
+      );
+      expect(fragments.every((fragment) => fragment.length <= 4096)).toBe(true);
+      expect(fragments.join('')).toBe(text);
+    });
+
     it('returns success when Telegram responds with ok: true', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
@@ -348,6 +401,26 @@ describe('TelegramMessengerAdapter', () => {
           { text: 'Correct', callback_data: JSON.stringify({ action: 'correct' }) },
           { text: 'Cancel', callback_data: JSON.stringify({ action: 'cancel' }) },
         ],
+      ]);
+    });
+
+    it('preserves review paragraphs and keyboard bindings in one request', async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      const adapter = new TelegramMessengerAdapter(BOT_TOKEN, mockLogger);
+      const text =
+        'Resumen:\n• Monto: 12.75 EUR\n\n¿Confirmamos?\n\nEscribí cancelar si quieres salir.';
+      const buttons = [[{ text: 'Cancelar', callbackData: 'bound-cancel' }]];
+      expect(await adapter.sendMessageWithInlineKeyboard(CHAT_ID, text, buttons)).toEqual({
+        status: 'success',
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const body = JSON.parse(
+        (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+      ) as TelegramSendMessageBody & { reply_markup: { inline_keyboard: unknown } };
+      expect(body.text).toBe(text);
+      expect(body.parse_mode).toBeUndefined();
+      expect(body.reply_markup.inline_keyboard).toEqual([
+        [{ text: 'Cancelar', callback_data: 'bound-cancel' }],
       ]);
     });
 

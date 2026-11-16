@@ -556,7 +556,7 @@ export class HandleOAuthCallback {
         });
         await this.sendSettingsMessage(
           metadata.externalId,
-          'Google se conectó. Escribí buscar para elegir una planilla nueva o cancelar.',
+          settingsCopies.accountConnectedChooseFile(),
         );
       }
       return {

@@ -139,3 +139,15 @@ A stale revision or invalidated lease cannot reset another attempt or send a fal
 - `extractionRuntime.spec.ts` and `GroqAdapter.spec.ts`: provider boundaries, typed failures, safe metadata, deadlines, SDK retry settings, ownership cancellation, late completion, response-body abort, and model-specific request behavior.
 - `RecoverExpenseExtraction.spec.ts`: exact revision recovery, stale ownership, persistence failure, newer drafts, and unresolved financial claims.
 - `semantic-router-expense-flows.integration.spec.ts`: real PostgreSQL/Redis, routing off, failed initial extraction from idle/receiving, resend, review, explicit confirmation, and exactly one write after duplicate confirmation.
+
+## Recovery guidance (2026-11-15)
+
+Shared semantic feedback reloads the persisted state before choosing recovery instructions, including after stale or rejected dispatch. It never derives cancellation solely from the incoming review snapshot. Changed or expired context uses current or bounded guidance; financial claims use manual-resolution feedback.
+
+## Expense message formatting (2026-11-16)
+
+Review summaries preserve field ordering, amounts, dates, hierarchy markers, payment labels, and callback bindings. Confirmation/correction instructions and the optional cancellation footer occupy separate paragraphs. High-amount warnings stay separate, and the final cancellation footer appears only once. Unresolved-payment guidance lists the accepted commands and still omits the Confirmar button. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+Queue-full guidance separates the queue limit from the instruction to finish or cancel the active expense. Queue size, callback eligibility and ordering remain unchanged. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

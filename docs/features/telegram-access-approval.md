@@ -47,3 +47,15 @@ The user chooses a spreadsheet visible to the candidate account, then a sheet, m
 The operator Gmail account uses a separate Google OAuth client with `gmail.send` and a durable refresh token. The Gmail sender and recipient, client ID, client secret, and refresh token live in deployment secrets. An External/Testing OAuth client can yield a short-lived refresh grant, so the owner must verify the chosen project's publishing and authorization state before enabling this feature. The code does not provision Google Cloud test users, verify the reviewer account remotely, or deploy secrets. Existing production users need a local approved request before this gate can be enabled for them.
 
 See [the operator and reviewer runbook](../../ai/plans/2026_11_07-telegram_access_oauth_review/reviewer-runbook.md) for release steps and test evidence.
+
+## Recovery guidance (2026-11-15)
+
+Replacement email validation and persistence failures keep the settings screen open, ask for a corrected/repeated email, and offer `cancelar`. Initial admission uses separate copies and does not promise cancellation.
+
+## Setup message formatting (2026-11-16)
+
+Initial admission validation/persistence errors use explanation/action paragraphs without offering cancellation. Replacement-email errors and pending OAuth continuation retain supported cancellation with the exact footer `Escribí cancelar si quieres salir.` in its own paragraph. Mandatory exit/continuation sequences use numbered steps. Email replacement and authorization guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+Approval notifications, pending-replacement guidance, and temporary unavailability separate their status from continuation instructions; initial admission still does not offer cancellation. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

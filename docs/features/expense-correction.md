@@ -106,3 +106,11 @@ Additional Definition of Done coverage:
 
 - The correction state is persisted in PostgreSQL alongside the existing conversation FSM; Redis remains the BullMQ broker and is not the source of conversational state.
 - The correction flow is channel-agnostic at the application boundary. The current bootstrap uses the Telegram presenter and keeps WhatsApp as a future adapter integration.
+
+## Recovery guidance (2026-11-15)
+
+Correction examples and invalid-subcategory feedback include an explicit cancellation command. Invalid children still preserve the review binding and draft; financial execution claims continue to block exits.
+
+## Expense message formatting (2026-11-16)
+
+Correction prompts separate the question from the examples and the optional cancellation footer. Subcategory errors separate the parent/child explanation from correction instructions. High-amount and correction-limit prompts retain explicit confirmation, with cancellation in its own paragraph. Existing field labels, correction commands, and state/revision guards remain unchanged. See [conversational message formatting](./conversational-message-formatting.md).

@@ -110,3 +110,11 @@ See `docs/architecture/data-model.md` for the full schema and `conversation_stat
 - The interruption heuristic is intentionally conservative: a short answer like `"850"` or `"euros"` is treated as a clarification answer, while a full sentence with amount and currency (or a long message) is treated as a new expense.
 - Currency options are capped at three to keep the reformulated question concise.
 - The Telegram webhook route (`src/interfaces/http/routes/telegram.webhook.ts`) remains a thin delegate: it only parses the payload and enqueues jobs; no clarification logic lives in the HTTP layer.
+
+## Recovery guidance (2026-11-15)
+
+Amount/currency clarification, currency-option reformulation and zero confirmation explicitly offer `cancelar`. Cancelling an active expense draft keeps the existing pending-queue advancement behavior.
+
+## Expense message formatting (2026-11-16)
+
+Amount and currency questions and reformulated currency options place `Escribí cancelar si quieres salir.` in its own paragraph. Currency option ordering is preserved. Semantic-router `pendingQuestion` uses the same formatted copy; extraction, missing-field selection, and routing rules are unchanged. See [conversational message formatting](./conversational-message-formatting.md).

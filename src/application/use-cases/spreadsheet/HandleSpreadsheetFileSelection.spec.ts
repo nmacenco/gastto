@@ -178,7 +178,7 @@ describe('HandleSpreadsheetFileSelection', () => {
 
   describe('selection by number', () => {
     it('validates access and transitions to ONBOARDING_SHEET on success', async () => {
-      mockValidateAccess.mockResolvedValue(true);
+      mockValidateAccess.mockResolvedValue({ kind: 'accessible' });
 
       const deps = buildMockDeps();
       const useCase = new HandleSpreadsheetFileSelection(deps);
@@ -213,7 +213,7 @@ describe('HandleSpreadsheetFileSelection', () => {
     });
 
     it('returns access denied message when validation fails', async () => {
-      mockValidateAccess.mockResolvedValue(false);
+      mockValidateAccess.mockResolvedValue({ kind: 'inaccessible' });
 
       const deps = buildMockDeps();
       const useCase = new HandleSpreadsheetFileSelection(deps);
@@ -244,7 +244,7 @@ describe('HandleSpreadsheetFileSelection', () => {
     });
 
     it('selects a trusted displayed position with the captured revision precondition', async () => {
-      mockValidateAccess.mockResolvedValue(true);
+      mockValidateAccess.mockResolvedValue({ kind: 'accessible' });
       const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
       const expected = {
         revision: '9',
@@ -350,7 +350,7 @@ describe('HandleSpreadsheetFileSelection', () => {
 
     it('keeps search mode across repeated empty results and accepts a later link', async () => {
       mockSearch.mockResolvedValue([]);
-      mockValidateAccess.mockResolvedValue(true);
+      mockValidateAccess.mockResolvedValue({ kind: 'accessible' });
       const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
       const first = await useCase.execute({
         ...baseInput,
@@ -384,7 +384,7 @@ describe('HandleSpreadsheetFileSelection', () => {
       { label: 'empty list', payload: { provider: 'google', fileList: [] } },
       { label: 'active search', payload: { provider: 'google', step: 'searching' } },
     ])('accepts a Sheets link from $label before listing or searching', async ({ payload }) => {
-      mockValidateAccess.mockResolvedValue(true);
+      mockValidateAccess.mockResolvedValue({ kind: 'accessible' });
       const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
       const result = await useCase.execute({
         ...baseInput,
@@ -398,7 +398,7 @@ describe('HandleSpreadsheetFileSelection', () => {
       expect(mockHandleSheetSelectionExecute).toHaveBeenCalledOnce();
     });
     it('extracts fileId, validates access, and transitions to ONBOARDING_SHEET on success', async () => {
-      mockValidateAccess.mockResolvedValue(true);
+      mockValidateAccess.mockResolvedValue({ kind: 'accessible' });
 
       const deps = buildMockDeps();
       const useCase = new HandleSpreadsheetFileSelection(deps);
@@ -431,7 +431,7 @@ describe('HandleSpreadsheetFileSelection', () => {
     });
 
     it('returns urlValidationFailed when access is denied', async () => {
-      mockValidateAccess.mockResolvedValue(false);
+      mockValidateAccess.mockResolvedValue({ kind: 'inaccessible' });
 
       const deps = buildMockDeps();
       const useCase = new HandleSpreadsheetFileSelection(deps);
@@ -447,7 +447,7 @@ describe('HandleSpreadsheetFileSelection', () => {
     });
 
     it('keeps the search flow when a linked file is inaccessible', async () => {
-      mockValidateAccess.mockResolvedValue(false);
+      mockValidateAccess.mockResolvedValue({ kind: 'inaccessible' });
       const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
       const result = await useCase.execute({
         ...baseInput,
@@ -460,7 +460,7 @@ describe('HandleSpreadsheetFileSelection', () => {
     });
 
     it('does not confirm a linked file when its guarded transition is stale', async () => {
-      mockValidateAccess.mockResolvedValue(true);
+      mockValidateAccess.mockResolvedValue({ kind: 'accessible' });
       const transition = vi.fn().mockRejectedValue(new Error('stale state'));
       const useCase = new HandleSpreadsheetFileSelection(
         buildMockDeps({
@@ -617,14 +617,15 @@ describe('HandleSpreadsheetFileSelection', () => {
       const result = await useCase.execute({ ...baseInput, statePayload: null });
 
       expect(result.nextState).toBe('ONBOARDING_FILE');
-      expect(result.message).toContain('network error');
+      expect(result.message).not.toContain('network error');
+      expect(result.message).toContain('cancelar');
       expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
     });
   });
 
   describe('sheet selection delegation', () => {
     it('still returns success when the delegated sheet selection fails', async () => {
-      mockValidateAccess.mockResolvedValue(true);
+      mockValidateAccess.mockResolvedValue({ kind: 'accessible' });
       mockHandleSheetSelectionExecute.mockRejectedValue(new Error('sheet discovery failed'));
 
       const deps = buildMockDeps();
@@ -647,4 +648,22 @@ describe('HandleSpreadsheetFileSelection', () => {
       });
     });
   });
+  it.each(['1', 'https://docs.google.com/spreadsheets/d/legacy/edit'])(
+    'rejects an unsupported direct or historical selection %s before any Sheets call',
+    async (rawMessage) => {
+      mockValidateAccess.mockResolvedValue({ kind: 'unsupported-type' });
+      const useCase = new HandleSpreadsheetFileSelection(buildMockDeps());
+      const result = await useCase.execute({
+        ...baseInput,
+        rawMessage,
+        statePayload: { provider: 'google', fileList: [{ id: 'legacy', name: 'Old XLSX' }] },
+      });
+      expect(result.nextState).toBe('ONBOARDING_FILE');
+      expect(result.message).toContain('guardalo como una planilla de Google');
+      expect(result.message).toContain('cancelar');
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledOnce();
+    },
+  );
 });

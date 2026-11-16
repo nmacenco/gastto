@@ -79,6 +79,25 @@ describe('GET /auth/google/callback', () => {
     });
   });
 
+  it('preserves failure paragraphs after escaping HTML', async () => {
+    mockExecute.mockResolvedValue({
+      success: false,
+      nextState: 'ONBOARDING_DRIVE',
+      message: 'No se pudo conectar.\n\n<script>alert("x")</script> & continuar',
+      canRetry: true,
+    });
+    const { app } = buildApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/auth/google/callback?code=test&state=test',
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.payload).toContain(
+      'No se pudo conectar.<br><br>&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; continuar',
+    );
+    expect(response.payload).not.toContain('<script>');
+  });
+
   it('declares UTF-8 for accented failure messages', async () => {
     mockExecute.mockResolvedValue({
       success: false,

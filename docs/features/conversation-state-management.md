@@ -137,3 +137,7 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 - Expiry is checked during action resolution, not only by the periodic sweep. An expired action cannot revive the review; the first-expiry path creates a new binding and the second expiry clears only the matching active draft.
 - All queue-aware user feedback is emitted in Spanish, including capacity rejection, pending-count notices, unrelated-reply reminders, expiration advances, and final batch summaries. Count-aware copies use singular and plural forms as appropriate.
 - The timeout prompt copy (`"Tu sesion expiro. Queres continuar o empezar de nuevo?"`) is owned by the Application layer (`HandleExpiredSessions`), not by the Telegram adapter.
+
+## Recovery guidance (2026-11-15)
+
+Recovery presentation uses the effective persisted state and existing financial-claim guard. Expired/unknown states do not advertise cancellation; `IDLE` receives no cancellation suffix. This presentation contract adds no state or transition and does not clear claims.

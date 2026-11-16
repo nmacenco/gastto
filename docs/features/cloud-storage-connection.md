@@ -366,3 +366,15 @@ interface OAuthAccessTokenProvider {
 ## Security boundary update (2026-11-01)
 
 See [Security hardening](security-hardening.md) for the implemented HTTP admission/status contracts, production documentation availability, dependency gate, secret rotation and release evidence. These contracts supersede earlier blanket statements that every Telegram request returns 200.
+
+## Recovery guidance (2026-11-15)
+
+Invalid provider replies include the accepted numbered provider choices and an explicit cancellation command. Reconnection feedback retains the existing OAuth flow and offers cancellation from the onboarding state.
+
+## Setup message formatting (2026-11-16)
+
+OAuth chat instructions separate context, authorization links, and optional exit guidance. Authorization URLs remain unchanged. The callback HTML escapes the complete failure text before rendering its newlines as `<br>` elements; plain chat text contains no HTML. Retry eligibility and nonce/state guards remain unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+Cancellation and already/incompletely configured notices separate their outcome from the command to restart or open settings. Short connection confirmations remain concise. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

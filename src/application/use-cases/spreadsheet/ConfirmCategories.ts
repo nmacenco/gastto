@@ -1,3 +1,4 @@
+import { paymentSetupCopies } from '../../copies/payment-setup.copies';
 // LAYER: Application
 // Use case: atomically persist the reviewed category hierarchy before
 // finalizing onboarding.
@@ -91,12 +92,14 @@ export class ConfirmCategories {
               paymentColumnMapped: proposal.columnMapped,
             },
           });
-          const message = this.paymentPrompt(proposal.names, proposal.columnMapped);
+          const message = paymentSetupCopies.onboardingReview(
+            proposal.names,
+            proposal.columnMapped,
+          );
           await this.deps.messagingPort.sendMessage(externalId, message);
           return { nextState: 'ONBOARDING_CATEGORIES', message };
         } catch {
-          const message =
-            'No pudimos leer los medios de pago. Escribí confirmar para reintentar o cancelar.';
+          const message = paymentSetupCopies.readFailure();
           await this.deps.messagingPort.sendMessage(externalId, message);
           return { nextState: 'ONBOARDING_CATEGORIES', message };
         }
@@ -181,13 +184,16 @@ export class ConfirmCategories {
       });
       await this.deps.messagingPort.sendMessage(
         input.externalId,
-        this.paymentPrompt(paymentMethods, input.statePayload.paymentColumnMapped === true),
+        paymentSetupCopies.onboardingReview(
+          paymentMethods,
+          input.statePayload.paymentColumnMapped === true,
+        ),
       );
     } catch (error) {
       if (!(error instanceof DomainValidationError)) throw error;
       await this.deps.messagingPort.sendMessage(
         input.externalId,
-        `${error.message}\n${this.paymentPrompt(names, input.statePayload.paymentColumnMapped === true)}`,
+        `${error.message}\n${paymentSetupCopies.onboardingReview(names, input.statePayload.paymentColumnMapped === true)}`,
       );
     }
   }
@@ -214,10 +220,6 @@ export class ConfirmCategories {
     return draft as NonNullable<
       Parameters<OnboardingVocabularyCommit['execute']>[0]['categoryDraft']
     >;
-  }
-
-  private paymentPrompt(names: string[], mapped: boolean): string {
-    return `Revisá los medios de pago:\n${names.map((name) => `• ${name}`).join('\n') || '(sin medios de pago)'}${mapped ? '' : '\nSin columna mapeada: se guardarán solo en Gastto.'}\nEscribí confirmar para activar toda la configuración, agregar Nombre, renombrar Nombre a Otro, quitar Nombre o cancelar.`;
   }
 
   private reconcileHierarchy(

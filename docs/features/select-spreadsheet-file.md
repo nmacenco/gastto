@@ -132,6 +132,11 @@ interface HandleSpreadsheetFileSelectionDeps {
 #### `CloudStoragePort`
 
 ```ts
+type FileAccessValidationResult =
+  | { kind: 'accessible' }
+  | { kind: 'inaccessible' }
+  | { kind: 'unsupported-type' };
+
 interface CloudStoragePort {
   listRecentSpreadsheets(accessToken: string, provider: SpreadsheetProvider): Promise<CloudFile[]>;
   searchSpreadsheets(
@@ -143,7 +148,7 @@ interface CloudStoragePort {
     fileId: string,
     accessToken: string,
     provider: SpreadsheetProvider,
-  ): Promise<boolean>;
+  ): Promise<FileAccessValidationResult>;
 }
 ```
 
@@ -163,13 +168,15 @@ class CloudFile {
 | Scenario                           | Behavior                                                               |
 | ---------------------------------- | ---------------------------------------------------------------------- |
 | Invalid provider (`microsoft`)     | `InvalidProviderError` thrown by adapter; use case sends `comingSoon`. |
-| Missing / expired / revoked token  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.    |
+| Missing / revoked credential  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.    |
 | Token decryption failure           | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.    |
 | Missing `fileId` in statePayload   | `fileAccessFailed` message returned; stays in `ONBOARDING_FILE`.       |
 | Network failure during discovery   | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned.           |
-| Non-2xx HTTP from Google Drive API | `FileDiscoveryError` thrown with HTTP status; error message returned.  |
+| Non-2xx HTTP from Google Drive API | `FileDiscoveryError` thrown with HTTP classification; safe application copy returned.  |
 | Invalid JSON response              | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned.           |
-| File access denied (403/404)       | `validateFileAccess` returns `false`; `urlValidationFailed` returned.  |
+| File not found (404)       | `validateFileAccess` returns `{ kind: 'inaccessible' }`; `urlValidationFailed` returned.  |
+| Authorization failure (401/403) | One forced refresh replay; reconnect only when authorization cannot be restored. |
+| Unsupported MIME | `unsupported-type`; retain file selection and explain native conversion. |
 | Unexpected HTTP during validation  | `FileDiscoveryError` thrown; `fileAccessFailed` returned.              |
 
 ## QA Checklist
@@ -186,7 +193,7 @@ class CloudFile {
 
 - [x] **Happy path — selection by number:**
   - User sends a number matching `statePayload.fileList`.
-  - `validateFileAccess` returns `true`.
+  - `validateFileAccess` returns `{ kind: 'accessible' }`.
   - Confirmation message sent with full file name.
   - `selectedFileId`, `selectedFileName`, and `provider` stored in payload.
   - FSM transitions to `ONBOARDING_SHEET`.
@@ -204,14 +211,14 @@ class CloudFile {
 
 - [x] **Happy path — direct URL:**
   - User pastes a Google Drive URL.
-  - `fileId` extracted and `validateFileAccess` returns `true`.
+  - `fileId` extracted and `validateFileAccess` returns `{ kind: 'accessible' }`.
   - File selected and confirmed.
   - Payload includes `selectedFileId`, `selectedFileName`, and `provider`.
   - FSM transitions to `ONBOARDING_SHEET`.
   - `HandleSheetSelection` invoked automatically with empty `rawMessage`.
 
 - [x] **Error path — access denied:**
-  - `validateFileAccess` returns `false` on 403/404.
+  - `validateFileAccess` returns `{ kind: 'inaccessible' }` on 404; 403 is an authorization error eligible for refresh.
   - User informed of permission issues.
 
 - [x] **Error path — no files found:**
@@ -233,3 +240,15 @@ class CloudFile {
 ### OneDrive
 
 - **Out of scope for MVP.** The use case returns a "coming soon" message for `microsoft` provider selections.
+
+## Recovery guidance (2026-11-15)
+
+Google discovery and search return only native `application/vnd.google-apps.spreadsheet` files. Every selection, including historical displayed references and direct URLs, validates `id,mimeType` before listing sheets. `validateFileAccess` returns `accessible`, `inaccessible`, or `unsupported-type`; malformed metadata and provider failures remain typed errors. XLSX/ODS users must save a native Google spreadsheet themselves and select its new link. Rejection retains file selection, offers cancellation, and performs no Sheets call or configuration activation.
+
+## Message readability
+
+File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.
+
+## Final readability audit (2026-11-16)
+
+Stale, ambiguous, and unavailable file references separate their explanation from the instruction to choose a current list item. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

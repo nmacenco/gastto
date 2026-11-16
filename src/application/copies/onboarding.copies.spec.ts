@@ -102,7 +102,8 @@ describe('onboardingCopies', () => {
       const result = onboardingCopies.categoryProposalUnavailable();
 
       expect(result).toContain('No pude validar');
-      expect(result).toContain('detectar de nuevo');
+      expect(result).toContain('confirmar para detectarla de nuevo');
+      expect(result).toContain('\n\nEscribí cancelar si quieres salir.');
       expect(result).not.toContain('Todo listo');
     });
   });
@@ -304,7 +305,9 @@ describe('onboardingCopies', () => {
     it('handles empty sheet list', () => {
       const result = onboardingCopies.sheetNotFoundRePrompt([]);
 
-      expect(result).toContain('No encontré esa hoja');
+      expect(result).toBe(
+        'No pude acceder a ese archivo en Google Drive.\n\nVerificá los permisos. Para elegir otro archivo:\n1. Escribí cancelar para salir de la configuración actual.\n2. Escribí empezar.',
+      );
     });
   });
 
