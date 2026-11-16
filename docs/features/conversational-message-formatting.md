@@ -4,7 +4,7 @@
 
 File and sheet selection and spreadsheet recovery messages use explicit paragraphs to separate explanations, actions, and optional cancellation. This applies to onboarding copies, settings destination selection, and shared spreadsheet recovery copies. Existing short confirmations remain concise.
 
-The remaining onboarding, settings, and expense messages are pending migration under phases 2–4 of the [readability plan](../../ai/plans/2026_11_15-readable_conversation_messages/2026_11_15-readable_conversation_messages-plan.md).
+Onboarding and settings recovery, OAuth guidance, mapping corrections, category errors, payment setup, and access replacement messages also follow the convention. Existing structured summaries and short acknowledgements retain their layout. Expense messages and the final cross-flow audit remain pending under phases 3–4 of the [readability plan](../../ai/plans/2026_11_15-readable_conversation_messages/2026_11_15-readable_conversation_messages-plan.md).
 
 ## Composition contract
 
@@ -47,3 +47,9 @@ Onboarding uses `empezar` for the restart. Retryable failures retain their conte
 ## Validation
 
 Composer tests cover block ordering, empty blocks, boundary trimming, internal paragraphs, nested indentation, and URLs. Recovery-copy tests assert complete representative messages, retry commands, both restart flows, and list/footer separation. Existing file/sheet selection and settings tests continue to cover candidate preservation and guarded state changes.
+
+## Shared browser output
+
+OAuth failure copies are reused in chat and in the callback HTML. The callback escapes HTML characters first, then replaces newlines with `<br>` to preserve paragraph boundaries without interpreting message content as markup. Initial admission errors remain distinct from cancellable replacement-email errors.
+
+Setup-formatting tests assert full menus, column lists, nested categories, payment examples, replacement-email errors, and OAuth URLs. Callback tests verify paragraph rendering together with HTML escaping.

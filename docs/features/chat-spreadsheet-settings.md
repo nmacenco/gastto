@@ -46,3 +46,7 @@ File choices are revalidated as native Google spreadsheets before reading sheets
 ## Message readability
 
 File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.
+
+## Setup message formatting (2026-11-16)
+
+The menu preserves options 1–7 and separates the number prompt from cancellation. OAuth links, mapping/category review instructions, payment examples, and draft warnings use explicit paragraphs. The exact optional exit is `Escribí cancelar si quieres salir.`. Mandatory exit/reopen sequences use numbered steps; no extra optional exit is appended. See [conversational message formatting](./conversational-message-formatting.md).

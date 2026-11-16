@@ -352,4 +352,8 @@ interface MappingCorrectionStateSnapshot {
 
 ## Recovery guidance (2026-11-15)
 
-Invalid columns, unparseable or multiple corrections, rejected mappings and resumption prompts include `Escribí cancelar para salir`. Settings header/mapping failures first persist `SETTINGS_SHEET`, then ask for a number from the existing sheet list. No failed correction changes the active destination.
+Invalid columns, unparseable or multiple corrections, rejected mappings and resumption prompts include `Escribí cancelar si quieres salir.`. Settings header/mapping failures first persist `SETTINGS_SHEET`, then ask for a number from the existing sheet list. No failed correction changes the active destination.
+
+## Setup message formatting (2026-11-16)
+
+Invalid-column lists, correction examples, rejected proposals, and resume prompts separate context, action, and the exact optional footer `Escribí cancelar si quieres salir.`. Required cancellation/restart sequences use numbered steps without an optional footer. Field labels, column numbers, and proposal guards are preserved. See [conversational message formatting](./conversational-message-formatting.md).

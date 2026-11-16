@@ -191,3 +191,7 @@ The validation updates the `spreadsheet_configs.access_verified_at` field upon s
 ## Recovery guidance (2026-11-15)
 
 Access checks retain the existing authorization-only refresh replay. Non-authorization access failures retain the validation state and offer `reintentar` or cancellation; missing credentials reconnect, while refresh transport failures remain retryable. An empty preview returns to sheet selection. Persistent errors do not universally return to `ONBOARDING_START`.
+
+## Setup message formatting (2026-11-16)
+
+Read-only permission guidance keeps provider-specific instructions on separate bullet lines. Retry instructions, empty-sheet choices, and the optional cancellation footer have separate paragraphs. The exact footer is `Escribí cancelar si quieres salir.`; access checks and transitions are unchanged. See [conversational message formatting](./conversational-message-formatting.md).

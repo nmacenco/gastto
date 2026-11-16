@@ -1,3 +1,5 @@
+import { paymentSetupCopies } from '../../copies/payment-setup.copies';
+import { composeMessage } from '../../copies/compose-message';
 import { settingsCopies } from '../../copies/settings.copies';
 import { spreadsheetRecoveryCopies } from '../../copies/spreadsheet-recovery.copies';
 import { randomUUID } from 'node:crypto';
@@ -522,13 +524,10 @@ export class SettingsDestinationFlow {
           });
           await this.deps.messaging.sendMessage(
             externalId,
-            this.paymentPrompt(proposal.names, proposal.columnMapped),
+            paymentSetupCopies.settingsReview(proposal.names, proposal.columnMapped),
           );
         } catch {
-          await this.deps.messaging.sendMessage(
-            externalId,
-            'No pudimos leer los medios de pago. Escribí confirmar para reintentar o cancelar.',
-          );
+          await this.deps.messaging.sendMessage(externalId, paymentSetupCopies.readFailure());
         }
         return;
       }
@@ -593,7 +592,10 @@ export class SettingsDestinationFlow {
         } else {
           await this.deps.messaging.sendMessage(
             externalId,
-            this.paymentPrompt(payload.paymentMethods ?? [], payload.paymentColumnMapped === true),
+            paymentSetupCopies.settingsReview(
+              payload.paymentMethods ?? [],
+              payload.paymentColumnMapped === true,
+            ),
           );
           return;
         }
@@ -605,13 +607,13 @@ export class SettingsDestinationFlow {
         });
         await this.deps.messaging.sendMessage(
           externalId,
-          this.paymentPrompt(paymentMethods, payload.paymentColumnMapped === true),
+          paymentSetupCopies.settingsReview(paymentMethods, payload.paymentColumnMapped === true),
         );
       } catch (error) {
         if (!(error instanceof DomainValidationError)) throw error;
         await this.deps.messaging.sendMessage(
           externalId,
-          `${error.message}\n${this.paymentPrompt(payload.paymentMethods ?? [], payload.paymentColumnMapped === true)}`,
+          `${error.message}\n${paymentSetupCopies.settingsReview(payload.paymentMethods ?? [], payload.paymentColumnMapped === true)}`,
         );
       }
       return;
@@ -710,21 +712,23 @@ export class SettingsDestinationFlow {
   }
 
   private mappingPrompt(mappings: Mapping[]): string {
-    return `Revisá las columnas:\n${mappings
-      .map((mapping) => `${mapping.field}: ${mapping.columnIndex + 1} (${mapping.columnHeader})`)
-      .join('\n')}\nEscribí confirmar o corregí con campo=número (por ejemplo, monto=2).`;
+    return composeMessage({
+      explanation: `Revisá las columnas:\n${mappings
+        .map((mapping) => `${mapping.field}: ${mapping.columnIndex + 1} (${mapping.columnHeader})`)
+        .join('\n')}`,
+      action: 'Escribí confirmar o corregí con campo=número (por ejemplo, monto=2).',
+    });
   }
 
   private categoryPrompt(categories: Category[]): string {
-    return `Revisá las categorías:\n${categories
-      .map(
-        (category) =>
-          `${category.name}${category.subcategories.length ? ` > ${category.subcategories.join(', ')}` : ''}`,
-      )
-      .join('\n')}\nEscribí confirmar o categorías: Nombre; Otra > Subcategoría.`;
-  }
-
-  private paymentPrompt(names: string[], columnMapped: boolean): string {
-    return `Revisá los medios de pago:\n${names.map((name) => `• ${name}`).join('\n') || '(sin medios de pago)'}${columnMapped ? '' : '\nNo hay columna de medio de pago; los valores que agregues se guardarán solo en Gastto.'}\nEscribí confirmar, agregar Nombre, renombrar Nombre a Otro, quitar Nombre o cancelar.`;
+    return composeMessage({
+      explanation: `Revisá las categorías:\n${categories
+        .map(
+          (category) =>
+            `${category.name}${category.subcategories.length ? ` > ${category.subcategories.join(', ')}` : ''}`,
+        )
+        .join('\n')}`,
+      action: 'Escribí confirmar o categorías: Nombre; Otra > Subcategoría.',
+    });
   }
 }

@@ -338,3 +338,7 @@ interface IColumnMappingRepository {
 ## Recovery guidance (2026-11-15)
 
 Mapping recovery and missing-proposal feedback offer cancellation followed by `empezar` when a fresh setup is required. Existing `otra hoja` and row-selection commands remain unchanged. Retained onboarding prompts identify an explicit cancellation command.
+
+## Setup message formatting (2026-11-16)
+
+Missing-header and invalid-row prompts separate the explanation from the accepted row input and alternative `otra hoja` command. Optional cancellation appears in its own paragraph. Unmapped required fields and the optional subcategory explanation are separate paragraphs. See [conversational message formatting](./conversational-message-formatting.md).

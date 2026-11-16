@@ -370,3 +370,7 @@ See [Security hardening](security-hardening.md) for the implemented HTTP admissi
 ## Recovery guidance (2026-11-15)
 
 Invalid provider replies include the accepted numbered provider choices and an explicit cancellation command. Reconnection feedback retains the existing OAuth flow and offers cancellation from the onboarding state.
+
+## Setup message formatting (2026-11-16)
+
+OAuth chat instructions separate context, authorization links, and optional exit guidance. Authorization URLs remain unchanged. The callback HTML escapes the complete failure text before rendering its newlines as `<br>` elements; plain chat text contains no HTML. Retry eligibility and nonce/state guards remain unchanged. See [conversational message formatting](./conversational-message-formatting.md).

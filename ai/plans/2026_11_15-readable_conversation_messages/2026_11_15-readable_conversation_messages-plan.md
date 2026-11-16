@@ -100,17 +100,17 @@ The second example intentionally has no optional exit footer: cancellation is al
 
 **Contracts:** Update user-visible text in onboarding, settings, access replacement, and related inline messages. Keep existing copy entry points where practical; any extracted inline copy functions return strings and remain feature-owned.
 
-- [ ] Inventory the remaining onboarding/settings/access messages and their immediate consumers, including OAuth callbacks, destination selection, vocabulary editing, mapping, categories, payment methods, and replacement email flows.
-- [ ] Separate explanation, requested action, examples/options, and optional exit. Move cancellation off the final list item, including sheet re-prompts.
-- [ ] Preserve menu numbering, mapping examples, nested categories, links, and command spelling. Keep existing concise success messages concise.
-- [ ] Extract repeated inline wording into the appropriate feature copy module where needed; avoid creating a central registry for all application text.
-- [ ] Apply the exact standard footer only where cancellation is supported. Preserve the distinction between initial access admission and cancellable email replacement.
-- [ ] Audit shared OAuth/chat/HTML consumers before modifying common strings so chat formatting does not damage another surface.
-- [ ] Add or update representative complete-message assertions for a selection list, settings menu, mapping correction, category/payment prompt, and replacement-email error. Keep existing transition and persistence assertions.
-- [ ] Update the relevant sections in [cloud connection](../../../docs/features/cloud-storage-connection.md), [access validation](../../../docs/features/validate-spreadsheet-access.md), [mapping inference](../../../docs/features/infer-and-propose-column-mapping.md), [mapping correction](../../../docs/features/confirm-or-correct-column-mapping.md), [categories](../../../docs/features/category-confirmation.md), [payments](../../../docs/features/payment-methods.md), [settings](../../../docs/features/chat-spreadsheet-settings.md), and [access approval](../../../docs/features/telegram-access-approval.md) where implemented guidance changes. Update `docs/features/README.md` alongside changed feature documents.
-- [ ] Run the affected onboarding, settings, callback, and access tests and review representative messages from each migrated flow.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Inventory the remaining onboarding/settings/access messages and their immediate consumers, including OAuth callbacks, destination selection, vocabulary editing, mapping, categories, payment methods, and replacement email flows.
+- [x] Separate explanation, requested action, examples/options, and optional exit. Move cancellation off the final list item, including sheet re-prompts.
+- [x] Preserve menu numbering, mapping examples, nested categories, links, and command spelling. Keep existing concise success messages concise.
+- [x] Extract repeated inline wording into the appropriate feature copy module where needed; avoid creating a central registry for all application text.
+- [x] Apply the exact standard footer only where cancellation is supported. Preserve the distinction between initial access admission and cancellable email replacement.
+- [x] Audit shared OAuth/chat/HTML consumers before modifying common strings so chat formatting does not damage another surface.
+- [x] Add or update representative complete-message assertions for a selection list, settings menu, mapping correction, category/payment prompt, and replacement-email error. Keep existing transition and persistence assertions.
+- [x] Update the relevant sections in [cloud connection](../../../docs/features/cloud-storage-connection.md), [access validation](../../../docs/features/validate-spreadsheet-access.md), [mapping inference](../../../docs/features/infer-and-propose-column-mapping.md), [mapping correction](../../../docs/features/confirm-or-correct-column-mapping.md), [categories](../../../docs/features/category-confirmation.md), [payments](../../../docs/features/payment-methods.md), [settings](../../../docs/features/chat-spreadsheet-settings.md), and [access approval](../../../docs/features/telegram-access-approval.md) where implemented guidance changes. Update `docs/features/README.md` alongside changed feature documents.
+- [x] Run the affected onboarding, settings, callback, and access tests and review representative messages from each migrated flow.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 3: Expense messages and shared worker guidance
 
@@ -149,7 +149,7 @@ The second example intentionally has no optional exit footer: cancellation is al
 
 ## Next step
 
-Review Phase 1 and decide whether to commit it or proceed with Phase 2: onboarding and settings messages.
+Review Phase 2 and decide whether to commit it or proceed with Phase 3: expense messages and shared worker guidance.
 
 ## Phase 1 validation (2026-11-16)
 
@@ -160,3 +160,14 @@ Review Phase 1 and decide whether to commit it or proceed with Phase 2: onboardi
 - Prettier checks passed for all nine changed/new TypeScript files; `git diff --check` passed.
 - The first sandbox run encountered port-binding restrictions and outdated text expectations. Text expectations were corrected; the successful validation ran outside the sandbox.
 - No commit created. Phases 2–4 remain unimplemented.
+
+## Phase 2 validation (2026-11-16)
+
+- Migrated remaining setup recovery, permissions, mapping corrections, hierarchy errors, settings menu/OAuth guidance, payment review/drafts, and access/replacement-email messages. Existing structured summaries and short acknowledgements retain their layout.
+- Added feature-owned payment setup copies and moved vocabulary draft copy into settings copies. Preserved field numbering, nested categories, command spellings, and initial-admission cancellation restrictions.
+- Reviewed OAuth copy consumers: callback failures also render in HTML. The route now escapes text before converting newlines to `<br>`; a regression test covers paragraph preservation and markup escaping together.
+- Added complete-message assertions for the settings menu, column choices, hierarchy, payment review/draft, initial versus replacement email errors, OAuth URL preservation, and mandatory restart steps.
+- `pnpm run lint` and `pnpm run typecheck` passed. ESLint emitted the existing package module-type warning.
+- Full suite (`pnpm test --maxWorkers=2`): 201 files passed, 10 skipped; 2,786 tests passed, 50 skipped. Optional integration suites were not enabled.
+- Final targeted setup/access/callback/worker/copy run: 28 files and 698 tests passed. Prettier checks passed for the 12 changed/new TypeScript files.
+- Updated the affected canonical feature documentation and its index. No commit created by this execution. Phases 3–4 remain pending.

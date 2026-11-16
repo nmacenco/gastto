@@ -103,7 +103,7 @@ describe('onboardingCopies', () => {
 
       expect(result).toContain('No pude validar');
       expect(result).toContain('confirmar para detectarla de nuevo');
-      expect(result).toContain('cancelar para salir');
+      expect(result).toContain('\n\nEscribí cancelar si quieres salir.');
       expect(result).not.toContain('Todo listo');
     });
   });

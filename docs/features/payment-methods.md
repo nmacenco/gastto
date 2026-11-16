@@ -30,3 +30,7 @@ Payment resolution and final onboarding commits compare persisted JSONB snapshot
 ## Recovery guidance (2026-11-15)
 
 Unresolved expense payments advertise the accepted `medio de pago: Nombre`, `agregar medio de pago`, and `sin medio de pago` commands plus cancellation. Settings detection failures retain manual editing and `detectar`, and explicitly offer cancellation. These messages do not authorize saving or add a catalog value implicitly.
+
+## Setup message formatting (2026-11-16)
+
+Setup payment reviews and settings drafts show editing options/examples on individual bullet lines. Unmapped-column warnings, confirmation instructions, draft-discard guidance, and optional cancellation are separate paragraphs. Setup retry failures retain `confirmar`; settings detection failures retain `detectar` and manual editing. Expense messages are outside this formatting migration. See [conversational message formatting](./conversational-message-formatting.md).

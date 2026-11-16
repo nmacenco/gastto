@@ -228,14 +228,14 @@ export class SettingsVocabularyFlow {
       });
       await this.deps.messaging.sendMessage(
         externalId,
-        `${children.length ? `También se desactivarán: ${children.join(', ')}.\n` : ''}${this.render(draft, payload.subcategoryColumnMapped)}`,
+        `${children.length ? `También se desactivarán: ${children.join(', ')}.\n\n` : ''}${this.render(draft, payload.subcategoryColumnMapped)}`,
       );
     } catch (error) {
       if (!(error instanceof DomainValidationError)) throw error;
       await this.touch(state, payload);
       await this.deps.messaging.sendMessage(
         externalId,
-        `${error.message}\n${this.render(payload.draft, payload.subcategoryColumnMapped)}`,
+        `${error.message}\n\n${this.render(payload.draft, payload.subcategoryColumnMapped)}`,
       );
     }
   }
@@ -379,7 +379,7 @@ export class SettingsVocabularyFlow {
       await this.touch(state, payload);
       await this.deps.messaging.sendMessage(
         externalId,
-        `${error.message}\n${this.renderPayments(payload.draft, payload.paymentColumnMapped)}`,
+        `${error.message}\n\n${this.renderPayments(payload.draft, payload.paymentColumnMapped)}`,
       );
     }
   }
@@ -388,7 +388,7 @@ export class SettingsVocabularyFlow {
     const methods = draft.methods
       .filter((method) => method.isActive)
       .map((method) => `• ${method.name}`);
-    return `Borrador de medios de pago:\n${methods.join('\n') || '(sin medios de pago)'}${paymentColumnMapped ? '' : '\nLos medios de pago se conservarán en Gastto, pero no se escribirán en la planilla porque no hay una columna mapeada.'}\n\nEjemplos: detectar; agregar Efectivo; renombrar Efectivo a Dinero; quitar Dinero.\nEscribí confirmar para guardar este catálogo, incluso si está vacío, o cancelar para descartarlo.`;
+    return settingsCopies.paymentDraft(methods, paymentColumnMapped);
   }
 
   render(draft: VocabularySnapshot, subcategoryColumnMapped = true): string {
@@ -400,15 +400,6 @@ export class SettingsVocabularyFlow {
           .map((child) => child.name);
         return `• ${entry.name}${children.length ? `: ${children.join(', ')}` : ''}`;
       });
-    const examples = [
-      'agregar categoría Comida',
-      'Comida se llama Alimentación',
-      'quitar Comida',
-      'agregar subcategoría Café a Comida',
-      'en Comida renombrar Café a Cafetería',
-      'mover Café de Comida a Ocio',
-      'quitar Café de Comida',
-    ];
-    return `Borrador de categorías y subcategorías:\n${lines.join('\n') || '(sin categorías activas)'}${subcategoryColumnMapped ? '' : '\nLas subcategorías se conservarán en Gastto, pero no se escribirán en la planilla porque no hay una columna mapeada.'}\n\nEjemplos:\n${examples.map((example) => `• ${example}`).join('\n')}\n\nEscribí confirmar para guardar todos los cambios o cancelar para descartarlos.`;
+    return settingsCopies.categoryDraft(lines, subcategoryColumnMapped);
   }
 }

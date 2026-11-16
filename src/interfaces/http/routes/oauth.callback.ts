@@ -36,7 +36,9 @@ async function handleOAuthCallback(
     code !== undefined ? { code, state, provider } : { error: error!, state, provider },
   );
 
-  const body = result.success ? 'You can close this window' : escapeHtml(result.message);
+  const body = result.success
+    ? 'You can close this window'
+    : escapeHtml(result.message).replace(/\n/g, '<br>');
   const html = `<html><head><meta charset="utf-8"></head><body>${body}</body></html>`;
 
   return reply.header('cache-control', 'no-store').type('text/html; charset=utf-8').send(html);
