@@ -2558,7 +2558,10 @@ describe('processMessageJob', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        recoveryGuidance(expenseCopies.semanticControlGuidance('stale_context'), 'cancellable'),
+        recoveryGuidance(
+          { action: expenseCopies.semanticControlGuidance('stale_context') },
+          'cancellable',
+        ),
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
       expect(mockCancelExpenseRegistrationExecute).not.toHaveBeenCalled();
@@ -2729,7 +2732,7 @@ describe('processMessageJob', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        recoveryGuidance(onboardingCopies.ambiguousFileReference(), 'cancellable'),
+        recoveryGuidance({ action: onboardingCopies.ambiguousFileReference() }, 'cancellable'),
       );
       expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
       expect(mockTransitionStateExecute).not.toHaveBeenCalled();
@@ -2808,7 +2811,7 @@ describe('processMessageJob', () => {
 
         expect(mockSendMessage).toHaveBeenCalledWith(
           '123456789',
-          recoveryGuidance(copy, 'cancellable'),
+          recoveryGuidance({ action: copy }, 'cancellable'),
         );
         expect(mockHandleSheetSelectionExecute).not.toHaveBeenCalled();
         expect(mockTransitionStateExecute).not.toHaveBeenCalled();
@@ -3351,7 +3354,7 @@ describe('processMessageJob', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        'Todavía tenés un gasto pendiente de confirmación y 1 más en la cola. ¿Querés confirmar, corregir o cancelar el actual?',
+        'Todavía tenés un gasto pendiente de confirmación y 1 más en la cola.\n\n¿Querés confirmar o corregir el actual?\n\nEscribí cancelar si quieres salir.',
       );
     });
 
@@ -4041,7 +4044,7 @@ describe('processMessageJob', () => {
       expect(mockFindRecentCurrenciesByUserId).toHaveBeenCalledWith('user-123', 5);
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)? Escribí cancelar para salir.',
+        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)?\n\nEscribí cancelar si quieres salir.',
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
     });
@@ -5946,7 +5949,7 @@ describe('processMessageJob', () => {
       expect(mockFindRecentCurrenciesByUserId).toHaveBeenCalledWith('user-123', 5);
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
-        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)? Escribí cancelar para salir.',
+        '¿El gasto fue en pesos argentinos (ARS), dólares (USD) o euros (EUR)?\n\nEscribí cancelar si quieres salir.',
       );
       expect(mockRegisterExpenseInterpret).not.toHaveBeenCalled();
     });
@@ -6182,7 +6185,9 @@ describe('processMessageJob', () => {
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
       expect(persisted.currentState).toBe('IDLE');
       expect(persisted.statePayload).toBeNull();
-      expect(mockSendMessage.mock.calls.at(-1)?.[1]).not.toContain('cancelar para salir');
+      expect(mockSendMessage.mock.calls.at(-1)?.[1]).not.toContain(
+        'Escribí cancelar si quieres salir.',
+      );
       await processMessageJob(
         buildJob({
           ...baseJobData,
@@ -6248,6 +6253,10 @@ describe('processMessageJob', () => {
           '123456789',
           expenseCopies.fallbackError(expectedContext),
         );
+        const recoveryMessage = String(mockSendMessage.mock.calls.at(-1)?.[1]);
+        expect(recoveryMessage.split('Escribí cancelar si quieres salir.').length - 1).toBe(
+          expectedContext === 'cancellable' ? 1 : 0,
+        );
         expect(mockTransitionStateExecute).not.toHaveBeenCalled();
         expect(mockRetryExpenseSaveExecute).not.toHaveBeenCalled();
         expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
@@ -6302,6 +6311,9 @@ describe('processMessageJob', () => {
         const message = String(mockSendMessage.mock.calls.at(-1)?.[1]);
         expect(message).not.toContain('lista de archivos');
         expect(message.includes('cancelar')).toBe(destination === 'EXPENSE_CLARIFYING');
+        expect(message.split('Escribí cancelar si quieres salir.').length - 1).toBe(
+          destination === 'EXPENSE_CLARIFYING' ? 1 : 0,
+        );
         if (destination === 'claimed')
           expect(message).toBe(expenseCopies.financialOutcomeUnknown());
         expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();

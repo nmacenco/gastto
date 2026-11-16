@@ -38,12 +38,7 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
     summary: ExpenseSummary,
     binding: ExpenseReviewBinding,
   ): Promise<void> {
-    const text = [
-      expenseCopies.highAmountWarning(),
-      '',
-      this.formatSummary(summary),
-      ...(summary.actions.confirm ? ['', expenseCopies.highAmountConfirmationPrompt()] : []),
-    ].join('\n');
+    const text = this.formatHighAmountSummary(summary);
     await this.inlineKeyboard.sendMessageWithInlineKeyboard(
       this.chatId,
       text,
@@ -51,7 +46,7 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
     );
   }
 
-  private formatSummary(summary: ExpenseSummary): string {
+  private formatSummary(summary: ExpenseSummary, highAmount = false): string {
     const categoryLabel = summary.category || '❓ Sin categoría';
     const statusMarker = this.categoryStatusMarker(summary.categoryStatus);
     const subcategoryLine = this.formatSubcategory(summary);
@@ -67,18 +62,13 @@ export class TelegramExpenseSummaryPresenter implements ExpenseSummaryPresenter 
       `• Fecha: ${dateLabel}`,
       '',
       summary.actions.confirm
-        ? '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.'
-        : 'Antes de guardar: escribí *medio de pago: Nombre* para elegir uno existente, *agregar medio de pago* para agregar el mostrado, o *sin medio de pago* para dejarlo vacío.',
+        ? expenseCopies.reviewActions(highAmount)
+        : expenseCopies.paymentUnresolved(),
     ].join('\n');
   }
 
   private formatHighAmountSummary(summary: ExpenseSummary): string {
-    return [
-      expenseCopies.highAmountWarning(),
-      '',
-      this.formatSummary(summary),
-      ...(summary.actions.confirm ? ['', expenseCopies.highAmountConfirmationPrompt()] : []),
-    ].join('\n');
+    return [expenseCopies.highAmountWarning(), '', this.formatSummary(summary, true)].join('\n');
   }
 
   private categoryStatusMarker(status: ExpenseSummary['categoryStatus']): string {

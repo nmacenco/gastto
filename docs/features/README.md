@@ -49,3 +49,7 @@ Native-file validation and state-aware recovery are documented in [select-spread
 ## Setup readability update (2026-11-16)
 
 Paragraphs and cancellation guidance now cover [cloud connection](./cloud-storage-connection.md), [access validation](./validate-spreadsheet-access.md), [mapping inference](./infer-and-propose-column-mapping.md), [mapping correction](./confirm-or-correct-column-mapping.md), [categories](./category-confirmation.md), [payments](./payment-methods.md), [settings](./chat-spreadsheet-settings.md), and [access approval](./telegram-access-approval.md). Shared rules and OAuth HTML rendering are documented in [conversational message formatting](./conversational-message-formatting.md).
+
+## Expense readability update (2026-11-16)
+
+Formatting and explicit cancellation ownership now cover [clarification](./clarification-request.md), [correction](./expense-correction.md), [review](./expense-summary-review.md), [confirmation/retry](./expense-confirmation.md), [cancellation](./expense-cancellation.md), [undo](./undo-last-expense.md), [payments](./payment-methods.md), and [worker recovery](./incoming-message-routing.md). See [conversational message formatting](./conversational-message-formatting.md) for the block contract.

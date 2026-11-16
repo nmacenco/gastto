@@ -114,3 +114,7 @@ See `docs/architecture/data-model.md` for the full schema and `conversation_stat
 ## Recovery guidance (2026-11-15)
 
 Amount/currency clarification, currency-option reformulation and zero confirmation explicitly offer `cancelar`. Cancelling an active expense draft keeps the existing pending-queue advancement behavior.
+
+## Expense message formatting (2026-11-16)
+
+Amount and currency questions and reformulated currency options place `Escribí cancelar si quieres salir.` in its own paragraph. Currency option ordering is preserved. Semantic-router `pendingQuestion` uses the same formatted copy; extraction, missing-field selection, and routing rules are unchanged. See [conversational message formatting](./conversational-message-formatting.md).

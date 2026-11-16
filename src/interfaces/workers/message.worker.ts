@@ -1,3 +1,4 @@
+import type { MessageBlocks } from '../../application/copies/compose-message';
 // LAYER: Interfaces
 // BullMQ worker — Stage 2 of the async pipeline (ADR-005).
 // Consumes `process-message` jobs in the same persistent process as Fastify.
@@ -7,7 +8,7 @@ import {
   readRecoveryState,
   resolveRecoveryContext,
 } from '../../application/services/recovery-context';
-import { recoveryGuidance } from '../../application/copies/expense.copies';
+import { expenseGuidanceBlocks, recoveryGuidance } from '../../application/copies/expense.copies';
 import { spreadsheetRecoveryCopies } from '../../application/copies/spreadsheet-recovery.copies';
 
 import { Worker, type Job } from 'bullmq';
@@ -2706,43 +2707,45 @@ function semanticExpenseGuidance(
     | 'ambiguous_reference'
     | 'not_found'
     | 'stale_context',
-): string {
+): MessageBlocks {
   if (conversationState.currentState === 'ONBOARDING_FILE') {
-    if (reason === 'ambiguous_reference') return onboardingCopies.ambiguousFileReference();
-    if (reason === 'stale_context') return onboardingCopies.staleFileReference();
-    return onboardingCopies.fileReferenceNotFound();
+    if (reason === 'ambiguous_reference')
+      return { action: onboardingCopies.ambiguousFileReference() };
+    if (reason === 'stale_context') return { action: onboardingCopies.staleFileReference() };
+    return { action: onboardingCopies.fileReferenceNotFound() };
   }
   if (conversationState.currentState === 'ONBOARDING_SHEET') {
-    if (reason === 'ambiguous_reference') return onboardingCopies.ambiguousSheetReference();
-    if (reason === 'stale_context') return onboardingCopies.staleSheetReference();
-    return onboardingCopies.sheetReferenceNotFound();
+    if (reason === 'ambiguous_reference')
+      return { action: onboardingCopies.ambiguousSheetReference() };
+    if (reason === 'stale_context') return { action: onboardingCopies.staleSheetReference() };
+    return { action: onboardingCopies.sheetReferenceNotFound() };
   }
   if (
     conversationState.currentState.startsWith('ONBOARDING_') ||
     conversationState.currentState.startsWith('SETTINGS_')
   ) {
-    return expenseCopies.fallbackError();
+    return expenseGuidanceBlocks.fallback();
   }
   if (conversationState.currentState === 'EXPENSE_CORRECTING')
-    return expenseCopies.expenseCorrectionPrompt();
+    return expenseGuidanceBlocks.correction();
   if (conversationState.currentState === 'EXPENSE_SAVING_RETRY')
-    return expenseCopies.saveRetryRecoveryChoice();
+    return expenseGuidanceBlocks.retryChoice();
   const expenseReason =
     reason === 'ambiguous_reference' || reason === 'not_found' ? 'unsupported_action' : reason;
   if (conversationState.currentState === 'EXPENSE_CLARIFYING') {
     try {
       const state = ExpenseClarificationState.fromPayload(conversationState.statePayload);
       return state.missingField === 'monto'
-        ? expenseCopies.clarificationAmount()
-        : expenseCopies.clarificationCurrency();
+        ? expenseGuidanceBlocks.clarificationAmount()
+        : expenseGuidanceBlocks.clarificationCurrency();
     } catch {
-      return expenseCopies.semanticExpenseGuidance(expenseReason);
+      return { action: expenseCopies.semanticExpenseGuidance(expenseReason) };
     }
   }
   if (conversationState.currentState === 'EXPENSE_REVIEW') {
-    return expenseCopies.ambiguousResponse();
+    return expenseGuidanceBlocks.ambiguousReview();
   }
-  return expenseCopies.semanticExpenseGuidance(expenseReason);
+  return { action: expenseCopies.semanticExpenseGuidance(expenseReason) };
 }
 
 async function currentSemanticGuidance(
@@ -2757,7 +2760,7 @@ async function currentSemanticGuidance(
   const message =
     state && !control
       ? semanticExpenseGuidance(state, reason)
-      : expenseCopies.semanticControlGuidance('stale_context');
+      : { action: expenseCopies.semanticControlGuidance('stale_context') };
   return recoveryGuidance(message, context);
 }
 

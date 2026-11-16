@@ -34,3 +34,7 @@ Unresolved expense payments advertise the accepted `medio de pago: Nombre`, `agr
 ## Setup message formatting (2026-11-16)
 
 Setup payment reviews and settings drafts show editing options/examples on individual bullet lines. Unmapped-column warnings, confirmation instructions, draft-discard guidance, and optional cancellation are separate paragraphs. Setup retry failures retain `confirmar`; settings detection failures retain `detectar` and manual editing. Expense messages are outside this formatting migration. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Expense message formatting (2026-11-16)
+
+Expense unresolved-payment guidance presents `medio de pago: Nombre`, `agregar medio de pago`, and `sin medio de pago` on separate bullet lines, followed by the optional cancellation footer. The review remains unsavable until payment resolution; callback button eligibility is unchanged. See [conversational message formatting](./conversational-message-formatting.md).

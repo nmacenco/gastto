@@ -118,17 +118,17 @@ The second example intentionally has no optional exit footer: cancellation is al
 
 **Contracts:** Update expense copies and shared recovery composition. Replace cancellation keyword detection in `recoveryGuidance` with an explicit composition boundary using message blocks; migrate all affected callers together. Preserve the existing `RecoveryContext` meanings and final string delivery contract.
 
-- [ ] Resolve the callers of `recoveryGuidance` and the worker's semantic/fallback guidance before changing the helper contract. Classify which layer owns each optional footer.
-- [ ] Migrate clarification, correction, review, retry, timeout, and cancellation messages. Preserve amounts, currencies, dates, field ordering, examples, and confirmation commands.
-- [ ] Put financial warnings in a separate paragraph. Do not introduce cancellation, retry instructions, or rollback promises for unresolved financial outcomes.
-- [ ] Pass explicit message blocks into shared recovery composition instead of scanning text for cancellation words. Retain the financially blocked override and avoid duplicate exits when a copy already owns the footer or includes mandatory recovery steps.
-- [ ] Preserve current-state reads, revision guards, and financial claim checks in the worker. Do not derive cancellation eligibility from the incoming message or an earlier state snapshot.
-- [ ] Inspect semantic-router pending-question consumers, including `ProjectSemanticRouterInput`, and update affected expectations without changing interpretation or routing behavior.
-- [ ] Test complete expense messages and guidance for cancellable, idle, financially blocked, and unknown contexts, including lookup failure and a flow that has already returned to `IDLE`. Retain state-transition and financial-effect assertions.
-- [ ] Update relevant guidance in [clarification](../../../docs/features/clarification-request.md), [expense review](../../../docs/features/expense-summary-review.md), [correction](../../../docs/features/expense-correction.md), [confirmation](../../../docs/features/expense-confirmation.md), [cancellation](../../../docs/features/expense-cancellation.md), and [routing](../../../docs/features/incoming-message-routing.md), together with `docs/features/README.md`.
-- [ ] Run affected expense, recovery-context, semantic-router, and worker tests; review retry and protected-financial-state messages explicitly.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Resolve the callers of `recoveryGuidance` and the worker's semantic/fallback guidance before changing the helper contract. Classify which layer owns each optional footer.
+- [x] Migrate clarification, correction, review, retry, timeout, and cancellation messages. Preserve amounts, currencies, dates, field ordering, examples, and confirmation commands.
+- [x] Put financial warnings in a separate paragraph. Do not introduce cancellation, retry instructions, or rollback promises for unresolved financial outcomes.
+- [x] Pass explicit message blocks into shared recovery composition instead of scanning text for cancellation words. Retain the financially blocked override and avoid duplicate exits when a copy already owns the footer or includes mandatory recovery steps.
+- [x] Preserve current-state reads, revision guards, and financial claim checks in the worker. Do not derive cancellation eligibility from the incoming message or an earlier state snapshot.
+- [x] Inspect semantic-router pending-question consumers, including `ProjectSemanticRouterInput`, and update affected expectations without changing interpretation or routing behavior.
+- [x] Test complete expense messages and guidance for cancellable, idle, financially blocked, and unknown contexts, including lookup failure and a flow that has already returned to `IDLE`. Retain state-transition and financial-effect assertions.
+- [x] Update relevant guidance in [clarification](../../../docs/features/clarification-request.md), [expense review](../../../docs/features/expense-summary-review.md), [correction](../../../docs/features/expense-correction.md), [confirmation](../../../docs/features/expense-confirmation.md), [cancellation](../../../docs/features/expense-cancellation.md), and [routing](../../../docs/features/incoming-message-routing.md), together with `docs/features/README.md`.
+- [x] Run affected expense, recovery-context, semantic-router, and worker tests; review retry and protected-financial-state messages explicitly.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ### Phase 4: Cross-flow consistency and delivery verification
 
@@ -149,7 +149,7 @@ The second example intentionally has no optional exit footer: cancellation is al
 
 ## Next step
 
-Review Phase 2 and decide whether to commit it or proceed with Phase 3: expense messages and shared worker guidance.
+Review Phase 3 and decide whether to commit it or proceed with Phase 4: cross-flow consistency and delivery verification.
 
 ## Phase 1 validation (2026-11-16)
 
@@ -171,3 +171,14 @@ Review Phase 2 and decide whether to commit it or proceed with Phase 3: expense 
 - Full suite (`pnpm test --maxWorkers=2`): 201 files passed, 10 skipped; 2,786 tests passed, 50 skipped. Optional integration suites were not enabled.
 - Final targeted setup/access/callback/worker/copy run: 28 files and 698 tests passed. Prettier checks passed for the 12 changed/new TypeScript files.
 - Updated the affected canonical feature documentation and its index. No commit created by this execution. Phases 3–4 remain pending.
+
+## Phase 3 validation (2026-11-16)
+
+- Migrated expense clarification, correction, review, retry, timeout, undo, and shared recovery text. Kept financial verification warnings in separate paragraphs and preserved amounts, field order, dates, and commands.
+- Introduced `expenseGuidanceBlocks` and changed `recoveryGuidance` to accept `MessageBlocks`. Explicit exit ownership replaces cancellation-word detection. Updated all callers and retained effective-state reads, revision guards, and financial-claim handling.
+- Updated Telegram review action copy without changing button bindings or confirmation eligibility. Financially blocked recovery still overrides every supplied action with administrator-only guidance.
+- Updated semantic-router pending-question expectations and retained state-transition and financial-effect assertions. Added complete-message and explicit-ownership tests, including suppression, unknown/idle contexts, and protected outcomes.
+- `pnpm run lint` and `pnpm run typecheck` passed. Prettier checks passed for all nine changed/new TypeScript files; `git diff --check` passed.
+- Final full suite (`pnpm test --maxWorkers=2`): 202 files passed, 10 skipped; 2,794 tests passed, 50 skipped. Optional integration suites were not enabled.
+- Focused recovery/copies/semantic-input/worker/presenter verification: six files and 350 tests passed. An outdated queue-reminder expectation found by the earlier full run was corrected before the successful final run.
+- Updated affected feature documentation and the feature index. No commit created by this execution. Phase 4 remains pending.

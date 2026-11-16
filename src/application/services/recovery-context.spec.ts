@@ -29,8 +29,8 @@ describe('recovery eligibility', () => {
   ])('offers an exit for an unclaimed %s', (name) => {
     const context = resolveRecoveryContext(state(name));
     expect(context).toBe('cancellable');
-    expect(recoveryGuidance('Continuá con el último paso.', context)).toContain(
-      'cancelar para salir',
+    expect(recoveryGuidance({ action: 'Continuá con el último paso.' }, context)).toContain(
+      '\n\nEscribí cancelar si quieres salir.',
     );
   });
   it.each(['save', 'retry', 'undo'])(

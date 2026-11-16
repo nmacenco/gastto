@@ -4,7 +4,7 @@
 
 File and sheet selection and spreadsheet recovery messages use explicit paragraphs to separate explanations, actions, and optional cancellation. This applies to onboarding copies, settings destination selection, and shared spreadsheet recovery copies. Existing short confirmations remain concise.
 
-Onboarding and settings recovery, OAuth guidance, mapping corrections, category errors, payment setup, and access replacement messages also follow the convention. Existing structured summaries and short acknowledgements retain their layout. Expense messages and the final cross-flow audit remain pending under phases 3–4 of the [readability plan](../../ai/plans/2026_11_15-readable_conversation_messages/2026_11_15-readable_conversation_messages-plan.md).
+Onboarding and settings recovery, OAuth guidance, mapping corrections, category errors, payment setup, and access replacement messages also follow the convention. Existing structured summaries and short acknowledgements retain their layout. Expense clarification, correction, review, retry, undo, and current-state recovery messages now follow the convention. The final cross-flow audit remains pending under phase 4 of the [readability plan](../../ai/plans/2026_11_15-readable_conversation_messages/2026_11_15-readable_conversation_messages-plan.md).
 
 ## Composition contract
 
@@ -53,3 +53,9 @@ Composer tests cover block ordering, empty blocks, boundary trimming, internal p
 OAuth failure copies are reused in chat and in the callback HTML. The callback escapes HTML characters first, then replaces newlines with `<br>` to preserve paragraph boundaries without interpreting message content as markup. Initial admission errors remain distinct from cancellable replacement-email errors.
 
 Setup-formatting tests assert full menus, column lists, nested categories, payment examples, replacement-email errors, and OAuth URLs. Callback tests verify paragraph rendering together with HTML escaping.
+
+## Current-state expense recovery
+
+`recoveryGuidance(blocks: MessageBlocks, context: RecoveryContext): string` formats explicit blocks. It does not inspect prose for cancellation words. Cancellable context renders a supplied exit once or supplies the standard exit when omitted; `exit: ''` explicitly suppresses an optional footer. Idle and unknown contexts remove the optional exit. Financially blocked context ignores every supplied block and renders only administrator guidance. Callers must supply unrendered blocks with the exit separate from the action.
+
+`expenseGuidanceBlocks` shares clarification, correction, retry, review, and fallback content between direct replies and worker recovery. The worker resolves eligibility from the effective state after a handler or semantic dispatch completes. Tests cover no duplicate footer, explicit suppression, failed reads, return to `IDLE`, unresolved financial claims, complete expense messages, and unchanged review buttons.

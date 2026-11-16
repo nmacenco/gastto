@@ -45,3 +45,7 @@ Cancelling an active draft does not remove already confirmed expense records. Ot
 ## Recovery guidance (2026-11-15)
 
 Recovery hints do not relax authorization: pending review bindings, financial claims, guarded cleanup and queue advancement remain enforced. Unknown current-state lookup does not promise an exit. Retry cancellation continues to instruct spreadsheet verification.
+
+## Expense message formatting (2026-11-16)
+
+Optional expense cancellation uses `Escribí cancelar si quieres salir.` in a separate final paragraph. Cancellation success acknowledgements remain concise. Save-retry cancellation/expiry messages separate the outcome from the instruction to verify the spreadsheet; they do not claim an uncertain write was rolled back. See [conversational message formatting](./conversational-message-formatting.md).

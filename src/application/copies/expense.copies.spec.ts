@@ -9,12 +9,12 @@ describe('expenseCopies', () => {
     it('provides distinct network, authorization, and structure recovery instructions', () => {
       expect(expenseCopies.saveNetworkFailure()).toContain('reintentar');
       expect(expenseCopies.saveAuthorizationFailure()).toBe(
-        'No pude acceder a tu planilla. Respondé *empezar* para volver a conectar tu cuenta.',
+        'No pude acceder a tu planilla.\n\nRespondé *empezar* para volver a conectar tu cuenta.',
       );
       expect(expenseCopies.saveStructureFailure()).toContain('reconfigurar');
       expect(expenseCopies.saveRetryExpired()).toContain('venció');
       expect(expenseCopies.saveRetryRecoveryChoice()).toBe(
-        'Respondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla. Escribí cancelar para salir; verificá tu planilla antes de registrar el gasto nuevamente.',
+        'Verificá tu planilla antes de registrar el gasto nuevamente.\n\nRespondé *reintentar* para volver a guardar o *reconfigurar* para revisar la planilla.\n\nEscribí cancelar si quieres salir.',
       );
     });
 
@@ -61,7 +61,7 @@ describe('expenseCopies', () => {
 
   it('uses the E1-US-08 orientation copy for ambiguous review replies', () => {
     expect(expenseCopies.ambiguousResponse()).toBe(
-      '¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?',
+      '¿Confirmamos el registro tal como está o lo corregimos?\n\nEscribí cancelar si quieres salir.',
     );
   });
 
@@ -88,7 +88,7 @@ describe('expenseCopies', () => {
       const copy = expenseCopies.expenseQueueNonFinancialReminder(1);
 
       expect(copy).toBe(
-        'Todavía tenés un gasto pendiente de confirmación y 1 más en la cola. ¿Querés confirmar, corregir o cancelar el actual?',
+        'Todavía tenés un gasto pendiente de confirmación y 1 más en la cola.\n\n¿Querés confirmar o corregir el actual?\n\nEscribí cancelar si quieres salir.',
       );
       expect(copy).not.toContain('Shall we');
     });
@@ -150,7 +150,7 @@ describe('expenseCopies', () => {
 
       expect(result).toContain('límite de correcciones');
       expect(result).toContain('Confirmamos');
-      expect(result).toContain('cancelamos');
+      expect(result).toContain('\n\nEscribí cancelar si quieres salir.');
     });
   });
 
@@ -191,13 +191,15 @@ describe('expenseCopies', () => {
     it('returns the default question when no options are provided', () => {
       const result = expenseCopies.clarificationReformulation([]);
 
-      expect(result).toBe('¿En qué moneda fue ese gasto? Escribí cancelar para salir.');
+      expect(result).toBe('¿En qué moneda fue ese gasto?\n\nEscribí cancelar si quieres salir.');
     });
 
     it('returns a single-option question', () => {
       const result = expenseCopies.clarificationReformulation(['pesos argentinos (ARS)']);
 
-      expect(result).toBe('¿El gasto fue en pesos argentinos (ARS)? Escribí cancelar para salir.');
+      expect(result).toBe(
+        '¿El gasto fue en pesos argentinos (ARS)?\n\nEscribí cancelar si quieres salir.',
+      );
     });
 
     it('returns a two-option question joined by "o"', () => {
@@ -207,7 +209,7 @@ describe('expenseCopies', () => {
       ]);
 
       expect(result).toBe(
-        '¿El gasto fue en pesos argentinos (ARS) o euros (EUR)? Escribí cancelar para salir.',
+        '¿El gasto fue en pesos argentinos (ARS) o euros (EUR)?\n\nEscribí cancelar si quieres salir.',
       );
     });
 
@@ -219,7 +221,7 @@ describe('expenseCopies', () => {
       ]);
 
       expect(result).toBe(
-        '¿El gasto fue en pesos argentinos (ARS), euros (EUR) o dólares (USD)? Escribí cancelar para salir.',
+        '¿El gasto fue en pesos argentinos (ARS), euros (EUR) o dólares (USD)?\n\nEscribí cancelar si quieres salir.',
       );
     });
   });

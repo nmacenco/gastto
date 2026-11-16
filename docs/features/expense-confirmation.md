@@ -16,7 +16,7 @@ Let a user finish an expense registration from `EXPENSE_REVIEW` with a minimal f
 - A mixed reply, such as `comida sí, pero el monto no`, is not a confirmation. It is delegated to `CorrectExpenseUseCase` through the E1-US-07 correction flow before any save occurs.
 - Enabled semantic review routing follows the same authority boundary. `sí, pero cambia el importe a 25` is dispatched as a validated correction, advances the review binding, presents the corrected amount, and requires a new explicit bound confirmation.
 - Non-confirm and non-cancel replies are interpreted contextually as `correction`, `new_expense`, or `unrelated`. Only `new_expense` is admitted to the FIFO queue; amount-bearing corrections such as `eran 35 EUR y la categoria es transporte` remain attached to the active review.
-- An uninterpretable reply keeps the `EXPENSE_REVIEW` payload and FSM state unchanged and sends exactly: `¿Confirmamos el registro tal como está, lo corregimos o lo cancelamos?`.
+- An uninterpretable reply keeps the `EXPENSE_REVIEW` payload and FSM state unchanged and asks `¿Confirmamos el registro tal como está o lo corregimos?` and shows `Escribí cancelar si quieres salir.` in a separate paragraph.
 - Callback **Confirmar**, **Corregir**, and **Cancelar** actions use `er1:<c|e|x>:<operationId>:<revision-base36>`. The resolver compares the callback with the persisted, successfully presented review binding before any cancellation, correction, or save.
 - Text authorization is accepted only for the current binding and only when its channel timestamp is later than `presentedAt`. A queued affirmative captured before presentation cannot bind to a later review.
 - The action resolver reloads the reviewed expense from the current FSM payload; caller-supplied expense data is not authority. It returns `handled`, `stale`, `expired`, `unbound`, `invalid`, `operation_in_progress`, or `review_required`.
@@ -94,3 +94,7 @@ The `EXPENSE_REVIEW` JSONB payload includes `reviewBinding: { operationId, revis
 ## Recovery guidance (2026-11-15)
 
 Unclaimed save-retry offers now include cancellation and spreadsheet-verification guidance before registering again. The HTTP diagnostic extension leaves append/delete `outcomeUnknown` classification and durable claim protection unchanged.
+
+## Expense message formatting (2026-11-16)
+
+Save/retry failure messages put the spreadsheet-verification warning in a separate paragraph from `reintentar`/`reconfigurar` and cancellation. Unknown financial outcomes still override all requested actions with administrator-only guidance, now separated into context and action paragraphs. No new retry eligibility or rollback promise is introduced. Successful save details retain their existing formatting. See [conversational message formatting](./conversational-message-formatting.md).

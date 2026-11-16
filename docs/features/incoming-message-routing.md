@@ -160,3 +160,7 @@ See [Security hardening](security-hardening.md) for the implemented HTTP admissi
 ## Recovery guidance (2026-11-15)
 
 The worker resolves shared generic and semantic recovery from a fresh state read using `cancellable | idle | financially-blocked | unknown`. Only cancellable context receives an exit hint; financial claims receive administrator/manual-resolution feedback. A failed lookup uses bounded feedback with no retry or cancellation promise. No recovery response mutates state or executes a financial effect.
+
+## Expense message formatting (2026-11-16)
+
+Shared recovery now accepts explicit `MessageBlocks` instead of scanning text for cancellation words. `expenseGuidanceBlocks` supplies reusable clarification, correction, review, retry, and fallback blocks. In cancellable context, an omitted `exit` requests the standard footer, a supplied footer is rendered once, and an explicit empty `exit` suppresses it (for required exit/restart steps). Idle/unknown context removes the optional exit. Financially blocked context replaces all supplied blocks with administrator guidance. The worker still reloads effective state and preserves all revision and financial-claim checks. See [conversational message formatting](./conversational-message-formatting.md).

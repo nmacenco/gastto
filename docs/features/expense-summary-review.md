@@ -143,3 +143,7 @@ A stale revision or invalidated lease cannot reset another attempt or send a fal
 ## Recovery guidance (2026-11-15)
 
 Shared semantic feedback reloads the persisted state before choosing recovery instructions, including after stale or rejected dispatch. It never derives cancellation solely from the incoming review snapshot. Changed or expired context uses current or bounded guidance; financial claims use manual-resolution feedback.
+
+## Expense message formatting (2026-11-16)
+
+Review summaries preserve field ordering, amounts, dates, hierarchy markers, payment labels, and callback bindings. Confirmation/correction instructions and the optional cancellation footer occupy separate paragraphs. High-amount warnings stay separate, and the final cancellation footer appears only once. Unresolved-payment guidance lists the accepted commands and still omits the Confirmar button. See [conversational message formatting](./conversational-message-formatting.md).
