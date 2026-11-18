@@ -12,6 +12,22 @@ const mockExists = vi.fn().mockResolvedValue(0);
 const mockSetex = vi.fn().mockResolvedValue('OK');
 const mockSadd = vi.fn().mockResolvedValue(1);
 const mockExpire = vi.fn().mockResolvedValue(1);
+const mockExec = vi.fn().mockResolvedValue([
+  [null, 'OK'],
+  [null, 1],
+  [null, 1],
+]);
+const mockChain = {
+  setex: mockSetex,
+  sadd: mockSadd,
+  expire: mockExpire,
+  exec: mockExec,
+};
+const mockMulti = vi.fn().mockReturnValue(mockChain);
+
+mockSetex.mockReturnValue(mockChain);
+mockSadd.mockReturnValue(mockChain);
+mockExpire.mockReturnValue(mockChain);
 
 function buildMockRedis(): Redis {
   return {
@@ -19,6 +35,7 @@ function buildMockRedis(): Redis {
     setex: mockSetex,
     sadd: mockSadd,
     expire: mockExpire,
+    multi: mockMulti,
   } as unknown as Redis;
 }
 
@@ -51,6 +68,7 @@ describe('RedisProcessedMessageRepository', () => {
     expect(mockSetex).toHaveBeenCalledWith(markerB, 86_400, '1');
     expect(mockSadd).toHaveBeenCalledWith('processed_message:owner:owner-a', markerA);
     expect(mockSadd).toHaveBeenCalledWith('processed_message:owner:owner-b', markerB);
+    expect(mockExec).toHaveBeenCalledTimes(2);
   });
   it('indexes a processed marker by owner for targeted account cleanup', async () => {
     const repo = new RedisProcessedMessageRepository(buildMockRedis());
@@ -60,6 +78,14 @@ describe('RedisProcessedMessageRepository', () => {
       'processed_message:telegram:msg-12345',
     );
     expect(mockExpire).toHaveBeenCalledWith('processed_message:owner:owner', 86_400);
+    expect(mockExec).toHaveBeenCalledOnce();
+  });
+  it('reports a failed atomic marker write so the incoming job can retry', async () => {
+    mockExec.mockResolvedValueOnce([[new Error('Redis write failed'), null]]);
+    const repo = new RedisProcessedMessageRepository(buildMockRedis());
+    await expect(repo.markAsProcessed(buildKey(), 'owner')).rejects.toThrow(
+      'PROCESSED_MESSAGE_MARK_FAILED',
+    );
   });
   it('returns true when the key exists', async () => {
     mockExists.mockResolvedValue(1);

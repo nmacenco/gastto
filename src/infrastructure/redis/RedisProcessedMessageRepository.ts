@@ -28,11 +28,19 @@ export class RedisProcessedMessageRepository implements IProcessedMessageReposit
 
   async markAsProcessed(key: ProcessedMessageKey, userId?: string): Promise<void> {
     const marker = this.key(key);
-    await this.redis.setex(marker, PROCESSED_MESSAGE_TTL_SECONDS, '1');
     if (userId) {
       const ownerKey = `processed_message:owner:${userId}`;
-      await this.redis.sadd(ownerKey, marker);
-      await this.redis.expire(ownerKey, PROCESSED_MESSAGE_TTL_SECONDS);
+      const result = await this.redis
+        .multi()
+        .setex(marker, PROCESSED_MESSAGE_TTL_SECONDS, '1')
+        .sadd(ownerKey, marker)
+        .expire(ownerKey, PROCESSED_MESSAGE_TTL_SECONDS)
+        .exec();
+      if (!result || result.some(([error]) => error !== null)) {
+        throw new Error('PROCESSED_MESSAGE_MARK_FAILED');
+      }
+      return;
     }
+    await this.redis.setex(marker, PROCESSED_MESSAGE_TTL_SECONDS, '1');
   }
 }

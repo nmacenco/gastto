@@ -149,7 +149,12 @@ const USER_LOCK_RENEW_MS = 30_000;
 export interface MessageWorkerDeps {
   accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> };
   accountDeletion?: {
-    begin(userId: string): Promise<boolean>;
+    confirm(input: {
+      userId: string;
+      channel: string;
+      externalId: string;
+      revision: string;
+    }): Promise<boolean>;
     queue: { add(name: string, data: { userId: string }): Promise<unknown> };
   };
   redis: Redis;
@@ -829,7 +834,12 @@ async function handleAccountDeletionPreview(
       process.env.NODE_ENV !== 'production' &&
       opts.accountDeletion
     ) {
-      const started = await opts.accountDeletion.begin(userId);
+      const started = await opts.accountDeletion.confirm({
+        userId,
+        channel: 'telegram',
+        externalId,
+        revision: state.revision,
+      });
       if (started) {
         await opts.accountDeletion.queue.add('delete', { userId });
         await messaging.sendMessage(

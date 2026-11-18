@@ -68,6 +68,67 @@ export class DrizzleAccountDeletionRepository implements AccountCredentialStore 
     });
   }
 
+  async confirm(input: {
+    userId: string;
+    channel: string;
+    externalId: string;
+    revision: string;
+  }): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const [owner] = await tx
+        .select({ userId: schema.users.userId })
+        .from(schema.users)
+        .innerJoin(
+          schema.messagingIdentities,
+          eq(schema.messagingIdentities.userId, schema.users.userId),
+        )
+        .where(
+          and(
+            eq(schema.users.userId, input.userId),
+            eq(schema.messagingIdentities.channel, input.channel),
+            eq(schema.messagingIdentities.externalId, input.externalId),
+          ),
+        )
+        .for('update', { of: schema.users })
+        .limit(1);
+      if (!owner) return false;
+
+      const [pending] = await tx
+        .update(schema.conversationStates)
+        .set({
+          currentState: 'IDLE',
+          statePayload: null,
+          expiresAt: null,
+          revision: sql`${schema.conversationStates.revision} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.conversationStates.userId, input.userId),
+            eq(schema.conversationStates.revision, BigInt(input.revision)),
+            eq(schema.conversationStates.currentState, 'SETTINGS_MENU'),
+            sql`${schema.conversationStates.statePayload}->>'screen' = 'account_deletion'`,
+            sql`${schema.conversationStates.expiresAt} > now()`,
+          ),
+        )
+        .returning({ userId: schema.conversationStates.userId });
+      if (!pending) return false;
+
+      await tx.insert(schema.accountDeletionOperations).values({ userId: input.userId });
+      await tx.insert(schema.accountDeletionIdentities).select(
+        tx
+          .select({
+            userId: schema.messagingIdentities.userId,
+            channel: schema.messagingIdentities.channel,
+            externalId: schema.messagingIdentities.externalId,
+          })
+          .from(schema.messagingIdentities)
+          .where(eq(schema.messagingIdentities.userId, input.userId)),
+      );
+      return true;
+    });
+  }
+
   async isDeleting(userId: string): Promise<boolean> {
     const [row] = await this.db
       .select({ userId: schema.accountDeletionOperations.userId })

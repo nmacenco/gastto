@@ -165,7 +165,7 @@ export async function registerWorkers(
     ...(deps.accountDeletionRepo && deletionQueue
       ? {
           accountDeletion: {
-            begin: (userId: string) => deps.accountDeletionRepo!.begin(userId),
+            confirm: (input) => deps.accountDeletionRepo!.confirm(input),
             queue: deletionQueue,
           },
         }

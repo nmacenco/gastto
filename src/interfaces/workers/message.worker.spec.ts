@@ -858,14 +858,19 @@ describe('processMessageJob', () => {
           expiresAt: new Date(Date.now() + 60_000),
         }),
       );
-      const begin = vi.fn().mockResolvedValue(true);
+      const confirm = vi.fn().mockResolvedValue(true);
       const add = vi.fn().mockResolvedValue(undefined);
       const deps = buildMockDeps();
-      deps.accountDeletion = { begin, queue: { add } };
+      deps.accountDeletion = { confirm, queue: { add } };
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'eliminar mi cuenta' }), deps);
-      expect(begin).not.toHaveBeenCalled();
+      expect(confirm).not.toHaveBeenCalled();
       await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'ELIMINAR MI CUENTA' }), deps);
-      expect(begin).toHaveBeenCalledOnce();
+      expect(confirm).toHaveBeenCalledWith({
+        userId: 'user-123',
+        channel: 'telegram',
+        externalId: '123456789',
+        revision: '0',
+      });
       expect(add).toHaveBeenCalledWith('delete', { userId: 'user-123' });
     });
 

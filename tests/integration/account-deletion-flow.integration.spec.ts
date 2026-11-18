@@ -25,6 +25,8 @@ import { AccountOperationalCleanup } from '../../src/infrastructure/redis/Accoun
 import { RedisUserProcessingLock } from '../../src/infrastructure/redis/RedisUserProcessingLock';
 import { RevokeAccountCredentials } from '../../src/application/use-cases/user/RevokeAccountCredentials';
 import { AccountDeletionService } from '../../src/application/services/AccountDeletionService';
+import { RedisProcessedMessageRepository } from '../../src/infrastructure/redis/RedisProcessedMessageRepository';
+import { ProcessedMessageKey } from '../../src/domain/value-objects/ProcessedMessageKey';
 import type { TokenEncryptionPort } from '../../src/domain/ports/tokenEncryption';
 
 describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL and Redis', () => {
@@ -85,6 +87,58 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       scope: [],
     });
     const config = await createSpreadsheetConfig(db, { userId: owner.userId });
+    const [historical] = await db
+      .insert(schema.spreadsheetConfigs)
+      .values({
+        userId: owner.userId,
+        provider: 'google',
+        fileId: 'historical-file',
+        fileName: 'Historical',
+        sheetName: 'Gastos',
+        isActive: false,
+        accessVerifiedAt: new Date(),
+      })
+      .returning();
+    if (!historical) throw new Error('Missing historical configuration fixture');
+    await db.insert(schema.columnMappings).values({
+      spreadsheetId: historical.id,
+      gasttoField: 'monto',
+      columnIndex: 1,
+      columnHeader: 'Amount',
+    });
+    const [category] = await db
+      .insert(schema.userCategories)
+      .values({
+        spreadsheetId: historical.id,
+        rawValue: 'Archived',
+        normalizedValue: 'archived',
+        isActive: false,
+      })
+      .returning();
+    if (!category) throw new Error('Missing category fixture');
+    await db.insert(schema.userSubcategories).values({
+      categoryId: category.id,
+      rawValue: 'Old',
+      normalizedValue: 'old',
+      isActive: false,
+    });
+    await db.insert(schema.userPaymentMethods).values({
+      spreadsheetId: historical.id,
+      displayName: 'Old card',
+      normalizedName: 'old card',
+      isActive: false,
+    });
+    await db.insert(schema.expenseQueue).values({
+      userId: owner.userId,
+      position: 1,
+      rawMessage: 'Queued expense',
+      channel: 'telegram',
+    });
+    await db.insert(schema.operationLogs).values({
+      userId: owner.userId,
+      operation: 'EXPENSE_SAVE_FAILED',
+      payload: { rawMessage: 'Expense 9' },
+    });
     await db.insert(schema.expenseRecords).values({
       userId: owner.userId,
       spreadsheetId: config.id,
@@ -94,6 +148,8 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       fechaGasto: '2026-11-17',
       sheetName: 'Gastos',
       rawMessage: 'Expense 9',
+      isDeleted: true,
+      deletedAt: new Date(),
     });
     const ownedIncoming = await incoming.add('message', {
       channel: 'telegram',
@@ -106,6 +162,14 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     });
     const otherProcessing = await processing.add('message', { userId: other.userId });
     await redis.set('identity:telegram:delete-chat', owner.userId);
+    const marker = new ProcessedMessageKey({
+      channel: 'telegram',
+      externalIdentityId: 'delete-chat',
+      externalMessageId: 'message-1',
+    });
+    const processed = new RedisProcessedMessageRepository(redis);
+    await processed.markAsProcessed(marker, owner.userId);
+    expect(await processed.exists(marker)).toBe(true);
     await redis.set(
       'oauth:state:delete',
       JSON.stringify({ userId: owner.userId, externalId: 'delete-chat' }),
@@ -140,6 +204,43 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     expect(
       await db.select().from(schema.users).where(eq(schema.users.userId, other.userId)),
     ).toHaveLength(1);
+    for (const table of [
+      schema.messagingIdentities,
+      schema.accessRequests,
+      schema.conversationStates,
+      schema.expenseQueue,
+      schema.oauthTokens,
+      schema.candidateOAuthTokens,
+      schema.spreadsheetConfigs,
+      schema.operationLogs,
+    ] as const) {
+      const rows = await db.select().from(table).where(eq(table.userId, owner.userId));
+      expect(rows).toHaveLength(0);
+    }
+    expect(
+      await db
+        .select()
+        .from(schema.columnMappings)
+        .where(eq(schema.columnMappings.spreadsheetId, historical.id)),
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(schema.userCategories)
+        .where(eq(schema.userCategories.spreadsheetId, historical.id)),
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(schema.userSubcategories)
+        .where(eq(schema.userSubcategories.categoryId, category.id)),
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(schema.userPaymentMethods)
+        .where(eq(schema.userPaymentMethods.spreadsheetId, historical.id)),
+    ).toHaveLength(0);
     expect(
       await db
         .select()
@@ -159,6 +260,8 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     expect(await processing.getJob(ownedProcessing.id!)).toBeUndefined();
     expect(await processing.getJob(otherProcessing.id!)).toBeDefined();
     expect(await redis.get('identity:telegram:delete-chat')).toBeNull();
+    expect(await processed.exists(marker)).toBe(false);
+    expect(await redis.exists(`processed_message:owner:${owner.userId}`)).toBe(0);
     expect(await redis.get('oauth:state:delete')).toBeNull();
     expect(await repo.get(owner.userId)).toBeNull();
   });

@@ -7,6 +7,10 @@ import type { Redis } from 'ioredis';
 import * as schema from '../../src/infrastructure/db/schema';
 import { DrizzleAccountDeletionRepository } from '../../src/infrastructure/db/repositories/DrizzleAccountDeletionRepository';
 import { DrizzleUserRepository } from '../../src/infrastructure/db/repositories/DrizzleUserRepository';
+import { DrizzleOAuthTokenRepository } from '../../src/infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import { DrizzleCandidateOAuthTokenRepository } from '../../src/infrastructure/db/repositories/DrizzleCandidateOAuthTokenRepository';
+import { DrizzleAccessRequestRepository } from '../../src/infrastructure/db/repositories/DrizzleAccessRequestRepository';
+import { createLogger } from '../../src/infrastructure/logger';
 import {
   startDbContainer,
   stopDbContainer,
@@ -84,6 +88,127 @@ describe.skipIf(!isDockerAvailable())('Account deletion database barrier', () =>
       await db.select().from(schema.users).where(eq(schema.users.userId, other.userId)),
     ).toHaveLength(1);
     expect(await repo.isDeleting(owner.userId)).toBe(true);
+  });
+
+  it('atomically consumes only an unexpired confirmation from its own identity', async () => {
+    const owner = await createUser(db);
+    const other = await createUser(db);
+    await createMessagingIdentity(db, { userId: owner.userId, externalId: 'confirm-owner' });
+    await createMessagingIdentity(db, { userId: other.userId, externalId: 'confirm-other' });
+    await db.insert(schema.conversationStates).values({
+      userId: owner.userId,
+      currentState: 'SETTINGS_MENU',
+      revision: 7n,
+      statePayload: { screen: 'account_deletion' },
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const confirmation = {
+      userId: owner.userId,
+      channel: 'telegram',
+      externalId: 'confirm-owner',
+      revision: '7',
+    };
+    expect(await repo.confirm({ ...confirmation, externalId: 'confirm-other' })).toBe(false);
+    expect(await repo.isDeleting(owner.userId)).toBe(false);
+    expect(await repo.confirm(confirmation)).toBe(true);
+    expect(await repo.confirm(confirmation)).toBe(false);
+    expect(await repo.isDeleting(owner.userId)).toBe(true);
+    const [state] = await db
+      .select()
+      .from(schema.conversationStates)
+      .where(eq(schema.conversationStates.userId, owner.userId));
+    expect(state).toMatchObject({ currentState: 'IDLE', statePayload: null, revision: 8n });
+  });
+
+  it('rejects an expired confirmation without opening the barrier', async () => {
+    const owner = await createUser(db);
+    await createMessagingIdentity(db, { userId: owner.userId, externalId: 'expired-owner' });
+    await db.insert(schema.conversationStates).values({
+      userId: owner.userId,
+      currentState: 'SETTINGS_MENU',
+      revision: 1n,
+      statePayload: { screen: 'account_deletion' },
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+    expect(
+      await repo.confirm({
+        userId: owner.userId,
+        channel: 'telegram',
+        externalId: 'expired-owner',
+        revision: '1',
+      }),
+    ).toBe(false);
+    expect(await repo.isDeleting(owner.userId)).toBe(false);
+  });
+
+  it('blocks stale active and candidate credential writes after the barrier', async () => {
+    const owner = await createUser(db);
+    const [request] = await db
+      .insert(schema.accessRequests)
+      .values({
+        userId: owner.userId,
+        email: 'credential-owner@example.test',
+        kind: 'replacement',
+        status: 'pending',
+      })
+      .returning();
+    if (!request) throw new Error('Missing request fixture');
+    expect(await repo.begin(owner.userId)).toBe(true);
+    const encrypted = Buffer.from('encrypted-test-value');
+    await expect(
+      new DrizzleOAuthTokenRepository(db).upsert({
+        userId: owner.userId,
+        provider: 'google',
+        accessTokenEnc: encrypted,
+        refreshTokenEnc: encrypted,
+        iv: encrypted,
+        refreshIv: encrypted,
+        accessTokenExpiresAt: new Date(Date.now() + 60_000),
+        scope: [],
+        grantedAt: new Date(),
+        lastRefreshedAt: null,
+        revokedAt: null,
+      }),
+    ).rejects.toThrow('ACCOUNT_CREDENTIAL_WRITE_BLOCKED');
+    await expect(
+      new DrizzleCandidateOAuthTokenRepository(db).upsert({
+        requestId: request.id,
+        userId: owner.userId,
+        accessTokenEnc: encrypted,
+        refreshTokenEnc: encrypted,
+        iv: encrypted,
+        refreshIv: encrypted,
+        accessTokenExpiresAt: new Date(Date.now() + 60_000),
+        scope: [],
+        grantedAt: new Date(),
+        lastRefreshedAt: null,
+        revokedAt: null,
+      }),
+    ).rejects.toThrow('ACCOUNT_CREDENTIAL_WRITE_BLOCKED');
+    expect(
+      await db.select().from(schema.oauthTokens).where(eq(schema.oauthTokens.userId, owner.userId)),
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(schema.candidateOAuthTokens)
+        .where(eq(schema.candidateOAuthTokens.userId, owner.userId)),
+    ).toHaveLength(0);
+  });
+
+  it('blocks a new access request after the barrier', async () => {
+    const owner = await createUser(db);
+    expect(await repo.begin(owner.userId)).toBe(true);
+    const requests = new DrizzleAccessRequestRepository(db, createLogger({ level: 'silent' }));
+    await expect(
+      requests.submit(owner.userId, 'late-request@example.test', 'initial'),
+    ).rejects.toThrow('ACCOUNT_ACCESS_REQUEST_BLOCKED');
+    expect(
+      await db
+        .select()
+        .from(schema.accessRequests)
+        .where(eq(schema.accessRequests.userId, owner.userId)),
+    ).toHaveLength(0);
   });
 
   it('waits for a prior identity-cache fill before opening the deletion barrier', async () => {
