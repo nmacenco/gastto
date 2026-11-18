@@ -15,6 +15,8 @@ import type { GetConversationState } from './GetConversationState';
 import type { SemanticRoutingPolicy } from '../../services/semantic-router/runtime-policy';
 import type { DeterministicRoutingPolicy } from '../../services/semantic-router/deterministic-routing';
 import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
+import type { IUserRepository } from '../../../domain/ports/repositories';
+import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 
 export interface RouteIncomingMessageDeps {
   messageQueue: Queue<ProcessMessageJobData>;
@@ -26,6 +28,7 @@ export interface RouteIncomingMessageDeps {
   getConversationState: GetConversationState;
   semanticRoutingPolicy: SemanticRoutingPolicy;
   accessRequests?: AccessRequestRepository;
+  accountDeletionIdentity?: { users: IUserRepository; messaging: MessagingOutputPort };
 }
 
 export class RouteIncomingMessage {
@@ -69,6 +72,24 @@ export class RouteIncomingMessage {
       return;
     }
 
+    if (
+      payload.channel === 'telegram' &&
+      text.trim() === '/eliminar_cuenta' &&
+      this.deps.accountDeletionIdentity
+    ) {
+      if (payload.userId !== payload.chatId) return;
+      const user = await this.deps.accountDeletionIdentity.users.findByMessagingIdentity(
+        'telegram',
+        payload.chatId,
+      );
+      if (!user) {
+        await this.deps.accountDeletionIdentity.messaging.sendMessage(
+          payload.chatId,
+          'No encontramos una cuenta vinculada a este chat.',
+        );
+        return;
+      }
+    }
     const { userId } = await this.deps.resolveIdentity.execute({
       channel: payload.channel,
       externalId: payload.chatId,
@@ -94,7 +115,7 @@ export class RouteIncomingMessage {
         rawMessage: text,
         hasCallback: false,
       });
-      if (decision.kind === 'expense_guidance') {
+      if (decision.kind === 'expense_guidance' && text.trim() !== '/eliminar_cuenta') {
         await this.deps.sendGuidance.execute(payload.chatId);
         return;
       }

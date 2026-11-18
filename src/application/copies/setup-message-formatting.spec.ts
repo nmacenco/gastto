@@ -7,7 +7,7 @@ import { paymentSetupCopies } from './payment-setup.copies';
 describe('setup message formatting', () => {
   it('preserves settings numbering and separates the requested action and exit', () => {
     expect(settingsCopies.menu()).toBe(
-      'Configuración de planilla:\n1. Ver estado\n2. Volver a autorizar Google\n3. Cambiar planilla\n4. Cambiar hoja\n5. Categorías y subcategorías\n6. Medios de pago\n7. Cambiar email de Google\n\nEscribí el número de una opción.\n\nEscribí cancelar si quieres salir.',
+      'Configuración de planilla:\n1. Ver estado\n2. Volver a autorizar Google\n3. Cambiar planilla\n4. Cambiar hoja\n5. Categorías y subcategorías\n6. Medios de pago\n7. Cambiar email de Google\n8. Eliminar cuenta\n\nEscribí el número de una opción.\n\nEscribí cancelar si quieres salir.',
     );
   });
 

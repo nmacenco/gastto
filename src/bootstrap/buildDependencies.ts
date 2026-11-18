@@ -267,6 +267,7 @@ function buildTelegramFeature(
   const routeIncomingMessage = new RouteIncomingMessage({
     messageQueue: core.messageQueue,
     resolveIdentity: core.resolveIdentity,
+    accountDeletionIdentity: { users: core.userRepo, messaging: adapter },
     handleUnsupportedMessage,
     deterministicRoutingPolicy: core.deterministicRoutingPolicy,
     sendGuidance: sendExpenseGuidance,

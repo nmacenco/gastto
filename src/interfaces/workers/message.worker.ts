@@ -101,6 +101,11 @@ import { StaleConversationStateError } from '../../domain/errors/StaleConversati
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { settingsCopies } from '../../application/copies/settings.copies';
+import {
+  RequestAccountDeletion,
+  accountDeletionCopies,
+  isExactAccountDeletionConfirmation,
+} from '../../application/use-cases/user/RequestAccountDeletion';
 import type { GetSpreadsheetSettings } from '../../application/use-cases/spreadsheet/GetSpreadsheetSettings';
 import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
 import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
@@ -268,6 +273,33 @@ export async function processMessageJob(
 
     const conversationState = await opts.getConversationState.execute({ userId });
     const currentState = conversationState?.currentState ?? 'IDLE';
+    // The account option must remain reachable when Google access or access
+    // approval is unavailable. The existing identity check and user lock ran above.
+    if (
+      channel === 'telegram' &&
+      data.callbackData === undefined &&
+      ((data.rawMessage.trim() === '8' &&
+        currentState === 'SETTINGS_MENU' &&
+        conversationState?.statePayload?.screen === undefined) ||
+        conversationState?.statePayload?.screen === 'account_deletion' ||
+        data.rawMessage.trim() === '/eliminar_cuenta')
+    ) {
+      if (conversationState) {
+        await opts.transitionState.runWithState(conversationState, async () => {
+          await handleAccountDeletionPreview(
+            data.rawMessage,
+            userId,
+            conversationState,
+            opts,
+            messaging,
+            externalId,
+          );
+        });
+      } else {
+        await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+      }
+      return;
+    }
     if (
       channel === 'telegram' &&
       opts.accessRequests &&
@@ -759,6 +791,53 @@ export async function processMessageJob(
       });
     }
   }
+}
+
+async function handleAccountDeletionPreview(
+  rawMessage: string,
+  userId: string,
+  state: ConversationState,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+  externalId: string,
+): Promise<void> {
+  if (process.env.NODE_ENV === 'production') {
+    await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+    return;
+  }
+  const pending = state.statePayload?.screen === 'account_deletion';
+  if (pending) {
+    if (
+      !isExactAccountDeletionConfirmation(rawMessage) &&
+      !['cancelar', 'salir', 'cancel', 'exit'].includes(rawMessage.trim().toLowerCase())
+    ) {
+      await messaging.sendMessage(externalId, accountDeletionCopies.request);
+      return;
+    }
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'IDLE',
+      payload: null,
+      expected: opts.transitionState.precondition(state, 'any'),
+    });
+    const reply =
+      state.expiresAt && state.expiresAt.getTime() > Date.now()
+        ? isExactAccountDeletionConfirmation(rawMessage)
+          ? accountDeletionCopies.unavailable
+          : accountDeletionCopies.cancelled
+        : accountDeletionCopies.expired;
+    await messaging.sendMessage(externalId, reply);
+    return;
+  }
+  if (state.currentState !== 'IDLE' && state.currentState !== 'SETTINGS_MENU') {
+    await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+    return;
+  }
+  await new RequestAccountDeletion(opts.transitionState, messaging).execute({
+    userId,
+    state,
+    externalId,
+  });
 }
 
 async function routeByState(

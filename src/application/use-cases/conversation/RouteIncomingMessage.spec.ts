@@ -59,6 +59,20 @@ function buildTextPayload(overrides: Partial<NormalizedPayload> = {}): Normalize
 }
 
 describe('RouteIncomingMessage', () => {
+  it('does not create an account for a deletion recovery request from an unknown identity', async () => {
+    const deps = buildMockDeps();
+    const findByMessagingIdentity = vi.fn().mockResolvedValue(null);
+    const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+    const router = new RouteIncomingMessage({
+      ...deps,
+      accountDeletionIdentity: { users: { findByMessagingIdentity }, messaging: { sendMessage } },
+    } as unknown as RouteIncomingMessageDeps);
+    await router.execute(buildTextPayload({ text: '/eliminar_cuenta', userId: '123456789' }));
+    expect(findByMessagingIdentity).toHaveBeenCalledWith('telegram', '123456789');
+    expect(mockResolveExecute).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockAdd.mockResolvedValue(undefined);

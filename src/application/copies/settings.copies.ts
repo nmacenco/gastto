@@ -127,7 +127,7 @@ export const settingsCopies = {
   menu: () =>
     composeMessage({
       explanation:
-        'Configuración de planilla:\n1. Ver estado\n2. Volver a autorizar Google\n3. Cambiar planilla\n4. Cambiar hoja\n5. Categorías y subcategorías\n6. Medios de pago\n7. Cambiar email de Google',
+        'Configuración de planilla:\n1. Ver estado\n2. Volver a autorizar Google\n3. Cambiar planilla\n4. Cambiar hoja\n5. Categorías y subcategorías\n6. Medios de pago\n7. Cambiar email de Google\n8. Eliminar cuenta',
       action: 'Escribí el número de una opción.',
       exit: CANCEL_EXIT_HINT,
     }),
@@ -139,7 +139,7 @@ export const settingsCopies = {
       action: 'Elegí 1 para ver el estado o 2 para autorizar Google.',
       exit: CANCEL_EXIT_HINT,
     }),
-  choose: () => composeMessage({ action: 'Elegí una opción del 1 al 7.', exit: CANCEL_EXIT_HINT }),
+  choose: () => composeMessage({ action: 'Elegí una opción del 1 al 8.', exit: CANCEL_EXIT_HINT }),
   cancelled: () => 'Saliste de configuración.',
   expired: () =>
     composeMessage({
