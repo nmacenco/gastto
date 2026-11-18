@@ -18,13 +18,22 @@ export class SendImmediateAcknowledgement {
     private readonly messagingPort: MessagingOutputPort,
     private readonly accessRequests?: AccessRequestRepository,
     private readonly userRepository?: IUserRepository,
+    private readonly accountDeletionGate?: {
+      isIdentityDeleting(channel: string, externalId: string): Promise<boolean>;
+    },
   ) {}
 
   async execute(input: SendImmediateAcknowledgementInput): Promise<SendResult> {
     try {
-      if (input.channel === 'telegram' && this.accessRequests && this.userRepository) {
+      if (await this.accountDeletionGate?.isIdentityDeleting(input.channel, input.chatId)) {
+        return { status: 'success' };
+      }
+      if (input.channel === 'telegram' && this.userRepository) {
         const user = await this.userRepository.findByMessagingIdentity(input.channel, input.chatId);
-        if (!user || !(await this.accessRequests.findApproved(user.userId))) {
+        if (
+          !user ||
+          (this.accessRequests && !(await this.accessRequests.findApproved(user.userId)))
+        ) {
           return { status: 'success' };
         }
       }

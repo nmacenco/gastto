@@ -114,4 +114,12 @@ describe('SendImmediateAcknowledgement', () => {
     expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
     expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
   });
+
+  it('does not acknowledge an identity being deleted', async () => {
+    const gate = { isIdentityDeleting: vi.fn().mockResolvedValue(true) };
+    const useCase = new SendImmediateAcknowledgement(buildMockPort(), undefined, undefined, gate);
+    expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
+    expect(gate.isIdentityDeleting).toHaveBeenCalledWith('telegram', '123456789');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
 });

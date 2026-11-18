@@ -110,6 +110,7 @@ function buildUseCase(
   messagingPort: MessagingOutputPort,
   userProcessingLock?: IUserProcessingLock,
   settingsOAuthCleanup?: SettingsOAuthCleanup,
+  accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> },
 ) {
   return new HandleExpiredSessions(
     conversationRepo,
@@ -124,6 +125,8 @@ function buildUseCase(
     userProcessingLock,
     undefined,
     settingsOAuthCleanup,
+    undefined,
+    accountDeletionGate,
   );
 }
 
@@ -134,6 +137,24 @@ describe('HandleExpiredSessions', () => {
     mockSendMessage.mockResolvedValue({ status: 'success' });
     mockShowTimeoutWarning.mockResolvedValue(undefined);
     mockNotifyCancellation.mockResolvedValue(undefined);
+  });
+
+  it('does not transition or notify an account whose deletion has begun', async () => {
+    mockFindExpired.mockResolvedValue([buildConversationState({ userId: 'deleting-user' })]);
+    const gate = { isDeleting: vi.fn().mockResolvedValue(true) };
+    const useCase = buildUseCase(
+      buildMockConversationRepo(),
+      buildMockUserRepo(),
+      buildMockTransitionState(),
+      buildMockMessagingPort(),
+      undefined,
+      undefined,
+      gate,
+    );
+    await useCase.execute();
+    expect(gate.isDeleting).toHaveBeenCalledWith('deleting-user');
+    expect(mockTransitionExecute).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   it('sends a one-time reminder and extends the review state when reminderSent is false', async () => {

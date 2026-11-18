@@ -128,6 +128,7 @@ import type { ProcessMessageJobData } from '../application/ports/ProcessMessageJ
 import type { IncomingMessageJobData } from '../application/ports/IncomingMessageJob';
 import type { LLMPort } from '../domain/ports/services';
 import type { MessagingOutputPort } from '../application/ports/output/messaging.port';
+import { DrizzleAccountDeletionRepository } from '../infrastructure/db/repositories/DrizzleAccountDeletionRepository';
 import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
 import { SpreadsheetError } from '../domain/errors/SpreadsheetError';
 
@@ -238,6 +239,7 @@ function buildTelegramFeature(
     deterministicRoutingPolicy: CurrentDeterministicRoutingPolicy;
     accessRequests: DrizzleAccessRequestRepository | undefined;
     userRepo: DrizzleUserRepository;
+    accountDeletionRepo: DrizzleAccountDeletionRepository;
   },
 ): TelegramFeature | null {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -253,11 +255,17 @@ function buildTelegramFeature(
     infra.rootLogger,
     core.accessRequests,
     adapter,
+    {
+      findByMessagingIdentity: (channel, externalId) =>
+        core.userRepo.findByMessagingIdentity(channel, externalId),
+      isDeleting: (userId) => core.accountDeletionRepo.isDeleting(userId),
+    },
   );
   const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(
     adapter,
     core.accessRequests,
     core.userRepo,
+    core.accountDeletionRepo,
   );
   const handleUnsupportedMessage = new HandleUnsupportedMessage(adapter);
   const classifyFreeTextExpenseIntent = new ClassifyFreeTextExpenseIntent();
@@ -268,6 +276,7 @@ function buildTelegramFeature(
     messageQueue: core.messageQueue,
     resolveIdentity: core.resolveIdentity,
     accountDeletionIdentity: { users: core.userRepo, messaging: adapter },
+    accountDeletionGate: core.accountDeletionRepo,
     handleUnsupportedMessage,
     deterministicRoutingPolicy: core.deterministicRoutingPolicy,
     sendGuidance: sendExpenseGuidance,
@@ -310,6 +319,7 @@ function buildGoogleOAuthFeature(
     telegramAdapter: TelegramMessengerAdapter | null;
     oauthAdapter: GoogleDriveOAuthAdapter | null;
     oauthAccessTokenService: OAuthAccessTokenProvider;
+    accountDeletionRepo: DrizzleAccountDeletionRepository;
   },
 ): GoogleOAuthFeature | null {
   if (!env.GOOGLE_REDIRECT_URI || !core.telegramAdapter || !core.oauthAdapter) {
@@ -323,6 +333,7 @@ function buildGoogleOAuthFeature(
     candidateTokenRepo,
     core.tokenEncryption,
     adapter,
+    core.accountDeletionRepo,
   );
 
   const messagingPort = core.telegramAdapter;
@@ -364,6 +375,7 @@ function buildGoogleOAuthFeature(
   });
 
   const sendOAuthReminder = new SendOAuthReminder({
+    accountDeletionGate: core.accountDeletionRepo,
     redis: infra.redis,
     oauthService: adapter,
     oauthAccessTokenService: core.oauthAccessTokenService,
@@ -457,6 +469,7 @@ function buildGoogleOAuthFeature(
   });
 
   const handleOAuthCallback = new HandleOAuthCallback({
+    accountDeletionGate: core.accountDeletionRepo,
     redis: infra.redis,
     logger: infra.rootLogger,
     oauthService: adapter,
@@ -575,6 +588,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const tokenRepo = new DrizzleOAuthTokenRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const accountDeletionRepo = new DrizzleAccountDeletionRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const accessRequests = new DrizzleAccessRequestRepository(infra.db, infra.rootLogger);
   const requestAccess = new RequestAccess(accessRequests);
   const operatorMail =
@@ -636,6 +651,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
         tokenRepository: tokenRepo,
         tokenEncryption,
         oauthService: googleOAuthAdapter,
+        accountDeletion: accountDeletionRepo,
       })
     : unavailableOAuthAccessTokenProvider;
 
@@ -822,6 +838,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     deterministicRoutingPolicy,
     accessRequests: env.ACCESS_APPROVAL_ENABLED ? accessRequests : undefined,
     userRepo,
+    accountDeletionRepo,
   });
 
   const googleOAuth = buildGoogleOAuthFeature(env, infra, {
@@ -842,6 +859,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     telegramAdapter: telegram?.adapter ?? null,
     oauthAdapter: googleOAuthAdapter,
     oauthAccessTokenService,
+    accountDeletionRepo,
   });
   const dispatchOptionSelection = googleOAuth
     ? new DispatchOptionSelection({
@@ -931,6 +949,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     conversationRepo,
     operationLogRepo,
     tokenRepo,
+    accountDeletionRepo,
     ...(env.ACCESS_APPROVAL_ENABLED ? { accessRequests, requestAccess, operatorMail } : {}),
     spreadsheetConfigRepo,
     columnMappingRepo,

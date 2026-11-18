@@ -147,6 +147,11 @@ const USER_LOCK_TTL_MS = 180_000;
 const USER_LOCK_RENEW_MS = 30_000;
 
 export interface MessageWorkerDeps {
+  accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> };
+  accountDeletion?: {
+    begin(userId: string): Promise<boolean>;
+    queue: { add(name: string, data: { userId: string }): Promise<unknown> };
+  };
   redis: Redis;
   logger: Logger;
   userProcessingLock: IUserProcessingLock;
@@ -221,6 +226,8 @@ export async function processMessageJob(
   const data = parsed.data;
   const { userId, channel, externalId } = data;
 
+  if (await opts.accountDeletionGate?.isDeleting(userId)) return;
+
   const identity = await opts.userRepo.findByMessagingIdentity(channel, externalId);
   if (identity?.userId !== userId) {
     throw new Error('Messaging identity does not match job user');
@@ -269,6 +276,7 @@ export async function processMessageJob(
   renewalTimer.unref();
 
   try {
+    if (await opts.accountDeletionGate?.isDeleting(userId)) return;
     const messaging = opts.messagingAdapters[channel];
 
     const conversationState = await opts.getConversationState.execute({ userId });
@@ -812,6 +820,25 @@ async function handleAccountDeletionPreview(
       !['cancelar', 'salir', 'cancel', 'exit'].includes(rawMessage.trim().toLowerCase())
     ) {
       await messaging.sendMessage(externalId, accountDeletionCopies.request);
+      return;
+    }
+    if (
+      state.expiresAt &&
+      state.expiresAt.getTime() > Date.now() &&
+      isExactAccountDeletionConfirmation(rawMessage) &&
+      process.env.NODE_ENV !== 'production' &&
+      opts.accountDeletion
+    ) {
+      const started = await opts.accountDeletion.begin(userId);
+      if (started) {
+        await opts.accountDeletion.queue.add('delete', { userId });
+        await messaging.sendMessage(
+          externalId,
+          'Empezamos a eliminar tu cuenta. Te avisaremos cuando termine.',
+        );
+      } else {
+        await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+      }
       return;
     }
     await opts.transitionState.execute({

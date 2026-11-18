@@ -127,6 +127,13 @@
       "when": 1794072726588,
       "tag": "0017_graceful_overlord",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794932808879,
+      "tag": "0018_foamy_sersi",
+      "breakpoints": true
     }
   ]
 }

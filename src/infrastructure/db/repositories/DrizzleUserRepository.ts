@@ -5,7 +5,7 @@
 import { eq, and } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Redis } from 'ioredis';
-import { users, messagingIdentities } from '../schema';
+import { users, messagingIdentities, accountDeletionOperations } from '../schema';
 import type * as schema from '../schema';
 import type { IUserRepository } from '../../../domain/ports/repositories';
 import type { User, MessagingIdentity } from '../../../domain/entities/User';
@@ -30,31 +30,50 @@ export class DrizzleUserRepository implements IUserRepository {
   ): Promise<User | null> {
     const cacheKey = `identity:${channel}:${externalId}`;
 
-    // 1. Intenta resolver desde Redis (ADR-008 — evita consulta a BD por cada webhook)
+    // 1. Resolve a cached ID, but verify the user and deletion barrier in DB.
     const cached = await this.redis.get(cacheKey);
     if (cached) {
-      return this.findById(cached);
+      const user = await this.findById(cached);
+      if (!user) {
+        await this.redis.del(cacheKey);
+        return null;
+      }
+      const [deleting] = await this.db
+        .select({ userId: accountDeletionOperations.userId })
+        .from(accountDeletionOperations)
+        .where(eq(accountDeletionOperations.userId, cached))
+        .limit(1);
+      return deleting ? null : user;
     }
 
-    // 2. Consulta BD con JOIN
-    const [row] = await this.db
-      .select({ user: users })
-      .from(messagingIdentities)
-      .innerJoin(users, eq(messagingIdentities.userId, users.userId))
-      .where(
-        and(
-          eq(messagingIdentities.channel, channel),
-          eq(messagingIdentities.externalId, externalId),
-        ),
-      )
-      .limit(1);
+    // Share-lock the owner until the cache write finishes. Deletion begins
+    // under an exclusive owner lock, so it either sees and clears this key or
+    // this lookup sees the durable deletion barrier and cannot repopulate it.
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({ user: users })
+        .from(messagingIdentities)
+        .innerJoin(users, eq(messagingIdentities.userId, users.userId))
+        .where(
+          and(
+            eq(messagingIdentities.channel, channel),
+            eq(messagingIdentities.externalId, externalId),
+          ),
+        )
+        .for('share')
+        .limit(1);
 
-    if (!row) return null;
+      if (!row) return null;
+      const [deleting] = await tx
+        .select({ userId: accountDeletionOperations.userId })
+        .from(accountDeletionOperations)
+        .where(eq(accountDeletionOperations.userId, row.user.userId))
+        .limit(1);
+      if (deleting) return null;
 
-    // 3. Populate cache for future requests
-    await this.redis.setex(cacheKey, IDENTITY_CACHE_TTL, row.user.userId);
-
-    return this.mapUser(row.user);
+      await this.redis.setex(cacheKey, IDENTITY_CACHE_TTL, row.user.userId);
+      return this.mapUser(row.user);
+    });
   }
 
   async createWithIdentity(

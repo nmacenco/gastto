@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`account-deletion.md`](./account-deletion.md): Telegram settings entry and time-limited confirmation preview; account erasure remains disabled until the complete deletion flow is implemented.
+- [`account-deletion.md`](./account-deletion.md): Telegram settings confirmation and development deletion worker; production erasure remains disabled until integration and operational gates pass.
 
 - [`conversational-message-formatting.md`](./conversational-message-formatting.md): Explicit paragraphs, list preservation, and separate cancellation guidance for file/sheet selection and recovery.
 

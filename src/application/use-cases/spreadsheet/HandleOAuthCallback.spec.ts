@@ -52,6 +52,7 @@ function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): Handle
   return {
     redis: { get: mockRedisGet, del: mockRedisDel } as unknown as Redis,
     oauthService: {
+      revokeToken: vi.fn(),
       buildAuthUrl: vi.fn(),
       exchangeCode: mockExchangeCode,
       refreshAccessToken: vi.fn(),

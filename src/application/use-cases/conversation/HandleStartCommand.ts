@@ -34,6 +34,13 @@ export class HandleStartCommand {
     private readonly logger?: Logger,
     private readonly accessRequests?: AccessRequestRepository,
     private readonly messaging?: MessagingOutputPort,
+    private readonly accountIdentity?: {
+      findByMessagingIdentity(
+        channel: 'telegram',
+        externalId: string,
+      ): Promise<{ userId: string } | null>;
+      isDeleting(userId: string): Promise<boolean>;
+    },
   ) {}
 
   async execute(input: HandleStartCommandInput): Promise<HandleStartCommandOutput> {
@@ -67,6 +74,15 @@ export class HandleStartCommand {
   }
 
   private async executeOwned(input: HandleStartCommandInput): Promise<HandleStartCommandOutput> {
+    if (this.accountIdentity) {
+      const current = await this.accountIdentity.findByMessagingIdentity('telegram', input.chatId);
+      if (
+        current?.userId !== input.userId ||
+        (await this.accountIdentity.isDeleting(input.userId))
+      ) {
+        return { replyText: '' };
+      }
+    }
     if (this.accessRequests && this.messaging) {
       const approved = await this.accessRequests.findApproved(input.userId);
       const pending = approved ? null : await this.accessRequests.findPending(input.userId);

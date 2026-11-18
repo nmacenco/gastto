@@ -34,6 +34,7 @@ function buildMockDeps(overrides: Partial<SendOAuthReminderDeps> = {}): SendOAut
   return {
     redis: { setex: mockRedisSetex } as unknown as Redis,
     oauthService: {
+      revokeToken: vi.fn(),
       buildAuthUrl: mockBuildAuthUrl,
       exchangeCode: vi.fn(),
       refreshAccessToken: vi.fn(),

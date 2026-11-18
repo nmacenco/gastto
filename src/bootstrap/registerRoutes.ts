@@ -11,6 +11,7 @@ import type { Env } from '../config/env.schema';
 import type { Dependencies } from './types';
 import { registerTelegramWebhook } from '../interfaces/http/routes/telegram.webhook';
 import { registerOAuthCallback } from '../interfaces/http/routes/oauth.callback';
+import { RedisStartReplayGuard } from '../infrastructure/redis/RedisStartReplayGuard';
 
 /**
  * Registers application routes:
@@ -62,6 +63,8 @@ export function registerRoutes(app: FastifyInstance, deps: Dependencies | null, 
       handleStartCommand: deps.telegram.handleStartCommand,
       sendImmediateAcknowledgement: deps.telegram.sendImmediateAcknowledgement,
       resolveIdentity: deps.resolveIdentity,
+      ...(deps.accountDeletionRepo ? { accountDeletionGate: deps.accountDeletionRepo } : {}),
+      startReplayGuard: new RedisStartReplayGuard(deps.redis, env.ENCRYPTION_KEY),
     });
   }
 

@@ -10,6 +10,7 @@ export class CandidateOAuthTokenService {
     private readonly tokens: CandidateOAuthTokenRepository,
     private readonly encryption: TokenEncryptionPort,
     private readonly oauth: OAuthServicePort,
+    private readonly accountDeletion?: { isDeleting(userId: string): Promise<boolean> },
   ) {}
 
   async discard(requestId: string): Promise<void> {
@@ -24,8 +25,14 @@ export class CandidateOAuthTokenService {
     expiresAt: Date;
     scope: string[];
   }): Promise<void> {
+    if (await this.accountDeletion?.isDeleting(input.userId)) {
+      throw new SpreadsheetError('Account authorization is unavailable', { code: 'AUTH_ERROR' });
+    }
     const access = this.encryption.encrypt(input.accessToken);
     const refresh = this.encryption.encrypt(input.refreshToken);
+    if (await this.accountDeletion?.isDeleting(input.userId)) {
+      throw new SpreadsheetError('Account authorization is unavailable', { code: 'AUTH_ERROR' });
+    }
     await this.tokens.upsert({
       requestId: input.requestId,
       userId: input.userId,
@@ -46,6 +53,9 @@ export class CandidateOAuthTokenService {
     userId: string;
     requiredScopes?: string[];
   }): Promise<string> {
+    if (await this.accountDeletion?.isDeleting(input.userId)) {
+      throw new SpreadsheetError('Account authorization is unavailable', { code: 'AUTH_ERROR' });
+    }
     const token = await this.tokens.findByRequestId(input.requestId);
     if (
       !token ||
@@ -59,8 +69,15 @@ export class CandidateOAuthTokenService {
     }
     if (token.accessTokenExpiresAt.getTime() > Date.now() + 5 * 60 * 1000) {
       try {
-        return this.encryption.decrypt(token.accessTokenEnc, token.iv);
-      } catch {
+        const accessToken = this.encryption.decrypt(token.accessTokenEnc, token.iv);
+        if (await this.accountDeletion?.isDeleting(input.userId)) {
+          throw new SpreadsheetError('Account authorization is unavailable', {
+            code: 'AUTH_ERROR',
+          });
+        }
+        return accessToken;
+      } catch (error) {
+        if (error instanceof SpreadsheetError) throw error;
         throw new SpreadsheetError('Candidate Google token cannot be decrypted', {
           code: 'AUTH_ERROR',
         });
@@ -69,6 +86,9 @@ export class CandidateOAuthTokenService {
     try {
       const refreshToken = this.encryption.decrypt(token.refreshTokenEnc, token.refreshIv);
       const refreshed = await this.oauth.refreshAccessToken('google', refreshToken);
+      if (await this.accountDeletion?.isDeleting(input.userId)) {
+        throw new SpreadsheetError('Account authorization is unavailable', { code: 'AUTH_ERROR' });
+      }
       const encrypted = this.encryption.encrypt(refreshed.accessToken);
       await this.tokens.markRefreshed(
         input.requestId,

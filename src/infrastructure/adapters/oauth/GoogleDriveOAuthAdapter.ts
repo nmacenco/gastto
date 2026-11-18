@@ -11,6 +11,7 @@ import { InvalidProviderError } from '../../../domain/errors/InvalidProviderErro
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 const DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const GOOGLE_OAUTH_SCOPES = [DRIVE_READONLY_SCOPE, GOOGLE_SHEETS_SCOPE].join(' ');
@@ -23,6 +24,24 @@ export interface GoogleDriveOAuthAdapterConfig {
 
 export class GoogleDriveOAuthAdapter implements OAuthServicePort {
   constructor(private readonly config: GoogleDriveOAuthAdapterConfig) {}
+
+  async revokeToken(
+    provider: SpreadsheetProvider,
+    token: string,
+  ): Promise<'revoked' | 'not_confirmed'> {
+    if (provider !== 'google') throw new InvalidProviderError(provider);
+    try {
+      const response = await fetch(GOOGLE_REVOKE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token }).toString(),
+        signal: AbortSignal.timeout(5_000),
+      });
+      return response.status === 200 ? 'revoked' : 'not_confirmed';
+    } catch {
+      return 'not_confirmed';
+    }
+  }
 
   buildAuthUrl(provider: SpreadsheetProvider, state: string, redirectUri: string): string {
     if (provider !== 'google') {

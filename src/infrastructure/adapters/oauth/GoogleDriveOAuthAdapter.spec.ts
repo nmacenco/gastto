@@ -60,6 +60,29 @@ describe('GoogleDriveOAuthAdapter', () => {
     });
   });
 
+  describe('revokeToken', () => {
+    it('sends the token in a POST body and reports confirmed revocation', async () => {
+      fetchMock.mockResolvedValue({ status: 200 });
+      const result = await new GoogleDriveOAuthAdapter(CONFIG).revokeToken(
+        'google',
+        'refresh-secret',
+      );
+      expect(result).toBe('revoked');
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://oauth2.googleapis.com/revoke');
+      expect(init.method).toBe('POST');
+      expect(new URLSearchParams(init.body as string).get('token')).toBe('refresh-secret');
+      expect(url).not.toContain('refresh-secret');
+    });
+
+    it('does not confirm revocation on provider errors or network failures', async () => {
+      const adapter = new GoogleDriveOAuthAdapter(CONFIG);
+      fetchMock.mockResolvedValueOnce({ status: 400 }).mockRejectedValueOnce(new Error('secret'));
+      expect(await adapter.revokeToken('google', 'refresh-secret')).toBe('not_confirmed');
+      expect(await adapter.revokeToken('google', 'refresh-secret')).toBe('not_confirmed');
+    });
+  });
+
   describe('exchangeCode', () => {
     it('exchanges a code for tokens on successful response', async () => {
       fetchMock.mockResolvedValue({

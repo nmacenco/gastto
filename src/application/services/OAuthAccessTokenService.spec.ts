@@ -71,6 +71,36 @@ beforeEach(() => {
 });
 
 describe('OAuthAccessTokenService', () => {
+  it('denies credential access while account deletion is pending', async () => {
+    const service = new OAuthAccessTokenService({
+      tokenRepository: { findByUserAndProvider } as unknown as IOAuthTokenRepository,
+      tokenEncryption: { decrypt, encrypt },
+      oauthService: { refreshAccessToken } as unknown as OAuthServicePort,
+      accountDeletion: { isDeleting: vi.fn().mockResolvedValue(true) },
+    });
+    await expect(
+      service.getValidAccessToken({ userId: 'user-1', provider: 'google' }),
+    ).rejects.toBeInstanceOf(SpreadsheetError);
+    expect(findByUserAndProvider).not.toHaveBeenCalled();
+  });
+  it('does not persist a refresh that finishes after deletion begins', async () => {
+    findByUserAndProvider.mockResolvedValue({
+      ...token,
+      accessTokenExpiresAt: new Date(Date.now() - 1),
+    });
+    const isDeleting = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const service = new OAuthAccessTokenService({
+      tokenRepository: { findByUserAndProvider, markRefreshed } as unknown as IOAuthTokenRepository,
+      tokenEncryption: { decrypt, encrypt },
+      oauthService: { refreshAccessToken } as unknown as OAuthServicePort,
+      accountDeletion: { isDeleting },
+    });
+    await expect(
+      service.getValidAccessToken({ userId: 'user-1', provider: 'google' }),
+    ).rejects.toMatchObject({ code: 'AUTH_ERROR' });
+    expect(refreshAccessToken).toHaveBeenCalledOnce();
+    expect(markRefreshed).not.toHaveBeenCalled();
+  });
   it('reuses and decrypts a token outside the refresh window', async () => {
     const result = await buildService().getValidAccessToken({
       userId: 'user-1',

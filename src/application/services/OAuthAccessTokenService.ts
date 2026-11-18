@@ -29,6 +29,7 @@ export interface OAuthAccessTokenServiceDeps {
   tokenEncryption: TokenEncryptionPort;
   oauthService: OAuthServicePort;
   refreshWindowMs?: number;
+  accountDeletion?: { isDeleting(userId: string): Promise<boolean> };
 }
 
 export interface OAuthAccessTokenProvider {
@@ -52,12 +53,17 @@ export class OAuthAccessTokenService implements OAuthAccessTokenProvider {
     }
 
     try {
+      const accessToken = this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv);
+      if (await this.deps.accountDeletion?.isDeleting(input.userId)) {
+        throw this.authorizationError('Spreadsheet authorization is unavailable');
+      }
       return {
-        accessToken: this.deps.tokenEncryption.decrypt(token.accessTokenEnc, token.iv),
+        accessToken,
         expiresAt: token.accessTokenExpiresAt,
         refreshed: false,
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof SpreadsheetError) throw error;
       throw this.authorizationError('Stored OAuth access token cannot be decrypted');
     }
   }
@@ -70,6 +76,9 @@ export class OAuthAccessTokenService implements OAuthAccessTokenProvider {
   }
 
   private async loadUsableToken(input: OAuthAccessTokenInput) {
+    if (await this.deps.accountDeletion?.isDeleting(input.userId)) {
+      throw this.authorizationError('Spreadsheet authorization is unavailable');
+    }
     const token = await this.deps.tokenRepository.findByUserAndProvider(
       input.userId,
       input.provider,
@@ -101,6 +110,9 @@ export class OAuthAccessTokenService implements OAuthAccessTokenProvider {
         input.provider,
         refreshToken,
       );
+      if (await this.deps.accountDeletion?.isDeleting(input.userId)) {
+        throw this.authorizationError('Spreadsheet authorization is unavailable');
+      }
       const encrypted = this.deps.tokenEncryption.encrypt(refreshed.accessToken);
       await this.deps.tokenRepository.markRefreshed(
         token.id,

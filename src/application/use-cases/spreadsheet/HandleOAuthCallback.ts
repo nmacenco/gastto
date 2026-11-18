@@ -60,6 +60,7 @@ interface OAuthStatePayload {
 }
 
 export interface HandleOAuthCallbackDeps {
+  accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> };
   redis: Redis;
   oauthService: OAuthServicePort;
   tokenRepository: IOAuthTokenRepository;
@@ -162,6 +163,14 @@ export class HandleOAuthCallback {
     });
 
     try {
+      if (await this.deps.accountDeletionGate?.isDeleting(metadata.userId)) {
+        return {
+          success: false,
+          nextState: 'ONBOARDING_DRIVE',
+          message: onboardingCopies.oauthConnectionFailed(false),
+          canRetry: false,
+        };
+      }
       const observed = await this.deps.conversationRepo.findByUserId(metadata.userId);
       if (
         metadata.origin === 'settings'

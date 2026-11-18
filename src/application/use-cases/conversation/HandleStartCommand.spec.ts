@@ -161,4 +161,48 @@ describe('HandleStartCommand', () => {
       'network failure',
     );
   });
+
+  it('ignores a stale /start after its identity has been deleted', async () => {
+    const { messenger, sendWelcomeMock } = buildMockMessenger();
+    const identity = {
+      findByMessagingIdentity: vi.fn().mockResolvedValue(null),
+      isDeleting: vi.fn().mockResolvedValue(false),
+    };
+    const useCase = new HandleStartCommand(
+      messenger,
+      buildMockConversationRepo(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      identity,
+    );
+    await expect(useCase.execute({ userId: 'old-user', chatId: '111' })).resolves.toEqual({
+      replyText: '',
+    });
+    expect(sendWelcomeMock).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('ignores /start while the linked account is being deleted', async () => {
+    const { messenger, sendWelcomeMock } = buildMockMessenger();
+    const identity = {
+      findByMessagingIdentity: vi.fn().mockResolvedValue({ userId: 'deleting-user' }),
+      isDeleting: vi.fn().mockResolvedValue(true),
+    };
+    const useCase = new HandleStartCommand(
+      messenger,
+      buildMockConversationRepo(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      identity,
+    );
+    await useCase.execute({ userId: 'deleting-user', chatId: '111' });
+    expect(sendWelcomeMock).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
 });

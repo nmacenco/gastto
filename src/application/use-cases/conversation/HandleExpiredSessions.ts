@@ -44,6 +44,7 @@ export class HandleExpiredSessions {
     private readonly generateExpenseSummary?: GenerateExpenseSummaryUseCase,
     private readonly settingsOAuthCleanup?: SettingsOAuthCleanup,
     private readonly candidateTokens?: Pick<CandidateOAuthTokenService, 'discard'>,
+    private readonly accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> },
   ) {}
 
   async execute(): Promise<void> {
@@ -66,6 +67,7 @@ export class HandleExpiredSessions {
             })
           : () => undefined;
       try {
+        if (await this.accountDeletionGate?.isDeleting(state.userId)) continue;
         await this.transitionState.runWithState(state, async () => {
           if (state.currentState === 'EXPENSE_REVIEW') {
             await this.handleExpiredReview(state);

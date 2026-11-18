@@ -1,5 +1,11 @@
 # Data Model
 
+## Account deletion operation schema (migration 0018)
+
+Migration `0018_foamy_sersi` adds `account_deletion_operations` and `account_deletion_identities` for a temporary, durable deletion barrier and recovery record. The operation row uses the account UUID as its key and has no foreign key to `users`, so account data can be removed before final cleanup. Its stage is constrained to `blocked`, `revoking`, `cleaning`, or `notifying`; a Boolean records whether remote revocation could not be confirmed. A stage index supports recovery scans.
+
+The identity table stores the channel and external ID temporarily for ingress fencing and targeted queue/cache cleanup. It has a unique `(channel, external_id)` lookup index, an owner index, and a cascade FK to the operation. Removing the operation removes its identity rows. These tables do not implement account deletion by themselves; the lifecycle barrier and cleanup workflow must be complete before activating the action.
+
 ## Telegram access approval additions (migrations 0016–0017)
 
 `access_requests` stores a UUID, owner `user_id` (cascade FK), normalized email, `kind` (`initial` or `replacement`), `status` (`pending`, `approved`, `superseded`), creation and decision metadata, `activated_at`, and Gmail/Telegram notice timestamps. The `(user_id, status)` index serves current lookups. Partial unique indexes allow one pending request and one active approved request per user. An approved replacement has `activated_at = NULL` until cutover, so the old approved request remains the active association. Request submission and approval lock the user row and run in transactions.
@@ -120,21 +126,21 @@ Encrypted OAuth 2.0 tokens for Google Drive and OneDrive access.
 
 Versioned spreadsheet configuration per user. Only one row per user may be active; historical rows remain addressable by ID.
 
-| Column                    | Type          | Constraints                     | Description                                                                           |
-| ------------------------- | ------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
-| `id`                      | `UUID`        | PK, default `gen_random_uuid()` | Row identifier.                                                                       |
-| `user_id`                 | `UUID`        | FK → `users(user_id)`, CASCADE  | Owner; indexed for active lookup.                                                     |
-| `provider`                | `TEXT`        | NOT NULL, CHECK                 | `'google'` or `'microsoft'`.                                                          |
-| `file_id`                 | `TEXT`        | NOT NULL                        | External file identifier.                                                             |
-| `file_name`               | `TEXT`        | NOT NULL                        | Human-readable file name for display.                                                 |
-| `sheet_name`              | `TEXT`        | NOT NULL                        | Target sheet within the file.                                                         |
-| `is_active`               | `BOOLEAN`     | NOT NULL, default `true`        | Exactly one active row at most per user; old rows remain false.                       |
-| `header_row_index`        | `INTEGER`     | NULL                            | Confirmed one-based header row; NULL on older rows, requiring remapping.              |
-| `access_verified_at`      | `TIMESTAMPTZ` | NOT NULL                        | Last read/write permission check.                                                     |
-| `categories_confirmed_at` | `TIMESTAMPTZ` | NULL                            | Timestamp when the user confirmed their category vocabulary. NULL until confirmation. |
-| `payment_methods_confirmed_at` | `TIMESTAMPTZ` | NULL | NULL retains legacy free-text behavior; a timestamp also represents a confirmed empty catalog. |
-| `created_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Creation timestamp.                                                                   |
-| `updated_at`              | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Last update timestamp.                                                                |
+| Column                         | Type          | Constraints                     | Description                                                                                    |
+| ------------------------------ | ------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `id`                           | `UUID`        | PK, default `gen_random_uuid()` | Row identifier.                                                                                |
+| `user_id`                      | `UUID`        | FK → `users(user_id)`, CASCADE  | Owner; indexed for active lookup.                                                              |
+| `provider`                     | `TEXT`        | NOT NULL, CHECK                 | `'google'` or `'microsoft'`.                                                                   |
+| `file_id`                      | `TEXT`        | NOT NULL                        | External file identifier.                                                                      |
+| `file_name`                    | `TEXT`        | NOT NULL                        | Human-readable file name for display.                                                          |
+| `sheet_name`                   | `TEXT`        | NOT NULL                        | Target sheet within the file.                                                                  |
+| `is_active`                    | `BOOLEAN`     | NOT NULL, default `true`        | Exactly one active row at most per user; old rows remain false.                                |
+| `header_row_index`             | `INTEGER`     | NULL                            | Confirmed one-based header row; NULL on older rows, requiring remapping.                       |
+| `access_verified_at`           | `TIMESTAMPTZ` | NOT NULL                        | Last read/write permission check.                                                              |
+| `categories_confirmed_at`      | `TIMESTAMPTZ` | NULL                            | Timestamp when the user confirmed their category vocabulary. NULL until confirmation.          |
+| `payment_methods_confirmed_at` | `TIMESTAMPTZ` | NULL                            | NULL retains legacy free-text behavior; a timestamp also represents a confirmed empty catalog. |
+| `created_at`                   | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Creation timestamp.                                                                            |
+| `updated_at`                   | `TIMESTAMPTZ` | NOT NULL, default `now()`       | Last update timestamp.                                                                         |
 
 ### column_mappings
 
@@ -190,43 +196,43 @@ Per-category subcategory vocabulary. Every configured subcategory belongs to exa
 
 Payment methods belong to one spreadsheet configuration. Deactivation retains the identity for future reactivation and historical expense references.
 
-| Column | Type | Constraints | Description |
-| --- | --- | --- | --- |
-| `id` | `UUID` | PK, default `gen_random_uuid()` | Stable payment-method ID. |
-| `spreadsheet_id` | `UUID` | FK → `spreadsheet_configs(id)`, CASCADE | Catalog owner. |
-| `display_name` | `TEXT` | NOT NULL | User-confirmed spelling. |
-| `normalized_name` | `TEXT` | NOT NULL | Trimmed lowercase identity key. |
-| `is_active` | `BOOLEAN` | NOT NULL, default `true` | Soft deactivation. |
-| `created_at` | `TIMESTAMPTZ` | NOT NULL, default `now()` | Creation time. |
-| **UNIQUE** | — | `(spreadsheet_id, normalized_name)` | Reserves active and inactive names within the configuration. |
+| Column            | Type          | Constraints                             | Description                                                  |
+| ----------------- | ------------- | --------------------------------------- | ------------------------------------------------------------ |
+| `id`              | `UUID`        | PK, default `gen_random_uuid()`         | Stable payment-method ID.                                    |
+| `spreadsheet_id`  | `UUID`        | FK → `spreadsheet_configs(id)`, CASCADE | Catalog owner.                                               |
+| `display_name`    | `TEXT`        | NOT NULL                                | User-confirmed spelling.                                     |
+| `normalized_name` | `TEXT`        | NOT NULL                                | Trimmed lowercase identity key.                              |
+| `is_active`       | `BOOLEAN`     | NOT NULL, default `true`                | Soft deactivation.                                           |
+| `created_at`      | `TIMESTAMPTZ` | NOT NULL, default `now()`               | Creation time.                                               |
+| **UNIQUE**        | —             | `(spreadsheet_id, normalized_name)`     | Reserves active and inactive names within the configuration. |
 
 ### expense_records
 
 Immutable record of every successfully saved expense. Enables undo and future query features.
 
-| Column                 | Type            | Constraints                                   | Description                                                            |
-| ---------------------- | --------------- | --------------------------------------------- | ---------------------------------------------------------------------- |
-| `id`                   | `UUID`          | PK, default `gen_random_uuid()`               | Row identifier.                                                        |
-| `user_id`              | `UUID`          | FK → `users(user_id)`, CASCADE                | Expense owner.                                                         |
-| `spreadsheet_id`       | `UUID`          | FK → `spreadsheet_configs(id)`, NO ACTION     | Preserves history if the spreadsheet is unlinked.                      |
-| `concepto`             | `TEXT`          | NOT NULL                                      | Expense description.                                                   |
-| `monto`                | `NUMERIC(14,2)` | NOT NULL, CHECK `>= 0`                        | Expense amount.                                                        |
-| `moneda`               | `TEXT`          | NOT NULL, CHECK                               | `ARS`, `EUR`, `USD`, `MXN`, `GBP`, `BRL`.                              |
-| `categoria`            | `TEXT`          | NULL                                          | Category text snapshot at save time.                                   |
-| `category_id`          | `UUID`          | NULL, FK → `user_categories(id)`, SET NULL    | Stable category reference when available.                              |
-| `subcategory_id`       | `UUID`          | NULL, FK → `user_subcategories(id)`, SET NULL | Stable subcategory reference when available.                           |
-| `subcategoria`         | `TEXT`          | NULL                                          | Subcategory text snapshot at save time.                                |
-| `fecha_gasto`          | `DATE`          | NOT NULL                                      | User-facing expense date.                                              |
-| `medio_pago`           | `TEXT`          | NULL                                          | Immutable confirmed payment-name snapshot.                            |
-| `payment_method_id`    | `UUID`          | NULL, FK → `user_payment_methods(id)`, SET NULL | Catalog reference when a configured method was selected.          |
-| `sheet_name`           | `TEXT`          | NOT NULL                                      | Target sheet at save time.                                             |
-| `row_index`            | `INTEGER`       | NULL                                          | Sheet row index returned by `appendRow`, when the provider exposes it. |
-| `categoria_confidence` | `TEXT`          | NULL, CHECK                                   | `alta`, `baja`, `nula`, or NULL.                                       |
-| `raw_message`          | `TEXT`          | NOT NULL                                      | Original user message for audit.                                       |
-| `is_deleted`           | `BOOLEAN`       | NOT NULL, default `false`                     | Soft delete flag.                                                      |
-| `deleted_at`           | `TIMESTAMPTZ`   | NULL                                          | Undo timestamp.                                                        |
-| `created_at`           | `TIMESTAMPTZ`   | NOT NULL, default `now()`                     | Internal creation timestamp.                                           |
-| `saved_at`             | `TIMESTAMPTZ`   | NOT NULL, default `now()`                     | Successful sheet append timestamp.                                     |
+| Column                 | Type            | Constraints                                     | Description                                                            |
+| ---------------------- | --------------- | ----------------------------------------------- | ---------------------------------------------------------------------- |
+| `id`                   | `UUID`          | PK, default `gen_random_uuid()`                 | Row identifier.                                                        |
+| `user_id`              | `UUID`          | FK → `users(user_id)`, CASCADE                  | Expense owner.                                                         |
+| `spreadsheet_id`       | `UUID`          | FK → `spreadsheet_configs(id)`, NO ACTION       | Preserves history if the spreadsheet is unlinked.                      |
+| `concepto`             | `TEXT`          | NOT NULL                                        | Expense description.                                                   |
+| `monto`                | `NUMERIC(14,2)` | NOT NULL, CHECK `>= 0`                          | Expense amount.                                                        |
+| `moneda`               | `TEXT`          | NOT NULL, CHECK                                 | `ARS`, `EUR`, `USD`, `MXN`, `GBP`, `BRL`.                              |
+| `categoria`            | `TEXT`          | NULL                                            | Category text snapshot at save time.                                   |
+| `category_id`          | `UUID`          | NULL, FK → `user_categories(id)`, SET NULL      | Stable category reference when available.                              |
+| `subcategory_id`       | `UUID`          | NULL, FK → `user_subcategories(id)`, SET NULL   | Stable subcategory reference when available.                           |
+| `subcategoria`         | `TEXT`          | NULL                                            | Subcategory text snapshot at save time.                                |
+| `fecha_gasto`          | `DATE`          | NOT NULL                                        | User-facing expense date.                                              |
+| `medio_pago`           | `TEXT`          | NULL                                            | Immutable confirmed payment-name snapshot.                             |
+| `payment_method_id`    | `UUID`          | NULL, FK → `user_payment_methods(id)`, SET NULL | Catalog reference when a configured method was selected.               |
+| `sheet_name`           | `TEXT`          | NOT NULL                                        | Target sheet at save time.                                             |
+| `row_index`            | `INTEGER`       | NULL                                            | Sheet row index returned by `appendRow`, when the provider exposes it. |
+| `categoria_confidence` | `TEXT`          | NULL, CHECK                                     | `alta`, `baja`, `nula`, or NULL.                                       |
+| `raw_message`          | `TEXT`          | NOT NULL                                        | Original user message for audit.                                       |
+| `is_deleted`           | `BOOLEAN`       | NOT NULL, default `false`                       | Soft delete flag.                                                      |
+| `deleted_at`           | `TIMESTAMPTZ`   | NULL                                            | Undo timestamp.                                                        |
+| `created_at`           | `TIMESTAMPTZ`   | NOT NULL, default `now()`                       | Internal creation timestamp.                                           |
+| `saved_at`             | `TIMESTAMPTZ`   | NOT NULL, default `now()`                       | Successful sheet append timestamp.                                     |
 
 #### Expense hierarchy lifecycle
 
@@ -256,22 +262,22 @@ Immutable audit trail of critical operations.
 
 ### Full indexes
 
-| Index                             | Table                  | Columns                                     | Purpose                                                 |
-| --------------------------------- | ---------------------- | ------------------------------------------- | ------------------------------------------------------- |
-| `idx_users_status`                | `users`                | `status`                                    | Maintenance and reporting queries.                      |
-| `idx_messaging_identities_lookup` | `messaging_identities` | `channel`, `external_id`                    | Gateway identity resolution on every inbound message.   |
-| `idx_messaging_identities_user`   | `messaging_identities` | `user_id`                                   | Retrieve all identities of a user.                      |
-| `idx_conversation_states_current` | `conversation_states`  | `current_state`                             | Operational lookups and monitoring.                     |
-| `idx_expense_queue_user_position` | `expense_queue`        | `user_id`, `position`                       | Read a user's queue in order.                           |
-| `idx_oauth_tokens_user_provider`  | `oauth_tokens`         | `user_id`, `provider`                       | Token lookup on every spreadsheet operation.            |
-| `idx_spreadsheet_configs_user`    | `spreadsheet_configs`  | `user_id`                                   | Lookup user's linked spreadsheet.                       |
-| `uq_user_active_spreadsheet`      | `spreadsheet_configs`  | `user_id` (`is_active = true`)              | Enforce one active destination while retaining history. |
-| `idx_column_mappings_spreadsheet` | `column_mappings`      | `spreadsheet_id`                            | Load all mappings for a spreadsheet.                    |
-| `idx_expense_records_category`    | `expense_records`      | `category_id`                               | Historical expenses referencing a category.             |
-| `idx_expense_records_subcategory` | `expense_records`      | `subcategory_id`                            | Historical expenses referencing a subcategory.          |
-| `idx_expense_records_payment_method` | `expense_records` | `payment_method_id` | Historical expenses referencing a payment method. |
-| `idx_expense_records_sheet_row`   | `expense_records`      | `spreadsheet_id`, `sheet_name`, `row_index` | Deterministic row reference for undo.                   |
-| `idx_operation_logs_user_created` | `operation_logs`       | `user_id`, `created_at`                     | User audit history.                                     |
+| Index                                | Table                  | Columns                                     | Purpose                                                 |
+| ------------------------------------ | ---------------------- | ------------------------------------------- | ------------------------------------------------------- |
+| `idx_users_status`                   | `users`                | `status`                                    | Maintenance and reporting queries.                      |
+| `idx_messaging_identities_lookup`    | `messaging_identities` | `channel`, `external_id`                    | Gateway identity resolution on every inbound message.   |
+| `idx_messaging_identities_user`      | `messaging_identities` | `user_id`                                   | Retrieve all identities of a user.                      |
+| `idx_conversation_states_current`    | `conversation_states`  | `current_state`                             | Operational lookups and monitoring.                     |
+| `idx_expense_queue_user_position`    | `expense_queue`        | `user_id`, `position`                       | Read a user's queue in order.                           |
+| `idx_oauth_tokens_user_provider`     | `oauth_tokens`         | `user_id`, `provider`                       | Token lookup on every spreadsheet operation.            |
+| `idx_spreadsheet_configs_user`       | `spreadsheet_configs`  | `user_id`                                   | Lookup user's linked spreadsheet.                       |
+| `uq_user_active_spreadsheet`         | `spreadsheet_configs`  | `user_id` (`is_active = true`)              | Enforce one active destination while retaining history. |
+| `idx_column_mappings_spreadsheet`    | `column_mappings`      | `spreadsheet_id`                            | Load all mappings for a spreadsheet.                    |
+| `idx_expense_records_category`       | `expense_records`      | `category_id`                               | Historical expenses referencing a category.             |
+| `idx_expense_records_subcategory`    | `expense_records`      | `subcategory_id`                            | Historical expenses referencing a subcategory.          |
+| `idx_expense_records_payment_method` | `expense_records`      | `payment_method_id`                         | Historical expenses referencing a payment method.       |
+| `idx_expense_records_sheet_row`      | `expense_records`      | `spreadsheet_id`, `sheet_name`, `row_index` | Deterministic row reference for undo.                   |
+| `idx_operation_logs_user_created`    | `operation_logs`       | `user_id`, `created_at`                     | User audit history.                                     |
 
 ### Partial indexes
 

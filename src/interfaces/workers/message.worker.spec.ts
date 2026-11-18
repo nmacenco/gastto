@@ -850,6 +850,25 @@ describe('processMessageJob', () => {
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', accountDeletionCopies.unavailable);
     });
 
+    it('starts the durable deletion barrier only after exact confirmation', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'SETTINGS_MENU',
+          statePayload: { screen: 'account_deletion' },
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      );
+      const begin = vi.fn().mockResolvedValue(true);
+      const add = vi.fn().mockResolvedValue(undefined);
+      const deps = buildMockDeps();
+      deps.accountDeletion = { begin, queue: { add } };
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'eliminar mi cuenta' }), deps);
+      expect(begin).not.toHaveBeenCalled();
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'ELIMINAR MI CUENTA' }), deps);
+      expect(begin).toHaveBeenCalledOnce();
+      expect(add).toHaveBeenCalledWith('delete', { userId: 'user-123' });
+    });
+
     it('expires a pending request without deleting account data', async () => {
       mockGetConversationStateExecute.mockResolvedValue(
         buildConversationState({

@@ -70,6 +70,42 @@ export const messagingIdentities = pgTable(
   }),
 );
 
+// A deletion operation outlives its user row only until external cleanup and
+// notification finish. No foreign key to users: the account must be removable
+// before the final temporary operation record is cleared.
+export const accountDeletionOperations = pgTable(
+  'account_deletion_operations',
+  {
+    userId: uuid('user_id').primaryKey(),
+    stage: text('stage').notNull().default('blocked'),
+    remoteRevocationFailed: boolean('remote_revocation_failed').notNull().default(false),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    stageIdx: index('idx_account_deletion_operations_stage').on(t.stage),
+    stageCheck: check(
+      'chk_account_deletion_operations_stage',
+      sql`${t.stage} IN ('blocked','revoking','cleaning','notifying')`,
+    ),
+  }),
+);
+
+export const accountDeletionIdentities = pgTable(
+  'account_deletion_identities',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => accountDeletionOperations.userId, { onDelete: 'cascade' }),
+    channel: text('channel').notNull(),
+    externalId: text('external_id').notNull(),
+  },
+  (t) => ({
+    ownerIdx: index('idx_account_deletion_identities_owner').on(t.userId),
+    identityUnique: uniqueIndex('uq_account_deletion_identity').on(t.channel, t.externalId),
+  }),
+);
+
 export const accessRequests = pgTable(
   'access_requests',
   {
