@@ -9,6 +9,16 @@ export interface DeletionIdentity {
 }
 
 type JobData = Record<string, unknown>;
+const retainedJobStates = [
+  'waiting',
+  'prioritized',
+  'delayed',
+  'paused',
+  'completed',
+  'failed',
+  'waiting-children',
+  'active',
+] as const;
 
 export class AccountOperationalCleanup {
   constructor(
@@ -66,20 +76,19 @@ export class AccountOperationalCleanup {
     queue: Queue,
     belongsToUser: (data: JobData) => boolean,
   ): Promise<void> {
-    const states = [
-      'waiting',
-      'delayed',
-      'paused',
-      'completed',
-      'failed',
-      'waiting-children',
-      'active',
-    ] as const;
-    const jobs = await queue.getJobs([...states], 0, -1);
+    const jobs = await queue.getJobs([...retainedJobStates], 0, -1);
     for (const job of jobs) {
       if (!this.matches(job, belongsToUser)) continue;
       if ((await job.getState()) === 'active') throw new Error('ACCOUNT_JOB_STILL_ACTIVE');
       await job.remove();
+    }
+    // A job can change state while getJobs enumerates its Redis lists. Recheck
+    // before erasure; an ambiguous scan must retain the deletion barrier.
+    const remaining = await queue.getJobs([...retainedJobStates], 0, -1);
+    for (const job of remaining) {
+      if (!this.matches(job, belongsToUser)) continue;
+      if ((await job.getState()) === 'active') throw new Error('ACCOUNT_JOB_STILL_ACTIVE');
+      throw new Error('ACCOUNT_JOB_CLEANUP_INCOMPLETE');
     }
   }
 

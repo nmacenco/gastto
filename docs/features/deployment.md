@@ -1,5 +1,11 @@
 # Deployment Operations Guide
 
+## Account deletion release and rollback gate
+
+The deletion action remains disabled in production. Before changing that guard, apply additive migration `0018_foamy_sersi`, deploy lifecycle-aware ingress and workers, finish the [account deletion acceptance matrix](account-deletion.md), verify the public privacy policy against account-specific provider retention, and validate the [restore quarantine runbook](../operations/account-deletion-recovery.md). Updating policy copy does not activate deletion.
+
+Do not roll back to a binary that ignores the deletion barrier while any operation is pending. Keep ingress and workers stopped or retain the lifecycle-aware binary until every pending operation finishes. Reverting a deployment cannot recover an already deleted account, and restoring an old PostgreSQL backup can resurrect deleted credentials. Apply restore quarantine and reconciliation before reconnecting traffic.
+
 For the opt-in Telegram access gate, apply additive migrations 0016 and 0017 before setting `ACCESS_APPROVAL_ENABLED=true`. Configure the separate operator Gmail authorization and verify a durable refresh grant before rollout. Existing Telegram users need approved local requests before enabling the gate. The owner runs the approval and notice retry CLIs inside the production deployment; there is no public approval route. The [reviewer runbook](../../ai/plans/2026_11_07-telegram_access_oauth_review/reviewer-runbook.md) contains the canary, rollback and external Google Cloud checks.
 
 This document describes the multi-environment Fly.io infrastructure, including

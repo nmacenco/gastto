@@ -29,6 +29,12 @@ The barrier prevents new ingress, worker effects and OAuth use while a deletion 
 - A PostgreSQL migration must precede workers that query the barrier. A rollback cannot restore erased account data.
 - Hosted logs, backups, and exports require separate verified retention and restore controls before production activation.
 
+## Phase 3 restoration decision pending
+
+A completed operation removes its temporary row. Restoring a PostgreSQL backup from before that completion can therefore resurrect a deleted identity and encrypted credentials without leaving a barrier to detect them. The existing design cannot safely reconcile such a restore.
+
+The proposed release protocol is to restore into quarantine with no ingress or workers, then compare the restored user UUIDs to a bounded, keyed erasure record kept outside the restored database. The record would expire after the longest verified backup recovery window; it would not be a permanent identifying tombstone. A separate store, key custody, retention period, and a tested reconciliation tool have not been selected. Until they exist, this ADR remains proposed and production deletion must stay disabled. See the [recovery runbook](../operations/account-deletion-recovery.md).
+
 ## References
 
 - [Data model](../architecture/data-model.md)

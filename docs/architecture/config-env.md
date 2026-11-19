@@ -1,11 +1,13 @@
 ---
 title: 'Configuration & Environment'
-last_updated: '2026-11-08'
+last_updated: '2026-11-19'
 source_of_truth: ['src/config/env.schema.ts', '.env.example', 'compose.local.yml']
 tags: ['architecture', 'config', 'env']
 ---
 
 # Configuration & Environment
+
+Account deletion currently checks `NODE_ENV` in the Telegram message worker and returns an unavailable response in production. `NODE_ENV` is not an activation switch: changing it would also alter unrelated runtime behavior. Production activation requires a reviewed code release after migration `0018_foamy_sersi`, lifecycle and restore verification, and publication of accurate privacy text. See the [account deletion runbook](../operations/account-deletion-recovery.md).
 
 This document describes the configuration and environment setup for this project.
 
@@ -20,7 +22,7 @@ Telegram approval is opt-in with `ACCESS_APPROVAL_ENABLED=true`. When enabled, `
 | `NODE_ENV`                                     | Server | No       | Runtime environment: `development`, `production`, or `test`. Defaults to `development`.                                                                                                                                                                                                        |
 | `PORT`                                         | Server | No       | HTTP server port. Defaults to `3000`.                                                                                                                                                                                                                                                          |
 | `LOG_LEVEL`                                    | Server | No       | Pino log level. Defaults to `info`.                                                                                                                                                                                                                                                            |
-| `DATABASE_URL`                                 | Server | Yes      | PostgreSQL connection string. Required at startup.                                                                                                                                                                                                                              |
+| `DATABASE_URL`                                 | Server | Yes      | PostgreSQL connection string. Required at startup.                                                                                                                                                                                                                                             |
 | `REDIS_URL`                                    | Server | Yes      | Provider-independent Redis-compatible broker URI for BullMQ and caches. Hosted environments require TLS via `rediss://`.                                                                                                                                                                       |
 | `OPENAI_API_KEY`                               | Server | No       | OpenAI API key. Optional; at least one LLM provider key is required.                                                                                                                                                                                                                           |
 | `ANTHROPIC_API_KEY`                            | Server | No       | Anthropic API key. Optional.                                                                                                                                                                                                                                                                   |
@@ -31,11 +33,11 @@ Telegram approval is opt-in with `ACCESS_APPROVAL_ENABLED=true`. When enabled, `
 | `LLM_EXTRACTION_TIMEOUT_MS`                    | Server | No       | Extraction-only provider deadline in milliseconds, integer 1000–60000, default 30000. Includes response-body consumption; SDK extraction retries are disabled.                                                                                                                                 |
 | `NVIDIA_MODEL`                                 | Server | No       | NVIDIA-only extraction/chat model ID. Defaults to `z-ai/glm-5.3-flash`; accepts a 1-128 character ID using letters, numbers, `.`, `_`, `-`, and `/`.                                                                                                                                           |
 | `GROQ_MODEL`                                   | Server | No       | Groq-only model ID for extraction, correction, and chat. Defaults to `openai/gpt-oss-20b`; accepts the same model ID character pattern as `NVIDIA_MODEL`.                                                                                                                                      |
-| `TELEGRAM_WEBHOOK_SECRET`                      | Server | Yes      | Secret token for Telegram webhook origin validation. Required at startup.                                                                                                                                                                                                           |
-| `TELEGRAM_BOT_TOKEN`                           | Server | Yes      | Telegram Bot API token. Required at startup.                                                                                                                                                                                                                                  |
+| `TELEGRAM_WEBHOOK_SECRET`                      | Server | Yes      | Secret token for Telegram webhook origin validation. Required at startup.                                                                                                                                                                                                                      |
+| `TELEGRAM_BOT_TOKEN`                           | Server | Yes      | Telegram Bot API token. Required at startup.                                                                                                                                                                                                                                                   |
 | `SENTRY_DSN`                                   | Server | No       | Sentry error tracking DSN. Optional.                                                                                                                                                                                                                                                           |
 | `CATEGORY_CLASSIFICATION_CONFIDENCE_THRESHOLD` | Server | No       | Minimum confidence for keyword-based category classification (E1-US-04). Range: [0, 1]. Default: `0.6`.                                                                                                                                                                                        |
-| `ENCRYPTION_KEY`                               | Server | Yes      | AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars). Required at startup.                                                                                                                                                                      |
+| `ENCRYPTION_KEY`                               | Server | Yes      | AES-256-GCM key for OAuth token encryption (ADR-007). Must be 32 bytes (64 hex chars). Required at startup.                                                                                                                                                                                    |
 | `SEMANTIC_ROUTER_STATE_MODES`                  | Server | No       | Strict comma-separated `FSM_STATE=off                                                                                                                                                                                                                                                          | shadow | enabled` map. Empty means every state is off. |
 | `SEMANTIC_ROUTER_COHORT_PERCENT`               | Server | No       | Stable user-cohort percentage from 0 through 100. Defaults to `0`.                                                                                                                                                                                                                             |
 | `SEMANTIC_ROUTER_SHADOW_SAMPLE_PERCENT`        | Server | No       | Stable per-message sampling percentage from 0 through 100. Defaults to `0`.                                                                                                                                                                                                                    |
@@ -87,9 +89,9 @@ The [local setup guide](../development/local-setup.md) documents the single
 `docker compose -f compose.local.yml up --build` command. Compose uses a separate
 `gastto-local` project and overrides these two application URLs:
 
-| Client | PostgreSQL | Redis |
-| --- | --- | --- |
-| Containers in `compose.local.yml` | `postgres:5432` | `redis:6379` |
+| Client                                             | PostgreSQL                | Redis                                                  |
+| -------------------------------------------------- | ------------------------- | ------------------------------------------------------ |
+| Containers in `compose.local.yml`                  | `postgres:5432`           | `redis:6379`                                           |
 | Host tools with an explicit loopback port override | `localhost:<mapped-port>` | `localhost:<mapped-port>` only if separately published |
 
 No hosted PostgreSQL or Redis project is needed for local development. The
@@ -101,11 +103,11 @@ migration command.
 The following variables control Compose rather than the application's Zod
 schema:
 
-| Variable | Local Compose purpose |
-| --- | --- |
+| Variable                   | Local Compose purpose                                                                                                                                                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GASTTO_LOCAL_DB_PASSWORD` | URL-safe password used by the local PostgreSQL service and migration/app connection strings. Keep it stable while the named database volume exists; changing `.env` alone does not update the stored role password. |
-| `COMPOSE_PROFILES` | `tunnel` starts ngrok by default; empty plus `compose.local.core.yml` starts only the core services. |
-| `NGROK_AUTHTOKEN` | Private credential for the ngrok agent. The app container receives an empty override instead of this token. |
+| `COMPOSE_PROFILES`         | `tunnel` starts ngrok by default; empty plus `compose.local.core.yml` starts only the core services.                                                                                                                |
+| `NGROK_AUTHTOKEN`          | Private credential for the ngrok agent. The app container receives an empty override instead of this token.                                                                                                         |
 
 Application startup also requires `WEBHOOK_BASE_URL`, `GOOGLE_CLIENT_ID`,
 `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `TELEGRAM_BOT_TOKEN`,

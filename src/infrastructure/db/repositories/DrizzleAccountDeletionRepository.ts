@@ -198,6 +198,16 @@ export class DrizzleAccountDeletionRepository implements AccountCredentialStore 
 
   async eraseAccount(userId: string): Promise<void> {
     await this.db.transaction(async (tx) => {
+      // Inserts into user-owned tables take a foreign-key share lock on this row.
+      // Hold the conflicting lock through expense and account deletion so a
+      // concurrent insert cannot appear between those two statements.
+      const [owner] = await tx
+        .select({ userId: schema.users.userId })
+        .from(schema.users)
+        .where(eq(schema.users.userId, userId))
+        .for('update')
+        .limit(1);
+      if (!owner) return;
       await tx.delete(schema.expenseRecords).where(eq(schema.expenseRecords.userId, userId));
       await tx.delete(schema.users).where(eq(schema.users.userId, userId));
     });

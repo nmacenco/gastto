@@ -2,7 +2,7 @@ import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
-import { Queue } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -160,7 +160,17 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       userId: owner.userId,
       rawMessage: 'Expense 9',
     });
+    const ownedPrioritized = await processing.add(
+      'priority-message',
+      { userId: owner.userId },
+      { priority: 1 },
+    );
     const otherProcessing = await processing.add('message', { userId: other.userId });
+    const otherPrioritized = await processing.add(
+      'priority-message',
+      { userId: other.userId },
+      { priority: 1 },
+    );
     await redis.set('identity:telegram:delete-chat', owner.userId);
     const marker = new ProcessedMessageKey({
       channel: 'telegram',
@@ -258,11 +268,81 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     ).toHaveLength(0);
     expect(await incoming.getJob(ownedIncoming.id!)).toBeUndefined();
     expect(await processing.getJob(ownedProcessing.id!)).toBeUndefined();
+    expect(await processing.getJob(ownedPrioritized.id!)).toBeUndefined();
     expect(await processing.getJob(otherProcessing.id!)).toBeDefined();
+    expect(await processing.getJob(otherPrioritized.id!)).toBeDefined();
     expect(await redis.get('identity:telegram:delete-chat')).toBeNull();
     expect(await processed.exists(marker)).toBe(false);
     expect(await redis.exists(`processed_message:owner:${owner.userId}`)).toBe(0);
     expect(await redis.get('oauth:state:delete')).toBeNull();
     expect(await repo.get(owner.userId)).toBeNull();
+  });
+
+  it('keeps the account and deletion barrier until an active job settles', async () => {
+    const owner = await createUser(db);
+    await createMessagingIdentity(db, { userId: owner.userId, externalId: 'active-chat' });
+    const repo = new DrizzleAccountDeletionRepository(db);
+    expect(await repo.begin(owner.userId)).toBe(true);
+    const activeProcessing = new Queue('deletion-flow-active', { connection: redis });
+    const workerConnection = new Redis(
+      redisContainer.getMappedPort(6379),
+      redisContainer.getHost(),
+      {
+        maxRetriesPerRequest: null,
+      },
+    );
+
+    let signalStarted!: () => void;
+    let finishJob!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const finished = new Promise<void>((resolve) => {
+      finishJob = resolve;
+    });
+    const worker = new Worker(
+      'deletion-flow-active',
+      async () => {
+        signalStarted();
+        await finished;
+      },
+      { connection: workerConnection, concurrency: 1 },
+    );
+    try {
+      const active = await activeProcessing.add('active-message', { userId: owner.userId });
+      await started;
+      expect(await active.getState()).toBe('active');
+
+      const service = new AccountDeletionService(
+        repo,
+        new RevokeAccountCredentials(repo, { decrypt: vi.fn() } as unknown as TokenEncryptionPort, {
+          revokeToken: vi.fn(),
+        }),
+        new AccountOperationalCleanup(redis, incoming, activeProcessing, reminders),
+        new RedisUserProcessingLock(redis),
+        { sendMessage: vi.fn().mockResolvedValue({ status: 'success' }) },
+      );
+      await expect(service.resume(owner.userId)).rejects.toThrow('ACCOUNT_JOB_STILL_ACTIVE');
+      expect(
+        await db.select().from(schema.users).where(eq(schema.users.userId, owner.userId)),
+      ).toHaveLength(1);
+      expect(await repo.get(owner.userId)).toMatchObject({ stage: 'cleaning' });
+
+      finishJob();
+      await vi.waitFor(async () => {
+        expect(await active.getState()).toBe('completed');
+      });
+      await service.resume(owner.userId);
+      expect(
+        await db.select().from(schema.users).where(eq(schema.users.userId, owner.userId)),
+      ).toHaveLength(0);
+      expect(await activeProcessing.getJob(active.id!)).toBeUndefined();
+      expect(await repo.get(owner.userId)).toBeNull();
+    } finally {
+      finishJob();
+      await worker.close();
+      await activeProcessing.close();
+      workerConnection.disconnect();
+    }
   });
 });
