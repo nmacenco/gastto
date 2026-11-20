@@ -9,6 +9,8 @@ import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
 import type { OAuthServicePort } from '../../domain/ports/oauth';
 import type { IOAuthTokenRepository } from '../../domain/ports/repositories';
 import type { TokenEncryptionPort } from '../../domain/ports/tokenEncryption';
+import type { AccountExternalWorkFence } from '../ports/AccountExternalWorkFence';
+import { AccountDeletionInProgressError } from '../ports/AccountExternalWorkFence';
 
 const DEFAULT_REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
@@ -30,6 +32,7 @@ export interface OAuthAccessTokenServiceDeps {
   oauthService: OAuthServicePort;
   refreshWindowMs?: number;
   accountDeletion?: { isDeleting(userId: string): Promise<boolean> };
+  accountExternalWorkFence?: AccountExternalWorkFence;
 }
 
 export interface OAuthAccessTokenProvider {
@@ -98,37 +101,46 @@ export class OAuthAccessTokenService implements OAuthAccessTokenProvider {
     input: OAuthAccessTokenInput,
     token: NonNullable<Awaited<ReturnType<IOAuthTokenRepository['findByUserAndProvider']>>>,
   ): Promise<OAuthAccessTokenResult & { refreshed: true }> {
-    let refreshToken: string;
     try {
-      refreshToken = this.deps.tokenEncryption.decrypt(token.refreshTokenEnc, token.refreshIv);
-    } catch {
-      throw this.authorizationError('Stored OAuth refresh token cannot be decrypted');
-    }
-
-    try {
-      const refreshed = await this.deps.oauthService.refreshAccessToken(
-        input.provider,
-        refreshToken,
-      );
-      if (await this.deps.accountDeletion?.isDeleting(input.userId)) {
-        throw this.authorizationError('Spreadsheet authorization is unavailable');
-      }
-      const encrypted = this.deps.tokenEncryption.encrypt(refreshed.accessToken);
-      await this.deps.tokenRepository.markRefreshed(
-        token.id,
-        encrypted.ciphertext,
-        encrypted.iv,
-        refreshed.expiresAt,
-      );
-      return {
-        accessToken: refreshed.accessToken,
-        expiresAt: refreshed.expiresAt,
-        refreshed: true,
+      const refresh = async () => {
+        let refreshToken: string;
+        try {
+          refreshToken = this.deps.tokenEncryption.decrypt(token.refreshTokenEnc, token.refreshIv);
+        } catch {
+          throw this.authorizationError('Stored OAuth refresh token cannot be decrypted');
+        }
+        let refreshed: Awaited<ReturnType<OAuthServicePort['refreshAccessToken']>>;
+        try {
+          refreshed = await this.deps.oauthService.refreshAccessToken(input.provider, refreshToken);
+        } catch (error) {
+          if (error instanceof OAuthDeniedError) {
+            await this.deps.tokenRepository.markRevoked(token.id);
+            throw this.authorizationError('Spreadsheet authorization must be renewed');
+          }
+          throw error;
+        }
+        if (await this.deps.accountDeletion?.isDeleting(input.userId)) {
+          throw this.authorizationError('Spreadsheet authorization is unavailable');
+        }
+        const encrypted = this.deps.tokenEncryption.encrypt(refreshed.accessToken);
+        await this.deps.tokenRepository.markRefreshed(
+          token.id,
+          encrypted.ciphertext,
+          encrypted.iv,
+          refreshed.expiresAt,
+        );
+        return {
+          accessToken: refreshed.accessToken,
+          expiresAt: refreshed.expiresAt,
+          refreshed: true as const,
+        };
       };
+      return this.deps.accountExternalWorkFence
+        ? await this.deps.accountExternalWorkFence.run(input.userId, refresh)
+        : await refresh();
     } catch (error) {
-      if (error instanceof OAuthDeniedError) {
-        await this.deps.tokenRepository.markRevoked(token.id);
-        throw this.authorizationError('Spreadsheet authorization must be renewed');
+      if (error instanceof AccountDeletionInProgressError) {
+        throw this.authorizationError('Spreadsheet authorization is unavailable');
       }
       if (error instanceof OAuthNetworkError) {
         throw new SpreadsheetError('OAuth provider could not refresh spreadsheet access', {

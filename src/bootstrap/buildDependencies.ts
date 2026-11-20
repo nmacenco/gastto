@@ -340,6 +340,7 @@ function buildGoogleOAuthFeature(
     core.tokenEncryption,
     adapter,
     core.accountDeletionRepo,
+    core.accountExternalWorkFence,
   );
 
   const messagingPort = core.telegramAdapter;
@@ -663,6 +664,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
         tokenEncryption,
         oauthService: googleOAuthAdapter,
         accountDeletion: accountDeletionRepo,
+        accountExternalWorkFence,
       })
     : unavailableOAuthAccessTokenProvider;
 

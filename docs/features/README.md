@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, durable `/start` replay protection, development deletion worker, Sheets, OAuth, `/start`, timeout, acknowledgment, and operator-notice work fencing, queue cleanup, privacy status, and remaining production gates.
+- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, durable `/start` replay protection, development deletion worker, Sheets, OAuth callback and refresh, `/start`, timeout, acknowledgment, and operator-notice work fencing, queue cleanup, privacy status, and remaining production gates.
 
 - [`conversational-message-formatting.md`](./conversational-message-formatting.md): Explicit paragraphs, list preservation, and separate cancellation guidance for file/sheet selection and recovery.
 
@@ -17,7 +17,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 - [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone proposal evaluator plus checksum-pinned, fail-closed release reports, aggregate-safe rollout evidence, guarded enabled dispatch, and migration-free rollback boundaries.
 
-- [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, required product-user client configuration, token lifecycle, guarded onboarding cancellation and pending-link renewal, deletion-aware callback fencing, and reminder-based reconnection that reuses a configured sheet and columns.
+- [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, required product-user client configuration, token lifecycle, guarded onboarding cancellation and pending-link renewal, deletion-aware callback and refresh fencing, and reminder-based reconnection that reuses a configured sheet and columns.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery with persistent empty-result search, deterministic supported-link handling, revision-bound selection, and initial setup cancellation.
 - [`select-sheet.md`](./select-sheet.md) — Revision-bound sheet selection, empty-sheet and no-header return paths, IDK guidance, cancellation before destination-change settings, and eager access validation.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation, blank-preview classification, and one OAuth refresh/replay for provider authorization failures.

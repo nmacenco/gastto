@@ -22,6 +22,8 @@ import {
 } from './helpers/fixtures';
 import { DrizzleAccountDeletionRepository } from '../../src/infrastructure/db/repositories/DrizzleAccountDeletionRepository';
 import { DrizzleAccountExternalWorkFence } from '../../src/infrastructure/db/repositories/DrizzleAccountExternalWorkFence';
+import { DrizzleOAuthTokenRepository } from '../../src/infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import { OAuthAccessTokenService } from '../../src/application/services/OAuthAccessTokenService';
 import { DrizzleStartReplayGuard } from '../../src/infrastructure/db/repositories/DrizzleStartReplayGuard';
 import { AccountDeletionInProgressError } from '../../src/application/ports/AccountExternalWorkFence';
 import { AccountOperationalCleanup } from '../../src/infrastructure/redis/AccountOperationalCleanup';
@@ -31,6 +33,7 @@ import { AccountDeletionService } from '../../src/application/services/AccountDe
 import { RedisProcessedMessageRepository } from '../../src/infrastructure/redis/RedisProcessedMessageRepository';
 import { ProcessedMessageKey } from '../../src/domain/value-objects/ProcessedMessageKey';
 import type { TokenEncryptionPort } from '../../src/domain/ports/tokenEncryption';
+import type { OAuthServicePort } from '../../src/domain/ports/oauth';
 
 describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL and Redis', () => {
   let pg: StartedPostgreSqlContainer;
@@ -392,6 +395,82 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       releaseEffect();
       await Promise.allSettled([effect, barrier]);
       await fenceSql.end();
+    }
+  });
+
+  it('reuses an active account fence for nested refresh work with a one-connection pool', async () => {
+    const owner = await createUser(db);
+    const fenceSql = postgres(getConnectionString(pg), { max: 1 });
+    const fence = new DrizzleAccountExternalWorkFence(drizzle(fenceSql, { schema }));
+    const nestedWork = vi.fn().mockResolvedValue('refreshed');
+    try {
+      await expect(
+        fence.run(owner.userId, () => fence.run(owner.userId, nestedWork)),
+      ).resolves.toBe('refreshed');
+      expect(nestedWork).toHaveBeenCalledOnce();
+
+      expect(await new DrizzleAccountDeletionRepository(db).begin(owner.userId)).toBe(true);
+      await expect(fence.run(owner.userId, nestedWork)).rejects.toBeInstanceOf(
+        AccountDeletionInProgressError,
+      );
+      expect(nestedWork).toHaveBeenCalledOnce();
+    } finally {
+      await fenceSql.end();
+    }
+  });
+
+  it('waits for an active OAuth refresh before opening the deletion barrier', async () => {
+    const owner = await createUser(db);
+    await createOAuthToken(db, {
+      userId: owner.userId,
+      accessTokenExpiresAt: new Date(0),
+    });
+    const fenceSql = postgres(getConnectionString(pg), { max: 1 });
+    const barrierSql = postgres(getConnectionString(pg), { max: 1 });
+    const fence = new DrizzleAccountExternalWorkFence(drizzle(fenceSql, { schema }));
+    const deletion = new DrizzleAccountDeletionRepository(drizzle(barrierSql, { schema }));
+    let signalStarted!: () => void;
+    let releaseRefresh!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const providerReleased = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    const refreshAccessToken = vi.fn(async () => {
+      signalStarted();
+      await providerReleased;
+      return { accessToken: 'new-access', expiresAt: new Date(Date.now() + 3600_000), scope: [] };
+    });
+    const tokenService = new OAuthAccessTokenService({
+      tokenRepository: new DrizzleOAuthTokenRepository(db),
+      tokenEncryption: {
+        decrypt: () => 'refresh-secret',
+        encrypt: () => ({ ciphertext: Buffer.from('new-access'), iv: Buffer.from('new-iv') }),
+      } as unknown as TokenEncryptionPort,
+      oauthService: { refreshAccessToken } as unknown as OAuthServicePort,
+      accountDeletion: new DrizzleAccountDeletionRepository(db),
+      accountExternalWorkFence: fence,
+    });
+    const refresh = tokenService.getValidAccessToken({ userId: owner.userId, provider: 'google' });
+    await started;
+    let barrierResolved = false;
+    const barrier = deletion.begin(owner.userId).then((result) => {
+      barrierResolved = true;
+      return result;
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(barrierResolved).toBe(false);
+      releaseRefresh();
+      await expect(refresh).resolves.toMatchObject({ accessToken: 'new-access', refreshed: true });
+      expect(await barrier).toBe(true);
+      expect(refreshAccessToken).toHaveBeenCalledOnce();
+    } finally {
+      releaseRefresh();
+      await Promise.allSettled([refresh, barrier]);
+      await fenceSql.end();
+      await barrierSql.end();
     }
   });
 
