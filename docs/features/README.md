@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, development deletion worker, account-work fencing, queue cleanup, privacy status, and remaining production gates.
+- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, durable `/start` replay protection, development deletion worker, Sheets and OAuth work fencing, queue cleanup, privacy status, and remaining production gates.
 
 - [`conversational-message-formatting.md`](./conversational-message-formatting.md): Explicit paragraphs, list preservation, and separate cancellation guidance for file/sheet selection and recovery.
 
@@ -17,7 +17,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 - [`semantic-router-evaluation.md`](./semantic-router-evaluation.md): Standalone proposal evaluator plus checksum-pinned, fail-closed release reports, aggregate-safe rollout evidence, guarded enabled dispatch, and migration-free rollback boundaries.
 
-- [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, required product-user client configuration, token lifecycle, guarded onboarding cancellation and pending-link renewal, callback safety, and reminder-based reconnection that reuses a configured sheet and columns.
+- [`cloud-storage-connection.md`](./cloud-storage-connection.md) — OAuth2 flow, required product-user client configuration, token lifecycle, guarded onboarding cancellation and pending-link renewal, deletion-aware callback fencing, and reminder-based reconnection that reuses a configured sheet and columns.
 - [`select-spreadsheet-file.md`](./select-spreadsheet-file.md) — File discovery with persistent empty-result search, deterministic supported-link handling, revision-bound selection, and initial setup cancellation.
 - [`select-sheet.md`](./select-sheet.md) — Revision-bound sheet selection, empty-sheet and no-header return paths, IDK guidance, cancellation before destination-change settings, and eager access validation.
 - [`validate-spreadsheet-access.md`](./validate-spreadsheet-access.md) — Proactive read/write validation, blank-preview classification, and one OAuth refresh/replay for provider authorization failures.
@@ -26,7 +26,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`category-confirmation.md`](./category-confirmation.md) — Reviews category vocabulary before payment methods in onboarding and destination changes, including the exact `confirmar` command, cancellable onboarding, and legacy layout support.
 - [`category-vocabulary.md`](./category-vocabulary.md) — Category vocabulary foundation introduced on `main`; the active confirmation flow is documented in `category-confirmation.md`.
 - [`subcategory-hierarchy.md`](./subcategory-hierarchy.md) — Detects, drafts, classifies, reviews, saves, retries, and undoes parent-scoped subcategories with stable references, explicit parent commands, and immutable snapshots.
-- [`incoming-message-routing.md`](./incoming-message-routing.md) — Strict BullMQ ingestion, access-aware processing acknowledgments and OAuth recovery precedence, deterministic file-link and search routing, bounded lock-contention retries with final best-effort resend guidance, and snapshot-bound expense, option, cancellation, undo, and recovery dispatch.
+- [`incoming-message-routing.md`](./incoming-message-routing.md) — Strict BullMQ ingestion, durable `/start` replay receipts, access-aware processing acknowledgments and OAuth recovery precedence, deterministic file-link and search routing, bounded lock-contention retries with final best-effort resend guidance, and snapshot-bound expense, option, cancellation, undo, and recovery dispatch.
 - [`clarification-request.md`](./clarification-request.md) — Single-question clarification flow with retained-source semantic completion, safe replacement, and queued-batch continuity.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Bounded expense extraction, structured summaries with payment resolution, and version-bound confirm, correct, and cancel actions.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Exact text/callback and revision-bound natural draft cancellation, plus guarded retry, saving, and undo exits.

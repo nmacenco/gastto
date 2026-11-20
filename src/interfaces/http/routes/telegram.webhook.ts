@@ -41,7 +41,6 @@ export interface TelegramWebhookHandlerDeps {
   };
   startReplayGuard?: {
     claim(chatId: string, messageId: string): Promise<boolean>;
-    release(chatId: string, messageId: string): Promise<void>;
   };
 }
 
@@ -91,16 +90,13 @@ export async function handleTelegramWebhook(
     const from = message?.from as Record<string, unknown> | undefined;
     const username = typeof from?.username === 'string' ? from.username : undefined;
 
-    try {
-      const { userId } = await deps.resolveIdentity.execute({
-        channel: payload.channel,
-        externalId: payload.chatId,
-      });
-      await deps.handleStartCommand.execute({ userId, chatId: payload.chatId, username });
-    } catch (error) {
-      if (messageId) await deps.startReplayGuard?.release(payload.chatId, messageId);
-      throw error;
-    }
+    // Once claimed, retain the bounded receipt even if a later step fails.
+    // The identity may already have been created before that failure.
+    const { userId } = await deps.resolveIdentity.execute({
+      channel: payload.channel,
+      externalId: payload.chatId,
+    });
+    await deps.handleStartCommand.execute({ userId, chatId: payload.chatId, username });
     return reply.status(200).send({ ok: true });
   }
 

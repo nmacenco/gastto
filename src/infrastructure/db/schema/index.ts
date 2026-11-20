@@ -106,6 +106,19 @@ export const accountDeletionIdentities = pgTable(
   }),
 );
 
+// A short-lived, pseudonymous receipt for a Telegram /start delivery. It is
+// intentionally independent of users so deleting a user cannot admit a replay.
+export const accountStartReplays = pgTable(
+  'account_start_replays',
+  {
+    digest: text('digest').primaryKey(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    expiryIdx: index('idx_account_start_replays_expiry').on(t.expiresAt),
+  }),
+);
+
 export const accessRequests = pgTable(
   'access_requests',
   {

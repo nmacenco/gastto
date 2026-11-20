@@ -11,7 +11,6 @@ import type { Env } from '../config/env.schema';
 import type { Dependencies } from './types';
 import { registerTelegramWebhook } from '../interfaces/http/routes/telegram.webhook';
 import { registerOAuthCallback } from '../interfaces/http/routes/oauth.callback';
-import { RedisStartReplayGuard } from '../infrastructure/redis/RedisStartReplayGuard';
 
 /**
  * Registers application routes:
@@ -47,6 +46,9 @@ export function registerRoutes(app: FastifyInstance, deps: Dependencies | null, 
   const windowMs = env.SECURITY_RATE_WINDOW_MS ?? 60_000;
 
   if (deps?.telegram !== null && deps?.telegram !== undefined) {
+    if (!deps.startReplayGuard) {
+      throw new Error('ACCOUNT_START_REPLAY_GUARD_REQUIRED');
+    }
     registerTelegramWebhook(app, {
       webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
       ...(limiter
@@ -64,7 +66,7 @@ export function registerRoutes(app: FastifyInstance, deps: Dependencies | null, 
       sendImmediateAcknowledgement: deps.telegram.sendImmediateAcknowledgement,
       resolveIdentity: deps.resolveIdentity,
       ...(deps.accountDeletionRepo ? { accountDeletionGate: deps.accountDeletionRepo } : {}),
-      startReplayGuard: new RedisStartReplayGuard(deps.redis, env.ENCRYPTION_KEY),
+      startReplayGuard: deps.startReplayGuard,
     });
   }
 

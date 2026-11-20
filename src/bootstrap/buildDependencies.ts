@@ -13,6 +13,7 @@ import { DrizzleConversationStateRepository } from '../infrastructure/db/reposit
 import { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
 import { DrizzleAccountExternalWorkFence } from '../infrastructure/db/repositories/DrizzleAccountExternalWorkFence';
+import { DrizzleStartReplayGuard } from '../infrastructure/db/repositories/DrizzleStartReplayGuard';
 import { DrizzleAccessRequestRepository } from '../infrastructure/db/repositories/DrizzleAccessRequestRepository';
 import { DrizzleCandidateOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleCandidateOAuthTokenRepository';
 import { RequestAccess } from '../application/use-cases/user/RequestAccess';
@@ -321,6 +322,7 @@ function buildGoogleOAuthFeature(
     oauthAdapter: GoogleDriveOAuthAdapter | null;
     oauthAccessTokenService: OAuthAccessTokenProvider;
     accountDeletionRepo: DrizzleAccountDeletionRepository;
+    accountExternalWorkFence: DrizzleAccountExternalWorkFence;
   },
 ): GoogleOAuthFeature | null {
   if (!env.GOOGLE_REDIRECT_URI || !core.telegramAdapter || !core.oauthAdapter) {
@@ -471,6 +473,7 @@ function buildGoogleOAuthFeature(
 
   const handleOAuthCallback = new HandleOAuthCallback({
     accountDeletionGate: core.accountDeletionRepo,
+    accountExternalWorkFence: core.accountExternalWorkFence,
     redis: infra.redis,
     logger: infra.rootLogger,
     oauthService: adapter,
@@ -590,6 +593,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   const tokenRepo = new DrizzleOAuthTokenRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const accountDeletionRepo = new DrizzleAccountDeletionRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const startReplayGuard = new DrizzleStartReplayGuard(infra.db, env.ENCRYPTION_KEY);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const accountExternalWorkFence = new DrizzleAccountExternalWorkFence(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
@@ -865,6 +870,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     oauthAdapter: googleOAuthAdapter,
     oauthAccessTokenService,
     accountDeletionRepo,
+    accountExternalWorkFence,
   });
   const dispatchOptionSelection = googleOAuth
     ? new DispatchOptionSelection({
@@ -955,6 +961,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     operationLogRepo,
     tokenRepo,
     accountDeletionRepo,
+    startReplayGuard,
     ...(env.ACCESS_APPROVAL_ENABLED ? { accessRequests, requestAccess, operatorMail } : {}),
     spreadsheetConfigRepo,
     columnMappingRepo,

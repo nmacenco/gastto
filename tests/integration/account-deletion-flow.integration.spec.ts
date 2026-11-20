@@ -22,6 +22,7 @@ import {
 } from './helpers/fixtures';
 import { DrizzleAccountDeletionRepository } from '../../src/infrastructure/db/repositories/DrizzleAccountDeletionRepository';
 import { DrizzleAccountExternalWorkFence } from '../../src/infrastructure/db/repositories/DrizzleAccountExternalWorkFence';
+import { DrizzleStartReplayGuard } from '../../src/infrastructure/db/repositories/DrizzleStartReplayGuard';
 import { AccountDeletionInProgressError } from '../../src/application/ports/AccountExternalWorkFence';
 import { AccountOperationalCleanup } from '../../src/infrastructure/redis/AccountOperationalCleanup';
 import { RedisUserProcessingLock } from '../../src/infrastructure/redis/RedisUserProcessingLock';
@@ -392,5 +393,33 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       await Promise.allSettled([effect, barrier]);
       await fenceSql.end();
     }
+  });
+
+  it('retains a bounded /start receipt after account erasure and admits a fresh command', async () => {
+    const owner = await createUser(db);
+    await createMessagingIdentity(db, { userId: owner.userId, externalId: 'replay-chat' });
+    const guard = new DrizzleStartReplayGuard(db, 'integration-replay-key');
+    expect(await guard.claim('replay-chat', 'old-message')).toBe(true);
+    expect(
+      await new DrizzleStartReplayGuard(db, 'integration-replay-key').claim(
+        'replay-chat',
+        'old-message',
+      ),
+    ).toBe(false);
+
+    const repo = new DrizzleAccountDeletionRepository(db);
+    expect(await repo.begin(owner.userId)).toBe(true);
+    await repo.eraseAccount(owner.userId);
+    await repo.finish(owner.userId);
+    expect(await guard.claim('replay-chat', 'old-message')).toBe(false);
+    expect(await guard.claim('replay-chat', 'fresh-message')).toBe(true);
+
+    const rows = await db.select().from(schema.accountStartReplays);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => /^[0-9a-f]{64}$/.test(row.digest))).toBe(true);
+    expect(rows.every((row) => row.expiresAt > new Date())).toBe(true);
+    await db.update(schema.accountStartReplays).set({ expiresAt: new Date(0) });
+    await guard.pruneExpired();
+    expect(await db.select().from(schema.accountStartReplays)).toHaveLength(0);
   });
 });

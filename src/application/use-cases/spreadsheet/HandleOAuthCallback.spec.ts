@@ -30,6 +30,7 @@ import type { ValidateSpreadsheetAccessPortFactory } from '../../../domain/ports
 import type { SettingsOAuthCleanup } from './SettingsOAuthCleanup';
 import { settingsCopies } from '../../copies/settings.copies';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 const mockRedisGet = vi.fn();
 const mockRedisDel = vi.fn();
@@ -128,6 +129,19 @@ beforeEach(() => {
 });
 
 describe('HandleOAuthCallback', () => {
+  it('rejects a callback before code exchange when account deletion owns the fence', async () => {
+    mockRedisGet.mockResolvedValue(baseRedisPayload);
+    const run = vi.fn(() => Promise.reject(new AccountDeletionInProgressError()));
+    const deps = buildMockDeps({ accountExternalWorkFence: { run } });
+
+    const result = await new HandleOAuthCallback(deps).execute(baseInput);
+
+    expect(result).toMatchObject({ success: false, canRetry: false });
+    expect(run).toHaveBeenCalledWith('user-123', expect.any(Function));
+    expect(mockExchangeCode).not.toHaveBeenCalled();
+    expect(mockTokenUpsert).not.toHaveBeenCalled();
+  });
+
   describe('settings reauthorization', () => {
     const nonce = 'settings-nonce';
     const metadata = JSON.stringify({

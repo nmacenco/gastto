@@ -24,9 +24,11 @@ The barrier prevents new ingress, worker effects and OAuth use while a deletion 
 
 Expense append and undo now hold a PostgreSQL key-share row lock throughout the external Sheets request and local finalization. The confirmation's `FOR UPDATE` lock waits for those calls to settle; an effect arriving after the barrier is rejected before reaching Sheets. This keeps a database transaction open during the remote call and requires enough pool capacity for its local repository work. A lost database connection during an unresolved external call is not yet independently fenced; active-job draining and failure-path verification remain release gates.
 
+Google OAuth callbacks take the per-user Redis lock before the same PostgreSQL fence. This lock order avoids an inversion with message-worker confirmation, and the fence spans code exchange plus credential persistence. A callback that reaches the fence after barrier creation does not exchange its code.
+
 ## Consequences
 
-- Pending operations temporarily hold user UUIDs and messaging identities for recovery and cleanup, then remove them. Opaque `/start` replay markers expire after 48 hours; their purpose and duration must appear in privacy documentation.
+- Pending operations temporarily hold user UUIDs and messaging identities for recovery and cleanup, then remove them. A separate PostgreSQL `/start` receipt stores only a keyed HMAC digest and expiry for 48 hours, independently of the user row. Hourly pruning removes expired receipts. The receipt is retained after a failed welcome because identity creation may already have committed; a new `/start` can use a new message ID. Its purpose and duration must appear in privacy documentation.
 - A remote revocation failure is reported as unconfirmed. No credential is retained for indefinite retry.
 - A PostgreSQL migration must precede workers that query the barrier. A rollback cannot restore erased account data.
 - Hosted logs, backups, and exports require separate verified retention and restore controls before production activation.

@@ -10,7 +10,7 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
 
 ## Behavior (Implemented)
 
-- Telegram messages from an identity with no current Gastto account are acknowledged at the webhook without queueing or creating an account; the user can explicitly register with `/start`. This avoids processing delayed messages after an account is deleted. `/start` is protected by an opaque Redis replay marker with a 48-hour TTL, so the same delivered command cannot recreate a just-deleted account within that period. Known-identity queue admission holds a PostgreSQL share lock that serializes with deletion-barrier creation; workers also check the barrier.
+- Telegram messages from an identity with no current Gastto account are acknowledged at the webhook without queueing or creating an account; the user can explicitly register with `/start`. This avoids processing delayed messages after an account is deleted. `/start` first records a pseudonymous 48-hour replay receipt in PostgreSQL, independent of the user row. The same delivered command cannot recreate a just-deleted account even when a later welcome step fails; a fresh command has a different message ID. Expired receipts are pruned at worker startup and hourly. Known-identity queue admission holds a PostgreSQL share lock that serializes with deletion-barrier creation; workers also check the barrier.
 
 - The system receives raw JSON payloads from Telegram webhooks at `POST /webhook/telegram`.
 - Telegram origin authentication runs in Fastify's `onRequest` lifecycle hook, before body parsing and validation. Requests without the configured secret return HTTP 403.

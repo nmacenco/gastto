@@ -1,5 +1,9 @@
 # Data Model
 
+## Telegram start replay receipts (migration 0019)
+
+Migration `0019_tricky_leo` adds `account_start_replays` with a keyed HMAC digest primary key and `expires_at` timestamp with time zone. Its expiry index supports pruning at worker startup and hourly. The table has no account foreign key and stores no raw chat ID or message ID, so account deletion does not erase a receipt needed to reject a delayed `/start`. A receipt is created before identity resolution, remains valid for 48 hours, and is physically removed by the next hourly sweep; a fresh `/start` uses a different message ID. Operators must apply this additive migration before deploying the PostgreSQL-backed webhook guard.
+
 ## Account deletion operation schema (migration 0018)
 
 Migration `0018_foamy_sersi` adds `account_deletion_operations` and `account_deletion_identities` for a temporary, durable deletion barrier and recovery record. The operation row uses the account UUID as its key and has no foreign key to `users`, so account data can be removed before final cleanup. Its stage is constrained to `blocked`, `revoking`, `cleaning`, or `notifying`; a Boolean records whether remote revocation could not be confirmed. A stage index supports recovery scans.

@@ -2,6 +2,8 @@
 
 When Telegram access approval is enabled, an approved local email association and exact `continuar` precede the initial Google OAuth link. The callback retains its existing state/nonce checks. Account replacement through settings uses a separate encrypted candidate credential and requires selecting a new destination before promotion. See [Telegram access approval](./telegram-access-approval.md).
 
+The callback holds a PostgreSQL account-work fence after its per-user lock is acquired and through code exchange, credential persistence, and flow finalization. Account deletion confirmation waits for a callback already inside that fence. Once the deletion barrier exists, a later callback returns a controlled failure before exchanging an authorization code or writing a credential.
+
 ## Overview
 
 The Cloud Storage Connection feature enables users to link their spreadsheet (Google Drive or OneDrive) during the conversational onboarding flow. For the MVP, only **Google Drive** is supported. Selecting OneDrive returns a friendly "coming soon" message.

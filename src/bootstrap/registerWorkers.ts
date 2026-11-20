@@ -137,6 +137,26 @@ export async function registerWorkers(
     });
   }
 
+  if (deps.startReplayGuard) {
+    const guard = deps.startReplayGuard;
+    const pruneExpired = async () => {
+      try {
+        await guard.pruneExpired();
+      } catch (error) {
+        deps.rootLogger.error({
+          msg: 'Expired account start replay receipts could not be removed',
+          endpoint: 'account-start-replay',
+          code: 'ACCOUNT_START_REPLAY_PRUNE_FAILED',
+          errorType: error instanceof Error ? error.constructor.name : 'unknown',
+        });
+      }
+    };
+    await pruneExpired();
+    const replayCleanupTimer = setInterval(() => void pruneExpired(), 60 * 60_000);
+    replayCleanupTimer.unref();
+    app.addHook('onClose', () => clearInterval(replayCleanupTimer));
+  }
+
   if (deps.telegram === null) {
     return;
   }
