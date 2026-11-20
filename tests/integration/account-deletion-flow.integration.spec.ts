@@ -352,7 +352,7 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     }
   });
 
-  it('waits for an external account effect before creating the deletion barrier', async () => {
+  it('opens the barrier while retaining an active effect and refuses erasure until it settles', async () => {
     const owner = await createUser(db);
     const fenceSql = postgres(getConnectionString(pg), { max: 1 });
     const fence = new DrizzleAccountExternalWorkFence(drizzle(fenceSql, { schema }));
@@ -372,29 +372,66 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     });
     await started;
 
-    let barrierResolved = false;
-    const barrier = repo.begin(owner.userId).then((result) => {
-      barrierResolved = true;
-      return result;
-    });
     try {
-      // The fence and deletion use separate PostgreSQL connections. The
-      // confirmation must wait for the external effect, not just a pool slot.
-      await new Promise((resolve) => setTimeout(resolve, 75));
-      expect(barrierResolved).toBe(false);
-
-      releaseEffect();
-      expect(await effect).toBe('settled');
-      expect(await barrier).toBe(true);
+      expect(await repo.begin(owner.userId)).toBe(true);
+      await expect(repo.assertWorkDrained(owner.userId)).rejects.toThrow(
+        'ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE',
+      );
+      await expect(repo.eraseAccount(owner.userId)).rejects.toThrow(
+        'ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE',
+      );
       const lateEffect = vi.fn();
       await expect(fence.run(owner.userId, lateEffect)).rejects.toBeInstanceOf(
         AccountDeletionInProgressError,
       );
       expect(lateEffect).not.toHaveBeenCalled();
+      releaseEffect();
+      expect(await effect).toBe('settled');
+      await expect(repo.assertWorkDrained(owner.userId)).resolves.toBeUndefined();
+      await repo.eraseAccount(owner.userId);
     } finally {
       releaseEffect();
-      await Promise.allSettled([effect, barrier]);
+      await Promise.allSettled([effect]);
       await fenceSql.end();
+    }
+  });
+
+  it('keeps erasure blocked when the work connection disappears before release', async () => {
+    const owner = await createUser(db);
+    const fenceSql = postgres(getConnectionString(pg), { max: 1 });
+    const fence = new DrizzleAccountExternalWorkFence(drizzle(fenceSql, { schema }));
+    const deletion = new DrizzleAccountDeletionRepository(db);
+    let signalStarted!: () => void;
+    let releaseEffect!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      releaseEffect = resolve;
+    });
+    const effect = fence.run(owner.userId, async () => {
+      signalStarted();
+      await blocked;
+    });
+    await started;
+    try {
+      // The durable count survives the loss of the pool that registered work.
+      await fenceSql.end();
+      expect(await deletion.begin(owner.userId)).toBe(true);
+      await expect(deletion.assertWorkDrained(owner.userId)).rejects.toThrow(
+        'ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE',
+      );
+      releaseEffect();
+      await expect(effect).rejects.toThrow();
+      await expect(deletion.eraseAccount(owner.userId)).rejects.toThrow(
+        'ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE',
+      );
+      expect(
+        await db.select().from(schema.users).where(eq(schema.users.userId, owner.userId)),
+      ).toHaveLength(1);
+    } finally {
+      releaseEffect();
+      await Promise.allSettled([effect]);
     }
   });
 
@@ -419,7 +456,7 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     }
   });
 
-  it('waits for an active OAuth refresh before opening the deletion barrier', async () => {
+  it('opens the barrier during OAuth refresh but blocks completion and token reuse', async () => {
     const owner = await createUser(db);
     await createOAuthToken(db, {
       userId: owner.userId,
@@ -454,21 +491,18 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     });
     const refresh = tokenService.getValidAccessToken({ userId: owner.userId, provider: 'google' });
     await started;
-    let barrierResolved = false;
-    const barrier = deletion.begin(owner.userId).then((result) => {
-      barrierResolved = true;
-      return result;
-    });
     try {
-      await new Promise((resolve) => setTimeout(resolve, 75));
-      expect(barrierResolved).toBe(false);
+      expect(await deletion.begin(owner.userId)).toBe(true);
+      await expect(deletion.assertWorkDrained(owner.userId)).rejects.toThrow(
+        'ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE',
+      );
       releaseRefresh();
-      await expect(refresh).resolves.toMatchObject({ accessToken: 'new-access', refreshed: true });
-      expect(await barrier).toBe(true);
+      await expect(refresh).rejects.toMatchObject({ code: 'AUTH_ERROR' });
+      await expect(deletion.assertWorkDrained(owner.userId)).resolves.toBeUndefined();
       expect(refreshAccessToken).toHaveBeenCalledOnce();
     } finally {
       releaseRefresh();
-      await Promise.allSettled([refresh, barrier]);
+      await Promise.allSettled([refresh]);
       await fenceSql.end();
       await barrierSql.end();
     }

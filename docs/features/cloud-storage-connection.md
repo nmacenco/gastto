@@ -2,7 +2,7 @@
 
 When Telegram access approval is enabled, an approved local email association and exact `continuar` precede the initial Google OAuth link. The callback retains its existing state/nonce checks. Account replacement through settings uses a separate encrypted candidate credential and requires selecting a new destination before promotion. See [Telegram access approval](./telegram-access-approval.md).
 
-The callback holds a PostgreSQL account-work fence after its per-user lock is acquired and through code exchange, credential persistence, and flow finalization. Account deletion confirmation waits for a callback already inside that fence. Once the deletion barrier exists, a later callback returns a controlled failure before exchanging an authorization code or writing a credential.
+The callback registers durable account work after its per-user lock is acquired and keeps that registration through code exchange, credential persistence, and flow finalization. Account deletion confirmation may open the barrier while an earlier callback is running, but erasure waits for its registration to clear. Once the deletion barrier exists, a later callback returns a controlled failure before exchanging an authorization code or writing a credential.
 
 ## Overview
 

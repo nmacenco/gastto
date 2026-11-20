@@ -4,6 +4,7 @@ import type { RevokeAccountCredentials } from '../use-cases/user/RevokeAccountCr
 
 export interface AccountDeletionProgressPort {
   get(userId: string): Promise<{ stage: string; remoteRevocationFailed: boolean } | null>;
+  assertWorkDrained(userId: string): Promise<void>;
   identities(userId: string): Promise<Array<{ channel: string; externalId: string }>>;
   setStage(
     userId: string,
@@ -57,6 +58,7 @@ export class AccountDeletionService {
     try {
       let state = await this.progress.get(userId);
       if (!state) return;
+      await this.progress.assertWorkDrained(userId);
       const identities = await this.progress.identities(userId);
       if (state.stage === 'blocked' || state.stage === 'revoking') {
         assertLease();

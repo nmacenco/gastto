@@ -35,6 +35,7 @@ export const users = pgTable(
     userId: uuid('user_id').primaryKey().defaultRandom(),
     status: text('status').notNull().default('onboarding'),
     defaultCurrency: text('default_currency'),
+    activeExternalWorkCount: integer('active_external_work_count').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -47,6 +48,10 @@ export const users = pgTable(
     currencyCheck: check(
       'chk_users_currency',
       sql`${t.defaultCurrency} IN ('ARS','EUR','USD','MXN','GBP','BRL') OR ${t.defaultCurrency} IS NULL`,
+    ),
+    activeExternalWorkCheck: check(
+      'chk_users_active_external_work_count',
+      sql`${t.activeExternalWorkCount} >= 0`,
     ),
   }),
 );

@@ -46,4 +46,4 @@ For new ADRs, use [`docs/templates/adr.md`](../templates/adr.md).
 
 - [HTTP security boundaries and dependency evidence](2026-11-01-http-security-boundaries.md): limiter budgets, outage policy, runtime and release gates.
 - [ADR-033: Require native Google spreadsheet destinations](2026-11-15-native-google-spreadsheet-destinations.md): MIME validation, explicit user conversion and safe recovery.
-- [ADR-034: Use a durable barrier for account deletion](2026-11-17-durable-account-deletion.md): temporary progress, Sheets and OAuth work fencing, bounded `/start` replay receipts, account-scoped cleanup, and unresolved restore reconciliation before production activation.
+- [ADR-034: Use a durable barrier for account deletion](2026-11-17-durable-account-deletion.md): temporary progress, durable external-work counting across connection loss, bounded `/start` replay receipts, account-scoped cleanup, and unresolved orphan-work and restore reconciliation before production activation.

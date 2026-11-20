@@ -10,6 +10,8 @@ Migration `0018_foamy_sersi` adds `account_deletion_operations` and `account_del
 
 The identity table stores the channel and external ID temporarily for ingress fencing and targeted queue/cache cleanup. It has a unique `(channel, external_id)` lookup index, an owner index, and a cascade FK to the operation. Removing the operation removes its identity rows. These tables do not implement account deletion by themselves; the lifecycle barrier and cleanup workflow must be complete before activating the action.
 
+Migration `0020_bizarre_adam_destine` adds `users.active_external_work_count` with a zero default and a nonnegative check. Each fenced external operation increments it before starting and decrements it only after its external effect and local work settle. The deletion barrier may be recorded while the count is positive, but credential revocation and account erasure wait for zero. A lost connection or process crash can leave a positive count, which conservatively blocks erasure until an operator verifies the work has stopped and reconciles it in quarantine.
+
 ## Telegram access approval additions (migrations 0016–0017)
 
 `access_requests` stores a UUID, owner `user_id` (cascade FK), normalized email, `kind` (`initial` or `replacement`), `status` (`pending`, `approved`, `superseded`), creation and decision metadata, `activated_at`, and Gmail/Telegram notice timestamps. The `(user_id, status)` index serves current lookups. Partial unique indexes allow one pending request and one active approved request per user. An approved replacement has `activated_at = NULL` until cutover, so the old approved request remains the active association. Request submission and approval lock the user row and run in transactions.
@@ -43,13 +45,14 @@ users
 
 Anchor entity for every user in the system.
 
-| Column             | Type          | Constraints                             | Description                                                                                  |
-| ------------------ | ------------- | --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `user_id`          | `UUID`        | PK, default `gen_random_uuid()`         | Internal stable identifier. Never exposed to end users.                                      |
-| `status`           | `TEXT`        | NOT NULL, default `'onboarding'`, CHECK | `'onboarding'`, `'active'`, or `'suspended'`.                                                |
-| `default_currency` | `TEXT`        | NULL, CHECK                             | Fallback currency. NULL until configured. Allowed: `ARS`, `EUR`, `USD`, `MXN`, `GBP`, `BRL`. |
-| `created_at`       | `TIMESTAMPTZ` | NOT NULL, default `now()`               | Record creation timestamp.                                                                   |
-| `updated_at`       | `TIMESTAMPTZ` | NOT NULL, default `now()`               | Last mutation timestamp.                                                                     |
+| Column                       | Type          | Constraints                             | Description                                                                                  |
+| ---------------------------- | ------------- | --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `user_id`                    | `UUID`        | PK, default `gen_random_uuid()`         | Internal stable identifier. Never exposed to end users.                                      |
+| `status`                     | `TEXT`        | NOT NULL, default `'onboarding'`, CHECK | `'onboarding'`, `'active'`, or `'suspended'`.                                                |
+| `default_currency`           | `TEXT`        | NULL, CHECK                             | Fallback currency. NULL until configured. Allowed: `ARS`, `EUR`, `USD`, `MXN`, `GBP`, `BRL`. |
+| `active_external_work_count` | `INTEGER`     | NOT NULL, default `0`, CHECK `>= 0`     | Durable number of fenced external operations still in progress; erasure requires zero.       |
+| `created_at`                 | `TIMESTAMPTZ` | NOT NULL, default `now()`               | Record creation timestamp.                                                                   |
+| `updated_at`                 | `TIMESTAMPTZ` | NOT NULL, default `now()`               | Last mutation timestamp.                                                                     |
 
 ### messaging_identities
 

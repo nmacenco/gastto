@@ -158,6 +158,17 @@ export class DrizzleAccountDeletionRepository implements AccountCredentialStore 
     return row ?? null;
   }
 
+  async assertWorkDrained(userId: string): Promise<void> {
+    const [owner] = await this.db
+      .select({ activeExternalWorkCount: schema.users.activeExternalWorkCount })
+      .from(schema.users)
+      .where(eq(schema.users.userId, userId))
+      .limit(1);
+    if (owner && owner.activeExternalWorkCount > 0) {
+      throw new Error('ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE');
+    }
+  }
+
   async listPending(): Promise<string[]> {
     const rows = await this.db
       .select({ userId: schema.accountDeletionOperations.userId })
@@ -202,12 +213,18 @@ export class DrizzleAccountDeletionRepository implements AccountCredentialStore 
       // Hold the conflicting lock through expense and account deletion so a
       // concurrent insert cannot appear between those two statements.
       const [owner] = await tx
-        .select({ userId: schema.users.userId })
+        .select({
+          userId: schema.users.userId,
+          activeExternalWorkCount: schema.users.activeExternalWorkCount,
+        })
         .from(schema.users)
         .where(eq(schema.users.userId, userId))
         .for('update')
         .limit(1);
       if (!owner) return;
+      if (owner.activeExternalWorkCount > 0) {
+        throw new Error('ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE');
+      }
       await tx.delete(schema.expenseRecords).where(eq(schema.expenseRecords.userId, userId));
       await tx.delete(schema.users).where(eq(schema.users.userId, userId));
     });

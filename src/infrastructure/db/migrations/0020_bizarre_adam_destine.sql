@@ -1,0 +1,2 @@
+ALTER TABLE "users" ADD COLUMN "active_external_work_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "chk_users_active_external_work_count" CHECK ("users"."active_external_work_count" >= 0);
