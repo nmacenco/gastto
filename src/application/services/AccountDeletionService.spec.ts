@@ -67,4 +67,52 @@ describe('AccountDeletionService', () => {
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(finish).toHaveBeenCalledOnce();
   });
+
+  it('retains the barrier and retries cleanup after account erasure has committed', async () => {
+    let stage = 'cleaning';
+    let accountExists = true;
+    const get = vi.fn(() => Promise.resolve({ stage, remoteRevocationFailed: false }));
+    const setStage = vi.fn((_userId: string, next: string) => {
+      stage = next;
+      return Promise.resolve();
+    });
+    const eraseAccount = vi.fn(() => {
+      accountExists = false;
+      return Promise.resolve();
+    });
+    const clean = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('Redis connection lost'))
+      .mockResolvedValue(undefined);
+    const finish = vi.fn().mockResolvedValue(undefined);
+    const revoke = vi.fn();
+    const service = new AccountDeletionService(
+      {
+        get,
+        setStage,
+        eraseAccount,
+        finish,
+        identities: vi.fn().mockResolvedValue([{ channel: 'telegram', externalId: 'chat' }]),
+      },
+      { execute: revoke } as unknown as RevokeAccountCredentials,
+      { clean },
+      {
+        acquire: vi.fn().mockResolvedValue('lease'),
+        release: vi.fn().mockResolvedValue(undefined),
+      } as unknown as IUserProcessingLock,
+      { sendMessage: vi.fn().mockResolvedValue({ status: 'success' }) },
+    );
+
+    await expect(service.resume('owner')).rejects.toThrow('Redis connection lost');
+    expect(accountExists).toBe(false);
+    expect(stage).toBe('cleaning');
+    expect(finish).not.toHaveBeenCalled();
+
+    await expect(service.resume('owner')).resolves.toBeUndefined();
+    expect(clean).toHaveBeenCalledTimes(4);
+    expect(eraseAccount).toHaveBeenCalledTimes(2);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(finish).toHaveBeenCalledOnce();
+  });
 });

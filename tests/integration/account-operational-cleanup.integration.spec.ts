@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import Redis from 'ioredis';
-import { Queue, Worker } from 'bullmq';
+import { Queue, QueueEvents, Worker } from 'bullmq';
 import { AccountOperationalCleanup } from '../../src/infrastructure/redis/AccountOperationalCleanup';
 
 describe('Account operational cleanup with Redis and BullMQ', () => {
@@ -105,6 +105,55 @@ describe('Account operational cleanup with Redis and BullMQ', () => {
       await worker.close();
       workerRedis.disconnect();
       await activeQueue.close();
+    }
+  });
+
+  it('removes retained prioritized, paused, completed, and failed payloads without touching another account', async () => {
+    const stateQueue = new Queue('deletion-test-retained-states', { connection: redis });
+    const eventsRedis = new Redis(container.getMappedPort(6379), container.getHost(), {
+      maxRetriesPerRequest: null,
+    });
+    const workerRedis = new Redis(container.getMappedPort(6379), container.getHost(), {
+      maxRetriesPerRequest: null,
+    });
+    const events = new QueueEvents('deletion-test-retained-states', { connection: eventsRedis });
+    const worker = new Worker(
+      'deletion-test-retained-states',
+      async (job) => {
+        if (job.data.fail) throw new Error('test failure');
+      },
+      { connection: workerRedis },
+    );
+    try {
+      await events.waitUntilReady();
+      const completed = await stateQueue.add('completed', { userId: 'owner-id', text: 'private' });
+      await completed.waitUntilFinished(events);
+      const failed = await stateQueue.add('failed', { userId: 'owner-id', fail: true, text: 'private' });
+      await expect(failed.waitUntilFinished(events)).rejects.toThrow('test failure');
+
+      await worker.close();
+      const prioritized = await stateQueue.add(
+        'prioritized',
+        { userId: 'owner-id', text: 'private' },
+        { priority: 1 },
+      );
+      await stateQueue.pause();
+      const paused = await stateQueue.add('paused', { userId: 'owner-id', text: 'private' });
+      const other = await stateQueue.add('other', { userId: 'other-id', text: 'keep' });
+
+      const cleanup = new AccountOperationalCleanup(redis, incoming, stateQueue, reminders);
+      await cleanup.clean('owner-id', []);
+
+      for (const job of [completed, failed, prioritized, paused]) {
+        expect(await stateQueue.getJob(job.id!)).toBeUndefined();
+      }
+      expect(await stateQueue.getJob(other.id!)).toBeDefined();
+    } finally {
+      await worker.close();
+      await events.close();
+      await stateQueue.close();
+      eventsRedis.disconnect();
+      workerRedis.disconnect();
     }
   });
 });
