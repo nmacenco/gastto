@@ -25,6 +25,8 @@ import { settingsCopies } from '../../copies/settings.copies';
 import type { SettingsOAuthCleanup } from '../spreadsheet/SettingsOAuthCleanup';
 import { parseSettingsOAuthPayload } from '../spreadsheet/SettingsOAuthFlow';
 import type { CandidateOAuthTokenService } from '../../services/CandidateOAuthTokenService';
+import type { AccountExternalWorkFence } from '../../ports/AccountExternalWorkFence';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 export class HandleExpiredSessions {
   constructor(
@@ -45,6 +47,7 @@ export class HandleExpiredSessions {
     private readonly settingsOAuthCleanup?: SettingsOAuthCleanup,
     private readonly candidateTokens?: Pick<CandidateOAuthTokenService, 'discard'>,
     private readonly accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> },
+    private readonly accountExternalWorkFence?: AccountExternalWorkFence,
   ) {}
 
   async execute(): Promise<void> {
@@ -68,14 +71,21 @@ export class HandleExpiredSessions {
           : () => undefined;
       try {
         if (await this.accountDeletionGate?.isDeleting(state.userId)) continue;
-        await this.transitionState.runWithState(state, async () => {
-          if (state.currentState === 'EXPENSE_REVIEW') {
-            await this.handleExpiredReview(state);
-            return;
-          }
-          await this.handleGenericExpiredSession(state);
-        });
+        const processState = () =>
+          this.transitionState.runWithState(state, async () => {
+            if (state.currentState === 'EXPENSE_REVIEW') {
+              await this.handleExpiredReview(state);
+              return;
+            }
+            await this.handleGenericExpiredSession(state);
+          });
+        if (this.accountExternalWorkFence) {
+          await this.accountExternalWorkFence.run(state.userId, processState);
+        } else {
+          await processState();
+        }
       } catch (err) {
+        if (err instanceof AccountDeletionInProgressError) continue;
         this.logger.error({
           msg: 'Failed to process expired session',
           userId: state.userId,

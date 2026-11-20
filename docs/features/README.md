@@ -6,11 +6,11 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, durable `/start` replay protection, development deletion worker, Sheets and OAuth work fencing, queue cleanup, privacy status, and remaining production gates.
+- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, durable `/start` replay protection, development deletion worker, Sheets, OAuth, `/start`, timeout, acknowledgment, and operator-notice work fencing, queue cleanup, privacy status, and remaining production gates.
 
 - [`conversational-message-formatting.md`](./conversational-message-formatting.md): Explicit paragraphs, list preservation, and separate cancellation guidance for file/sheet selection and recovery.
 
-- [`telegram-access-approval.md`](./telegram-access-approval.md): First-contact welcome, explicit invalid-email and persistence-failure feedback, Telegram email requests and request-ID lookup, database and Gmail diagnostic logs, manual CLI approval, guarded cancellation and continuation during OAuth admission, and safe account replacement.
+- [`telegram-access-approval.md`](./telegram-access-approval.md): First-contact welcome, explicit invalid-email and persistence-failure feedback, Telegram email requests and request-ID lookup, database and Gmail diagnostic logs, manual CLI approval and resend with deletion-fenced notices, guarded cancellation and continuation during OAuth admission, and safe account replacement.
 
 - [`chat-spreadsheet-settings.md`](./chat-spreadsheet-settings.md): Chat settings menu, safe file and sheet changes, category and payment drafts with listed editing examples, and guarded cancellation and expiry.
 - [`payment-methods.md`](./payment-methods.md): Configuration-scoped payment catalogs, settings drafts, detection during setup, exact onboarding confirmation, expense review resolution, and legacy compatibility.

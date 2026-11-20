@@ -10,6 +10,7 @@ import { sharedCopies } from '../../copies/shared.copies';
 import { accessCopies } from '../../copies/access.copies';
 import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
 import type { TransitionConversationState } from './TransitionConversationState';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 function buildMockMessenger(): {
   messenger: IChatMessenger;
@@ -202,6 +203,31 @@ describe('HandleStartCommand', () => {
       identity,
     );
     await useCase.execute({ userId: 'deleting-user', chatId: '111' });
+    expect(sendWelcomeMock).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('does not send a welcome after the account-work fence rejects a late /start', async () => {
+    const { messenger, sendWelcomeMock } = buildMockMessenger();
+    const fence = {
+      run: vi.fn().mockRejectedValue(new AccountDeletionInProgressError()),
+    };
+    const useCase = new HandleStartCommand(
+      messenger,
+      buildMockConversationRepo(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fence,
+    );
+
+    await expect(useCase.execute({ userId: 'deleting-user', chatId: '111' })).resolves.toEqual({
+      replyText: '',
+    });
+    expect(fence.run).toHaveBeenCalledWith('deleting-user', expect.any(Function));
     expect(sendWelcomeMock).not.toHaveBeenCalled();
     expect(mockCreate).not.toHaveBeenCalled();
   });

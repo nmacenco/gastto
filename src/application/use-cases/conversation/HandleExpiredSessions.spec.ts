@@ -17,6 +17,8 @@ import type { MessagingIdentity } from '../../../domain/entities/User';
 import type { IUserProcessingLock } from '../../ports/UserProcessingLock';
 import { settingsCopies } from '../../copies/settings.copies';
 import type { SettingsOAuthCleanup } from '../spreadsheet/SettingsOAuthCleanup';
+import type { AccountExternalWorkFence } from '../../ports/AccountExternalWorkFence';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 const mockFindExpired = vi.fn();
 const mockTransitionExecute = vi.fn();
@@ -111,6 +113,7 @@ function buildUseCase(
   userProcessingLock?: IUserProcessingLock,
   settingsOAuthCleanup?: SettingsOAuthCleanup,
   accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> },
+  accountExternalWorkFence?: AccountExternalWorkFence,
 ) {
   return new HandleExpiredSessions(
     conversationRepo,
@@ -127,6 +130,7 @@ function buildUseCase(
     settingsOAuthCleanup,
     undefined,
     accountDeletionGate,
+    accountExternalWorkFence,
   );
 }
 
@@ -155,6 +159,27 @@ describe('HandleExpiredSessions', () => {
     expect(gate.isDeleting).toHaveBeenCalledWith('deleting-user');
     expect(mockTransitionExecute).not.toHaveBeenCalled();
     expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('skips a session whose account-work fence rejects after the initial gate check', async () => {
+    mockFindExpired.mockResolvedValue([buildConversationState({ userId: 'deleting-user' })]);
+    const fence = { run: vi.fn().mockRejectedValue(new AccountDeletionInProgressError()) };
+    const useCase = buildUseCase(
+      buildMockConversationRepo(),
+      buildMockUserRepo(),
+      buildMockTransitionState(),
+      buildMockMessagingPort(),
+      undefined,
+      undefined,
+      { isDeleting: vi.fn().mockResolvedValue(false) },
+      fence,
+    );
+
+    await expect(useCase.execute()).resolves.toBeUndefined();
+    expect(fence.run).toHaveBeenCalledWith('deleting-user', expect.any(Function));
+    expect(mockTransitionExecute).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockLoggerError).not.toHaveBeenCalled();
   });
 
   it('sends a one-time reminder and extends the review state when reminderSent is false', async () => {

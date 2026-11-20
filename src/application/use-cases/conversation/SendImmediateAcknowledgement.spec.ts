@@ -7,6 +7,7 @@ import { SendImmediateAcknowledgement } from './SendImmediateAcknowledgement';
 import type { MessagingOutputPort, SendResult } from '../../ports/output/messaging.port';
 import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
 import type { IUserRepository } from '../../../domain/ports/repositories';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 const mockSendMessage = vi.fn();
 
@@ -120,6 +121,25 @@ describe('SendImmediateAcknowledgement', () => {
     const useCase = new SendImmediateAcknowledgement(buildMockPort(), undefined, undefined, gate);
     expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
     expect(gate.isIdentityDeleting).toHaveBeenCalledWith('telegram', '123456789');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('uses the verified identity for the fence and skips an acknowledgment after the barrier', async () => {
+    const fence = { run: vi.fn().mockRejectedValue(new AccountDeletionInProgressError()) };
+    const useCase = new SendImmediateAcknowledgement(
+      buildMockPort(),
+      undefined,
+      {
+        findByMessagingIdentity: vi.fn().mockResolvedValue({ userId: 'verified-user' }),
+      } as unknown as IUserRepository,
+      { isIdentityDeleting: vi.fn().mockResolvedValue(false) },
+      fence,
+    );
+
+    expect(await useCase.execute({ ...baseInput, userId: 'untrusted-user' })).toEqual({
+      status: 'success',
+    });
+    expect(fence.run).toHaveBeenCalledWith('verified-user', expect.any(Function));
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 });

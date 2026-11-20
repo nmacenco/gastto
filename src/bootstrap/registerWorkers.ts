@@ -318,6 +318,7 @@ export async function registerWorkers(
       deps.googleOAuth?.settingsOAuthCleanup,
       deps.googleOAuth?.candidateTokens,
       deps.accountDeletionRepo ?? undefined,
+      deps.accountExternalWorkFence,
     );
 
     const sessionTimeoutWorker = createSessionTimeoutWorker({

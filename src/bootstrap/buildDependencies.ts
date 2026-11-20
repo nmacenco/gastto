@@ -242,6 +242,7 @@ function buildTelegramFeature(
     accessRequests: DrizzleAccessRequestRepository | undefined;
     userRepo: DrizzleUserRepository;
     accountDeletionRepo: DrizzleAccountDeletionRepository;
+    accountExternalWorkFence: DrizzleAccountExternalWorkFence;
   },
 ): TelegramFeature | null {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -262,12 +263,14 @@ function buildTelegramFeature(
         core.userRepo.findByMessagingIdentity(channel, externalId),
       isDeleting: (userId) => core.accountDeletionRepo.isDeleting(userId),
     },
+    core.accountExternalWorkFence,
   );
   const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(
     adapter,
     core.accessRequests,
     core.userRepo,
     core.accountDeletionRepo,
+    core.accountExternalWorkFence,
   );
   const handleUnsupportedMessage = new HandleUnsupportedMessage(adapter);
   const classifyFreeTextExpenseIntent = new ClassifyFreeTextExpenseIntent();
@@ -849,6 +852,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     accessRequests: env.ACCESS_APPROVAL_ENABLED ? accessRequests : undefined,
     userRepo,
     accountDeletionRepo,
+    accountExternalWorkFence,
   });
 
   const googleOAuth = buildGoogleOAuthFeature(env, infra, {
@@ -961,6 +965,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     operationLogRepo,
     tokenRepo,
     accountDeletionRepo,
+    accountExternalWorkFence,
     startReplayGuard,
     ...(env.ACCESS_APPROVAL_ENABLED ? { accessRequests, requestAccess, operatorMail } : {}),
     spreadsheetConfigRepo,
