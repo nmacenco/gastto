@@ -162,6 +162,10 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       chatId: 'delete-chat',
       rawPayload: { text: 'Expense 9' },
     });
+    const otherIncoming = await incoming.add('message', {
+      channel: 'telegram',
+      chatId: 'keep-chat',
+    });
     const ownedProcessing = await processing.add('message', {
       userId: owner.userId,
       rawMessage: 'Expense 9',
@@ -177,7 +181,16 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       { userId: other.userId },
       { priority: 1 },
     );
+    const ownedReminder = await reminders.add(
+      'oauth-reminder',
+      { userId: owner.userId },
+      { delay: 60_000 },
+    );
+    const otherReminder = await reminders.add('oauth-reminder', { userId: other.userId });
     await redis.set('identity:telegram:delete-chat', owner.userId);
+    await redis.set('identity:telegram:keep-chat', other.userId);
+    await redis.set(`conversation:${owner.userId}:mapping-correction`, 'owner state');
+    await redis.set(`conversation:${other.userId}:mapping-correction`, 'other state');
     const marker = new ProcessedMessageKey({
       channel: 'telegram',
       externalIdentityId: 'delete-chat',
@@ -186,10 +199,17 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     const processed = new RedisProcessedMessageRepository(redis);
     await processed.markAsProcessed(marker, owner.userId);
     expect(await processed.exists(marker)).toBe(true);
+    const otherMarker = new ProcessedMessageKey({
+      channel: 'telegram',
+      externalIdentityId: 'keep-chat',
+      externalMessageId: 'message-1',
+    });
+    await processed.markAsProcessed(otherMarker, other.userId);
     await redis.set(
       'oauth:state:delete',
       JSON.stringify({ userId: owner.userId, externalId: 'delete-chat' }),
     );
+    await redis.set('oauth:state:keep', JSON.stringify({ userId: other.userId }));
     const repo = new DrizzleAccountDeletionRepository(db);
     expect(await repo.begin(owner.userId)).toBe(true);
     const revokeToken = vi.fn().mockResolvedValue('not_confirmed');
@@ -275,12 +295,43 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     expect(await incoming.getJob(ownedIncoming.id!)).toBeUndefined();
     expect(await processing.getJob(ownedProcessing.id!)).toBeUndefined();
     expect(await processing.getJob(ownedPrioritized.id!)).toBeUndefined();
+    expect(await reminders.getJob(ownedReminder.id!)).toBeUndefined();
+    expect(await incoming.getJob(otherIncoming.id!)).toBeDefined();
     expect(await processing.getJob(otherProcessing.id!)).toBeDefined();
     expect(await processing.getJob(otherPrioritized.id!)).toBeDefined();
+    expect(await reminders.getJob(otherReminder.id!)).toBeDefined();
+    const retainedStates = [
+      'waiting',
+      'prioritized',
+      'delayed',
+      'paused',
+      'completed',
+      'failed',
+      'waiting-children',
+      'active',
+    ] as const;
+    const [incomingJobs, processingJobs, reminderJobs] = await Promise.all([
+      incoming.getJobs([...retainedStates], 0, -1),
+      processing.getJobs([...retainedStates], 0, -1),
+      reminders.getJobs([...retainedStates], 0, -1),
+    ]);
+    expect(
+      incomingJobs.filter(
+        (job) => job.data.chatId === 'delete-chat' || job.data.userId === owner.userId,
+      ),
+    ).toEqual([]);
+    expect(processingJobs.filter((job) => job.data.userId === owner.userId)).toEqual([]);
+    expect(reminderJobs.filter((job) => job.data.userId === owner.userId)).toEqual([]);
     expect(await redis.get('identity:telegram:delete-chat')).toBeNull();
+    expect(await redis.get('identity:telegram:keep-chat')).toBe(other.userId);
+    expect(await redis.get(`conversation:${owner.userId}:mapping-correction`)).toBeNull();
+    expect(await redis.get(`conversation:${other.userId}:mapping-correction`)).toBe('other state');
     expect(await processed.exists(marker)).toBe(false);
+    expect(await processed.exists(otherMarker)).toBe(true);
     expect(await redis.exists(`processed_message:owner:${owner.userId}`)).toBe(0);
+    expect(await redis.exists(`processed_message:owner:${other.userId}`)).toBe(1);
     expect(await redis.get('oauth:state:delete')).toBeNull();
+    expect(await redis.get('oauth:state:keep')).toBe(JSON.stringify({ userId: other.userId }));
     expect(await repo.get(owner.userId)).toBeNull();
   });
 
