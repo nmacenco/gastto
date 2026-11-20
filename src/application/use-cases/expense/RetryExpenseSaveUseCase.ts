@@ -13,6 +13,7 @@ import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { expenseCopies } from '../../copies/expense.copies';
 import { randomUUID } from 'node:crypto';
 import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 import { getFinancialExecutionClaim } from '../../../domain/entities/ConversationState';
 import type { AdvancePendingExpense } from './AdvancePendingExpense';
 
@@ -69,6 +70,7 @@ export class RetryExpenseSaveUseCase {
         claimId,
       );
     } catch (error) {
+      if (error instanceof AccountDeletionInProgressError) throw error;
       if (error instanceof StaleConversationStateError) throw error;
       const spreadsheetError =
         error instanceof SpreadsheetError

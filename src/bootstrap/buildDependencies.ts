@@ -12,6 +12,7 @@ import { DrizzleUserProfileRepository } from '../infrastructure/db/repositories/
 import { DrizzleConversationStateRepository } from '../infrastructure/db/repositories/DrizzleConversationStateRepository';
 import { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import { DrizzleAccountExternalWorkFence } from '../infrastructure/db/repositories/DrizzleAccountExternalWorkFence';
 import { DrizzleAccessRequestRepository } from '../infrastructure/db/repositories/DrizzleAccessRequestRepository';
 import { DrizzleCandidateOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleCandidateOAuthTokenRepository';
 import { RequestAccess } from '../application/use-cases/user/RequestAccess';
@@ -590,6 +591,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const accountDeletionRepo = new DrizzleAccountDeletionRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const accountExternalWorkFence = new DrizzleAccountExternalWorkFence(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const accessRequests = new DrizzleAccessRequestRepository(infra.db, infra.rootLogger);
   const requestAccess = new RequestAccess(accessRequests);
   const operatorMail =
@@ -788,6 +791,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     infra.rootLogger,
     paymentCatalogRepo,
     env.ACCESS_APPROVAL_ENABLED ? accessRequests : undefined,
+    accountExternalWorkFence,
   );
   const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
   const completeExpenseClarification = new CompleteExpenseClarification(registerExpense);
@@ -805,6 +809,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     oauthAccessTokenService,
     transitionState,
     infra.rootLogger,
+    accountExternalWorkFence,
   );
   const correctExpense = new CorrectExpenseUseCase(
     {

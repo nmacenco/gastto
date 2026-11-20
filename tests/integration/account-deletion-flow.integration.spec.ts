@@ -21,6 +21,8 @@ import {
   createSpreadsheetConfig,
 } from './helpers/fixtures';
 import { DrizzleAccountDeletionRepository } from '../../src/infrastructure/db/repositories/DrizzleAccountDeletionRepository';
+import { DrizzleAccountExternalWorkFence } from '../../src/infrastructure/db/repositories/DrizzleAccountExternalWorkFence';
+import { AccountDeletionInProgressError } from '../../src/application/ports/AccountExternalWorkFence';
 import { AccountOperationalCleanup } from '../../src/infrastructure/redis/AccountOperationalCleanup';
 import { RedisUserProcessingLock } from '../../src/infrastructure/redis/RedisUserProcessingLock';
 import { RevokeAccountCredentials } from '../../src/application/use-cases/user/RevokeAccountCredentials';
@@ -343,6 +345,52 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       await worker.close();
       await activeProcessing.close();
       workerConnection.disconnect();
+    }
+  });
+
+  it('waits for an external account effect before creating the deletion barrier', async () => {
+    const owner = await createUser(db);
+    const fenceSql = postgres(getConnectionString(pg), { max: 1 });
+    const fence = new DrizzleAccountExternalWorkFence(drizzle(fenceSql, { schema }));
+    const repo = new DrizzleAccountDeletionRepository(db);
+    let signalStarted!: () => void;
+    let releaseEffect!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const effectFinished = new Promise<void>((resolve) => {
+      releaseEffect = resolve;
+    });
+    const effect = fence.run(owner.userId, async () => {
+      signalStarted();
+      await effectFinished;
+      return 'settled';
+    });
+    await started;
+
+    let barrierResolved = false;
+    const barrier = repo.begin(owner.userId).then((result) => {
+      barrierResolved = true;
+      return result;
+    });
+    try {
+      // The fence and deletion use separate PostgreSQL connections. The
+      // confirmation must wait for the external effect, not just a pool slot.
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(barrierResolved).toBe(false);
+
+      releaseEffect();
+      expect(await effect).toBe('settled');
+      expect(await barrier).toBe(true);
+      const lateEffect = vi.fn();
+      await expect(fence.run(owner.userId, lateEffect)).rejects.toBeInstanceOf(
+        AccountDeletionInProgressError,
+      );
+      expect(lateEffect).not.toHaveBeenCalled();
+    } finally {
+      releaseEffect();
+      await Promise.allSettled([effect, barrier]);
+      await fenceSql.end();
     }
   });
 });

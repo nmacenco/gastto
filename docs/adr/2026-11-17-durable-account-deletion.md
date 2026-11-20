@@ -22,6 +22,8 @@ Use option 3 in development. The operation row is the durable barrier and is rem
 
 The barrier prevents new ingress, worker effects and OAuth use while a deletion is incomplete. Identity-cache fills and known-identity queue admission hold a shared lock on the user row until the Redis write completes; starting deletion takes an exclusive lock on that row before recording the barrier. Unknown non-`/start` deliveries are dropped. The dedicated worker can remove the confirming message job after it finishes. Local tokens are deleted regardless of remote revocation outcome. Account rows are deleted transactionally after expense records, preserving Sheets content.
 
+Expense append and undo now hold a PostgreSQL key-share row lock throughout the external Sheets request and local finalization. The confirmation's `FOR UPDATE` lock waits for those calls to settle; an effect arriving after the barrier is rejected before reaching Sheets. This keeps a database transaction open during the remote call and requires enough pool capacity for its local repository work. A lost database connection during an unresolved external call is not yet independently fenced; active-job draining and failure-path verification remain release gates.
+
 ## Consequences
 
 - Pending operations temporarily hold user UUIDs and messaging identities for recovery and cleanup, then remove them. Opaque `/start` replay markers expire after 48 hours; their purpose and duration must appear in privacy documentation.

@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, development deletion worker, account-erasure lock, queue cleanup, privacy status, and remaining production gates.
+- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, development deletion worker, account-work fencing, queue cleanup, privacy status, and remaining production gates.
 
 - [`conversational-message-formatting.md`](./conversational-message-formatting.md): Explicit paragraphs, list preservation, and separate cancellation guidance for file/sheet selection and recovery.
 
@@ -31,8 +31,8 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`expense-summary-review.md`](./expense-summary-review.md) — Bounded expense extraction, structured summaries with payment resolution, and version-bound confirm, correct, and cancel actions.
 - [`expense-cancellation.md`](./expense-cancellation.md) — Exact text/callback and revision-bound natural draft cancellation, plus guarded retry, saving, and undo exits.
 - [`expense-correction.md`](./expense-correction.md) — Contextual corrections of amount, category hierarchy, date, and payment method with guarded review revisions.
-- [`expense-confirmation.md`](./expense-confirmation.md) — Exact save and retry authorization, mapped-column append, payment-selection checks, guarded claims, FIFO continuation after successful retry, stale/expired rejection, and administrator guidance for unresolved outcomes.
-- [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo using the expense's historical configuration, exact-target claims, bound delayed confirmation, and safe recovery from pre-deletion failures.
+- [`expense-confirmation.md`](./expense-confirmation.md) — Exact save and retry authorization, mapped-column append, payment-selection checks, account-work fencing, guarded claims, FIFO continuation after successful retry, stale/expired rejection, and administrator guidance for unresolved outcomes.
+- [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo using the expense's historical configuration, account-work fencing, exact-target claims, bound delayed confirmation, and safe recovery from pre-deletion failures.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, failure classification, and best-effort contention notices.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with cancellation across active flows, guarded pending OAuth renewal, exact onboarding confirmation, incomplete-destination protection, renewable ownership, retry-to-queue continuation, guarded timeout/queue effects, and financial claims with administrator guidance for unresolved operations.
 - [`deployment.md`](./deployment.md) — Merge-protected Fly.io deployment, account-deletion release and restore gates, provider-independent Redis brokers, persistent workers, rollback, graceful shutdown, and Telegram bot isolation.

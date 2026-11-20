@@ -35,6 +35,10 @@ import type { IPaymentMethodCatalogRepository } from '../../../domain/ports/Paym
 import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { TransitionConversationStateInput } from '../conversation/TransitionConversationState';
+import {
+  AccountDeletionInProgressError,
+  type AccountExternalWorkFence,
+} from '../../ports/AccountExternalWorkFence';
 
 const mockUserProfileGetDefaultCurrency = vi.fn();
 const mockClassifierExecute = vi.fn();
@@ -164,6 +168,7 @@ function buildMockDependencies() {
     paymentCatalogRepo: {
       findBySpreadsheetId: mockFindPaymentCatalog,
     } as unknown as IPaymentMethodCatalogRepository,
+    externalWorkFence: undefined as AccountExternalWorkFence | undefined,
   };
 }
 
@@ -186,6 +191,8 @@ function buildUseCase(overrides: Partial<ReturnType<typeof buildMockDependencies
       10,
       undefined,
       overrides.paymentCatalogRepo ?? deps.paymentCatalogRepo,
+      undefined,
+      overrides.externalWorkFence ?? deps.externalWorkFence,
     ),
     deps: { ...deps, ...overrides },
   };
@@ -266,6 +273,16 @@ beforeEach(() => {
 
 describe('RegisterExpenseUseCase', () => {
   describe('save()', () => {
+    it('does not append or persist when account deletion has fenced the expense', async () => {
+      const run = vi.fn(() => Promise.reject(new AccountDeletionInProgressError()));
+      const { useCase } = buildUseCase({ externalWorkFence: { run } });
+      await expect(
+        useCase.save('user-123', {} as ExpenseReviewPayload, 'config-1', 'claim-1'),
+      ).rejects.toBeInstanceOf(AccountDeletionInProgressError);
+      expect(run).toHaveBeenCalledOnce();
+      expect(mockAppendRow).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+    });
     it('rejects unresolved payment before a spreadsheet append', async () => {
       const { useCase } = buildUseCase();
       const review = {

@@ -19,6 +19,7 @@ import type { ExpenseSaveRetryPayload } from '../../../domain/value-objects/expe
 import type { AdvancePendingExpense } from './AdvancePendingExpense';
 import { randomUUID } from 'node:crypto';
 import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 import type {
   ExpenseReviewAction,
   ExpenseReviewCallbackData,
@@ -202,6 +203,7 @@ export class ResolveExpenseSummaryActionUseCase {
         claimId,
       );
     } catch (error) {
+      if (error instanceof AccountDeletionInProgressError) throw error;
       await this.handleSaveFailure(input, error, executionClaim);
       return;
     }

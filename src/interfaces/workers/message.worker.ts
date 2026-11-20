@@ -63,6 +63,7 @@ import {
   type ProcessMessageJobData,
 } from '../../application/ports/ProcessMessageJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { AccountDeletionInProgressError } from '../../application/ports/AccountExternalWorkFence';
 import { parseCategoryOnboardingState } from '../../application/dtos/CategoryOnboardingState';
 import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 import {
@@ -731,6 +732,7 @@ export async function processMessageJob(
         await opts.transitionState.runForUser(userId, route);
       }
     } catch (err) {
+      if (err instanceof AccountDeletionInProgressError) return;
       if (err instanceof StaleConversationStateError) return;
       if (err instanceof RecoveredExpenseExtractionError) {
         opts.logger.error({
@@ -1339,6 +1341,7 @@ async function routeByState(
       });
       await sendUndoOutcome(result, messaging, externalId);
     } catch (err) {
+      if (err instanceof AccountDeletionInProgressError) throw err;
       opts.logger.error({
         msg: 'Failed to undo while preserving queued review',
         endpoint: 'routeByState',
