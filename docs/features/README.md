@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, durable `/start` replay protection, development deletion worker, durable work counting for Sheets, OAuth, `/start`, timeouts, and notices, verified seeded queue and Redis cleanup, privacy status, and remaining production gates.
+- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, durable `/start` replay protection, development deletion worker, durable work counting for Sheets, OAuth, `/start`, timeouts, and notices, verified seeded queue and Redis cleanup, sanitized worker retries, privacy status, and remaining production gates.
 
 - [`conversational-message-formatting.md`](./conversational-message-formatting.md): Explicit paragraphs, list preservation, and separate cancellation guidance for file/sheet selection and recovery.
 

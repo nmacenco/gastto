@@ -1,8 +1,11 @@
-import { beforeAll, afterAll, describe, expect, it } from 'vitest';
+import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import Redis from 'ioredis';
 import { Queue, QueueEvents, Worker } from 'bullmq';
+import type { Logger } from 'pino';
 import { AccountOperationalCleanup } from '../../src/infrastructure/redis/AccountOperationalCleanup';
+import { createAccountDeletionWorker } from '../../src/interfaces/workers/accountDeletion.worker';
+import type { AccountDeletionService } from '../../src/application/services/AccountDeletionService';
 
 describe('Account operational cleanup with Redis and BullMQ', () => {
   let container: StartedTestContainer;
@@ -128,7 +131,11 @@ describe('Account operational cleanup with Redis and BullMQ', () => {
       await events.waitUntilReady();
       const completed = await stateQueue.add('completed', { userId: 'owner-id', text: 'private' });
       await completed.waitUntilFinished(events);
-      const failed = await stateQueue.add('failed', { userId: 'owner-id', fail: true, text: 'private' });
+      const failed = await stateQueue.add('failed', {
+        userId: 'owner-id',
+        fail: true,
+        text: 'private',
+      });
       await expect(failed.waitUntilFinished(events)).rejects.toThrow('test failure');
 
       await worker.close();
@@ -152,6 +159,43 @@ describe('Account operational cleanup with Redis and BullMQ', () => {
       await worker.close();
       await events.close();
       await stateQueue.close();
+      eventsRedis.disconnect();
+      workerRedis.disconnect();
+    }
+  });
+
+  it('stores only a fixed failure code when deletion dependencies throw sensitive errors', async () => {
+    const queue = new Queue('account-deletion', { connection: redis });
+    const eventsRedis = new Redis(container.getMappedPort(6379), container.getHost(), {
+      maxRetriesPerRequest: null,
+    });
+    const workerRedis = new Redis(container.getMappedPort(6379), container.getHost(), {
+      maxRetriesPerRequest: null,
+    });
+    const events = new QueueEvents('account-deletion', { connection: eventsRedis });
+    const loggerError = vi.fn();
+    const worker = createAccountDeletionWorker({
+      redis: workerRedis,
+      service: {
+        resume: vi.fn().mockRejectedValue(new Error('token=secret amount=123.45')),
+      } as unknown as AccountDeletionService,
+      logger: { error: loggerError } as unknown as Logger,
+    });
+    try {
+      await events.waitUntilReady();
+      const job = await queue.add('delete', { userId: '00000000-0000-4000-8000-000000000001' });
+      await expect(job.waitUntilFinished(events)).rejects.toThrow(
+        'ACCOUNT_DELETION_RETRY_REQUIRED',
+      );
+      const retained = await queue.getJob(job.id!);
+      expect(retained?.failedReason).toBe('ACCOUNT_DELETION_RETRY_REQUIRED');
+      expect(JSON.stringify(retained?.stacktrace)).not.toMatch(/secret|123\.45/);
+      await vi.waitFor(() => expect(loggerError).toHaveBeenCalledOnce());
+      expect(JSON.stringify(loggerError.mock.calls)).not.toMatch(/secret|123\.45/);
+    } finally {
+      await worker.close();
+      await events.close();
+      await queue.close();
       eventsRedis.disconnect();
       workerRedis.disconnect();
     }

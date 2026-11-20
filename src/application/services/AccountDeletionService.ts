@@ -87,8 +87,8 @@ export class AccountDeletionService {
       if (state.stage === 'notifying') {
         assertLease();
         const text = state.remoteRevocationFailed
-          ? 'Gastto eliminó tu cuenta y sus credenciales locales, pero no pudo confirmar la revocación en Google. Puedes retirar el acceso de Gastto desde las conexiones de tu cuenta de Google. Tu hoja de cálculo no se modificó.'
-          : 'Tu cuenta y los datos internos de Gastto se han eliminado. Tu hoja de cálculo no se ha modificado.';
+          ? 'Gastto eliminó tu cuenta y sus credenciales locales, pero no pudo confirmar la revocación en Google. Puedes retirar el acceso de Gastto desde las conexiones de tu cuenta de Google. La eliminación no modificó tu hoja de cálculo.'
+          : 'Tu cuenta y los datos internos de Gastto se han eliminado. La eliminación no modificó tu hoja de cálculo.';
         const telegram = identities.find((identity) => identity.channel === 'telegram');
         if (telegram) {
           try {

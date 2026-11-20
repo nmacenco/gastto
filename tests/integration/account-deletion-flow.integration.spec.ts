@@ -72,6 +72,16 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     await createMessagingIdentity(db, { userId: owner.userId, externalId: 'delete-chat' });
     await createMessagingIdentity(db, { userId: other.userId, externalId: 'keep-chat' });
     await createOAuthToken(db, { userId: owner.userId });
+    await createOAuthToken(db, { userId: other.userId });
+    await db.insert(schema.conversationStates).values({
+      userId: owner.userId,
+      currentState: 'IDLE',
+      statePayload: { note: 'private conversation' },
+    });
+    await db.insert(schema.conversationStates).values({
+      userId: other.userId,
+      currentState: 'IDLE',
+    });
     const [request] = await db
       .insert(schema.accessRequests)
       .values({
@@ -234,11 +244,24 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       'delete-chat',
       expect.stringContaining('no pudo confirmar la revocación'),
     );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'delete-chat',
+      expect.stringContaining('La eliminación no modificó tu hoja de cálculo.'),
+    );
     expect(
       await db.select().from(schema.users).where(eq(schema.users.userId, owner.userId)),
     ).toHaveLength(0);
     expect(
       await db.select().from(schema.users).where(eq(schema.users.userId, other.userId)),
+    ).toHaveLength(1);
+    expect(
+      await db
+        .select()
+        .from(schema.conversationStates)
+        .where(eq(schema.conversationStates.userId, other.userId)),
+    ).toHaveLength(1);
+    expect(
+      await db.select().from(schema.oauthTokens).where(eq(schema.oauthTokens.userId, other.userId)),
     ).toHaveLength(1);
     for (const table of [
       schema.messagingIdentities,
@@ -333,6 +356,12 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     expect(await redis.get('oauth:state:delete')).toBeNull();
     expect(await redis.get('oauth:state:keep')).toBe(JSON.stringify({ userId: other.userId }));
     expect(await repo.get(owner.userId)).toBeNull();
+    expect(
+      await db
+        .select()
+        .from(schema.accountDeletionIdentities)
+        .where(eq(schema.accountDeletionIdentities.userId, owner.userId)),
+    ).toHaveLength(0);
   });
 
   it('keeps the account and deletion barrier until an active job settles', async () => {
@@ -408,6 +437,19 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     const fenceSql = postgres(getConnectionString(pg), { max: 1 });
     const fence = new DrizzleAccountExternalWorkFence(drizzle(fenceSql, { schema }));
     const repo = new DrizzleAccountDeletionRepository(db);
+    const sheets = {
+      appendRow: vi.fn().mockResolvedValue({ sheet: 'Gastos', row: 2 }),
+      deleteRow: vi.fn(),
+    };
+    const service = new AccountDeletionService(
+      repo,
+      new RevokeAccountCredentials(repo, { decrypt: vi.fn() } as unknown as TokenEncryptionPort, {
+        revokeToken: vi.fn(),
+      }),
+      new AccountOperationalCleanup(redis, incoming, processing, reminders),
+      new RedisUserProcessingLock(redis),
+      { sendMessage: vi.fn() },
+    );
     let signalStarted!: () => void;
     let releaseEffect!: () => void;
     const started = new Promise<void>((resolve) => {
@@ -419,6 +461,7 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     const effect = fence.run(owner.userId, async () => {
       signalStarted();
       await effectFinished;
+      await sheets.appendRow('file', 'Gastos', ['existing expense']);
       return 'settled';
     });
     await started;
@@ -431,7 +474,12 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       await expect(repo.eraseAccount(owner.userId)).rejects.toThrow(
         'ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE',
       );
-      const lateEffect = vi.fn();
+      await expect(service.resume(owner.userId)).rejects.toThrow(
+        'ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE',
+      );
+      expect(sheets.appendRow).not.toHaveBeenCalled();
+      expect(sheets.deleteRow).not.toHaveBeenCalled();
+      const lateEffect = vi.fn(() => sheets.appendRow('file', 'Gastos', ['late expense']));
       await expect(fence.run(owner.userId, lateEffect)).rejects.toBeInstanceOf(
         AccountDeletionInProgressError,
       );
@@ -439,7 +487,11 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       releaseEffect();
       expect(await effect).toBe('settled');
       await expect(repo.assertWorkDrained(owner.userId)).resolves.toBeUndefined();
-      await repo.eraseAccount(owner.userId);
+      expect(sheets.appendRow).toHaveBeenCalledOnce();
+      await service.resume(owner.userId);
+      expect(sheets.appendRow).toHaveBeenCalledOnce();
+      expect(sheets.deleteRow).not.toHaveBeenCalled();
+      expect(await repo.get(owner.userId)).toBeNull();
     } finally {
       releaseEffect();
       await Promise.allSettled([effect]);

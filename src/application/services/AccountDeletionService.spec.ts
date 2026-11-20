@@ -1,9 +1,115 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AccountDeletionService } from './AccountDeletionService';
-import type { RevokeAccountCredentials } from '../use-cases/user/RevokeAccountCredentials';
+import {
+  RevokeAccountCredentials,
+  type EncryptedAccountCredential,
+} from '../use-cases/user/RevokeAccountCredentials';
 import type { IUserProcessingLock } from '../ports/UserProcessingLock';
+import type { TokenEncryptionPort } from '../../domain/ports/tokenEncryption';
 
 describe('AccountDeletionService', () => {
+  it.each([
+    'get',
+    'revoking',
+    'deleteAll',
+    'cleaning',
+    'clean:first',
+    'eraseAccount',
+    'clean:second',
+    'notifying',
+    'finish:before',
+    'finish:after',
+  ])('recovers after an interruption at %s without restoring account data', async (fault) => {
+    let stage: 'blocked' | 'revoking' | 'cleaning' | 'notifying' | null = 'blocked';
+    let remoteRevocationFailed = false;
+    let accountExists = true;
+    let credentials: EncryptedAccountCredential[] = [
+      {
+        provider: 'google',
+        refreshTokenEnc: Buffer.from('encrypted-test-token'),
+        refreshIv: Buffer.from('test-iv'),
+      },
+    ];
+    let cleanCalls = 0;
+    let interrupted = false;
+    const interrupt = (at: string) => {
+      if (fault !== at || interrupted) return;
+      interrupted = true;
+      throw new Error('SIMULATED_INTERRUPTION');
+    };
+    const revokeToken = vi.fn().mockResolvedValue('revoked');
+    const release = vi.fn().mockResolvedValue(undefined);
+    const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+    const service = new AccountDeletionService(
+      {
+        get: vi.fn(() => {
+          interrupt('get');
+          return Promise.resolve(stage ? { stage, remoteRevocationFailed } : null);
+        }),
+        assertWorkDrained: vi.fn().mockResolvedValue(undefined),
+        identities: vi.fn().mockResolvedValue([{ channel: 'telegram', externalId: 'chat' }]),
+        setStage: vi.fn(
+          (_userId: string, next: 'revoking' | 'cleaning' | 'notifying', failed?: boolean) => {
+            stage = next;
+            if (failed !== undefined) remoteRevocationFailed = failed;
+            interrupt(next);
+            return Promise.resolve();
+          },
+        ),
+        eraseAccount: vi.fn(() => {
+          accountExists = false;
+          interrupt('eraseAccount');
+          return Promise.resolve();
+        }),
+        finish: vi.fn(() => {
+          interrupt('finish:before');
+          stage = null;
+          interrupt('finish:after');
+          return Promise.resolve();
+        }),
+      },
+      new RevokeAccountCredentials(
+        {
+          list: vi.fn(() => Promise.resolve(credentials)),
+          deleteAll: vi.fn(() => {
+            credentials = [];
+            interrupt('deleteAll');
+            return Promise.resolve();
+          }),
+        },
+        { decrypt: vi.fn().mockReturnValue('test-token') } as unknown as TokenEncryptionPort,
+        { revokeToken },
+      ),
+      {
+        clean: vi.fn(() => {
+          cleanCalls += 1;
+          interrupt(cleanCalls === 1 ? 'clean:first' : 'clean:second');
+          return Promise.resolve();
+        }),
+      },
+      { acquire: vi.fn().mockResolvedValue('lease'), release } as unknown as IUserProcessingLock,
+      { sendMessage },
+    );
+
+    await expect(service.resume('owner')).rejects.toThrow('SIMULATED_INTERRUPTION');
+    expect(interrupted).toBe(true);
+    if (fault !== 'finish:after') expect(stage).not.toBeNull();
+
+    await expect(service.resume('owner')).resolves.toBeUndefined();
+    expect(stage).toBeNull();
+    expect(accountExists).toBe(false);
+    expect(credentials).toEqual([]);
+    expect(revokeToken).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'chat',
+      expect.stringContaining('La eliminación no modificó tu hoja de cálculo.'),
+    );
+    expect(release).toHaveBeenCalledTimes(2);
+    await expect(service.resume('owner')).resolves.toBeUndefined();
+    expect(revokeToken).toHaveBeenCalledOnce();
+  });
+
   it('keeps the deletion barrier and credentials until durable external work drains', async () => {
     const assertWorkDrained = vi
       .fn()

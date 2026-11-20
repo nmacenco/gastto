@@ -14,7 +14,13 @@ export function createAccountDeletionWorker(deps: {
       if (typeof job.data.userId !== 'string' || !/^[0-9a-f-]{36}$/i.test(job.data.userId)) {
         throw new Error('INVALID_ACCOUNT_DELETION_JOB');
       }
-      await deps.service.resume(job.data.userId);
+      try {
+        await deps.service.resume(job.data.userId);
+      } catch {
+        // BullMQ persists failure messages and stacks while retrying. Keep
+        // provider, database, and credential details out of retained jobs.
+        throw new Error('ACCOUNT_DELETION_RETRY_REQUIRED');
+      }
     },
     { connection: deps.redis, concurrency: 1 },
   );
