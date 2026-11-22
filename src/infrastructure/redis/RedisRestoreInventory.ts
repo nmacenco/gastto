@@ -4,6 +4,7 @@ import type { Queue } from 'bullmq';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Redis } from 'ioredis';
 import * as schema from '../db/schema';
+import { classifyRestoredJob, type RestoredJobDecision } from './RestoredJobPolicy';
 
 const retainedStates = [
   'waiting',
@@ -21,6 +22,7 @@ type Counts = Record<Classification, number>;
 
 export interface RedisRestoreInventoryReport {
   jobs: Counts & { active: number; global: number };
+  jobDecisions: Record<string, Record<RestoredJobDecision, number>>;
   identityCaches: Counts;
   correctionStates: Counts;
   processedOwnerIndexes: Counts;
@@ -31,6 +33,18 @@ export interface RedisRestoreInventoryReport {
 
 function counts(): Counts {
   return { current: 0, orphan: 0, uncertain: 0 };
+}
+
+function decisionCounts(): Record<RestoredJobDecision, number> {
+  return {
+    orphaned: 0,
+    pendingDeletion: 0,
+    completedHistory: 0,
+    failedHistory: 0,
+    unresolved: 0,
+    global: 0,
+    invalidPayload: 0,
+  };
 }
 
 /** Every restored account job is uncertain until its post-backup effect is reconciled. */
@@ -64,6 +78,7 @@ export class RedisRestoreInventory {
       liveUsers.has(userId) && !deletingUsers.has(userId) ? 'current' : 'orphan';
     const report: RedisRestoreInventoryReport = {
       jobs: { ...counts(), active: 0, global: 0 },
+      jobDecisions: {},
       identityCaches: counts(),
       correctionStates: counts(),
       processedOwnerIndexes: counts(),
@@ -73,32 +88,22 @@ export class RedisRestoreInventory {
     };
 
     for (const { name, queue } of this.queues) {
+      const decisions = decisionCounts();
+      report.jobDecisions[name] = decisions;
       const jobs = await queue.getJobs([...retainedStates], 0, -1);
       for (const job of jobs) {
-        if ((await job.getState()) === 'active') report.jobs.active++;
-        const data: unknown = job.data;
-        if (
-          name === 'session-timeout' &&
-          typeof data === 'object' &&
-          data !== null &&
-          Object.keys(data).length === 0
-        ) {
-          report.jobs.global++;
-          continue;
-        }
-        if (
-          typeof data !== 'object' ||
-          data === null ||
-          !('userId' in data) ||
-          typeof data.userId !== 'string'
-        ) {
-          report.jobs.uncertain++;
-          continue;
-        }
-        // A valid account job may have run after the snapshot. Its result cannot be inferred from Redis.
-        report.jobs[
-          !liveUsers.has(data.userId) && !deletingUsers.has(data.userId) ? 'orphan' : 'uncertain'
-        ]++;
+        const state = await job.getState();
+        if (state === 'active') report.jobs.active++;
+        const decision = classifyRestoredJob(name, job.data, state, {
+          liveUsers,
+          deletingUsers,
+          ownerByIdentity,
+        });
+        decisions[decision]++;
+        if (decision === 'orphaned') report.jobs.orphan++;
+        else if (decision === 'completedHistory') report.jobs.current++;
+        else if (decision === 'global') report.jobs.global++;
+        else report.jobs.uncertain++;
       }
     }
 

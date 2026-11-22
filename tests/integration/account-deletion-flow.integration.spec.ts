@@ -673,7 +673,7 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     const owner = await createUser(db);
     await createMessagingIdentity(db, { userId: owner.userId, externalId: 'inventory-live-chat' });
     const orphanId = '00000000-0000-4000-8000-000000000123';
-    const queue = new Queue('restore-inventory-test', { connection: redis });
+    const queue = new Queue('incoming-message', { connection: redis });
     const keys = [
       'identity:telegram:inventory-live-chat',
       'identity:telegram:inventory-orphan-chat',
@@ -685,8 +685,14 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       'oauth:state:inventory-unknown',
     ];
     try {
-      await queue.add('live', { userId: owner.userId });
-      await queue.add('orphan', { userId: orphanId });
+      const payload = {
+        messageType: 'TEXT',
+        channel: 'telegram',
+        timestamp: new Date().toISOString(),
+        externalMessageId: 'inventory-message',
+      };
+      await queue.add('live', { ...payload, userId: owner.userId, chatId: 'inventory-live-chat' });
+      await queue.add('orphan', { ...payload, userId: orphanId, chatId: 'inventory-orphan-chat' });
       await redis.set(keys[0]!, owner.userId);
       await redis.set(keys[1]!, orphanId);
       await redis.set(keys[2]!, '{}');
@@ -696,9 +702,10 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       await redis.set(keys[6]!, JSON.stringify({ userId: orphanId }));
       await redis.set(keys[7]!, '{broken');
       const report = await new RedisRestoreInventory(db, redis, [
-        { name: 'restore-inventory-test', queue },
+        { name: 'incoming-message', queue },
       ]).inspect();
       expect(report.jobs).toMatchObject({ orphan: 1, uncertain: 1, active: 0 });
+      expect(report.jobDecisions['incoming-message']).toMatchObject({ orphaned: 1, unresolved: 1 });
       expect(report.identityCaches.current).toBeGreaterThanOrEqual(1);
       expect(report.identityCaches.orphan).toBeGreaterThanOrEqual(1);
       expect(report.correctionStates.orphan).toBeGreaterThanOrEqual(1);

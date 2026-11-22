@@ -41,6 +41,8 @@ The proposed release protocol is to restore into quarantine with no ingress or w
 
 On 2026-11-22 the owner confirmed that production Redis uses Aiven and has three visible backups dated 2026-11-21 and 2026-11-22. Aiven can restore a backup after a service power cycle, so a procedural ban on historical PostgreSQL restores does not protect Redis. The development implementation now records a non-identifying cleanup epoch in PostgreSQL, mirrors it in Redis after account cleanup, and records Valkey's server `run_id` in PostgreSQL. In non-production environments, startup, HTTP ingress, and BullMQ processors compare both signals and fail closed on a mismatch. This detects a stale snapshot or server replacement; it does not reconcile restored jobs and keys. The detector remains inactive in production while deletion is disabled because routine Aiven restarts could otherwise halt service without a recovery command. Operator cleanup, CLI gating, live-restore rehearsal, and a verified backup retention limit remain release blockers. The runbook records the ordering and rehearsal cases.
 
+The read-only inventory now validates restored job payloads against worker schemas and groups decisions by queue. A queued job for a current account remains unresolved even when its owner and identity match PostgreSQL: the backup cannot prove whether its external effect happened later. Completed and failed history, pending deletion jobs, orphaned jobs, the global session timer, and invalid payloads are separate counts. These classifications are advisory and never authorize replay or reset. An effect outcome record or a reviewed incident procedure is needed before any uncertain job can be resumed or removed.
+
 ## References
 
 - [Data model](../architecture/data-model.md)
