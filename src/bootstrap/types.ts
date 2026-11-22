@@ -10,6 +10,9 @@ import type { DrizzleUserRepository } from '../infrastructure/db/repositories/Dr
 import type { DrizzleConversationStateRepository } from '../infrastructure/db/repositories/DrizzleConversationStateRepository';
 import type { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import type { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import type { DrizzleAccountDeletionRepository } from '../infrastructure/db/repositories/DrizzleAccountDeletionRepository';
+import type { DrizzleAccountExternalWorkFence } from '../infrastructure/db/repositories/DrizzleAccountExternalWorkFence';
+import type { DrizzleStartReplayGuard } from '../infrastructure/db/repositories/DrizzleStartReplayGuard';
 import type { DrizzleAccessRequestRepository } from '../infrastructure/db/repositories/DrizzleAccessRequestRepository';
 import type { RequestAccess } from '../application/use-cases/user/RequestAccess';
 import type { CandidateOAuthTokenService } from '../application/services/CandidateOAuthTokenService';
@@ -175,6 +178,9 @@ export interface Dependencies {
   conversationRepo: DrizzleConversationStateRepository;
   operationLogRepo: DrizzleOperationLogRepository;
   tokenRepo: DrizzleOAuthTokenRepository;
+  accountDeletionRepo?: DrizzleAccountDeletionRepository;
+  accountExternalWorkFence?: DrizzleAccountExternalWorkFence;
+  startReplayGuard?: DrizzleStartReplayGuard | undefined;
   accessRequests?: DrizzleAccessRequestRepository;
   requestAccess?: RequestAccess;
   operatorMail?: OperatorMailPort | undefined;

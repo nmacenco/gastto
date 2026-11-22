@@ -2,6 +2,8 @@
 
 When Telegram access approval is enabled, an approved local email association and exact `continuar` precede the initial Google OAuth link. The callback retains its existing state/nonce checks. Account replacement through settings uses a separate encrypted candidate credential and requires selecting a new destination before promotion. See [Telegram access approval](./telegram-access-approval.md).
 
+The callback registers durable account work after its per-user lock is acquired and keeps that registration through code exchange, credential persistence, and flow finalization. Account deletion confirmation may open the barrier while an earlier callback is running, but erasure waits for its registration to clear. Once the deletion barrier exists, a later callback returns a controlled failure before exchanging an authorization code or writing a credential.
+
 ## Overview
 
 The Cloud Storage Connection feature enables users to link their spreadsheet (Google Drive or OneDrive) during the conversational onboarding flow. For the MVP, only **Google Drive** is supported. Selecting OneDrive returns a friendly "coming soon" message.
@@ -75,6 +77,7 @@ The reminder owns the per-user lease, commits a guarded nonce/revision self-tran
 - Every spreadsheet token consumer obtains plaintext access through the shared Application service. Use cases do not read token rows or decrypt credentials directly.
 - A fresh access token is reused. A token that is expired or expires within five minutes is refreshed before the external operation starts.
 - The refresh token is decrypted only for the provider exchange. The returned access token is encrypted with a fresh IV and persisted through `IOAuthTokenRepository.markRefreshed()`.
+- Active and candidate refresh exchanges hold the account-work fence through the provider response and token update or revocation marker. A refresh reaching the fence after account deletion begins returns an authorization error without calling Google. A refresh already inside a fenced spreadsheet operation reuses that fence for the same account.
 - If a spreadsheet or Drive operation returns HTTP 401/403 while using a token considered valid, that exact operation receives one forced-refresh replay. Writes such as append and delete are never retried more than once.
 - A missing, revoked, undecryptable, or Google-rejected (`invalid_grant`) refresh credential is terminal. Provider rejection marks the stored credential revoked and the existing reconnection flow starts.
 - Refresh timeouts, network failures, and provider 5xx responses are retryable `NETWORK_ERROR` outcomes. They do not revoke the credential or restart onboarding.

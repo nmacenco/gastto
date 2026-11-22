@@ -19,6 +19,7 @@ import { StaleConversationStateError } from '../../../domain/errors/StaleConvers
 import { getFinancialExecutionClaim } from '../../../domain/entities/ConversationState';
 import type { Logger } from 'pino';
 import { parseExpenseUndoPayload } from '../../../domain/value-objects/expense-undo-payload';
+import type { AccountExternalWorkFence } from '../../ports/AccountExternalWorkFence';
 
 export interface UndoLastExpenseOutput {
   status:
@@ -65,9 +66,15 @@ export class UndoLastExpenseUseCase {
     private readonly oauthAccessTokenService: OAuthAccessTokenProvider,
     private readonly transitionState: TransitionConversationState,
     private readonly logger: Logger,
+    private readonly externalWorkFence?: AccountExternalWorkFence,
   ) {}
 
   async execute(input: UndoLastExpenseInput): Promise<UndoLastExpenseOutput> {
+    const execute = () => this.executeUnderFence(input);
+    return this.externalWorkFence ? this.externalWorkFence.run(input.userId, execute) : execute();
+  }
+
+  private async executeUnderFence(input: UndoLastExpenseInput): Promise<UndoLastExpenseOutput> {
     const authorization = input.action === 'confirm' ? this.authorizeConfirmation(input) : null;
     if (authorization && authorization.status !== 'authorized') return authorization;
 

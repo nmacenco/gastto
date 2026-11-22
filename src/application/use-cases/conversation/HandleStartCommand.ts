@@ -14,6 +14,8 @@ import type { AccessRequestRepository } from '../../../domain/ports/AccessReques
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { accessCopies } from '../../copies/access.copies';
 import { markAccessWelcomeShown } from './markAccessWelcomeShown';
+import type { AccountExternalWorkFence } from '../../ports/AccountExternalWorkFence';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 export interface HandleStartCommandInput {
   userId: string;
@@ -34,10 +36,34 @@ export class HandleStartCommand {
     private readonly logger?: Logger,
     private readonly accessRequests?: AccessRequestRepository,
     private readonly messaging?: MessagingOutputPort,
+    private readonly accountIdentity?: {
+      findByMessagingIdentity(
+        channel: 'telegram',
+        externalId: string,
+      ): Promise<{ userId: string } | null>;
+      isDeleting(userId: string): Promise<boolean>;
+    },
+    private readonly accountExternalWorkFence?: AccountExternalWorkFence,
   ) {}
 
   async execute(input: HandleStartCommandInput): Promise<HandleStartCommandOutput> {
-    if (!this.transitionState || !this.userProcessingLock) return this.executeOwned(input);
+    const executeOwned = () =>
+      this.accountExternalWorkFence
+        ? this.accountExternalWorkFence.run(input.userId, () => this.executeOwned(input))
+        : this.executeOwned(input);
+    try {
+      return await this.executeWithUserLock(input, executeOwned);
+    } catch (error) {
+      if (error instanceof AccountDeletionInProgressError) return { replyText: '' };
+      throw error;
+    }
+  }
+
+  private async executeWithUserLock(
+    input: HandleStartCommandInput,
+    executeOwned: () => Promise<HandleStartCommandOutput>,
+  ): Promise<HandleStartCommandOutput> {
+    if (!this.transitionState || !this.userProcessingLock) return executeOwned();
     const token = await this.userProcessingLock.acquire(input.userId, 180_000);
     if (!token) return { replyText: sharedCopies.welcome(input.username) };
     const stopRenewal = startUserProcessingLeaseRenewal({
@@ -49,7 +75,7 @@ export class HandleStartCommand {
       endpoint: 'HandleStartCommand',
     });
     try {
-      return await this.transitionState.runForUser(input.userId, () => this.executeOwned(input));
+      return await this.transitionState.runForUser(input.userId, executeOwned);
     } finally {
       stopRenewal();
       try {
@@ -67,6 +93,15 @@ export class HandleStartCommand {
   }
 
   private async executeOwned(input: HandleStartCommandInput): Promise<HandleStartCommandOutput> {
+    if (this.accountIdentity) {
+      const current = await this.accountIdentity.findByMessagingIdentity('telegram', input.chatId);
+      if (
+        current?.userId !== input.userId ||
+        (await this.accountIdentity.isDeleting(input.userId))
+      ) {
+        return { replyText: '' };
+      }
+    }
     if (this.accessRequests && this.messaging) {
       const approved = await this.accessRequests.findApproved(input.userId);
       const pending = approved ? null : await this.accessRequests.findPending(input.userId);

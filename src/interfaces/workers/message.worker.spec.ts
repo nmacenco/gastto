@@ -36,6 +36,7 @@ import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloa
 import { expenseCopies, recoveryGuidance } from '../../application/copies/expense.copies';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { settingsCopies } from '../../application/copies/settings.copies';
+import { accountDeletionCopies } from '../../application/use-cases/user/RequestAccountDeletion';
 import { GenerateExpenseSummaryUseCase } from '../../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionInput } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import { SpreadsheetCategoryReader } from '../../infrastructure/adapters/sheets/SpreadsheetCategoryReader';
@@ -459,7 +460,8 @@ describe('processMessageJob', () => {
         MessageWorkerDeps['requestAccess']
       >;
       deps.operatorMail = { sendAccessRequestNotice };
-      deps.oauthAdmission = { getValidAccessToken: vi.fn() } as unknown as NonNullable<
+      const getValidAccessToken = vi.fn();
+      deps.oauthAdmission = { getValidAccessToken } as unknown as NonNullable<
         MessageWorkerDeps['oauthAdmission']
       >;
 
@@ -812,6 +814,154 @@ describe('processMessageJob', () => {
         statePayload: { flowId: 'flow-1' },
         expiresAt: new Date(Date.now() + 60_000),
       });
+
+    it('opens account deletion from settings without touching account data', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(settingsState());
+      const deps = buildMockDeps();
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '8' }), deps);
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'SETTINGS_MENU',
+          payload: { screen: 'account_deletion' },
+        }),
+      );
+      const requestTransition = mockTransitionStateExecute.mock.calls[0]?.[0];
+      expect(requestTransition?.expiresAt).toBeInstanceOf(Date);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accountDeletionCopies.request);
+      expect(mockUserRepoFindByMessagingIdentity).toHaveBeenCalledWith('telegram', '123456789');
+      expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
+    });
+
+    it('consumes exact confirmation without claiming deletion completed', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'SETTINGS_MENU',
+          statePayload: { screen: 'account_deletion' },
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'ELIMINAR MI CUENTA' }),
+        buildMockDeps(),
+      );
+      expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'IDLE', payload: null }),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accountDeletionCopies.unavailable);
+    });
+
+    it('starts the durable deletion barrier only after exact confirmation', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'SETTINGS_MENU',
+          statePayload: { screen: 'account_deletion' },
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      );
+      const confirm = vi.fn().mockResolvedValue(true);
+      const add = vi.fn().mockResolvedValue(undefined);
+      const deps = buildMockDeps();
+      deps.accountDeletion = { confirm, queue: { add } };
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'eliminar mi cuenta' }), deps);
+      expect(confirm).not.toHaveBeenCalled();
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'ELIMINAR MI CUENTA' }), deps);
+      expect(confirm).toHaveBeenCalledWith({
+        userId: 'user-123',
+        channel: 'telegram',
+        externalId: '123456789',
+        revision: '0',
+      });
+      expect(add).toHaveBeenCalledWith('delete', { userId: 'user-123' });
+    });
+
+    it('expires a pending request without deleting account data', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'SETTINGS_MENU',
+          statePayload: { screen: 'account_deletion' },
+          expiresAt: new Date(Date.now() - 1),
+        }),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'ELIMINAR MI CUENTA' }),
+        buildMockDeps(),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accountDeletionCopies.expired);
+    });
+
+    it('cancels a pending request and rejects a repeated confirmation', async () => {
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(
+          buildConversationState({
+            currentState: 'SETTINGS_MENU',
+            statePayload: { screen: 'account_deletion' },
+            expiresAt: new Date(Date.now() + 60_000),
+          }),
+        )
+        .mockResolvedValueOnce(buildConversationState());
+      const deps = buildMockDeps();
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'cancelar' }), deps);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accountDeletionCopies.cancelled);
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'ELIMINAR MI CUENTA' }), deps);
+      expect(mockTransitionStateExecute).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not start a request for a mismatched messaging identity', async () => {
+      mockUserRepoFindByMessagingIdentity.mockResolvedValue({ userId: 'other-user' });
+      await expect(
+        processMessageJob(buildJob({ ...baseJobData, rawMessage: '8' }), buildMockDeps()),
+      ).rejects.toThrow('Messaging identity does not match job user');
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('keeps the deletion action disabled in production', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      try {
+        mockGetConversationStateExecute.mockResolvedValue(settingsState());
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: '8' }), buildMockDeps());
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          accountDeletionCopies.unavailable,
+        );
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('allows the reviewed production activation flag to open the deletion request', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      try {
+        mockGetConversationStateExecute.mockResolvedValue(settingsState());
+        const deps = buildMockDeps();
+        deps.accountDeletionEnabled = true;
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: '8' }), deps);
+        expect(mockSendMessage).toHaveBeenCalledWith('123456789', accountDeletionCopies.request);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('allows the recovery command before access approval and OAuth checks', async () => {
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      const deps = buildMockDeps();
+      const findApproved = vi.fn().mockResolvedValue(null);
+      deps.accessRequests = { findApproved } as unknown as NonNullable<
+        MessageWorkerDeps['accessRequests']
+      >;
+      deps.requestAccess = { execute: vi.fn() } as unknown as NonNullable<
+        MessageWorkerDeps['requestAccess']
+      >;
+      const getValidAccessToken = vi.fn();
+      deps.oauthAdmission = { getValidAccessToken } as unknown as NonNullable<
+        MessageWorkerDeps['oauthAdmission']
+      >;
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: '/eliminar_cuenta' }), deps);
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', accountDeletionCopies.request);
+      expect(findApproved).not.toHaveBeenCalled();
+      expect(getValidAccessToken).not.toHaveBeenCalled();
+    });
 
     it('reaches destination settings after cancelling a conflicting sheet flow', async () => {
       const sheetState = buildConversationState({ currentState: 'ONBOARDING_SHEET' });

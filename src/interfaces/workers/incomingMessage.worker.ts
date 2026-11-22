@@ -20,6 +20,7 @@ import {
   registerBullMqErrorListener,
   sanitizeRedisErrorMessage,
 } from './bullMqRuntime';
+import { assertRestoreSafe } from './restoreQuarantine';
 
 export async function processIncomingMessageJob(
   job: Job<IncomingMessageJobData>,
@@ -53,11 +54,14 @@ export function createIncomingMessageWorker(opts: {
   redis: Redis;
   routeIncomingMessage: RouteIncomingMessage;
   logger: Logger;
+  restoreGuard?: { assertCurrent(): Promise<void> };
 }): Worker<IncomingMessageJobData> {
   const worker = new Worker<IncomingMessageJobData>(
     'incoming-message',
-    async (job: Job<IncomingMessageJobData>) =>
-      processIncomingMessageJob(job, opts.routeIncomingMessage),
+    async (job: Job<IncomingMessageJobData>, token?: string) => {
+      await assertRestoreSafe(opts.restoreGuard, job, token, worker, opts.logger);
+      await processIncomingMessageJob(job, opts.routeIncomingMessage);
+    },
     {
       connection: opts.redis,
       concurrency: 1, // strict FIFO per user (ADR-011)

@@ -7,5 +7,5 @@ import type { ProcessedMessageKey } from '../value-objects/ProcessedMessageKey';
 
 export interface IProcessedMessageRepository {
   exists(key: ProcessedMessageKey): Promise<boolean>;
-  markAsProcessed(key: ProcessedMessageKey): Promise<void>;
+  markAsProcessed(key: ProcessedMessageKey, userId?: string): Promise<void>;
 }

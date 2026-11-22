@@ -15,6 +15,8 @@ import type { GetConversationState } from './GetConversationState';
 import type { SemanticRoutingPolicy } from '../../services/semantic-router/runtime-policy';
 import type { DeterministicRoutingPolicy } from '../../services/semantic-router/deterministic-routing';
 import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
+import type { IUserRepository } from '../../../domain/ports/repositories';
+import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 
 export interface RouteIncomingMessageDeps {
   messageQueue: Queue<ProcessMessageJobData>;
@@ -26,12 +28,31 @@ export interface RouteIncomingMessageDeps {
   getConversationState: GetConversationState;
   semanticRoutingPolicy: SemanticRoutingPolicy;
   accessRequests?: AccessRequestRepository;
+  accountDeletionIdentity?: { users: IUserRepository; messaging: MessagingOutputPort };
+  accountDeletionGate?: {
+    isIdentityDeleting(channel: string, externalId: string): Promise<boolean>;
+    isDeleting?(userId: string): Promise<boolean>;
+  };
 }
 
 export class RouteIncomingMessage {
   constructor(private readonly deps: RouteIncomingMessageDeps) {}
 
   async execute(payload: NormalizedPayload): Promise<void> {
+    if (await this.deps.accountDeletionGate?.isIdentityDeleting(payload.channel, payload.chatId)) {
+      return;
+    }
+    if (
+      payload.messageType === 'UNSUPPORTED' &&
+      payload.channel === 'telegram' &&
+      this.deps.accountDeletionIdentity
+    ) {
+      const user = await this.deps.accountDeletionIdentity.users.findByMessagingIdentity(
+        'telegram',
+        payload.chatId,
+      );
+      if (!user || payload.userId !== payload.chatId) return;
+    }
     switch (payload.messageType) {
       case 'TEXT':
         await this.handleText(payload);
@@ -63,12 +84,29 @@ export class RouteIncomingMessage {
     // attempt timed out. The webhook already sent the ack, so skip reprocessing.
     const processedKey = new ProcessedMessageKey({
       channel: payload.channel,
+      externalIdentityId: payload.chatId,
       externalMessageId: payload.externalMessageId!,
     });
     if (await this.deps.processedMessageRepository.exists(processedKey)) {
       return;
     }
 
+    if (payload.channel === 'telegram' && this.deps.accountDeletionIdentity) {
+      if (payload.userId !== payload.chatId) return;
+      const user = await this.deps.accountDeletionIdentity.users.findByMessagingIdentity(
+        'telegram',
+        payload.chatId,
+      );
+      if (!user) {
+        await this.deps.accountDeletionIdentity.messaging.sendMessage(
+          payload.chatId,
+          text.trim() === '/eliminar_cuenta'
+            ? 'No encontramos una cuenta vinculada a este chat.'
+            : 'Para empezar a usar Gastto, escribí /start.',
+        );
+        return;
+      }
+    }
     const { userId } = await this.deps.resolveIdentity.execute({
       channel: payload.channel,
       externalId: payload.chatId,
@@ -94,7 +132,7 @@ export class RouteIncomingMessage {
         rawMessage: text,
         hasCallback: false,
       });
-      if (decision.kind === 'expense_guidance') {
+      if (decision.kind === 'expense_guidance' && text.trim() !== '/eliminar_cuenta') {
         await this.deps.sendGuidance.execute(payload.chatId);
         return;
       }
@@ -102,6 +140,7 @@ export class RouteIncomingMessage {
 
     // TEXT payloads are only produced by the parser for valid Telegram updates,
     // so externalMessageId is always defined.
+    if (await this.deps.accountDeletionGate?.isDeleting?.(userId)) return;
     await this.deps.messageQueue.add('process-message', {
       userId,
       rawMessage: text,
@@ -111,10 +150,19 @@ export class RouteIncomingMessage {
       receivedAt: payload.timestamp.toISOString(),
     });
 
-    await this.deps.processedMessageRepository.markAsProcessed(processedKey);
+    await this.deps.processedMessageRepository.markAsProcessed(processedKey, userId);
   }
 
   private async handleCallback(payload: NormalizedPayload): Promise<void> {
+    if (
+      payload.channel === 'telegram' &&
+      this.deps.accountDeletionIdentity &&
+      !(await this.deps.accountDeletionIdentity.users.findByMessagingIdentity(
+        'telegram',
+        payload.chatId,
+      ))
+    )
+      return;
     const callbackData = payload.callbackData;
     if (!callbackData) {
       // Defensive: CALLBACK payloads should always have data, but if not,
@@ -131,6 +179,7 @@ export class RouteIncomingMessage {
 
     const processedKey = new ProcessedMessageKey({
       channel: payload.channel,
+      externalIdentityId: payload.chatId,
       externalMessageId: payload.externalMessageId!,
     });
     if (await this.deps.processedMessageRepository.exists(processedKey)) {
@@ -142,6 +191,7 @@ export class RouteIncomingMessage {
       externalId: payload.chatId,
     });
 
+    if (await this.deps.accountDeletionGate?.isDeleting?.(userId)) return;
     await this.deps.messageQueue.add('process-message', {
       userId,
       rawMessage: '',
@@ -152,6 +202,6 @@ export class RouteIncomingMessage {
       callbackData,
     });
 
-    await this.deps.processedMessageRepository.markAsProcessed(processedKey);
+    await this.deps.processedMessageRepository.markAsProcessed(processedKey, userId);
   }
 }

@@ -57,6 +57,10 @@ function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
     conversationRepo: {} as Dependencies['conversationRepo'],
     operationLogRepo: {} as Dependencies['operationLogRepo'],
     tokenRepo: {} as Dependencies['tokenRepo'],
+    startReplayGuard: {
+      claim: vi.fn().mockResolvedValue(true),
+      pruneExpired: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Dependencies['startReplayGuard'],
     spreadsheetConfigRepo: {} as Dependencies['spreadsheetConfigRepo'],
     columnMappingRepo: {} as Dependencies['columnMappingRepo'],
     categoryVocabularyRepo: {} as Dependencies['categoryVocabularyRepo'],
@@ -142,6 +146,15 @@ describe('registerRoutes', () => {
     registerRoutes(app, deps, baseEnv);
 
     expect(app.hasRoute({ method: 'POST', url: '/webhook/telegram' })).toBe(true);
+  });
+
+  it('refuses to register Telegram without the durable /start replay guard', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: {} as TelegramFeature,
+      startReplayGuard: undefined,
+    });
+    expect(() => registerRoutes(app, deps, baseEnv)).toThrow('ACCOUNT_START_REPLAY_GUARD_REQUIRED');
   });
 
   it('does not register the Telegram webhook when the Telegram feature is absent', async () => {

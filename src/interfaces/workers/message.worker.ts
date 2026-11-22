@@ -63,8 +63,10 @@ import {
   type ProcessMessageJobData,
 } from '../../application/ports/ProcessMessageJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { AccountDeletionInProgressError } from '../../application/ports/AccountExternalWorkFence';
 import { parseCategoryOnboardingState } from '../../application/dtos/CategoryOnboardingState';
 import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
+import { assertRestoreSafe } from './restoreQuarantine';
 import {
   tryNormalizeExpenseReviewPayload,
   type ExpenseReviewPayload,
@@ -101,6 +103,11 @@ import { StaleConversationStateError } from '../../domain/errors/StaleConversati
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { settingsCopies } from '../../application/copies/settings.copies';
+import {
+  RequestAccountDeletion,
+  accountDeletionCopies,
+  isExactAccountDeletionConfirmation,
+} from '../../application/use-cases/user/RequestAccountDeletion';
 import type { GetSpreadsheetSettings } from '../../application/use-cases/spreadsheet/GetSpreadsheetSettings';
 import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
 import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
@@ -142,6 +149,18 @@ const USER_LOCK_TTL_MS = 180_000;
 const USER_LOCK_RENEW_MS = 30_000;
 
 export interface MessageWorkerDeps {
+  restoreGuard?: { assertCurrent(): Promise<void> };
+  accountDeletionEnabled?: boolean;
+  accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> };
+  accountDeletion?: {
+    confirm(input: {
+      userId: string;
+      channel: string;
+      externalId: string;
+      revision: string;
+    }): Promise<boolean>;
+    queue: { add(name: string, data: { userId: string }): Promise<unknown> };
+  };
   redis: Redis;
   logger: Logger;
   userProcessingLock: IUserProcessingLock;
@@ -216,6 +235,8 @@ export async function processMessageJob(
   const data = parsed.data;
   const { userId, channel, externalId } = data;
 
+  if (await opts.accountDeletionGate?.isDeleting(userId)) return;
+
   const identity = await opts.userRepo.findByMessagingIdentity(channel, externalId);
   if (identity?.userId !== userId) {
     throw new Error('Messaging identity does not match job user');
@@ -264,10 +285,38 @@ export async function processMessageJob(
   renewalTimer.unref();
 
   try {
+    if (await opts.accountDeletionGate?.isDeleting(userId)) return;
     const messaging = opts.messagingAdapters[channel];
 
     const conversationState = await opts.getConversationState.execute({ userId });
     const currentState = conversationState?.currentState ?? 'IDLE';
+    // The account option must remain reachable when Google access or access
+    // approval is unavailable. The existing identity check and user lock ran above.
+    if (
+      channel === 'telegram' &&
+      data.callbackData === undefined &&
+      ((data.rawMessage.trim() === '8' &&
+        currentState === 'SETTINGS_MENU' &&
+        conversationState?.statePayload?.screen === undefined) ||
+        conversationState?.statePayload?.screen === 'account_deletion' ||
+        data.rawMessage.trim() === '/eliminar_cuenta')
+    ) {
+      if (conversationState) {
+        await opts.transitionState.runWithState(conversationState, async () => {
+          await handleAccountDeletionPreview(
+            data.rawMessage,
+            userId,
+            conversationState,
+            opts,
+            messaging,
+            externalId,
+          );
+        });
+      } else {
+        await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+      }
+      return;
+    }
     if (
       channel === 'telegram' &&
       opts.accessRequests &&
@@ -686,6 +735,7 @@ export async function processMessageJob(
         await opts.transitionState.runForUser(userId, route);
       }
     } catch (err) {
+      if (err instanceof AccountDeletionInProgressError) return;
       if (err instanceof StaleConversationStateError) return;
       if (err instanceof RecoveredExpenseExtractionError) {
         opts.logger.error({
@@ -759,6 +809,78 @@ export async function processMessageJob(
       });
     }
   }
+}
+
+async function handleAccountDeletionPreview(
+  rawMessage: string,
+  userId: string,
+  state: ConversationState,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+  externalId: string,
+): Promise<void> {
+  const deletionEnabled = opts.accountDeletionEnabled ?? process.env.NODE_ENV !== 'production';
+  if (!deletionEnabled) {
+    await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+    return;
+  }
+  const pending = state.statePayload?.screen === 'account_deletion';
+  if (pending) {
+    if (
+      !isExactAccountDeletionConfirmation(rawMessage) &&
+      !['cancelar', 'salir', 'cancel', 'exit'].includes(rawMessage.trim().toLowerCase())
+    ) {
+      await messaging.sendMessage(externalId, accountDeletionCopies.request);
+      return;
+    }
+    if (
+      state.expiresAt &&
+      state.expiresAt.getTime() > Date.now() &&
+      isExactAccountDeletionConfirmation(rawMessage) &&
+      deletionEnabled &&
+      opts.accountDeletion
+    ) {
+      const started = await opts.accountDeletion.confirm({
+        userId,
+        channel: 'telegram',
+        externalId,
+        revision: state.revision,
+      });
+      if (started) {
+        await opts.accountDeletion.queue.add('delete', { userId });
+        await messaging.sendMessage(
+          externalId,
+          'Empezamos a eliminar tu cuenta. Te avisaremos cuando termine.',
+        );
+      } else {
+        await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+      }
+      return;
+    }
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'IDLE',
+      payload: null,
+      expected: opts.transitionState.precondition(state, 'any'),
+    });
+    const reply =
+      state.expiresAt && state.expiresAt.getTime() > Date.now()
+        ? isExactAccountDeletionConfirmation(rawMessage)
+          ? accountDeletionCopies.unavailable
+          : accountDeletionCopies.cancelled
+        : accountDeletionCopies.expired;
+    await messaging.sendMessage(externalId, reply);
+    return;
+  }
+  if (state.currentState !== 'IDLE' && state.currentState !== 'SETTINGS_MENU') {
+    await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+    return;
+  }
+  await new RequestAccountDeletion(opts.transitionState, messaging).execute({
+    userId,
+    state,
+    externalId,
+  });
 }
 
 async function routeByState(
@@ -1223,6 +1345,7 @@ async function routeByState(
       });
       await sendUndoOutcome(result, messaging, externalId);
     } catch (err) {
+      if (err instanceof AccountDeletionInProgressError) throw err;
       opts.logger.error({
         msg: 'Failed to undo while preserving queued review',
         endpoint: 'routeByState',
@@ -1864,7 +1987,10 @@ async function sendUndoOutcome(
 export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMessageJobData> {
   const worker = new Worker<ProcessMessageJobData>(
     'process-message',
-    async (job: Job<ProcessMessageJobData>) => processMessageJob(job, opts),
+    async (job: Job<ProcessMessageJobData>, token?: string) => {
+      await assertRestoreSafe(opts.restoreGuard, job, token, worker, opts.logger);
+      await processMessageJob(job, opts);
+    },
     {
       connection: opts.redis,
       concurrency: 2, // max 2 simultaneous jobs to not saturate LLM API (ADR-005)

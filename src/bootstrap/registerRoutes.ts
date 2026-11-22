@@ -46,6 +46,9 @@ export function registerRoutes(app: FastifyInstance, deps: Dependencies | null, 
   const windowMs = env.SECURITY_RATE_WINDOW_MS ?? 60_000;
 
   if (deps?.telegram !== null && deps?.telegram !== undefined) {
+    if (!deps.startReplayGuard) {
+      throw new Error('ACCOUNT_START_REPLAY_GUARD_REQUIRED');
+    }
     registerTelegramWebhook(app, {
       webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
       ...(limiter
@@ -62,6 +65,8 @@ export function registerRoutes(app: FastifyInstance, deps: Dependencies | null, 
       handleStartCommand: deps.telegram.handleStartCommand,
       sendImmediateAcknowledgement: deps.telegram.sendImmediateAcknowledgement,
       resolveIdentity: deps.resolveIdentity,
+      ...(deps.accountDeletionRepo ? { accountDeletionGate: deps.accountDeletionRepo } : {}),
+      startReplayGuard: deps.startReplayGuard,
     });
   }
 

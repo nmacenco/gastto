@@ -9,6 +9,8 @@ import type { OAuthServicePort } from '../../domain/ports/oauth';
 import type { IOAuthTokenRepository } from '../../domain/ports/repositories';
 import type { TokenEncryptionPort } from '../../domain/ports/tokenEncryption';
 import { executeWithOAuthAccessToken, OAuthAccessTokenService } from './OAuthAccessTokenService';
+import { AccountDeletionInProgressError } from '../ports/AccountExternalWorkFence';
+import type { AccountExternalWorkFence } from '../ports/AccountExternalWorkFence';
 
 const ACCESS = Buffer.from('encrypted-access');
 const REFRESH = Buffer.from('encrypted-refresh');
@@ -57,7 +59,7 @@ function buildService(refreshWindowMs = 5 * 60 * 1000): OAuthAccessTokenService 
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   findByUserAndProvider.mockResolvedValue({ ...token });
   decrypt.mockImplementation((ciphertext: Buffer) =>
     ciphertext === REFRESH ? 'refresh-plaintext' : 'access-plaintext',
@@ -71,6 +73,93 @@ beforeEach(() => {
 });
 
 describe('OAuthAccessTokenService', () => {
+  it('denies credential access while account deletion is pending', async () => {
+    const service = new OAuthAccessTokenService({
+      tokenRepository: { findByUserAndProvider } as unknown as IOAuthTokenRepository,
+      tokenEncryption: { decrypt, encrypt },
+      oauthService: { refreshAccessToken } as unknown as OAuthServicePort,
+      accountDeletion: { isDeleting: vi.fn().mockResolvedValue(true) },
+    });
+    await expect(
+      service.getValidAccessToken({ userId: 'user-1', provider: 'google' }),
+    ).rejects.toBeInstanceOf(SpreadsheetError);
+    expect(findByUserAndProvider).not.toHaveBeenCalled();
+  });
+  it('does not persist a refresh that finishes after deletion begins', async () => {
+    findByUserAndProvider.mockResolvedValue({
+      ...token,
+      accessTokenExpiresAt: new Date(Date.now() - 1),
+    });
+    const isDeleting = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const service = new OAuthAccessTokenService({
+      tokenRepository: { findByUserAndProvider, markRefreshed } as unknown as IOAuthTokenRepository,
+      tokenEncryption: { decrypt, encrypt },
+      oauthService: { refreshAccessToken } as unknown as OAuthServicePort,
+      accountDeletion: { isDeleting },
+    });
+    await expect(
+      service.getValidAccessToken({ userId: 'user-1', provider: 'google' }),
+    ).rejects.toMatchObject({ code: 'AUTH_ERROR' });
+    expect(refreshAccessToken).toHaveBeenCalledOnce();
+    expect(markRefreshed).not.toHaveBeenCalled();
+  });
+  it('does not call Google when the refresh fence rejects a late request', async () => {
+    findByUserAndProvider.mockResolvedValue({ ...token, accessTokenExpiresAt: new Date(0) });
+    const run = vi.fn().mockRejectedValue(new AccountDeletionInProgressError());
+    const service = new OAuthAccessTokenService({
+      tokenRepository: { findByUserAndProvider, markRefreshed } as unknown as IOAuthTokenRepository,
+      tokenEncryption: { decrypt, encrypt },
+      oauthService: { refreshAccessToken } as unknown as OAuthServicePort,
+      accountExternalWorkFence: { run },
+    });
+
+    await expect(
+      service.getValidAccessToken({ userId: 'user-1', provider: 'google' }),
+    ).rejects.toMatchObject({ code: 'AUTH_ERROR' });
+    expect(run).toHaveBeenCalledWith('user-1', expect.any(Function));
+    expect(decrypt).not.toHaveBeenCalled();
+    expect(refreshAccessToken).not.toHaveBeenCalled();
+    expect(markRefreshed).not.toHaveBeenCalled();
+  });
+
+  it('keeps a rejected refresh and its revocation marker inside the fence', async () => {
+    findByUserAndProvider.mockResolvedValue({ ...token, accessTokenExpiresAt: new Date(0) });
+    let insideFence = false;
+    const run: AccountExternalWorkFence['run'] = async <T>(
+      _userId: string,
+      work: () => Promise<T>,
+    ) => {
+      insideFence = true;
+      try {
+        return await work();
+      } finally {
+        insideFence = false;
+      }
+    };
+    refreshAccessToken.mockImplementation(() => {
+      expect(insideFence).toBe(true);
+      return Promise.reject(new OAuthDeniedError('rejected'));
+    });
+    markRevoked.mockImplementation(() => {
+      expect(insideFence).toBe(true);
+      return Promise.resolve();
+    });
+    const service = new OAuthAccessTokenService({
+      tokenRepository: {
+        findByUserAndProvider,
+        markRefreshed,
+        markRevoked,
+      } as unknown as IOAuthTokenRepository,
+      tokenEncryption: { decrypt, encrypt },
+      oauthService: { refreshAccessToken } as unknown as OAuthServicePort,
+      accountExternalWorkFence: { run },
+    });
+
+    await expect(
+      service.getValidAccessToken({ userId: 'user-1', provider: 'google' }),
+    ).rejects.toMatchObject({ code: 'AUTH_ERROR' });
+    expect(markRevoked).toHaveBeenCalledWith('token-1');
+  });
   it('reuses and decrypts a token outside the refresh window', async () => {
     const result = await buildService().getValidAccessToken({
       userId: 'user-1',

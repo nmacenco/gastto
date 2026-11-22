@@ -6,6 +6,7 @@ import type {
 } from '../../../domain/ports/AccessRequestRepository';
 import type { IUserRepository } from '../../../domain/ports/repositories';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 const request: AccessRequest = {
   id: 'request-1',
@@ -52,5 +53,27 @@ describe('ApproveAccessRequest', () => {
     expect(outcome.status).toBe('already_approved');
     expect(markApprovalNoticeSent).toHaveBeenCalledWith(request.id);
     expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips the approval notice when deletion begins after the approval transaction', async () => {
+    const approve = vi.fn().mockResolvedValue({ status: 'approved', request });
+    const markApprovalNoticeSent = vi.fn();
+    const findMessagingIdentitiesByUserId = vi.fn();
+    const sendMessage = vi.fn();
+    const fence = { run: vi.fn().mockRejectedValue(new AccountDeletionInProgressError()) };
+    const useCase = new ApproveAccessRequest(
+      { approve, markApprovalNoticeSent } as unknown as AccessRequestRepository,
+      { findMessagingIdentitiesByUserId } as unknown as IUserRepository,
+      { sendMessage },
+      fence,
+    );
+
+    await expect(
+      useCase.execute({ requestId: request.id, operatorIdentity: 'project-owner' }),
+    ).resolves.toMatchObject({ status: 'approved' });
+    expect(fence.run).toHaveBeenCalledWith('user-1', expect.any(Function));
+    expect(findMessagingIdentitiesByUserId).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(markApprovalNoticeSent).not.toHaveBeenCalled();
   });
 });

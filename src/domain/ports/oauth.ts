@@ -5,6 +5,8 @@
 import type { SpreadsheetProvider } from '../entities/SpreadsheetConfig';
 
 export interface OAuthServicePort {
+  /** Attempt to revoke a grant. Never expose provider response bodies or tokens. */
+  revokeToken(provider: SpreadsheetProvider, token: string): Promise<'revoked' | 'not_confirmed'>;
   /** Builds the provider-specific OAuth authorization URL. */
   buildAuthUrl(provider: SpreadsheetProvider, state: string, redirectUri: string): string;
 

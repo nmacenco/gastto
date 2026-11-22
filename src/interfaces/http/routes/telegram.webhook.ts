@@ -31,6 +31,17 @@ export interface TelegramWebhookHandlerDeps {
   handleStartCommand: HandleStartCommand;
   sendImmediateAcknowledgement: SendImmediateAcknowledgement;
   resolveIdentity: ResolveUserIdentityUseCase;
+  accountDeletionGate?: {
+    isIdentityDeleting(channel: string, externalId: string): Promise<boolean>;
+    admitIdentityDelivery?(
+      channel: string,
+      externalId: string,
+      enqueue: () => Promise<unknown>,
+    ): Promise<boolean>;
+  };
+  startReplayGuard?: {
+    claim(chatId: string, messageId: string): Promise<boolean>;
+  };
 }
 
 export interface TelegramWebhookDeps extends TelegramWebhookHandlerDeps {
@@ -60,21 +71,54 @@ export async function handleTelegramWebhook(
     return reply.status(200).send({ ok: true });
   }
 
+  if (await deps.accountDeletionGate?.isIdentityDeleting(payload.channel, payload.chatId)) {
+    return reply.status(200).send({ ok: true });
+  }
+
   // /start command short-circuit
   if (payload.messageType === 'TEXT' && payload.text?.toLowerCase() === '/start') {
+    const messageId = payload.externalMessageId;
+    if (
+      messageId &&
+      deps.startReplayGuard &&
+      !(await deps.startReplayGuard.claim(payload.chatId, messageId))
+    ) {
+      return reply.status(200).send({ ok: true });
+    }
     const rawBody = req.body as Record<string, unknown>;
     const message = rawBody?.message as Record<string, unknown> | undefined;
     const from = message?.from as Record<string, unknown> | undefined;
     const username = typeof from?.username === 'string' ? from.username : undefined;
 
+    // Once claimed, retain the bounded receipt even if a later step fails.
+    // The identity may already have been created before that failure.
     const { userId } = await deps.resolveIdentity.execute({
       channel: payload.channel,
       externalId: payload.chatId,
     });
-
     await deps.handleStartCommand.execute({ userId, chatId: payload.chatId, username });
     return reply.status(200).send({ ok: true });
   }
+
+  // Enqueue while the matching user row is share-locked. The deletion
+  // transaction takes an exclusive lock on that row before opening its
+  // barrier, so every admitted job is visible to subsequent cleanup.
+  const enqueue = () =>
+    deps.incomingMessageQueue.add('incoming-message', {
+      messageType: payload.messageType,
+      chatId: payload.chatId,
+      userId: payload.userId,
+      text: payload.text,
+      callbackData: payload.callbackData,
+      timestamp: payload.timestamp.toISOString(),
+      channel: payload.channel,
+      externalMessageId: payload.externalMessageId!,
+      rawPayload: payload.rawPayload,
+    });
+  const admitted = deps.accountDeletionGate?.admitIdentityDelivery
+    ? await deps.accountDeletionGate.admitIdentityDelivery(payload.channel, payload.chatId, enqueue)
+    : (await enqueue(), true);
+  if (!admitted) return reply.status(200).send({ ok: true });
 
   // Send immediate acknowledgment for text payloads (fire-and-forget) so the
   // user sees a response within <= 1 second even if downstream workers are busy.
@@ -104,20 +148,6 @@ export async function handleTelegramWebhook(
         }),
       );
   }
-
-  // Enqueue everything else to the thin FIFO worker (ADR-011).
-  // MALFORMED payloads are already short-circuited, so externalMessageId is always defined here.
-  await deps.incomingMessageQueue.add('incoming-message', {
-    messageType: payload.messageType,
-    chatId: payload.chatId,
-    userId: payload.userId,
-    text: payload.text,
-    callbackData: payload.callbackData,
-    timestamp: payload.timestamp.toISOString(),
-    channel: payload.channel,
-    externalMessageId: payload.externalMessageId!,
-    rawPayload: payload.rawPayload,
-  });
 
   return reply.status(200).send({ ok: true });
 }

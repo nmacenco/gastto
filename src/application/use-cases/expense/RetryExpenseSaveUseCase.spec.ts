@@ -5,6 +5,7 @@ import type { TransitionConversationState } from '../conversation/TransitionConv
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { expenseCopies } from '../../copies/expense.copies';
 import type { AdvancePendingExpense } from './AdvancePendingExpense';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 const save = vi.fn();
 const transition = vi.fn();
@@ -114,6 +115,21 @@ describe('RetryExpenseSaveUseCase', () => {
     sendMessage.mockResolvedValue({ status: 'success' });
     createLog.mockResolvedValue({});
     advance.mockResolvedValue({ status: 'empty' });
+  });
+
+  it('does not record a retry failure after the account deletion fence rejects work', async () => {
+    save.mockRejectedValue(new AccountDeletionInProgressError());
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        chatId: 'chat-1',
+        channel: 'telegram',
+        authorization,
+      }),
+    ).rejects.toBeInstanceOf(AccountDeletionInProgressError);
+    expect(createLog).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith('chat-1', expenseCopies.saving());
   });
 
   it('advances the queued expense after one confirmed retry with saved undo context', async () => {

@@ -12,6 +12,8 @@ import { DrizzleUserProfileRepository } from '../infrastructure/db/repositories/
 import { DrizzleConversationStateRepository } from '../infrastructure/db/repositories/DrizzleConversationStateRepository';
 import { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import { DrizzleAccountExternalWorkFence } from '../infrastructure/db/repositories/DrizzleAccountExternalWorkFence';
+import { DrizzleStartReplayGuard } from '../infrastructure/db/repositories/DrizzleStartReplayGuard';
 import { DrizzleAccessRequestRepository } from '../infrastructure/db/repositories/DrizzleAccessRequestRepository';
 import { DrizzleCandidateOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleCandidateOAuthTokenRepository';
 import { RequestAccess } from '../application/use-cases/user/RequestAccess';
@@ -128,6 +130,7 @@ import type { ProcessMessageJobData } from '../application/ports/ProcessMessageJ
 import type { IncomingMessageJobData } from '../application/ports/IncomingMessageJob';
 import type { LLMPort } from '../domain/ports/services';
 import type { MessagingOutputPort } from '../application/ports/output/messaging.port';
+import { DrizzleAccountDeletionRepository } from '../infrastructure/db/repositories/DrizzleAccountDeletionRepository';
 import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
 import { SpreadsheetError } from '../domain/errors/SpreadsheetError';
 
@@ -238,6 +241,8 @@ function buildTelegramFeature(
     deterministicRoutingPolicy: CurrentDeterministicRoutingPolicy;
     accessRequests: DrizzleAccessRequestRepository | undefined;
     userRepo: DrizzleUserRepository;
+    accountDeletionRepo: DrizzleAccountDeletionRepository;
+    accountExternalWorkFence: DrizzleAccountExternalWorkFence;
   },
 ): TelegramFeature | null {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
@@ -253,11 +258,19 @@ function buildTelegramFeature(
     infra.rootLogger,
     core.accessRequests,
     adapter,
+    {
+      findByMessagingIdentity: (channel, externalId) =>
+        core.userRepo.findByMessagingIdentity(channel, externalId),
+      isDeleting: (userId) => core.accountDeletionRepo.isDeleting(userId),
+    },
+    core.accountExternalWorkFence,
   );
   const sendImmediateAcknowledgement = new SendImmediateAcknowledgement(
     adapter,
     core.accessRequests,
     core.userRepo,
+    core.accountDeletionRepo,
+    core.accountExternalWorkFence,
   );
   const handleUnsupportedMessage = new HandleUnsupportedMessage(adapter);
   const classifyFreeTextExpenseIntent = new ClassifyFreeTextExpenseIntent();
@@ -267,6 +280,8 @@ function buildTelegramFeature(
   const routeIncomingMessage = new RouteIncomingMessage({
     messageQueue: core.messageQueue,
     resolveIdentity: core.resolveIdentity,
+    accountDeletionIdentity: { users: core.userRepo, messaging: adapter },
+    accountDeletionGate: core.accountDeletionRepo,
     handleUnsupportedMessage,
     deterministicRoutingPolicy: core.deterministicRoutingPolicy,
     sendGuidance: sendExpenseGuidance,
@@ -309,6 +324,8 @@ function buildGoogleOAuthFeature(
     telegramAdapter: TelegramMessengerAdapter | null;
     oauthAdapter: GoogleDriveOAuthAdapter | null;
     oauthAccessTokenService: OAuthAccessTokenProvider;
+    accountDeletionRepo: DrizzleAccountDeletionRepository;
+    accountExternalWorkFence: DrizzleAccountExternalWorkFence;
   },
 ): GoogleOAuthFeature | null {
   if (!env.GOOGLE_REDIRECT_URI || !core.telegramAdapter || !core.oauthAdapter) {
@@ -322,6 +339,8 @@ function buildGoogleOAuthFeature(
     candidateTokenRepo,
     core.tokenEncryption,
     adapter,
+    core.accountDeletionRepo,
+    core.accountExternalWorkFence,
   );
 
   const messagingPort = core.telegramAdapter;
@@ -363,6 +382,7 @@ function buildGoogleOAuthFeature(
   });
 
   const sendOAuthReminder = new SendOAuthReminder({
+    accountDeletionGate: core.accountDeletionRepo,
     redis: infra.redis,
     oauthService: adapter,
     oauthAccessTokenService: core.oauthAccessTokenService,
@@ -456,6 +476,8 @@ function buildGoogleOAuthFeature(
   });
 
   const handleOAuthCallback = new HandleOAuthCallback({
+    accountDeletionGate: core.accountDeletionRepo,
+    accountExternalWorkFence: core.accountExternalWorkFence,
     redis: infra.redis,
     logger: infra.rootLogger,
     oauthService: adapter,
@@ -574,6 +596,12 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const tokenRepo = new DrizzleOAuthTokenRepository(infra.db);
   // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const accountDeletionRepo = new DrizzleAccountDeletionRepository(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const startReplayGuard = new DrizzleStartReplayGuard(infra.db, env.ENCRYPTION_KEY);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+  const accountExternalWorkFence = new DrizzleAccountExternalWorkFence(infra.db);
+  // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
   const accessRequests = new DrizzleAccessRequestRepository(infra.db, infra.rootLogger);
   const requestAccess = new RequestAccess(accessRequests);
   const operatorMail =
@@ -635,6 +663,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
         tokenRepository: tokenRepo,
         tokenEncryption,
         oauthService: googleOAuthAdapter,
+        accountDeletion: accountDeletionRepo,
+        accountExternalWorkFence,
       })
     : unavailableOAuthAccessTokenProvider;
 
@@ -771,6 +801,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     infra.rootLogger,
     paymentCatalogRepo,
     env.ACCESS_APPROVAL_ENABLED ? accessRequests : undefined,
+    accountExternalWorkFence,
   );
   const queuePendingExpense = new QueuePendingExpense(expenseQueueRepo);
   const completeExpenseClarification = new CompleteExpenseClarification(registerExpense);
@@ -788,6 +819,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     oauthAccessTokenService,
     transitionState,
     infra.rootLogger,
+    accountExternalWorkFence,
   );
   const correctExpense = new CorrectExpenseUseCase(
     {
@@ -821,6 +853,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     deterministicRoutingPolicy,
     accessRequests: env.ACCESS_APPROVAL_ENABLED ? accessRequests : undefined,
     userRepo,
+    accountDeletionRepo,
+    accountExternalWorkFence,
   });
 
   const googleOAuth = buildGoogleOAuthFeature(env, infra, {
@@ -841,6 +875,8 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     telegramAdapter: telegram?.adapter ?? null,
     oauthAdapter: googleOAuthAdapter,
     oauthAccessTokenService,
+    accountDeletionRepo,
+    accountExternalWorkFence,
   });
   const dispatchOptionSelection = googleOAuth
     ? new DispatchOptionSelection({
@@ -930,6 +966,9 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     conversationRepo,
     operationLogRepo,
     tokenRepo,
+    accountDeletionRepo,
+    accountExternalWorkFence,
+    startReplayGuard,
     ...(env.ACCESS_APPROVAL_ENABLED ? { accessRequests, requestAccess, operatorMail } : {}),
     spreadsheetConfigRepo,
     columnMappingRepo,

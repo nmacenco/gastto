@@ -3,11 +3,13 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { env } from '../../config/env';
 import { createLogger } from '../../infrastructure/logger';
 import { DrizzleAccessRequestRepository } from '../../infrastructure/db/repositories/DrizzleAccessRequestRepository';
+import { DrizzleAccountExternalWorkFence } from '../../infrastructure/db/repositories/DrizzleAccountExternalWorkFence';
 import { DrizzleUserRepository } from '../../infrastructure/db/repositories/DrizzleUserRepository';
 import { TelegramMessengerAdapter } from '../../infrastructure/adapters/telegram/TelegramMessengerAdapter';
 import { ApproveAccessRequest } from '../../application/use-cases/user/ApproveAccessRequest';
 import { Redis } from 'ioredis';
 import * as schema from '../../infrastructure/db/schema';
+import { RedisRestoreGuard } from '../../infrastructure/redis/RedisRestoreGuard';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -25,10 +27,18 @@ export async function approveAccessRequestCli(requestId: string): Promise<number
   const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   try {
     const db = drizzle(sql, { schema });
+    if (env.ACCOUNT_DELETION_ENABLED === 'true') {
+      await new RedisRestoreGuard(db, redis).assertCurrent();
+    }
     const requests = new DrizzleAccessRequestRepository(db, logger);
     const users = new DrizzleUserRepository(db, redis);
     const telegram = new TelegramMessengerAdapter(env.TELEGRAM_BOT_TOKEN, logger);
-    const useCase = new ApproveAccessRequest(requests, users, telegram);
+    const useCase = new ApproveAccessRequest(
+      requests,
+      users,
+      telegram,
+      new DrizzleAccountExternalWorkFence(db),
+    );
     const outcome = await useCase.execute({ requestId, operatorIdentity: 'project-owner' });
     logger.info({ msg: 'Access approval CLI completed', requestId, outcome: outcome.status });
     return outcome.status === 'not_current' || outcome.status === 'not_found' ? 2 : 0;

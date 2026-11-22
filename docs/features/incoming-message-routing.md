@@ -10,6 +10,8 @@ Handle all incoming messages from external channels (Telegram, WhatsApp). Extrac
 
 ## Behavior (Implemented)
 
+- Telegram messages from an identity with no current Gastto account are acknowledged at the webhook without queueing or creating an account; the user can explicitly register with `/start`. This avoids processing delayed messages after an account is deleted. `/start` first records a pseudonymous 48-hour replay receipt in PostgreSQL, independent of the user row. The same delivered command cannot recreate a just-deleted account even when a later welcome step fails; a fresh command has a different message ID. Expired receipts are pruned at worker startup and hourly. Known-identity queue admission holds a PostgreSQL share lock that serializes with deletion-barrier creation; workers also check the barrier.
+
 - The system receives raw JSON payloads from Telegram webhooks at `POST /webhook/telegram`.
 - Telegram origin authentication runs in Fastify's `onRequest` lifecycle hook, before body parsing and validation. Requests without the configured secret return HTTP 403.
 - Only authenticated private chats are processed. Authenticated `group`, `supergroup`, `channel`, and unclassified chat updates return HTTP 200 with `{ ok: true }` without payload normalization, identity resolution, queueing, acknowledgement, or conversation-state changes.
@@ -147,7 +149,7 @@ No database schema changes yet. The feature operates on transient domain value o
 
 - The Telegram parser accepts compact `er1` expense-review callbacks and preserves old JSON action callbacks only as unbound compatibility data. Malformed versioned callbacks remain explicitly invalid.
 - The incoming and processing queue schemas preserve the complete normalized callback without dropping operation identity or review revision.
-- Telegram callback sender identity must match the authenticated private chat identity before queueing. Duplicate external callback IDs remain protected by the processed-message guard.
+- Telegram callback sender identity must match the authenticated private chat identity before queueing. Duplicate external callback IDs remain protected by a processed-message marker scoped to the chat, so equal message IDs in different chats do not collide.
 - `receivedAt` for text comes from the validated channel timestamp. Telegram callback occurrence time uses authenticated webhook receipt time because callback queries do not expose a tap timestamp.
 - Review callbacks are not global cancellation commands. Outside `EXPENSE_REVIEW` they produce no state mutation or financial effect.
 - Exact text cancellation reaches the locked deterministic FSM path before optional semantic dispatch. Settings, onboarding, retry, saving, and undo-confirmation exits use a revision-guarded non-expense use case; expense drafts retain queue-aware cancellation. A persisted financial claim blocks state clearing and sends bounded guidance.

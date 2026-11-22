@@ -36,6 +36,7 @@ function subject(
   const findByUserId = vi.fn().mockResolvedValue(config);
   const useCase = new StartSettingsReauthorization({
     oauthService: {
+      revokeToken: vi.fn(),
       buildAuthUrl: vi.fn().mockReturnValue('https://google.example/auth'),
       exchangeCode: vi.fn(),
       refreshAccessToken: vi.fn(),

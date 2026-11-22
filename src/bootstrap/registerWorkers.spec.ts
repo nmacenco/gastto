@@ -219,6 +219,18 @@ describe('registerWorkers', () => {
     expect(names).toContain('incoming-message');
   });
 
+  it('prunes expired /start receipts at startup even without Telegram workers', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const pruneExpired = vi.fn().mockResolvedValue(undefined);
+    const deps = buildMockDeps({
+      startReplayGuard: { pruneExpired } as unknown as Dependencies['startReplayGuard'],
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    expect(pruneExpired).toHaveBeenCalledOnce();
+  });
+
   it('creates the process-message worker with the Google OAuth options', async () => {
     app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
     const deps = buildMockDeps({

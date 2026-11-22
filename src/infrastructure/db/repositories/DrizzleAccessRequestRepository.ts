@@ -98,6 +98,12 @@ export class DrizzleAccessRequestRepository implements AccessRequestRepository {
           .where(eq(schema.users.userId, userId))
           .for('update');
         if (!owner) throw new Error('Access request owner does not exist');
+        const [deleting] = await tx
+          .select({ userId: schema.accountDeletionOperations.userId })
+          .from(schema.accountDeletionOperations)
+          .where(eq(schema.accountDeletionOperations.userId, userId))
+          .limit(1);
+        if (deleting) throw new Error('ACCOUNT_ACCESS_REQUEST_BLOCKED');
 
         const [existing] = await tx
           .select()
@@ -176,6 +182,12 @@ export class DrizzleAccessRequestRepository implements AccessRequestRepository {
         .where(eq(schema.users.userId, target.userId))
         .for('update');
       if (!owner) return { status: 'not_found' };
+      const [deleting] = await tx
+        .select({ userId: schema.accountDeletionOperations.userId })
+        .from(schema.accountDeletionOperations)
+        .where(eq(schema.accountDeletionOperations.userId, target.userId))
+        .limit(1);
+      if (deleting) return { status: 'not_found' };
       const [lockedTarget] = await tx
         .select()
         .from(schema.accessRequests)

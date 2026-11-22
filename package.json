@@ -28,6 +28,8 @@
     "redis:down": "docker-compose down",
     "redis:logs": "docker-compose logs -f",
     "redis:clean": "docker-compose down -v",
+    "redis:restore:inspect": "tsx src/interfaces/cli/inspectRedisRestore.ts",
+    "redis:restore:reconcile": "tsx src/interfaces/cli/reconcileRedisRestore.ts",
     "typecheck": "tsc --noEmit",
     "prepare": "husky",
     "security:audit": "node scripts/security/audit.mjs",

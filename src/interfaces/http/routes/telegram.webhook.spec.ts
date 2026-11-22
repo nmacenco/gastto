@@ -89,6 +89,100 @@ describe('POST /webhook/telegram', () => {
     mockSendAckExecute.mockResolvedValue({ status: 'success' });
   });
 
+  it('acknowledges a deleting account without enqueueing or resolving identity', async () => {
+    const deps = buildMockDeps();
+    deps.accountDeletionGate = { isIdentityDeleting: vi.fn().mockResolvedValue(true) };
+    const { app } = buildApp(deps);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: makeValidPayload(),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockResolveIdentityExecute).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('does not enqueue when transactional identity admission rejects a stale delivery', async () => {
+    const deps = buildMockDeps();
+    const admitIdentityDelivery = vi.fn().mockResolvedValue(false);
+    deps.accountDeletionGate = {
+      isIdentityDeleting: vi.fn().mockResolvedValue(false),
+      admitIdentityDelivery,
+    };
+    const { app } = buildApp(deps);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: makeValidPayload(),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(admitIdentityDelivery).toHaveBeenCalledWith(
+      'telegram',
+      '123456789',
+      expect.any(Function),
+    );
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockSendAckExecute).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('ignores a replayed /start before it can recreate an identity', async () => {
+    const deps = buildMockDeps();
+    deps.startReplayGuard = {
+      claim: vi.fn().mockResolvedValue(false),
+    };
+    const { app } = buildApp(deps);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: makeValidPayload({ text: '/start' }),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockResolveIdentityExecute).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('does not create an identity when the durable /start receipt cannot be written', async () => {
+    const deps = buildMockDeps();
+    deps.startReplayGuard = { claim: vi.fn().mockRejectedValue(new Error('database unavailable')) };
+    const { app } = buildApp(deps);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: makeValidPayload({ text: '/start' }),
+    });
+    expect(response.statusCode).toBe(500);
+    expect(mockResolveIdentityExecute).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('keeps the /start receipt after identity creation when the handler fails', async () => {
+    const deps = buildMockDeps();
+    const claim = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    deps.startReplayGuard = { claim };
+    mockHandleStartExecute.mockRejectedValueOnce(new Error('delivery unavailable'));
+    const { app } = buildApp(deps);
+    const request = () =>
+      app.inject({
+        method: 'POST',
+        url: '/webhook/telegram',
+        headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+        payload: makeValidPayload({ text: '/start' }),
+      });
+
+    expect((await request()).statusCode).toBe(500);
+    expect((await request()).statusCode).toBe(200);
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(mockResolveIdentityExecute).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
   it('returns HTTP 200 and enqueues a valid text message to the incoming-message queue', async () => {
     const { app } = buildApp();
 

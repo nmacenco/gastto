@@ -49,6 +49,7 @@ import type { AccessRequestRepository } from '../../../domain/ports/AccessReques
 import { ResolvePaymentMethod } from './ResolvePaymentMethod';
 import { normalizeExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import type { PaymentMethodSelection } from '../../../domain/value-objects/payment-method-selection';
+import type { AccountExternalWorkFence } from '../../ports/AccountExternalWorkFence';
 
 export interface RegisterExpenseInput {
   userId: string;
@@ -107,6 +108,7 @@ export class RegisterExpenseUseCase {
     private readonly logger?: Logger,
     private readonly paymentCatalogRepo?: IPaymentMethodCatalogRepository,
     private readonly accessRequests?: AccessRequestRepository,
+    private readonly externalWorkFence?: AccountExternalWorkFence,
   ) {}
 
   // Fase 1: interpreta el mensaje y transiciona a EXPENSE_REVIEW
@@ -378,6 +380,16 @@ export class RegisterExpenseUseCase {
 
   // Phase 2: saves the expense once the user confirmed (ADR-006)
   async save(
+    userId: string,
+    payload: ExpenseReviewPayload,
+    spreadsheetId: string,
+    claimId: string,
+  ): Promise<{ sheetName: string; rowIndex?: number | undefined; expenseId?: string }> {
+    const save = () => this.saveUnderFence(userId, payload, spreadsheetId, claimId);
+    return this.externalWorkFence ? this.externalWorkFence.run(userId, save) : save();
+  }
+
+  private async saveUnderFence(
     userId: string,
     payload: ExpenseReviewPayload,
     spreadsheetId: string,

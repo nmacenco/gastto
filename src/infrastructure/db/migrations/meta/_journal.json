@@ -127,6 +127,41 @@
       "when": 1794072726588,
       "tag": "0017_graceful_overlord",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794932808879,
+      "tag": "0018_foamy_sersi",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795121862241,
+      "tag": "0019_tricky_leo",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1795160404084,
+      "tag": "0020_bizarre_adam_destine",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795342432357,
+      "tag": "0021_dark_adam_destine",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795342704545,
+      "tag": "0022_glamorous_sprite",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,10 @@ import type {
 } from '../../../domain/ports/repositories';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import {
+  AccountDeletionInProgressError,
+  type AccountExternalWorkFence,
+} from '../../ports/AccountExternalWorkFence';
 
 const findLatest = vi.fn();
 const softDeleteWithAudit = vi.fn();
@@ -19,7 +23,7 @@ const transition = vi.fn();
 const finalizeClaim = vi.fn();
 const currentState = vi.fn();
 
-function buildUseCase() {
+function buildUseCase(externalWorkFence?: AccountExternalWorkFence) {
   return new UndoLastExpenseUseCase(
     { create: createPort },
     { findLatestByUserId: findLatest, softDeleteWithAudit } as unknown as IExpenseRecordRepository,
@@ -33,6 +37,7 @@ function buildUseCase() {
       finalizeClaim,
     } as unknown as TransitionConversationState,
     { error: vi.fn() } as never,
+    externalWorkFence,
   );
 }
 
@@ -72,6 +77,20 @@ beforeEach(() => {
 });
 
 describe('UndoLastExpenseUseCase', () => {
+  it('does not delete a sheet row when account deletion has fenced the undo', async () => {
+    const run = vi.fn(() => Promise.reject(new AccountDeletionInProgressError()));
+    await expect(
+      buildUseCase({ run }).execute({
+        userId: 'user-1',
+        action: 'request',
+        provenance: 'deterministic_command',
+        immediateExpenseId: 'expense-1',
+      }),
+    ).rejects.toBeInstanceOf(AccountDeletionInProgressError);
+    expect(run).toHaveBeenCalledOnce();
+    expect(deleteRow).not.toHaveBeenCalled();
+    expect(softDeleteWithAudit).not.toHaveBeenCalled();
+  });
   it('uses the historical configuration ID even when the active destination differs', async () => {
     await expect(
       buildUseCase().execute({

@@ -10,23 +10,38 @@ export class DrizzleCandidateOAuthTokenRepository implements CandidateOAuthToken
   constructor(private readonly db: PostgresJsDatabase<typeof schema>) {}
 
   async upsert(token: CandidateOAuthToken): Promise<void> {
-    await this.db
-      .insert(schema.candidateOAuthTokens)
-      .values(token)
-      .onConflictDoUpdate({
-        target: schema.candidateOAuthTokens.requestId,
-        set: {
-          accessTokenEnc: token.accessTokenEnc,
-          refreshTokenEnc: token.refreshTokenEnc,
-          iv: token.iv,
-          refreshIv: token.refreshIv,
-          accessTokenExpiresAt: token.accessTokenExpiresAt,
-          scope: token.scope,
-          grantedAt: token.grantedAt,
-          lastRefreshedAt: token.lastRefreshedAt,
-          revokedAt: token.revokedAt,
-        },
-      });
+    await this.db.transaction(async (tx) => {
+      const [owner] = await tx
+        .select({ userId: schema.users.userId })
+        .from(schema.users)
+        .where(eq(schema.users.userId, token.userId))
+        .for('share')
+        .limit(1);
+      if (!owner) throw new Error('ACCOUNT_CREDENTIAL_WRITE_BLOCKED');
+      const [deleting] = await tx
+        .select({ userId: schema.accountDeletionOperations.userId })
+        .from(schema.accountDeletionOperations)
+        .where(eq(schema.accountDeletionOperations.userId, token.userId))
+        .limit(1);
+      if (deleting) throw new Error('ACCOUNT_CREDENTIAL_WRITE_BLOCKED');
+      await tx
+        .insert(schema.candidateOAuthTokens)
+        .values(token)
+        .onConflictDoUpdate({
+          target: schema.candidateOAuthTokens.requestId,
+          set: {
+            accessTokenEnc: token.accessTokenEnc,
+            refreshTokenEnc: token.refreshTokenEnc,
+            iv: token.iv,
+            refreshIv: token.refreshIv,
+            accessTokenExpiresAt: token.accessTokenExpiresAt,
+            scope: token.scope,
+            grantedAt: token.grantedAt,
+            lastRefreshedAt: token.lastRefreshedAt,
+            revokedAt: token.revokedAt,
+          },
+        });
+    });
   }
 
   async findByRequestId(requestId: string): Promise<CandidateOAuthToken | null> {

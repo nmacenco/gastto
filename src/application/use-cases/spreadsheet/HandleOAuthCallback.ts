@@ -35,6 +35,10 @@ import type { ConversationState } from '../../../domain/entities/ConversationSta
 import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
 import type { CandidateOAuthTokenService } from '../../services/CandidateOAuthTokenService';
 import type { SettingsDestinationFlow } from './SettingsDestinationFlow';
+import {
+  AccountDeletionInProgressError,
+  type AccountExternalWorkFence,
+} from '../../ports/AccountExternalWorkFence';
 
 export type HandleOAuthCallbackInput =
   | { code: string; state: string; error?: never; provider?: SpreadsheetProvider }
@@ -60,6 +64,8 @@ interface OAuthStatePayload {
 }
 
 export interface HandleOAuthCallbackDeps {
+  accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> };
+  accountExternalWorkFence?: AccountExternalWorkFence;
   redis: Redis;
   oauthService: OAuthServicePort;
   tokenRepository: IOAuthTokenRepository;
@@ -162,122 +168,147 @@ export class HandleOAuthCallback {
     });
 
     try {
-      const observed = await this.deps.conversationRepo.findByUserId(metadata.userId);
-      if (
-        metadata.origin === 'settings'
-          ? !this.matchesSettingsNonce(observed, state, metadata)
-          : !this.matchesPersistedNonce(observed, state, metadata.revision)
-      ) {
-        this.deps.logger.error({
-          msg: 'OAuth callback state no longer matches the conversation',
-          endpoint: 'HandleOAuthCallback',
-          code: 'OAUTH_STATE_STALE',
-          userId: metadata.userId,
-        });
-        return {
-          success: false,
-          nextState: observed?.currentState ?? 'IDLE',
-          message: onboardingCopies.oauthConnectionFailed(true),
-          canRetry: true,
-        };
-      }
+      const executeFenced = async (): Promise<HandleOAuthCallbackOutput> => {
+        if (await this.deps.accountDeletionGate?.isDeleting(metadata.userId)) {
+          return {
+            success: false,
+            nextState: 'ONBOARDING_DRIVE',
+            message: onboardingCopies.oauthConnectionFailed(false),
+            canRetry: false,
+          };
+        }
+        const observed = await this.deps.conversationRepo.findByUserId(metadata.userId);
+        if (
+          metadata.origin === 'settings'
+            ? !this.matchesSettingsNonce(observed, state, metadata)
+            : !this.matchesPersistedNonce(observed, state, metadata.revision)
+        ) {
+          this.deps.logger.error({
+            msg: 'OAuth callback state no longer matches the conversation',
+            endpoint: 'HandleOAuthCallback',
+            code: 'OAUTH_STATE_STALE',
+            userId: metadata.userId,
+          });
+          return {
+            success: false,
+            nextState: observed?.currentState ?? 'IDLE',
+            message: onboardingCopies.oauthConnectionFailed(true),
+            canRetry: true,
+          };
+        }
 
-      if (metadata.origin === 'settings') {
-        return this.deps.transitionState.runWithState(observed!, () =>
-          this.handleSettingsCallback(input, metadata, observed!, state),
-        );
-      }
-
-      if ('error' in input) {
-        this.deps.logger.error({
-          msg: 'OAuth provider returned an authorization error',
-          endpoint: 'HandleOAuthCallback',
-          code: 'OAUTH_PROVIDER_REJECTED',
-          userId: metadata.userId,
-          provider: metadata.provider,
-          providerErrorCode: input.error === 'access_denied' ? 'access_denied' : 'other',
-        });
-        return {
-          success: false,
-          nextState: 'ONBOARDING_DRIVE',
-          message: onboardingCopies.oauthConnectionFailed(true),
-          canRetry: true,
-        };
-      }
-      const code = input.code;
-      return await this.deps.transitionState.runWithState(observed!, async () => {
-        const reauthorizationOnly = observed?.statePayload?.reauthorizationOnly === true;
-        const config = reauthorizationOnly
-          ? await this.deps.spreadsheetConfigRepository.findByUserId(metadata.userId)
-          : null;
-        const confirmedMappings =
-          config && config.provider === metadata.provider
-            ? await this.deps.columnMappingRepository.findBySpreadsheetId(config.id)
-            : [];
-        const reuseConfiguration =
-          reauthorizationOnly &&
-          config !== null &&
-          config.provider === metadata.provider &&
-          config.fileId.length > 0 &&
-          config.sheetName.length > 0 &&
-          confirmedMappings.length > 0 &&
-          confirmedMappings.every((mapping) => mapping.confirmedAt !== null);
-
-        try {
-          const tokenResponse = await this.deps.oauthService.exchangeCode(
-            metadata.provider,
-            code,
-            state,
+        if (metadata.origin === 'settings') {
+          return this.deps.transitionState.runWithState(observed!, () =>
+            this.handleSettingsCallback(input, metadata, observed!, state),
           );
+        }
 
-          const accessEnc = this.deps.tokenEncryption.encrypt(tokenResponse.accessToken);
-          const refreshEnc = this.deps.tokenEncryption.encrypt(tokenResponse.refreshToken);
-
-          const beforePersistence = await this.deps.conversationRepo.findByUserId(metadata.userId);
-          if (!this.matchesPersistedNonce(beforePersistence, state, metadata.revision)) {
-            this.deps.logger.error({
-              msg: 'OAuth callback state changed before token persistence',
-              endpoint: 'HandleOAuthCallback',
-              code: 'OAUTH_STATE_STALE_BEFORE_PERSIST',
-              userId: metadata.userId,
-            });
-            return {
-              success: false,
-              nextState: beforePersistence?.currentState ?? 'IDLE',
-              message: onboardingCopies.oauthConnectionFailed(true),
-              canRetry: true,
-            };
-          }
-
-          this.deps.transitionState.assertExecutionIsValid(metadata.userId);
-
-          await this.deps.tokenRepository.upsert({
+        if ('error' in input) {
+          this.deps.logger.error({
+            msg: 'OAuth provider returned an authorization error',
+            endpoint: 'HandleOAuthCallback',
+            code: 'OAUTH_PROVIDER_REJECTED',
             userId: metadata.userId,
             provider: metadata.provider,
-            accessTokenEnc: accessEnc.ciphertext,
-            refreshTokenEnc: refreshEnc.ciphertext,
-            iv: accessEnc.iv,
-            refreshIv: refreshEnc.iv,
-            accessTokenExpiresAt: tokenResponse.expiresAt,
-            scope: tokenResponse.scope,
-            grantedAt: new Date(),
-            lastRefreshedAt: null,
-            revokedAt: null,
+            providerErrorCode: input.error === 'access_denied' ? 'access_denied' : 'other',
           });
-        } catch (err) {
-          if (
-            err instanceof OAuthDeniedError ||
-            err instanceof OAuthNetworkError ||
-            err instanceof OAuthStateMismatchError
-          ) {
-            this.deps.logger.error({
-              msg: 'OAuth token exchange rejected',
-              endpoint: 'HandleOAuthCallback',
-              code: 'OAUTH_EXCHANGE_REJECTED',
+          return {
+            success: false,
+            nextState: 'ONBOARDING_DRIVE',
+            message: onboardingCopies.oauthConnectionFailed(true),
+            canRetry: true,
+          };
+        }
+        const code = input.code;
+        return await this.deps.transitionState.runWithState(observed!, async () => {
+          const reauthorizationOnly = observed?.statePayload?.reauthorizationOnly === true;
+          const config = reauthorizationOnly
+            ? await this.deps.spreadsheetConfigRepository.findByUserId(metadata.userId)
+            : null;
+          const confirmedMappings =
+            config && config.provider === metadata.provider
+              ? await this.deps.columnMappingRepository.findBySpreadsheetId(config.id)
+              : [];
+          const reuseConfiguration =
+            reauthorizationOnly &&
+            config !== null &&
+            config.provider === metadata.provider &&
+            config.fileId.length > 0 &&
+            config.sheetName.length > 0 &&
+            confirmedMappings.length > 0 &&
+            confirmedMappings.every((mapping) => mapping.confirmedAt !== null);
+
+          try {
+            const tokenResponse = await this.deps.oauthService.exchangeCode(
+              metadata.provider,
+              code,
+              state,
+            );
+
+            const accessEnc = this.deps.tokenEncryption.encrypt(tokenResponse.accessToken);
+            const refreshEnc = this.deps.tokenEncryption.encrypt(tokenResponse.refreshToken);
+
+            const beforePersistence = await this.deps.conversationRepo.findByUserId(
+              metadata.userId,
+            );
+            if (!this.matchesPersistedNonce(beforePersistence, state, metadata.revision)) {
+              this.deps.logger.error({
+                msg: 'OAuth callback state changed before token persistence',
+                endpoint: 'HandleOAuthCallback',
+                code: 'OAUTH_STATE_STALE_BEFORE_PERSIST',
+                userId: metadata.userId,
+              });
+              return {
+                success: false,
+                nextState: beforePersistence?.currentState ?? 'IDLE',
+                message: onboardingCopies.oauthConnectionFailed(true),
+                canRetry: true,
+              };
+            }
+
+            this.deps.transitionState.assertExecutionIsValid(metadata.userId);
+
+            await this.deps.tokenRepository.upsert({
               userId: metadata.userId,
               provider: metadata.provider,
+              accessTokenEnc: accessEnc.ciphertext,
+              refreshTokenEnc: refreshEnc.ciphertext,
+              iv: accessEnc.iv,
+              refreshIv: refreshEnc.iv,
+              accessTokenExpiresAt: tokenResponse.expiresAt,
+              scope: tokenResponse.scope,
+              grantedAt: new Date(),
+              lastRefreshedAt: null,
+              revokedAt: null,
+            });
+          } catch (err) {
+            if (
+              err instanceof OAuthDeniedError ||
+              err instanceof OAuthNetworkError ||
+              err instanceof OAuthStateMismatchError
+            ) {
+              this.deps.logger.error({
+                msg: 'OAuth token exchange rejected',
+                endpoint: 'HandleOAuthCallback',
+                code: 'OAUTH_EXCHANGE_REJECTED',
+                userId: metadata.userId,
+                provider: metadata.provider,
+                errorType: err instanceof Error ? err.constructor.name : 'unknown',
+                providerErrorCode: getProviderErrorCode(err),
+              });
+              return {
+                success: false,
+                nextState: 'ONBOARDING_DRIVE',
+                message: onboardingCopies.oauthConnectionFailed(true),
+                canRetry: true,
+              };
+            }
+
+            this.deps.logger.error({
+              endpoint: 'HandleOAuthCallback',
+              code: 'OAUTH_EXCHANGE_UNEXPECTED_ERROR',
+              provider: metadata.provider,
               errorType: err instanceof Error ? err.constructor.name : 'unknown',
-              providerErrorCode: getProviderErrorCode(err),
             });
             return {
               success: false,
@@ -287,97 +318,95 @@ export class HandleOAuthCallback {
             };
           }
 
-          this.deps.logger.error({
-            endpoint: 'HandleOAuthCallback',
-            code: 'OAUTH_EXCHANGE_UNEXPECTED_ERROR',
-            provider: metadata.provider,
-            errorType: err instanceof Error ? err.constructor.name : 'unknown',
-          });
-          return {
-            success: false,
-            nextState: 'ONBOARDING_DRIVE',
-            message: onboardingCopies.oauthConnectionFailed(true),
-            canRetry: true,
-          };
-        }
+          try {
+            await this.deps.reminderQueue.remove(metadata.reminderJobId);
+          } catch (removeErr) {
+            this.deps.logger.error({
+              endpoint: 'HandleOAuthCallback',
+              code: 'REMINDER_CANCEL_FAILED',
+              jobId: metadata.reminderJobId,
+              error: String(removeErr),
+            });
+          }
 
-        try {
-          await this.deps.reminderQueue.remove(metadata.reminderJobId);
-        } catch (removeErr) {
-          this.deps.logger.error({
-            endpoint: 'HandleOAuthCallback',
-            code: 'REMINDER_CANCEL_FAILED',
-            jobId: metadata.reminderJobId,
-            error: String(removeErr),
-          });
-        }
+          try {
+            await this.deps.redis.del(redisKey);
+          } catch {
+            // non-critical
+          }
 
-        try {
-          await this.deps.redis.del(redisKey);
-        } catch {
-          // non-critical
-        }
+          if (reuseConfiguration) {
+            const message = onboardingCopies.googleReconnectedSuccess();
+            await this.deps.transitionState.execute({
+              userId: metadata.userId,
+              targetState: 'IDLE',
+              payload: null,
+              expected: {
+                revision: metadata.revision,
+                currentState: 'ONBOARDING_DRIVE',
+                expiry: 'any',
+              },
+            });
+            await this.deps.messagingPort.sendMessage(metadata.externalId, message);
+            return { success: true, nextState: 'IDLE', message };
+          }
 
-        if (reuseConfiguration) {
-          const message = onboardingCopies.googleReconnectedSuccess();
+          const successMessage =
+            metadata.provider === 'google'
+              ? onboardingCopies.googleConnectedSuccess()
+              : onboardingCopies.onedriveConnectedSuccess();
+
           await this.deps.transitionState.execute({
             userId: metadata.userId,
-            targetState: 'IDLE',
-            payload: null,
+            targetState: 'ONBOARDING_FILE',
+            payload: { provider: metadata.provider },
             expected: {
               revision: metadata.revision,
               currentState: 'ONBOARDING_DRIVE',
               expiry: 'any',
             },
           });
-          await this.deps.messagingPort.sendMessage(metadata.externalId, message);
-          return { success: true, nextState: 'IDLE', message };
-        }
 
-        const successMessage =
-          metadata.provider === 'google'
-            ? onboardingCopies.googleConnectedSuccess()
-            : onboardingCopies.onedriveConnectedSuccess();
+          await this.deps.messagingPort.sendMessage(metadata.externalId, successMessage);
 
-        await this.deps.transitionState.execute({
-          userId: metadata.userId,
-          targetState: 'ONBOARDING_FILE',
-          payload: { provider: metadata.provider },
-          expected: {
-            revision: metadata.revision,
-            currentState: 'ONBOARDING_DRIVE',
-            expiry: 'any',
-          },
+          try {
+            await this.deps.handleSpreadsheetFileSelection.execute({
+              userId: metadata.userId,
+              rawMessage: '',
+              externalId: metadata.externalId,
+              channel: metadata.channel,
+              statePayload: { provider: metadata.provider },
+            });
+          } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this.deps.logger.error({
+              endpoint: 'HandleOAuthCallback',
+              code: 'POST_CALLBACK_FILE_SELECTION_FAILED',
+              userId: metadata.userId,
+              errorType: err instanceof Error ? err.constructor.name : 'unknown',
+              error: errorMessage,
+            });
+          }
+
+          return {
+            success: true,
+            nextState: 'ONBOARDING_FILE',
+            message: successMessage,
+          };
         });
-
-        await this.deps.messagingPort.sendMessage(metadata.externalId, successMessage);
-
-        try {
-          await this.deps.handleSpreadsheetFileSelection.execute({
-            userId: metadata.userId,
-            rawMessage: '',
-            externalId: metadata.externalId,
-            channel: metadata.channel,
-            statePayload: { provider: metadata.provider },
-          });
-        } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          this.deps.logger.error({
-            endpoint: 'HandleOAuthCallback',
-            code: 'POST_CALLBACK_FILE_SELECTION_FAILED',
-            userId: metadata.userId,
-            errorType: err instanceof Error ? err.constructor.name : 'unknown',
-            error: errorMessage,
-          });
-        }
-
-        return {
-          success: true,
-          nextState: 'ONBOARDING_FILE',
-          message: successMessage,
-        };
-      });
+      };
+      return this.deps.accountExternalWorkFence
+        ? await this.deps.accountExternalWorkFence.run(metadata.userId, executeFenced)
+        : await executeFenced();
     } catch (error) {
+      if (error instanceof AccountDeletionInProgressError) {
+        return {
+          success: false,
+          nextState: metadata.origin === 'settings' ? 'SETTINGS_OAUTH' : 'ONBOARDING_DRIVE',
+          message: onboardingCopies.oauthConnectionFailed(false),
+          canRetry: false,
+        };
+      }
       if (!(error instanceof StaleConversationStateError)) throw error;
       this.deps.logger.error({
         msg: 'OAuth callback lost conversation-state ownership',

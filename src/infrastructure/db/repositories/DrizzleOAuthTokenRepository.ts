@@ -39,23 +39,38 @@ export class DrizzleOAuthTokenRepository implements IOAuthTokenRepository {
       revokedAt: token.revokedAt,
     };
 
-    const [row] = await this.db
-      .insert(schema.oauthTokens)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [schema.oauthTokens.userId, schema.oauthTokens.provider],
-        set: {
-          accessTokenEnc: token.accessTokenEnc,
-          refreshTokenEnc: token.refreshTokenEnc,
-          iv: token.iv,
-          refreshIv: token.refreshIv,
-          accessTokenExpiresAt: token.accessTokenExpiresAt,
-          scope: token.scope,
-          lastRefreshedAt: token.lastRefreshedAt,
-          revokedAt: token.revokedAt,
-        },
-      })
-      .returning();
+    const [row] = await this.db.transaction(async (tx) => {
+      const [owner] = await tx
+        .select({ userId: schema.users.userId })
+        .from(schema.users)
+        .where(eq(schema.users.userId, token.userId))
+        .for('share')
+        .limit(1);
+      if (!owner) throw new Error('ACCOUNT_CREDENTIAL_WRITE_BLOCKED');
+      const [deleting] = await tx
+        .select({ userId: schema.accountDeletionOperations.userId })
+        .from(schema.accountDeletionOperations)
+        .where(eq(schema.accountDeletionOperations.userId, token.userId))
+        .limit(1);
+      if (deleting) throw new Error('ACCOUNT_CREDENTIAL_WRITE_BLOCKED');
+      return tx
+        .insert(schema.oauthTokens)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [schema.oauthTokens.userId, schema.oauthTokens.provider],
+          set: {
+            accessTokenEnc: token.accessTokenEnc,
+            refreshTokenEnc: token.refreshTokenEnc,
+            iv: token.iv,
+            refreshIv: token.refreshIv,
+            accessTokenExpiresAt: token.accessTokenExpiresAt,
+            scope: token.scope,
+            lastRefreshedAt: token.lastRefreshedAt,
+            revokedAt: token.revokedAt,
+          },
+        })
+        .returning();
+    });
 
     if (!row) throw new Error('Failed to upsert OAuth token');
 

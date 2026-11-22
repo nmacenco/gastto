@@ -35,6 +35,7 @@ export const users = pgTable(
     userId: uuid('user_id').primaryKey().defaultRandom(),
     status: text('status').notNull().default('onboarding'),
     defaultCurrency: text('default_currency'),
+    activeExternalWorkCount: integer('active_external_work_count').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -47,6 +48,10 @@ export const users = pgTable(
     currencyCheck: check(
       'chk_users_currency',
       sql`${t.defaultCurrency} IN ('ARS','EUR','USD','MXN','GBP','BRL') OR ${t.defaultCurrency} IS NULL`,
+    ),
+    activeExternalWorkCheck: check(
+      'chk_users_active_external_work_count',
+      sql`${t.activeExternalWorkCount} >= 0`,
     ),
   }),
 );
@@ -67,6 +72,70 @@ export const messagingIdentities = pgTable(
     userIdx: index('idx_messaging_identities_user').on(t.userId),
     channelCheck: check('chk_channel', sql`${t.channel} IN ('telegram', 'whatsapp')`),
     uniqueIdentity: uniqueIndex('uq_channel_external').on(t.channel, t.externalId),
+  }),
+);
+
+// A deletion operation outlives its user row only until external cleanup and
+// notification finish. No foreign key to users: the account must be removable
+// before the final temporary operation record is cleared.
+export const accountDeletionOperations = pgTable(
+  'account_deletion_operations',
+  {
+    userId: uuid('user_id').primaryKey(),
+    stage: text('stage').notNull().default('blocked'),
+    remoteRevocationFailed: boolean('remote_revocation_failed').notNull().default(false),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    stageIdx: index('idx_account_deletion_operations_stage').on(t.stage),
+    stageCheck: check(
+      'chk_account_deletion_operations_stage',
+      sql`${t.stage} IN ('blocked','revoking','cleaning','notifying')`,
+    ),
+  }),
+);
+
+export const accountDeletionIdentities = pgTable(
+  'account_deletion_identities',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => accountDeletionOperations.userId, { onDelete: 'cascade' }),
+    channel: text('channel').notNull(),
+    externalId: text('external_id').notNull(),
+  },
+  (t) => ({
+    ownerIdx: index('idx_account_deletion_identities_owner').on(t.userId),
+    identityUnique: uniqueIndex('uq_account_deletion_identity').on(t.channel, t.externalId),
+  }),
+);
+
+// Singleton recovery marker. A PostgreSQL value newer than the Redis mirror
+// means a restored Redis snapshot may contain already-erased account data.
+export const redisRecoveryEpoch = pgTable(
+  'redis_recovery_epoch',
+  {
+    id: smallint('id').primaryKey().default(1),
+    epoch: bigint('epoch', { mode: 'number' }).notNull().default(0),
+    runId: text('run_id').notNull(),
+  },
+  (t) => ({
+    singletonCheck: check('chk_redis_recovery_epoch_singleton', sql`${t.id} = 1`),
+    nonnegativeCheck: check('chk_redis_recovery_epoch_nonnegative', sql`${t.epoch} >= 0`),
+  }),
+);
+
+// A short-lived, pseudonymous receipt for a Telegram /start delivery. It is
+// intentionally independent of users so deleting a user cannot admit a replay.
+export const accountStartReplays = pgTable(
+  'account_start_replays',
+  {
+    digest: text('digest').primaryKey(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    expiryIdx: index('idx_account_start_replays_expiry').on(t.expiresAt),
   }),
 );
 

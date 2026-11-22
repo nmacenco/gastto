@@ -17,6 +17,11 @@ import { GetSpreadsheetSettings } from '../application/use-cases/spreadsheet/Get
 import { CancelConversationFlow } from '../application/use-cases/conversation/CancelConversationFlow';
 import { NotifyMessageProcessingContention } from '../application/use-cases/conversation/NotifyMessageProcessingContention';
 import { registerBullMqErrorListener } from '../interfaces/workers/bullMqRuntime';
+import { AccountDeletionService } from '../application/services/AccountDeletionService';
+import { RevokeAccountCredentials } from '../application/use-cases/user/RevokeAccountCredentials';
+import { AccountOperationalCleanup } from '../infrastructure/redis/AccountOperationalCleanup';
+import { createAccountDeletionWorker } from '../interfaces/workers/accountDeletion.worker';
+import type { RedisRestoreGuard } from '../infrastructure/redis/RedisRestoreGuard';
 
 interface CloseableBullMqResource {
   close(): Promise<void>;
@@ -47,6 +52,7 @@ export async function registerWorkers(
   app: FastifyInstance,
   deps: Dependencies,
   env: Env,
+  restoreGuard?: RedisRestoreGuard,
 ): Promise<void> {
   const workers: CloseableBullMqResource[] = [];
   const queues: CloseableBullMqResource[] = [
@@ -64,6 +70,99 @@ export async function registerWorkers(
     await closeBullMqResources(workers, queues);
   });
 
+  let deletionQueue: Queue<{ userId: string }> | undefined;
+  if (deps.accountDeletionRepo) {
+    deletionQueue = new Queue<{ userId: string }>('account-deletion', {
+      connection: deps.redis,
+      defaultJobOptions: {
+        attempts: 20,
+        backoff: { type: 'exponential', delay: 5_000 },
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
+    });
+    queues.push(deletionQueue);
+    const oauth = deps.googleOAuth?.adapter ?? {
+      revokeToken: () => Promise.resolve('not_confirmed' as const),
+    };
+    const service = new AccountDeletionService(
+      deps.accountDeletionRepo,
+      new RevokeAccountCredentials(deps.accountDeletionRepo, deps.tokenEncryption, oauth),
+      new AccountOperationalCleanup(
+        deps.redis,
+        deps.incomingMessageQueue,
+        deps.messageQueue,
+        deps.reminderQueue,
+      ),
+      deps.userProcessingLock,
+      deps.telegram?.adapter ?? {
+        sendMessage: () =>
+          Promise.resolve({ status: 'failure' as const, errorCode: 'UNAVAILABLE' }),
+      },
+      restoreGuard ?? {
+        recordCleanup: () => Promise.reject(new Error('REDIS_RESTORE_GUARD_REQUIRED')),
+      },
+    );
+    const worker = createAccountDeletionWorker({
+      redis: deps.redis,
+      service,
+      logger: deps.rootLogger,
+      ...(restoreGuard ? { restoreGuard } : {}),
+    });
+    workers.push(worker);
+    const enqueuePending = async () => {
+      for (const userId of await deps.accountDeletionRepo!.listPending()) {
+        await deletionQueue!.add(
+          'delete',
+          { userId },
+          {
+            jobId: `${userId}-${Math.floor(Date.now() / 60_000)}`,
+          },
+        );
+      }
+    };
+    const logRecoveryError = (error: unknown) => {
+      deps.rootLogger.error({
+        msg: 'Account deletion recovery scan failed',
+        endpoint: 'account-deletion',
+        code: 'ACCOUNT_DELETION_RECOVERY_FAILED',
+        errorType: error instanceof Error ? error.constructor.name : 'unknown',
+      });
+    };
+    try {
+      await enqueuePending();
+    } catch (error) {
+      logRecoveryError(error);
+    }
+    const recoveryTimer = setInterval(() => {
+      void enqueuePending().catch(logRecoveryError);
+    }, 60_000);
+    recoveryTimer.unref();
+    app.addHook('onClose', () => {
+      clearInterval(recoveryTimer);
+    });
+  }
+
+  if (deps.startReplayGuard) {
+    const guard = deps.startReplayGuard;
+    const pruneExpired = async () => {
+      try {
+        await guard.pruneExpired();
+      } catch (error) {
+        deps.rootLogger.error({
+          msg: 'Expired account start replay receipts could not be removed',
+          endpoint: 'account-start-replay',
+          code: 'ACCOUNT_START_REPLAY_PRUNE_FAILED',
+          errorType: error instanceof Error ? error.constructor.name : 'unknown',
+        });
+      }
+    };
+    await pruneExpired();
+    const replayCleanupTimer = setInterval(() => void pruneExpired(), 60 * 60_000);
+    replayCleanupTimer.unref();
+    app.addHook('onClose', () => clearInterval(replayCleanupTimer));
+  }
+
   if (deps.telegram === null) {
     return;
   }
@@ -75,6 +174,7 @@ export async function registerWorkers(
     redis: deps.redis,
     routeIncomingMessage,
     logger: deps.rootLogger,
+    ...(restoreGuard ? { restoreGuard } : {}),
   });
   workers.push(incomingMessageWorker);
   app.log.info(
@@ -88,6 +188,18 @@ export async function registerWorkers(
     whatsapp: telegramAdapter,
   };
   const messageWorker = createMessageWorker({
+    accountDeletionEnabled:
+      env.NODE_ENV !== 'production' || env.ACCOUNT_DELETION_ENABLED === 'true',
+    ...(restoreGuard ? { restoreGuard } : {}),
+    ...(deps.accountDeletionRepo ? { accountDeletionGate: deps.accountDeletionRepo } : {}),
+    ...(deps.accountDeletionRepo && deletionQueue
+      ? {
+          accountDeletion: {
+            confirm: (input) => deps.accountDeletionRepo!.confirm(input),
+            queue: deletionQueue,
+          },
+        }
+      : {}),
     redis: deps.redis,
     logger: deps.rootLogger,
     userProcessingLock: deps.userProcessingLock,
@@ -176,6 +288,7 @@ export async function registerWorkers(
 
   if (deps.googleOAuth !== null) {
     const oauthReminderWorker = createOAuthReminderWorker({
+      ...(restoreGuard ? { restoreGuard } : {}),
       redis: deps.redis,
       logger: deps.rootLogger,
       userRepo: deps.userRepo,
@@ -215,9 +328,12 @@ export async function registerWorkers(
       deps.generateExpenseSummary,
       deps.googleOAuth?.settingsOAuthCleanup,
       deps.googleOAuth?.candidateTokens,
+      deps.accountDeletionRepo ?? undefined,
+      deps.accountExternalWorkFence,
     );
 
     const sessionTimeoutWorker = createSessionTimeoutWorker({
+      ...(restoreGuard ? { restoreGuard } : {}),
       redis: deps.redis,
       handleExpiredSessions,
       logger: deps.rootLogger,

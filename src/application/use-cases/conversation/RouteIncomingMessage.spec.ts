@@ -59,6 +59,50 @@ function buildTextPayload(overrides: Partial<NormalizedPayload> = {}): Normalize
 }
 
 describe('RouteIncomingMessage', () => {
+  it('drops unsupported messages for an identity being deleted', async () => {
+    const deps = buildMockDeps();
+    const gate = { isIdentityDeleting: vi.fn().mockResolvedValue(true) };
+    const router = new RouteIncomingMessage({
+      ...deps,
+      accountDeletionGate: gate,
+    } as unknown as RouteIncomingMessageDeps);
+    await router.execute(buildTextPayload({ messageType: 'UNSUPPORTED', text: undefined }));
+    expect(gate.isIdentityDeleting).toHaveBeenCalledWith('telegram', '123456789');
+    expect(mockUnsupportedExecute).not.toHaveBeenCalled();
+  });
+  it('does not create an account for a deletion recovery request from an unknown identity', async () => {
+    const deps = buildMockDeps();
+    const findByMessagingIdentity = vi.fn().mockResolvedValue(null);
+    const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+    const router = new RouteIncomingMessage({
+      ...deps,
+      accountDeletionIdentity: { users: { findByMessagingIdentity }, messaging: { sendMessage } },
+    } as unknown as RouteIncomingMessageDeps);
+    await router.execute(buildTextPayload({ text: '/eliminar_cuenta', userId: '123456789' }));
+    expect(findByMessagingIdentity).toHaveBeenCalledWith('telegram', '123456789');
+    expect(mockResolveExecute).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('requires an explicit new /start after account removal', async () => {
+    const deps = buildMockDeps();
+    const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+    const router = new RouteIncomingMessage({
+      ...deps,
+      accountDeletionIdentity: {
+        users: { findByMessagingIdentity: vi.fn().mockResolvedValue(null) },
+        messaging: { sendMessage },
+      },
+    } as unknown as RouteIncomingMessageDeps);
+    await router.execute(buildTextPayload({ text: 'café 5', userId: '123456789' }));
+    expect(mockResolveExecute).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      '123456789',
+      'Para empezar a usar Gastto, escribí /start.',
+    );
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockAdd.mockResolvedValue(undefined);

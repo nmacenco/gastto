@@ -39,6 +39,7 @@ export interface SendOAuthReminderOutput {
 }
 
 export interface SendOAuthReminderDeps {
+  accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> };
   redis: Redis;
   oauthService: OAuthServicePort;
   oauthAccessTokenService: OAuthAccessTokenProvider;
@@ -56,6 +57,9 @@ export class SendOAuthReminder {
   constructor(private readonly deps: SendOAuthReminderDeps) {}
 
   async execute(input: SendOAuthReminderInput): Promise<SendOAuthReminderOutput> {
+    if (await this.deps.accountDeletionGate?.isDeleting(input.userId)) {
+      return { message: '', nextState: 'ONBOARDING_DRIVE' };
+    }
     if (!this.deps.userProcessingLock) return this.executeOwned(input);
     const token = await this.deps.userProcessingLock.acquire(input.userId, 180_000);
     if (!token) return { message: '', nextState: 'ONBOARDING_DRIVE' };
@@ -68,6 +72,9 @@ export class SendOAuthReminder {
       endpoint: 'SendOAuthReminder',
     });
     try {
+      if (await this.deps.accountDeletionGate?.isDeleting(input.userId)) {
+        return { message: '', nextState: 'ONBOARDING_DRIVE' };
+      }
       return await this.deps.transitionState.runForUser(input.userId, () =>
         this.executeOwned(input),
       );

@@ -13,6 +13,7 @@ import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { expenseCopies } from '../../copies/expense.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import type { IOperationLogRepository } from '../../../domain/ports/repositories';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 function buildPayload(overrides: Partial<ExpenseReviewPayload> = {}): ExpenseReviewPayload {
   return {
@@ -211,6 +212,24 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     expect(sendMessageMock.mock.invocationCallOrder[1]).toBeLessThan(
       advancePendingExpense.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it('does not turn an account deletion fence rejection into a save failure', async () => {
+    const save = vi
+      .fn<RegisterExpenseUseCase['save']>()
+      .mockRejectedValue(new AccountDeletionInProgressError());
+    const { useCase, sendMessageMock, operationLogCreate } = buildUseCase({ save });
+    await expect(
+      useCase.execute({
+        userId: 'user-123',
+        action: 'confirm',
+        payload: buildPayload(),
+        chatId: 'chat',
+      }),
+    ).rejects.toBeInstanceOf(AccountDeletionInProgressError);
+    expect(operationLogCreate).not.toHaveBeenCalled();
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock).toHaveBeenCalledWith('chat', expenseCopies.saving());
   });
 
   it('saves the corrected expense exactly once only after explicit confirmation', async () => {
