@@ -78,7 +78,13 @@ vi.mock('drizzle-orm/postgres-js', () => ({
 
 vi.mock('../../../infrastructure/redis/RedisRestoreGuard', () => ({
   RedisRestoreGuard: class {
-    assertCurrent = vi.fn().mockResolvedValue(undefined);
+    assertCurrent = vi
+      .fn()
+      .mockImplementation(() =>
+        envOverrides.NODE_ENV === 'production' && envOverrides.ACCOUNT_DELETION_ENABLED === 'true'
+          ? Promise.reject(new Error('TEST_QUARANTINE'))
+          : Promise.resolve(),
+      );
   },
 }));
 
@@ -175,6 +181,11 @@ describe('bootstrap', () => {
     const body = JSON.parse(response.payload) as { status: string; ts: string };
     expect(body.status).toBe('ok');
     expect(body.ts).toBeDefined();
+  });
+
+  it('requires restore validation before starting production with deletion enabled', async () => {
+    envOverrides = { NODE_ENV: 'production', ACCOUNT_DELETION_ENABLED: 'true' };
+    await expect(bootstrap(buildEnv(), silentLoggerFactory)).rejects.toThrow('TEST_QUARANTINE');
   });
 
   it('does not install production signal handlers when imported by tests', () => {

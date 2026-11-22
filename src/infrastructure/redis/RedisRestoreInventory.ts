@@ -6,7 +6,7 @@ import type { Redis } from 'ioredis';
 import * as schema from '../db/schema';
 import { classifyRestoredJob, type RestoredJobDecision } from './RestoredJobPolicy';
 
-const retainedStates = [
+export const retainedStates = [
   'waiting',
   'prioritized',
   'delayed',
@@ -41,6 +41,7 @@ function decisionCounts(): Record<RestoredJobDecision, number> {
     pendingDeletion: 0,
     completedHistory: 0,
     failedHistory: 0,
+    obsoleteReminder: 0,
     unresolved: 0,
     global: 0,
     invalidPayload: 0,
@@ -56,7 +57,7 @@ export class RedisRestoreInventory {
   ) {}
 
   async inspect(): Promise<RedisRestoreInventoryReport> {
-    const [users, identities, deleting] = await Promise.all([
+    const [users, identities, deleting, conversations] = await Promise.all([
       this.db.select({ userId: schema.users.userId }).from(schema.users),
       this.db
         .select({
@@ -68,12 +69,21 @@ export class RedisRestoreInventory {
       this.db
         .select({ userId: schema.accountDeletionOperations.userId })
         .from(schema.accountDeletionOperations),
+      this.db
+        .select({
+          userId: schema.conversationStates.userId,
+          currentState: schema.conversationStates.currentState,
+          statePayload: schema.conversationStates.statePayload,
+          expiresAt: schema.conversationStates.expiresAt,
+        })
+        .from(schema.conversationStates),
     ]);
     const liveUsers = new Set(users.map((row) => row.userId));
     const deletingUsers = new Set(deleting.map((row) => row.userId));
     const ownerByIdentity = new Map(
       identities.map((row) => [`identity:${row.channel}:${row.externalId}`, row.userId]),
     );
+    const conversationByUser = new Map(conversations.map((row) => [row.userId, row]));
     const classifyUser = (userId: string): Classification =>
       liveUsers.has(userId) && !deletingUsers.has(userId) ? 'current' : 'orphan';
     const report: RedisRestoreInventoryReport = {
@@ -98,10 +108,12 @@ export class RedisRestoreInventory {
           liveUsers,
           deletingUsers,
           ownerByIdentity,
+          conversationByUser,
         });
         decisions[decision]++;
         if (decision === 'orphaned') report.jobs.orphan++;
-        else if (decision === 'completedHistory') report.jobs.current++;
+        else if (decision === 'completedHistory' || decision === 'obsoleteReminder')
+          report.jobs.current++;
         else if (decision === 'global') report.jobs.global++;
         else report.jobs.uncertain++;
       }

@@ -188,6 +188,8 @@ export async function registerWorkers(
     whatsapp: telegramAdapter,
   };
   const messageWorker = createMessageWorker({
+    accountDeletionEnabled:
+      env.NODE_ENV !== 'production' || env.ACCOUNT_DELETION_ENABLED === 'true',
     ...(restoreGuard ? { restoreGuard } : {}),
     ...(deps.accountDeletionRepo ? { accountDeletionGate: deps.accountDeletionRepo } : {}),
     ...(deps.accountDeletionRepo && deletionQueue

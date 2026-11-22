@@ -23,7 +23,7 @@ export class RedisRestoreQuarantineError extends Error {
 export class RedisRestoreGuard {
   constructor(
     private readonly db: PostgresJsDatabase<typeof schema>,
-    private readonly redis: Pick<Redis, 'get' | 'setnx' | 'info' | 'eval'>,
+    private readonly redis: Pick<Redis, 'get' | 'set' | 'setnx' | 'info' | 'eval'>,
   ) {}
 
   private async currentRunId(): Promise<string> {
@@ -73,6 +73,34 @@ export class RedisRestoreGuard {
       .returning({ epoch: schema.redisRecoveryEpoch.epoch });
     if (!row) throw new RedisRestoreQuarantineError();
     await this.redis.eval(ADVANCE_MARKER, 1, MARKER_KEY, String(row.epoch));
+    await this.assertCurrent();
+  }
+
+  /** Use only after an offline, verified restore reconciliation. */
+  async rebaseline(expected: {
+    epoch: number;
+    persistedRunId: string;
+    restoredRunId: string;
+  }): Promise<void> {
+    if ((await this.currentRunId()) !== expected.restoredRunId) {
+      throw new RedisRestoreQuarantineError();
+    }
+    const [row] = await this.db
+      .select({ epoch: schema.redisRecoveryEpoch.epoch, runId: schema.redisRecoveryEpoch.runId })
+      .from(schema.redisRecoveryEpoch)
+      .limit(1);
+    if (!row || row.epoch !== expected.epoch || row.runId !== expected.persistedRunId) {
+      throw new RedisRestoreQuarantineError();
+    }
+    await this.redis.set(MARKER_KEY, String(expected.epoch));
+    const updated = await this.db
+      .update(schema.redisRecoveryEpoch)
+      .set({ runId: expected.restoredRunId })
+      .where(
+        sql`${schema.redisRecoveryEpoch.id} = 1 AND ${schema.redisRecoveryEpoch.epoch} = ${expected.epoch} AND ${schema.redisRecoveryEpoch.runId} = ${expected.persistedRunId}`,
+      )
+      .returning({ id: schema.redisRecoveryEpoch.id });
+    if (updated.length !== 1) throw new RedisRestoreQuarantineError();
     await this.assertCurrent();
   }
 }

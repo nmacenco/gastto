@@ -2,6 +2,7 @@ import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { AccountDeletionService } from '../../application/services/AccountDeletionService';
+import { assertRestoreSafe } from './restoreQuarantine';
 
 export function createAccountDeletionWorker(deps: {
   redis: Redis;
@@ -11,8 +12,8 @@ export function createAccountDeletionWorker(deps: {
 }): Worker<{ userId: string }> {
   const worker = new Worker<{ userId: string }>(
     'account-deletion',
-    async (job: Job<{ userId: string }>) => {
-      await deps.restoreGuard?.assertCurrent();
+    async (job: Job<{ userId: string }>, token?: string) => {
+      await assertRestoreSafe(deps.restoreGuard, job, token, worker, deps.logger);
       if (typeof job.data.userId !== 'string' || !/^[0-9a-f-]{36}$/i.test(job.data.userId)) {
         throw new Error('INVALID_ACCOUNT_DELETION_JOB');
       }

@@ -20,6 +20,7 @@ import {
   registerBullMqErrorListener,
   sanitizeRedisErrorMessage,
 } from './bullMqRuntime';
+import { assertRestoreSafe } from './restoreQuarantine';
 
 export async function processIncomingMessageJob(
   job: Job<IncomingMessageJobData>,
@@ -57,8 +58,8 @@ export function createIncomingMessageWorker(opts: {
 }): Worker<IncomingMessageJobData> {
   const worker = new Worker<IncomingMessageJobData>(
     'incoming-message',
-    async (job: Job<IncomingMessageJobData>) => {
-      await opts.restoreGuard?.assertCurrent();
+    async (job: Job<IncomingMessageJobData>, token?: string) => {
+      await assertRestoreSafe(opts.restoreGuard, job, token, worker, opts.logger);
       await processIncomingMessageJob(job, opts.routeIncomingMessage);
     },
     {

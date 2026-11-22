@@ -10,6 +10,7 @@ import { GmailOperatorMailAdapter } from '../../infrastructure/adapters/gmail/Gm
 import { operatorMailFailureContext } from '../../application/ports/OperatorMailPort';
 import * as schema from '../../infrastructure/db/schema';
 import { Redis } from 'ioredis';
+import { RedisRestoreGuard } from '../../infrastructure/redis/RedisRestoreGuard';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -20,6 +21,9 @@ export async function notifyAccessRequestCli(requestId: string): Promise<number>
   const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   try {
     const db = drizzle(sql, { schema });
+    if (env.ACCOUNT_DELETION_ENABLED === 'true') {
+      await new RedisRestoreGuard(db, redis).assertCurrent();
+    }
     const requests = new DrizzleAccessRequestRepository(db, logger);
     const users = new DrizzleUserRepository(db, redis);
     const request = await requests.findById(requestId);

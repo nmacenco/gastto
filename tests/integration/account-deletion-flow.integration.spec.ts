@@ -30,6 +30,7 @@ import { AccountOperationalCleanup } from '../../src/infrastructure/redis/Accoun
 import { RedisUserProcessingLock } from '../../src/infrastructure/redis/RedisUserProcessingLock';
 import { RedisRestoreGuard } from '../../src/infrastructure/redis/RedisRestoreGuard';
 import { RedisRestoreInventory } from '../../src/infrastructure/redis/RedisRestoreInventory';
+import { assertRestoreSafe } from '../../src/interfaces/workers/restoreQuarantine';
 import { RevokeAccountCredentials } from '../../src/application/use-cases/user/RevokeAccountCredentials';
 import { AccountDeletionService } from '../../src/application/services/AccountDeletionService';
 import { RedisProcessedMessageRepository } from '../../src/infrastructure/redis/RedisProcessedMessageRepository';
@@ -672,8 +673,12 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
   it('inventories restored account work without exposing identifiers or changing Redis', async () => {
     const owner = await createUser(db);
     await createMessagingIdentity(db, { userId: owner.userId, externalId: 'inventory-live-chat' });
+    await db
+      .insert(schema.conversationStates)
+      .values({ userId: owner.userId, currentState: 'IDLE' });
     const orphanId = '00000000-0000-4000-8000-000000000123';
     const queue = new Queue('incoming-message', { connection: redis });
+    const reminderQueue = new Queue('oauth-reminder', { connection: redis });
     const keys = [
       'identity:telegram:inventory-live-chat',
       'identity:telegram:inventory-orphan-chat',
@@ -693,6 +698,11 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       };
       await queue.add('live', { ...payload, userId: owner.userId, chatId: 'inventory-live-chat' });
       await queue.add('orphan', { ...payload, userId: orphanId, chatId: 'inventory-orphan-chat' });
+      await reminderQueue.add(
+        'oauth-reminder',
+        { userId: owner.userId, channel: 'telegram', externalId: 'inventory-live-chat' },
+        { delay: 60_000 },
+      );
       await redis.set(keys[0]!, owner.userId);
       await redis.set(keys[1]!, orphanId);
       await redis.set(keys[2]!, '{}');
@@ -703,9 +713,11 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       await redis.set(keys[7]!, '{broken');
       const report = await new RedisRestoreInventory(db, redis, [
         { name: 'incoming-message', queue },
+        { name: 'oauth-reminder', queue: reminderQueue },
       ]).inspect();
       expect(report.jobs).toMatchObject({ orphan: 1, uncertain: 1, active: 0 });
       expect(report.jobDecisions['incoming-message']).toMatchObject({ orphaned: 1, unresolved: 1 });
+      expect(report.jobDecisions['oauth-reminder']).toMatchObject({ obsoleteReminder: 1 });
       expect(report.identityCaches.current).toBeGreaterThanOrEqual(1);
       expect(report.identityCaches.orphan).toBeGreaterThanOrEqual(1);
       expect(report.correctionStates.orphan).toBeGreaterThanOrEqual(1);
@@ -720,8 +732,52 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       expect(await redis.get(keys[1]!)).toBe(orphanId);
     } finally {
       await queue.obliterate({ force: true });
+      await reminderQueue.obliterate({ force: true });
       await queue.close();
+      await reminderQueue.close();
       await redis.del(...keys);
+    }
+  });
+
+  it('pauses a worker and retains its claimed job when restore validation fails', async () => {
+    const queue = new Queue('restore-quarantine-test', { connection: redis });
+    const sideEffect = vi.fn();
+    const logger = { error: vi.fn() };
+    const guard = {
+      assertCurrent: vi.fn().mockRejectedValue(new Error('REDIS_RESTORE_QUARANTINE')),
+    };
+    const worker = new Worker(
+      'restore-quarantine-test',
+      async (job, token) => {
+        await assertRestoreSafe(guard, job, token, worker, logger);
+        sideEffect();
+      },
+      {
+        connection: {
+          host: redisContainer.getHost(),
+          port: redisContainer.getMappedPort(6379),
+          maxRetriesPerRequest: null,
+        },
+      },
+    );
+    try {
+      const job = await queue.add('retained', { userId: 'test-account' });
+      await vi.waitFor(
+        async () => {
+          expect(await worker.isPaused()).toBe(true);
+          expect(await job.getState()).toBe('delayed');
+        },
+        { timeout: 10_000 },
+      );
+      expect(sideEffect).not.toHaveBeenCalled();
+      expect((await queue.getJobCounts('failed')).failed).toBe(0);
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'REDIS_RESTORE_QUARANTINE' }),
+      );
+    } finally {
+      await worker.close();
+      await queue.obliterate({ force: true });
+      await queue.close();
     }
   });
 });

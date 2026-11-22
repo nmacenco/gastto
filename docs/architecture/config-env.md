@@ -1,13 +1,13 @@
 ---
 title: 'Configuration & Environment'
-last_updated: '2026-11-19'
+last_updated: '2026-11-22'
 source_of_truth: ['src/config/env.schema.ts', '.env.example', 'compose.local.yml']
 tags: ['architecture', 'config', 'env']
 ---
 
 # Configuration & Environment
 
-Account deletion currently checks `NODE_ENV` in the Telegram message worker and returns an unavailable response in production. `NODE_ENV` is not an activation switch: changing it would also alter unrelated runtime behavior. Production activation requires a reviewed code release after migration `0018_foamy_sersi`, lifecycle and restore verification, and publication of accurate privacy text. See the [account deletion runbook](../operations/account-deletion-recovery.md).
+Account deletion remains disabled by default in production. `ACCOUNT_DELETION_ENABLED=true` is the explicit opt-in: it enables the Telegram action and Redis restore guard together, and the application refuses to start when guard validation fails. Keep it unset or `false` until migrations 0018–0022, provider retention, recovery rehearsal, and accurate public privacy text are verified. Changing `NODE_ENV` is not an activation method. See the [account deletion runbook](../operations/account-deletion-recovery.md).
 
 This document describes the configuration and environment setup for this project.
 
@@ -24,6 +24,7 @@ Telegram approval is opt-in with `ACCESS_APPROVAL_ENABLED=true`. When enabled, `
 | `LOG_LEVEL`                                    | Server | No       | Pino log level. Defaults to `info`.                                                                                                                                                                                                                                                            |
 | `DATABASE_URL`                                 | Server | Yes      | PostgreSQL connection string. Required at startup.                                                                                                                                                                                                                                             |
 | `REDIS_URL`                                    | Server | Yes      | Provider-independent Redis-compatible broker URI for BullMQ and caches. Hosted environments require TLS via `rediss://`.                                                                                                                                                                       |
+| `ACCOUNT_DELETION_ENABLED`                     | Server | No       | Exact `true` or `false`; omitted means disabled in production. Set `true` only in the reviewed release after restore reconciliation and privacy gates pass. It enables the deletion action and restore guard together.                                                                         |
 | `OPENAI_API_KEY`                               | Server | No       | OpenAI API key. Optional; at least one LLM provider key is required.                                                                                                                                                                                                                           |
 | `ANTHROPIC_API_KEY`                            | Server | No       | Anthropic API key. Optional.                                                                                                                                                                                                                                                                   |
 | `NVIDIA_API_KEY`                               | Server | No       | NVIDIA API key for the `integrate.api.nvidia.com` OpenAI-compatible endpoint. Optional.                                                                                                                                                                                                        |

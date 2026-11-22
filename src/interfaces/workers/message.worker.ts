@@ -66,6 +66,7 @@ import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloa
 import { AccountDeletionInProgressError } from '../../application/ports/AccountExternalWorkFence';
 import { parseCategoryOnboardingState } from '../../application/dtos/CategoryOnboardingState';
 import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
+import { assertRestoreSafe } from './restoreQuarantine';
 import {
   tryNormalizeExpenseReviewPayload,
   type ExpenseReviewPayload,
@@ -149,6 +150,7 @@ const USER_LOCK_RENEW_MS = 30_000;
 
 export interface MessageWorkerDeps {
   restoreGuard?: { assertCurrent(): Promise<void> };
+  accountDeletionEnabled?: boolean;
   accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> };
   accountDeletion?: {
     confirm(input: {
@@ -817,7 +819,8 @@ async function handleAccountDeletionPreview(
   messaging: MessagingOutputPort,
   externalId: string,
 ): Promise<void> {
-  if (process.env.NODE_ENV === 'production') {
+  const deletionEnabled = opts.accountDeletionEnabled ?? process.env.NODE_ENV !== 'production';
+  if (!deletionEnabled) {
     await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
     return;
   }
@@ -834,7 +837,7 @@ async function handleAccountDeletionPreview(
       state.expiresAt &&
       state.expiresAt.getTime() > Date.now() &&
       isExactAccountDeletionConfirmation(rawMessage) &&
-      process.env.NODE_ENV !== 'production' &&
+      deletionEnabled &&
       opts.accountDeletion
     ) {
       const started = await opts.accountDeletion.confirm({
@@ -1984,8 +1987,8 @@ async function sendUndoOutcome(
 export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMessageJobData> {
   const worker = new Worker<ProcessMessageJobData>(
     'process-message',
-    async (job: Job<ProcessMessageJobData>) => {
-      await opts.restoreGuard?.assertCurrent();
+    async (job: Job<ProcessMessageJobData>, token?: string) => {
+      await assertRestoreSafe(opts.restoreGuard, job, token, worker, opts.logger);
       await processMessageJob(job, opts);
     },
     {

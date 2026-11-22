@@ -39,6 +39,20 @@ describe('envSchema', () => {
     }
   });
 
+  it('requires an exact opt-in value for production account deletion', () => {
+    const inactive = envSchema.safeParse({ ...validEnv, NODE_ENV: 'production' });
+    expect(inactive.success).toBe(true);
+    if (inactive.success) expect(inactive.data.ACCOUNT_DELETION_ENABLED).toBeUndefined();
+    const active = envSchema.safeParse({
+      ...validEnv,
+      NODE_ENV: 'production',
+      ACCOUNT_DELETION_ENABLED: 'true',
+    });
+    expect(active.success).toBe(true);
+    if (active.success) expect(active.data.ACCOUNT_DELETION_ENABLED).toBe('true');
+    expect(envSchema.safeParse({ ...validEnv, ACCOUNT_DELETION_ENABLED: '1' }).success).toBe(false);
+  });
+
   it('parses strict semantic router runtime settings', () => {
     const result = envSchema.safeParse({
       ...validEnv,

@@ -43,6 +43,10 @@ On 2026-11-22 the owner confirmed that production Redis uses Aiven and has three
 
 The read-only inventory now validates restored job payloads against worker schemas and groups decisions by queue. A queued job for a current account remains unresolved even when its owner and identity match PostgreSQL: the backup cannot prove whether its external effect happened later. Completed and failed history, pending deletion jobs, orphaned jobs, the global session timer, and invalid payloads are separate counts. These classifications are advisory and never authorize replay or reset. An effect outcome record or a reviewed incident procedure is needed before any uncertain job can be resumed or removed.
 
+For OAuth reminders only, the current PostgreSQL conversation state can establish that a delayed reminder belongs to an obsolete flow or nonce. The inventory reports it as `obsoleteReminder` for operator review. A still-active job remains unresolved, and a reminder whose flow is current remains unresolved: neither case proves whether a message was sent after the backup. This evidence narrows the manual decision; it does not turn the restored queue into an automatically replayable source.
+
+The local reconciliation command now implements the conservative clean case: with application processes stopped, it rejects active or uncertain work and unknown Redis key families, removes proven orphaned account state and obsolete reminders, then updates the Redis marker and Valkey run ID only after a second inventory. A worker that detects a restore pauses and delays its claimed job instead of consuming failure attempts. `ACCOUNT_DELETION_ENABLED` is an explicit production opt-in that activates the Telegram action and the restore guard together; it remains off until provider retention, live-restore rehearsal, and the unresolved-job incident procedure are verified. The operator command cannot prove that Fly has been stopped or resolve an external effect whose outcome is unknown.
+
 ## References
 
 - [Data model](../architecture/data-model.md)

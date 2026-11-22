@@ -122,7 +122,7 @@ export async function bootstrap(
       });
 
       deps = buildDependencies(env, { db, redis, rootLogger });
-      if (env.NODE_ENV !== 'production') {
+      if (env.NODE_ENV !== 'production' || env.ACCOUNT_DELETION_ENABLED === 'true') {
         restoreGuard = new RedisRestoreGuard(db, redis);
         await restoreGuard.assertCurrent();
         const currentGuard = restoreGuard;

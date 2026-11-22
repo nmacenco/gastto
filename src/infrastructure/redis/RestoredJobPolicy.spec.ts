@@ -7,6 +7,9 @@ const context: RestoredJobContext = {
   liveUsers: new Set([userId]),
   deletingUsers: new Set([deletedId]),
   ownerByIdentity: new Map([['identity:telegram:live-chat', userId]]),
+  conversationByUser: new Map([
+    [userId, { currentState: 'ONBOARDING_DRIVE', statePayload: null, expiresAt: null }],
+  ]),
 };
 
 const processing = {
@@ -56,6 +59,50 @@ describe('restored job decisions', () => {
         context,
       ),
     ).toBe('orphaned');
+  });
+
+  it('uses current PostgreSQL flow state to identify obsolete OAuth reminders', () => {
+    const reminder = { userId, externalId: 'live-chat', channel: 'telegram' };
+    const idle: RestoredJobContext = {
+      ...context,
+      conversationByUser: new Map([
+        [userId, { currentState: 'IDLE', statePayload: null, expiresAt: null }],
+      ]),
+    };
+    expect(classifyRestoredJob('oauth-reminder', reminder, 'delayed', idle)).toBe(
+      'obsoleteReminder',
+    );
+    expect(classifyRestoredJob('oauth-reminder', reminder, 'active', idle)).toBe('unresolved');
+
+    const settings: RestoredJobContext = {
+      ...context,
+      conversationByUser: new Map([
+        [
+          userId,
+          {
+            currentState: 'SETTINGS_OAUTH',
+            statePayload: { state: 'current-nonce' },
+            expiresAt: new Date(Date.now() + 60_000),
+          },
+        ],
+      ]),
+    };
+    expect(
+      classifyRestoredJob(
+        'oauth-reminder',
+        { ...reminder, state: 'old-nonce' },
+        'delayed',
+        settings,
+      ),
+    ).toBe('obsoleteReminder');
+    expect(
+      classifyRestoredJob(
+        'oauth-reminder',
+        { ...reminder, state: 'current-nonce' },
+        'delayed',
+        settings,
+      ),
+    ).toBe('unresolved');
   });
 
   it('separates pending deletion jobs from stale deletion jobs', () => {

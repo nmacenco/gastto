@@ -930,6 +930,19 @@ describe('processMessageJob', () => {
       }
     });
 
+    it('allows the reviewed production activation flag to open the deletion request', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      try {
+        mockGetConversationStateExecute.mockResolvedValue(settingsState());
+        const deps = buildMockDeps();
+        deps.accountDeletionEnabled = true;
+        await processMessageJob(buildJob({ ...baseJobData, rawMessage: '8' }), deps);
+        expect(mockSendMessage).toHaveBeenCalledWith('123456789', accountDeletionCopies.request);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it('allows the recovery command before access approval and OAuth checks', async () => {
       mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
       const deps = buildMockDeps();

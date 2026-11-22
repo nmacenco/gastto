@@ -58,6 +58,7 @@ export const envSchema = z
 
     // ── Cache / Queue ─────────────────────────────────────────────────────────────
     REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
+    ACCOUNT_DELETION_ENABLED: z.enum(['true', 'false']).optional(),
 
     // ── Mapping correction state (HU-4.06) ─────────────────────────────────────────
     // TTL for the transient Redis-backed correction state. Default: 30 minutes.

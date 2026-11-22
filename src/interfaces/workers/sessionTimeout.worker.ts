@@ -13,6 +13,7 @@ import {
 } from '../../application/ports/SessionTimeoutJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
+import { assertRestoreSafe } from './restoreQuarantine';
 
 export interface SessionTimeoutWorkerOpts {
   restoreGuard?: { assertCurrent(): Promise<void> };
@@ -40,8 +41,8 @@ export function createSessionTimeoutWorker(
 ): Worker<SessionTimeoutJobData> {
   const worker = new Worker<SessionTimeoutJobData>(
     'session-timeout',
-    async (job: Job<SessionTimeoutJobData>) => {
-      await opts.restoreGuard?.assertCurrent();
+    async (job: Job<SessionTimeoutJobData>, token?: string) => {
+      await assertRestoreSafe(opts.restoreGuard, job, token, worker, opts.logger);
       await processSessionTimeoutJob(job, opts.handleExpiredSessions);
     },
     {
