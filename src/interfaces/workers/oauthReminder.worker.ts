@@ -18,6 +18,7 @@ import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from '
 export type { OAuthReminderJobData } from '../../application/ports/OAuthReminderJob';
 
 export interface OAuthReminderWorkerDeps {
+  restoreGuard?: { assertCurrent(): Promise<void> };
   redis: Redis;
   sendOAuthReminder: SendOAuthReminder;
   redirectUri: string;
@@ -72,7 +73,10 @@ export function createOAuthReminderWorker(
 ): Worker<OAuthReminderJobData> {
   const worker = new Worker<OAuthReminderJobData>(
     'oauth-reminder',
-    async (job: Job<OAuthReminderJobData>) => processOAuthReminderJob(job, deps),
+    async (job: Job<OAuthReminderJobData>) => {
+      await deps.restoreGuard?.assertCurrent();
+      await processOAuthReminderJob(job, deps);
+    },
     {
       connection: deps.redis,
       concurrency: 2,

@@ -8,6 +8,7 @@ import type { IUserProcessingLock } from '../ports/UserProcessingLock';
 import type { TokenEncryptionPort } from '../../domain/ports/tokenEncryption';
 
 describe('AccountDeletionService', () => {
+  const recovery = { recordCleanup: () => Promise.resolve() };
   it.each([
     'get',
     'revoking',
@@ -16,6 +17,7 @@ describe('AccountDeletionService', () => {
     'clean:first',
     'eraseAccount',
     'clean:second',
+    'recovery',
     'notifying',
     'finish:before',
     'finish:after',
@@ -40,6 +42,12 @@ describe('AccountDeletionService', () => {
     const revokeToken = vi.fn().mockResolvedValue('revoked');
     const release = vi.fn().mockResolvedValue(undefined);
     const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+    const recovery = {
+      recordCleanup: vi.fn(() => {
+        interrupt('recovery');
+        return Promise.resolve();
+      }),
+    };
     const service = new AccountDeletionService(
       {
         get: vi.fn(() => {
@@ -89,6 +97,7 @@ describe('AccountDeletionService', () => {
       },
       { acquire: vi.fn().mockResolvedValue('lease'), release } as unknown as IUserProcessingLock,
       { sendMessage },
+      recovery,
     );
 
     await expect(service.resume('owner')).rejects.toThrow('SIMULATED_INTERRUPTION');
@@ -141,6 +150,7 @@ describe('AccountDeletionService', () => {
         release: vi.fn().mockResolvedValue(undefined),
       } as unknown as IUserProcessingLock,
       { sendMessage: vi.fn() },
+      recovery,
     );
 
     await expect(service.resume('owner')).rejects.toThrow('ACCOUNT_EXTERNAL_WORK_STILL_ACTIVE');
@@ -171,6 +181,7 @@ describe('AccountDeletionService', () => {
         release: vi.fn().mockResolvedValue(undefined),
       } as unknown as IUserProcessingLock,
       { sendMessage: vi.fn().mockRejectedValue(new Error('Telegram unavailable')) },
+      recovery,
     );
     await expect(service.resume('owner')).resolves.toBeUndefined();
     expect(finish).toHaveBeenCalledWith('owner');
@@ -207,6 +218,7 @@ describe('AccountDeletionService', () => {
       { clean },
       { acquire: vi.fn().mockResolvedValue('lease'), release } as unknown as IUserProcessingLock,
       { sendMessage },
+      recovery,
     );
     await expect(service.resume('owner')).rejects.toThrow('Redis unavailable');
     expect(eraseAccount).not.toHaveBeenCalled();
@@ -254,6 +266,7 @@ describe('AccountDeletionService', () => {
         release: vi.fn().mockResolvedValue(undefined),
       } as unknown as IUserProcessingLock,
       { sendMessage: vi.fn().mockResolvedValue({ status: 'success' }) },
+      recovery,
     );
 
     await expect(service.resume('owner')).rejects.toThrow('Redis connection lost');

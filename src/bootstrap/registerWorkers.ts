@@ -21,6 +21,7 @@ import { AccountDeletionService } from '../application/services/AccountDeletionS
 import { RevokeAccountCredentials } from '../application/use-cases/user/RevokeAccountCredentials';
 import { AccountOperationalCleanup } from '../infrastructure/redis/AccountOperationalCleanup';
 import { createAccountDeletionWorker } from '../interfaces/workers/accountDeletion.worker';
+import type { RedisRestoreGuard } from '../infrastructure/redis/RedisRestoreGuard';
 
 interface CloseableBullMqResource {
   close(): Promise<void>;
@@ -51,6 +52,7 @@ export async function registerWorkers(
   app: FastifyInstance,
   deps: Dependencies,
   env: Env,
+  restoreGuard?: RedisRestoreGuard,
 ): Promise<void> {
   const workers: CloseableBullMqResource[] = [];
   const queues: CloseableBullMqResource[] = [
@@ -97,11 +99,15 @@ export async function registerWorkers(
         sendMessage: () =>
           Promise.resolve({ status: 'failure' as const, errorCode: 'UNAVAILABLE' }),
       },
+      restoreGuard ?? {
+        recordCleanup: () => Promise.reject(new Error('REDIS_RESTORE_GUARD_REQUIRED')),
+      },
     );
     const worker = createAccountDeletionWorker({
       redis: deps.redis,
       service,
       logger: deps.rootLogger,
+      ...(restoreGuard ? { restoreGuard } : {}),
     });
     workers.push(worker);
     const enqueuePending = async () => {
@@ -168,6 +174,7 @@ export async function registerWorkers(
     redis: deps.redis,
     routeIncomingMessage,
     logger: deps.rootLogger,
+    ...(restoreGuard ? { restoreGuard } : {}),
   });
   workers.push(incomingMessageWorker);
   app.log.info(
@@ -181,6 +188,7 @@ export async function registerWorkers(
     whatsapp: telegramAdapter,
   };
   const messageWorker = createMessageWorker({
+    ...(restoreGuard ? { restoreGuard } : {}),
     ...(deps.accountDeletionRepo ? { accountDeletionGate: deps.accountDeletionRepo } : {}),
     ...(deps.accountDeletionRepo && deletionQueue
       ? {
@@ -278,6 +286,7 @@ export async function registerWorkers(
 
   if (deps.googleOAuth !== null) {
     const oauthReminderWorker = createOAuthReminderWorker({
+      ...(restoreGuard ? { restoreGuard } : {}),
       redis: deps.redis,
       logger: deps.rootLogger,
       userRepo: deps.userRepo,
@@ -322,6 +331,7 @@ export async function registerWorkers(
     );
 
     const sessionTimeoutWorker = createSessionTimeoutWorker({
+      ...(restoreGuard ? { restoreGuard } : {}),
       redis: deps.redis,
       handleExpiredSessions,
       logger: deps.rootLogger,

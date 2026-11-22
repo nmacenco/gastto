@@ -6,7 +6,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 
 ## Index
 
-- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, durable `/start` replay protection, development deletion worker, durable work counting for Sheets, OAuth, `/start`, timeouts, and notices, verified seeded queue and Redis cleanup, sanitized worker retries, privacy status, and remaining production gates.
+- [`account-deletion.md`](./account-deletion.md): Telegram confirmation, durable `/start` replay protection, development deletion worker, durable work counting for Sheets and OAuth, verified queue and Redis cleanup, restore detection and read-only inventory, privacy status, and remaining production gates.
 
 - [`conversational-message-formatting.md`](./conversational-message-formatting.md): Explicit paragraphs, list preservation, and separate cancellation guidance for file/sheet selection and recovery.
 
@@ -35,7 +35,7 @@ Use [`TEMPLATE.md`](./TEMPLATE.md) to create new feature documentation.
 - [`undo-last-expense.md`](./undo-last-expense.md) — One-record Google Sheets undo using the expense's historical configuration, account-work fencing, exact-target claims, bound delayed confirmation, and safe recovery from pre-deletion failures.
 - [`send-responses-to-user.md`](./send-responses-to-user.md) — Channel-agnostic message delivery with retry, chunking, failure classification, and best-effort contention notices.
 - [`conversation-state-management.md`](./conversation-state-management.md) — PostgreSQL-backed revisioned FSM with cancellation across active flows, guarded pending OAuth renewal, exact onboarding confirmation, incomplete-destination protection, renewable ownership, retry-to-queue continuation, guarded timeout/queue effects, and financial claims with administrator guidance for unresolved operations.
-- [`deployment.md`](./deployment.md) — Merge-protected Fly.io deployment, account-deletion release and restore gates, provider-independent Redis brokers, persistent workers, rollback, graceful shutdown, and Telegram bot isolation.
+- [`deployment.md`](./deployment.md) — Merge-protected Fly.io deployment, explicit account-deletion migration and restore gates, Aiven production and development Redis brokers, persistent workers, rollback, graceful shutdown, and Telegram bot isolation.
 - [Observability](../architecture/observability.md) — Structured Pino logging across all layers (ADR-013).
 
 - [Security hardening](security-hardening.md): HTTP budgets, secret validation, production/development audit gates, package-manager-free runtime, telemetry, operational runbook and hosted technical validation.

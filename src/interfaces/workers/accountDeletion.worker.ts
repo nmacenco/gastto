@@ -7,10 +7,12 @@ export function createAccountDeletionWorker(deps: {
   redis: Redis;
   service: AccountDeletionService;
   logger: Logger;
+  restoreGuard?: { assertCurrent(): Promise<void> };
 }): Worker<{ userId: string }> {
   const worker = new Worker<{ userId: string }>(
     'account-deletion',
     async (job: Job<{ userId: string }>) => {
+      await deps.restoreGuard?.assertCurrent();
       if (typeof job.data.userId !== 'string' || !/^[0-9a-f-]{36}$/i.test(job.data.userId)) {
         throw new Error('INVALID_ACCOUNT_DELETION_JOB');
       }

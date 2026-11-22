@@ -22,6 +22,10 @@ export interface AccountOperationalCleanupPort {
   ): Promise<void>;
 }
 
+export interface AccountCleanupRecoveryPort {
+  recordCleanup(): Promise<void>;
+}
+
 export class AccountDeletionService {
   constructor(
     private readonly progress: AccountDeletionProgressPort,
@@ -29,6 +33,7 @@ export class AccountDeletionService {
     private readonly cleanup: AccountOperationalCleanupPort,
     private readonly lock: IUserProcessingLock,
     private readonly messaging: MessagingOutputPort,
+    private readonly recovery: AccountCleanupRecoveryPort,
   ) {}
 
   async resume(userId: string): Promise<void> {
@@ -80,6 +85,7 @@ export class AccountDeletionService {
         await this.progress.eraseAccount(userId);
         assertLease();
         await this.cleanup.clean(userId, identities);
+        await this.recovery.recordCleanup();
         await this.progress.setStage(userId, 'notifying');
         state = await this.progress.get(userId);
         if (!state) return;

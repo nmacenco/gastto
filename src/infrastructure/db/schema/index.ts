@@ -111,6 +111,21 @@ export const accountDeletionIdentities = pgTable(
   }),
 );
 
+// Singleton recovery marker. A PostgreSQL value newer than the Redis mirror
+// means a restored Redis snapshot may contain already-erased account data.
+export const redisRecoveryEpoch = pgTable(
+  'redis_recovery_epoch',
+  {
+    id: smallint('id').primaryKey().default(1),
+    epoch: bigint('epoch', { mode: 'number' }).notNull().default(0),
+    runId: text('run_id').notNull(),
+  },
+  (t) => ({
+    singletonCheck: check('chk_redis_recovery_epoch_singleton', sql`${t.id} = 1`),
+    nonnegativeCheck: check('chk_redis_recovery_epoch_nonnegative', sql`${t.epoch} >= 0`),
+  }),
+);
+
 // A short-lived, pseudonymous receipt for a Telegram /start delivery. It is
 // intentionally independent of users so deleting a user cannot admit a replay.
 export const accountStartReplays = pgTable(

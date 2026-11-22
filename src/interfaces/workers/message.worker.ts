@@ -148,6 +148,7 @@ const USER_LOCK_TTL_MS = 180_000;
 const USER_LOCK_RENEW_MS = 30_000;
 
 export interface MessageWorkerDeps {
+  restoreGuard?: { assertCurrent(): Promise<void> };
   accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> };
   accountDeletion?: {
     confirm(input: {
@@ -1983,7 +1984,10 @@ async function sendUndoOutcome(
 export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMessageJobData> {
   const worker = new Worker<ProcessMessageJobData>(
     'process-message',
-    async (job: Job<ProcessMessageJobData>) => processMessageJob(job, opts),
+    async (job: Job<ProcessMessageJobData>) => {
+      await opts.restoreGuard?.assertCurrent();
+      await processMessageJob(job, opts);
+    },
     {
       connection: opts.redis,
       concurrency: 2, // max 2 simultaneous jobs to not saturate LLM API (ADR-005)

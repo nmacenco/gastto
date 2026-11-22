@@ -39,6 +39,8 @@ A completed operation removes its temporary row. Restoring a PostgreSQL backup f
 
 The proposed release protocol is to restore into quarantine with no ingress or workers, then compare the restored user UUIDs to a bounded, keyed erasure record kept outside the restored database. The record would expire after the longest verified backup recovery window; it would not be a permanent identifying tombstone. A separate store, key custody, retention period, and a tested reconciliation tool have not been selected. Until they exist, this ADR remains proposed and production deletion must stay disabled. See the [recovery runbook](../operations/account-deletion-recovery.md).
 
+On 2026-11-22 the owner confirmed that production Redis uses Aiven and has three visible backups dated 2026-11-21 and 2026-11-22. Aiven can restore a backup after a service power cycle, so a procedural ban on historical PostgreSQL restores does not protect Redis. The development implementation now records a non-identifying cleanup epoch in PostgreSQL, mirrors it in Redis after account cleanup, and records Valkey's server `run_id` in PostgreSQL. In non-production environments, startup, HTTP ingress, and BullMQ processors compare both signals and fail closed on a mismatch. This detects a stale snapshot or server replacement; it does not reconcile restored jobs and keys. The detector remains inactive in production while deletion is disabled because routine Aiven restarts could otherwise halt service without a recovery command. Operator cleanup, CLI gating, live-restore rehearsal, and a verified backup retention limit remain release blockers. The runbook records the ordering and rehearsal cases.
+
 ## References
 
 - [Data model](../architecture/data-model.md)

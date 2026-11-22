@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import * as schema from './infrastructure/db/schema';
 import * as Sentry from '@sentry/node';
 
 import { env } from '@config/env';
@@ -16,6 +17,7 @@ import { sanitizeRedisErrorMessage } from './interfaces/workers/bullMqRuntime';
 import type { CreateLoggerOptions } from './infrastructure/logger';
 import type { Logger } from 'pino';
 import { scrubSentryEvent } from './infrastructure/observability/sensitiveData';
+import { RedisRestoreGuard } from './infrastructure/redis/RedisRestoreGuard';
 
 import { createFastify, buildDependencies, registerRoutes, registerWorkers } from './bootstrap';
 
@@ -96,9 +98,10 @@ export async function bootstrap(
   if (env.DATABASE_URL && env.REDIS_URL) {
     let sql: ReturnType<typeof postgres> | null = null;
     let redis: Redis | null = null;
+    let restoreGuard: RedisRestoreGuard | null = null;
     try {
       sql = postgres(env.DATABASE_URL);
-      const db = drizzle(sql);
+      const db = drizzle(sql, { schema });
       redis = new Redis(env.REDIS_URL, {
         maxRetriesPerRequest: null,
         // Fly.io Upstash Redis requiere TLS (rediss://). Si el URL usa redis:// sin TLS,
@@ -119,7 +122,24 @@ export async function bootstrap(
       });
 
       deps = buildDependencies(env, { db, redis, rootLogger });
-      await registerWorkers(app, deps, env);
+      if (env.NODE_ENV !== 'production') {
+        restoreGuard = new RedisRestoreGuard(db, redis);
+        await restoreGuard.assertCurrent();
+        const currentGuard = restoreGuard;
+        app.addHook('onRequest', async (_request, reply) => {
+          try {
+            await currentGuard.assertCurrent();
+          } catch {
+            app.log.error({
+              msg: 'Redis recovery marker mismatch or unavailable',
+              endpoint: 'redis',
+              code: 'REDIS_RESTORE_QUARANTINE',
+            });
+            return reply.code(503).send({ error: 'Service temporarily unavailable' });
+          }
+        });
+      }
+      await registerWorkers(app, deps, env, restoreGuard ?? undefined);
 
       const runtimeSql = sql;
       const runtimeRedis = redis;
@@ -134,7 +154,13 @@ export async function bootstrap(
       });
     } catch (err) {
       await Promise.allSettled([redis?.quit(), sql?.end()]);
-      app.log.error({ msg: 'Failed to initialize infrastructure', error: err });
+      app.log.error({
+        msg: 'Failed to initialize infrastructure',
+        endpoint: 'bootstrap',
+        code: 'INFRASTRUCTURE_INIT_FAILED',
+        errorType: err instanceof Error ? err.constructor.name : 'unknown',
+      });
+      if (restoreGuard) throw err;
     }
   }
 

@@ -1,5 +1,9 @@
 # Data Model
 
+## Redis restore detection (migrations 0021–0022)
+
+`redis_recovery_epoch` is a single-row, non-identifying table. Migration `0021_dark_adam_destine` creates its `id = 1` primary key and nonnegative bigint `epoch`; migration `0022_glamorous_sprite` adds the Valkey server `run_id`. The application initializes it at epoch zero after checking the active Redis server. After verified account Redis cleanup, it increments the PostgreSQL epoch while the deletion operation remains pending, then advances a mirrored Redis marker before notification. A restored older snapshot has a missing or older marker; a restarted Valkey process has a different `run_id`. Either condition quarantines ingress and workers. The epoch is not a record of deleted users and does not erase Aiven's provider-held backup. Recovery and restart behavior still require an operator rehearsal before production activation.
+
 ## Telegram start replay receipts (migration 0019)
 
 Migration `0019_tricky_leo` adds `account_start_replays` with a keyed HMAC digest primary key and `expires_at` timestamp with time zone. Its expiry index supports pruning at worker startup and hourly. The table has no account foreign key and stores no raw chat ID or message ID, so account deletion does not erase a receipt needed to reject a delayed `/start`. A receipt is created before identity resolution, remains valid for 48 hours, and is physically removed by the next hourly sweep; a fresh `/start` uses a different message ID. Operators must apply this additive migration before deploying the PostgreSQL-backed webhook guard.

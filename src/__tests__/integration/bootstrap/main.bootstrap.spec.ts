@@ -76,6 +76,12 @@ vi.mock('drizzle-orm/postgres-js', () => ({
   drizzle: DrizzleMock,
 }));
 
+vi.mock('../../../infrastructure/redis/RedisRestoreGuard', () => ({
+  RedisRestoreGuard: class {
+    assertCurrent = vi.fn().mockResolvedValue(undefined);
+  },
+}));
+
 vi.mock('@sentry/node', () => ({
   init: SentryInitMock,
   captureException: SentryCaptureMock,

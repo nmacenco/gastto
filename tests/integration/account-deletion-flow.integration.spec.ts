@@ -28,6 +28,8 @@ import { DrizzleStartReplayGuard } from '../../src/infrastructure/db/repositorie
 import { AccountDeletionInProgressError } from '../../src/application/ports/AccountExternalWorkFence';
 import { AccountOperationalCleanup } from '../../src/infrastructure/redis/AccountOperationalCleanup';
 import { RedisUserProcessingLock } from '../../src/infrastructure/redis/RedisUserProcessingLock';
+import { RedisRestoreGuard } from '../../src/infrastructure/redis/RedisRestoreGuard';
+import { RedisRestoreInventory } from '../../src/infrastructure/redis/RedisRestoreInventory';
 import { RevokeAccountCredentials } from '../../src/application/use-cases/user/RevokeAccountCredentials';
 import { AccountDeletionService } from '../../src/application/services/AccountDeletionService';
 import { RedisProcessedMessageRepository } from '../../src/infrastructure/redis/RedisProcessedMessageRepository';
@@ -235,6 +237,7 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       new AccountOperationalCleanup(redis, incoming, processing, reminders),
       new RedisUserProcessingLock(redis),
       { sendMessage },
+      new RedisRestoreGuard(db, redis),
     );
     await service.resume(owner.userId);
     await service.resume(owner.userId);
@@ -407,6 +410,7 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
         new AccountOperationalCleanup(redis, incoming, activeProcessing, reminders),
         new RedisUserProcessingLock(redis),
         { sendMessage: vi.fn().mockResolvedValue({ status: 'success' }) },
+        new RedisRestoreGuard(db, redis),
       );
       await expect(service.resume(owner.userId)).rejects.toThrow('ACCOUNT_JOB_STILL_ACTIVE');
       expect(
@@ -449,6 +453,7 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
       new AccountOperationalCleanup(redis, incoming, processing, reminders),
       new RedisUserProcessingLock(redis),
       { sendMessage: vi.fn() },
+      new RedisRestoreGuard(db, redis),
     );
     let signalStarted!: () => void;
     let releaseEffect!: () => void;
@@ -637,5 +642,79 @@ describe.skipIf(!isDockerAvailable())('Complete account deletion with PostgreSQL
     await db.update(schema.accountStartReplays).set({ expiresAt: new Date(0) });
     await guard.pruneExpired();
     expect(await db.select().from(schema.accountStartReplays)).toHaveLength(0);
+  });
+
+  it('quarantines an older Redis epoch and a changed Valkey server run ID', async () => {
+    const guard = new RedisRestoreGuard(db, redis);
+    await guard.assertCurrent();
+    await guard.recordCleanup();
+    const [row] = await db.select().from(schema.redisRecoveryEpoch);
+    if (!row) throw new Error('Missing recovery epoch');
+    const markerKey = 'gastto:redis-recovery-epoch';
+    await redis.set(markerKey, String(row.epoch - 1));
+    await expect(guard.assertCurrent()).rejects.toThrow('REDIS_RESTORE_QUARANTINE');
+    await redis.set(markerKey, String(row.epoch));
+    await db
+      .update(schema.redisRecoveryEpoch)
+      .set({ runId: 'older-valkey-process' })
+      .where(eq(schema.redisRecoveryEpoch.id, 1));
+    try {
+      await expect(guard.assertCurrent()).rejects.toThrow('REDIS_RESTORE_QUARANTINE');
+    } finally {
+      await db
+        .update(schema.redisRecoveryEpoch)
+        .set({ runId: row.runId })
+        .where(eq(schema.redisRecoveryEpoch.id, 1));
+    }
+    await expect(guard.assertCurrent()).resolves.toBeUndefined();
+  });
+
+  it('inventories restored account work without exposing identifiers or changing Redis', async () => {
+    const owner = await createUser(db);
+    await createMessagingIdentity(db, { userId: owner.userId, externalId: 'inventory-live-chat' });
+    const orphanId = '00000000-0000-4000-8000-000000000123';
+    const queue = new Queue('restore-inventory-test', { connection: redis });
+    const keys = [
+      'identity:telegram:inventory-live-chat',
+      'identity:telegram:inventory-orphan-chat',
+      `conversation:${orphanId}:mapping-correction`,
+      `processed_message:owner:${orphanId}`,
+      'processed_message:telegram:inventory-orphan',
+      'processed_message:telegram:inventory-unowned',
+      'oauth:state:inventory-orphan',
+      'oauth:state:inventory-unknown',
+    ];
+    try {
+      await queue.add('live', { userId: owner.userId });
+      await queue.add('orphan', { userId: orphanId });
+      await redis.set(keys[0]!, owner.userId);
+      await redis.set(keys[1]!, orphanId);
+      await redis.set(keys[2]!, '{}');
+      await redis.sadd(keys[3]!, keys[4]!);
+      await redis.set(keys[4]!, '1');
+      await redis.set(keys[5]!, '1');
+      await redis.set(keys[6]!, JSON.stringify({ userId: orphanId }));
+      await redis.set(keys[7]!, '{broken');
+      const report = await new RedisRestoreInventory(db, redis, [
+        { name: 'restore-inventory-test', queue },
+      ]).inspect();
+      expect(report.jobs).toMatchObject({ orphan: 1, uncertain: 1, active: 0 });
+      expect(report.identityCaches.current).toBeGreaterThanOrEqual(1);
+      expect(report.identityCaches.orphan).toBeGreaterThanOrEqual(1);
+      expect(report.correctionStates.orphan).toBeGreaterThanOrEqual(1);
+      expect(report.processedOwnerIndexes.orphan).toBeGreaterThanOrEqual(1);
+      expect(report.processedMarkersWithoutOwner).toBeGreaterThanOrEqual(1);
+      expect(report.oauthStates.orphan).toBeGreaterThanOrEqual(1);
+      expect(report.oauthStates.uncertain).toBeGreaterThanOrEqual(1);
+      expect(report.safeToResume).toBe(false);
+      expect(JSON.stringify(report)).not.toContain(owner.userId);
+      expect(JSON.stringify(report)).not.toContain(orphanId);
+      expect(await queue.getJobCounts('waiting')).toMatchObject({ waiting: 2 });
+      expect(await redis.get(keys[1]!)).toBe(orphanId);
+    } finally {
+      await queue.obliterate({ force: true });
+      await queue.close();
+      await redis.del(...keys);
+    }
   });
 });

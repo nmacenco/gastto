@@ -15,6 +15,7 @@ import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloa
 import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
 
 export interface SessionTimeoutWorkerOpts {
+  restoreGuard?: { assertCurrent(): Promise<void> };
   redis: Redis;
   handleExpiredSessions: HandleExpiredSessions;
   logger: Logger;
@@ -39,8 +40,10 @@ export function createSessionTimeoutWorker(
 ): Worker<SessionTimeoutJobData> {
   const worker = new Worker<SessionTimeoutJobData>(
     'session-timeout',
-    async (job: Job<SessionTimeoutJobData>) =>
-      processSessionTimeoutJob(job, opts.handleExpiredSessions),
+    async (job: Job<SessionTimeoutJobData>) => {
+      await opts.restoreGuard?.assertCurrent();
+      await processSessionTimeoutJob(job, opts.handleExpiredSessions);
+    },
     {
       connection: opts.redis,
       concurrency: 1,

@@ -148,6 +148,20 @@
       "when": 1795160404084,
       "tag": "0020_bizarre_adam_destine",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795342432357,
+      "tag": "0021_dark_adam_destine",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795342704545,
+      "tag": "0022_glamorous_sprite",
+      "breakpoints": true
     }
   ]
 }
