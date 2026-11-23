@@ -828,6 +828,9 @@ describe('processMessageJob', () => {
       const requestTransition = mockTransitionStateExecute.mock.calls[0]?.[0];
       expect(requestTransition?.expiresAt).toBeInstanceOf(Date);
       expect(mockSendMessage).toHaveBeenCalledWith('123456789', accountDeletionCopies.request);
+      expect(accountDeletionCopies.request).toContain(
+        '\n\nEscribí ELIMINAR MI CUENTA en los próximos 10 minutos para confirmar.\n\nEscribí cancelar si quieres salir.',
+      );
       expect(mockUserRepoFindByMessagingIdentity).toHaveBeenCalledWith('telegram', '123456789');
       expect(mockUndoLastExpenseExecute).not.toHaveBeenCalled();
     });
