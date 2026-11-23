@@ -15,7 +15,7 @@ export class DrizzleAccountDeletionRepository implements AccountCredentialStore 
     channel: string,
     externalId: string,
     enqueue: () => Promise<unknown>,
-  ): Promise<boolean> {
+  ): Promise<'admitted' | 'unknown' | 'deleting'> {
     return this.db.transaction(async (tx) => {
       const [identity] = await tx
         .select({ userId: schema.users.userId })
@@ -29,15 +29,15 @@ export class DrizzleAccountDeletionRepository implements AccountCredentialStore 
         )
         .for('share')
         .limit(1);
-      if (!identity) return false;
+      if (!identity) return 'unknown';
       const [deleting] = await tx
         .select({ userId: schema.accountDeletionOperations.userId })
         .from(schema.accountDeletionOperations)
         .where(eq(schema.accountDeletionOperations.userId, identity.userId))
         .limit(1);
-      if (deleting) return false;
+      if (deleting) return 'deleting';
       await enqueue();
-      return true;
+      return 'admitted';
     });
   }
 

@@ -3,6 +3,7 @@
 import type { ConversationState } from '../../../domain/entities/ConversationState';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
+import { CANCEL_EXIT_HINT, composeMessage } from '../../copies/compose-message';
 
 export class RequestAccountDeletion {
   constructor(
@@ -26,8 +27,12 @@ export class RequestAccountDeletion {
   }
 }
 export const accountDeletionCopies = {
-  request:
-    'Eliminar tu cuenta borrará los datos que Gastto conserva sobre ti y desconectará Google. No borrará ni modificará tu hoja de cálculo. Esta acción es irreversible. Escribe ELIMINAR MI CUENTA en los próximos 10 minutos para confirmar, o cancelar para salir.',
+  request: composeMessage({
+    explanation:
+      'Eliminar tu cuenta borrará tus datos de cuenta y las credenciales de Google guardadas en Gastto. Intentaremos revocar el acceso en Google; si no se confirma, te indicaremos cómo retirarlo manualmente. La eliminación no modificará tu hoja de cálculo; una operación ya iniciada puede terminar antes de completarse. Esta acción es irreversible.',
+    action: 'Escribí ELIMINAR MI CUENTA en los próximos 10 minutos para confirmar.',
+    exit: CANCEL_EXIT_HINT,
+  }),
   cancelled: 'Solicitud cancelada. Tu cuenta no se ha eliminado.',
   expired: 'La confirmación venció. Abrí Configuración y elegí Eliminar cuenta de nuevo.',
   unavailable: 'La eliminación de cuenta aún no está disponible. Tu cuenta no se ha eliminado.',

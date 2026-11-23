@@ -18,6 +18,7 @@ const WEBHOOK_SECRET = 'test-secret-token';
 const mockQueueAdd = vi.fn();
 const mockHandleStartExecute = vi.fn();
 const mockSendAckExecute = vi.fn();
+const mockSendMessage = vi.fn();
 const mockResolveIdentityExecute = vi.fn();
 const mockLogError = vi.fn();
 
@@ -30,6 +31,7 @@ function buildMockDeps(): TelegramWebhookDeps {
     currentState: 'IDLE',
   });
   mockLogError.mockReset();
+  mockSendMessage.mockResolvedValue({ status: 'success' });
 
   return {
     webhookSecret: WEBHOOK_SECRET,
@@ -38,6 +40,7 @@ function buildMockDeps(): TelegramWebhookDeps {
     sendImmediateAcknowledgement: {
       execute: mockSendAckExecute,
     } as unknown as SendImmediateAcknowledgement,
+    messaging: { sendMessage: mockSendMessage },
     resolveIdentity: {
       execute: mockResolveIdentityExecute,
     } as unknown as ResolveUserIdentityUseCase,
@@ -102,12 +105,13 @@ describe('POST /webhook/telegram', () => {
     expect(response.statusCode).toBe(200);
     expect(mockQueueAdd).not.toHaveBeenCalled();
     expect(mockResolveIdentityExecute).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
     await app.close();
   });
 
   it('does not enqueue when transactional identity admission rejects a stale delivery', async () => {
     const deps = buildMockDeps();
-    const admitIdentityDelivery = vi.fn().mockResolvedValue(false);
+    const admitIdentityDelivery = vi.fn().mockResolvedValue('deleting');
     deps.accountDeletionGate = {
       isIdentityDeleting: vi.fn().mockResolvedValue(false),
       admitIdentityDelivery,
@@ -126,6 +130,31 @@ describe('POST /webhook/telegram', () => {
       expect.any(Function),
     );
     expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockSendAckExecute).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('tells an unregistered private chat to send a fresh /start without recreating an account', async () => {
+    const deps = buildMockDeps();
+    deps.accountDeletionGate = {
+      isIdentityDeleting: vi.fn().mockResolvedValue(false),
+      admitIdentityDelivery: vi.fn().mockResolvedValue('unknown'),
+    };
+    const { app } = buildApp(deps);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/telegram',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      payload: makeValidPayload({ text: 'HOLA' }),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      '123456789',
+      'Para volver a usar Gastto, enviá /start.',
+    );
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockResolveIdentityExecute).not.toHaveBeenCalled();
     expect(mockSendAckExecute).not.toHaveBeenCalled();
     await app.close();
   });
