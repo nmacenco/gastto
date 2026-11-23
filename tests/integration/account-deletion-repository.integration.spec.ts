@@ -284,18 +284,18 @@ describe.skipIf(!isDockerAvailable())('Account deletion database barrier', () =>
     } finally {
       releaseEnqueue?.();
     }
-    expect(await admitted).toBe(true);
+    expect(await admitted).toBe('admitted');
     expect(await begin).toBe(true);
     expect(
       await repo.admitIdentityDelivery('telegram', 'admission-owner', async () => {
         enqueueStarted();
       }),
-    ).toBe(false);
+    ).toBe('deleting');
     expect(enqueueStarted).toHaveBeenCalledTimes(1);
     expect(
       await repo.admitIdentityDelivery('telegram', 'unknown', async () => {
         enqueueStarted();
       }),
-    ).toBe(false);
+    ).toBe('unknown');
   });
 });

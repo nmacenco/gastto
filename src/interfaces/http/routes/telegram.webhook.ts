@@ -5,7 +5,7 @@
 //   2. Parses raw payload via TelegramPayloadParser (Infrastructure)
 //   3. Detects /start command and delegates to HandleStartCommand use case
 //   4. For MALFORMED payloads: logs structured error and returns 200 (prevents retry loops)
-//   5. For all other messages: enqueues to incoming-message queue (thin FIFO worker)
+//   5. Enqueues known identities; guides unknown private chats to /start
 //   6. Always returns HTTP 200 to avoid Telegram retry loops
 
 import type {
@@ -20,6 +20,7 @@ import type { HandleStartCommand } from '../../../application/use-cases/conversa
 import type { SendImmediateAcknowledgement } from '../../../application/use-cases/conversation/SendImmediateAcknowledgement';
 import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
+import type { MessagingOutputPort } from '../../../application/ports/output/messaging.port';
 import {
   getTelegramChatScope,
   parseTelegramPayload,
@@ -30,6 +31,7 @@ export interface TelegramWebhookHandlerDeps {
   incomingMessageQueue: Queue<IncomingMessageJobData>;
   handleStartCommand: HandleStartCommand;
   sendImmediateAcknowledgement: SendImmediateAcknowledgement;
+  messaging: MessagingOutputPort;
   resolveIdentity: ResolveUserIdentityUseCase;
   accountDeletionGate?: {
     isIdentityDeleting(channel: string, externalId: string): Promise<boolean>;
@@ -37,7 +39,7 @@ export interface TelegramWebhookHandlerDeps {
       channel: string,
       externalId: string,
       enqueue: () => Promise<unknown>,
-    ): Promise<boolean>;
+    ): Promise<'admitted' | 'unknown' | 'deleting'>;
   };
   startReplayGuard?: {
     claim(chatId: string, messageId: string): Promise<boolean>;
@@ -115,10 +117,32 @@ export async function handleTelegramWebhook(
       externalMessageId: payload.externalMessageId!,
       rawPayload: payload.rawPayload,
     });
-  const admitted = deps.accountDeletionGate?.admitIdentityDelivery
+  const admission = deps.accountDeletionGate?.admitIdentityDelivery
     ? await deps.accountDeletionGate.admitIdentityDelivery(payload.channel, payload.chatId, enqueue)
-    : (await enqueue(), true);
-  if (!admitted) return reply.status(200).send({ ok: true });
+    : (await enqueue(), 'admitted');
+  if (admission === 'unknown' && payload.messageType === 'TEXT') {
+    try {
+      const sent = await deps.messaging.sendMessage(
+        payload.chatId,
+        'Para volver a usar Gastto, enviá /start.',
+      );
+      if (sent.status === 'failure') {
+        req.log.error({
+          msg: 'Failed to send account restart guidance',
+          endpoint: '/webhook/telegram',
+          code: 'START_HINT_SEND_FAILED',
+          errorCode: sent.errorCode,
+        });
+      }
+    } catch {
+      req.log.error({
+        msg: 'Failed to send account restart guidance',
+        endpoint: '/webhook/telegram',
+        code: 'START_HINT_SEND_FAILED',
+      });
+    }
+  }
+  if (admission !== 'admitted') return reply.status(200).send({ ok: true });
 
   // Send immediate acknowledgment for text payloads (fire-and-forget) so the
   // user sees a response within <= 1 second even if downstream workers are busy.
