@@ -1,3 +1,8 @@
+import { isCategoryProposalPresented } from '../../dtos/CategoryOnboardingState';
+import {
+  buildCategoryConversationState,
+  buildPresentedCategoryPayload,
+} from '../../../__tests__/factories/onboarding';
 import { RegexCategoryModificationParser } from '../../../infrastructure/adapters/RegexCategoryModificationParser';
 // LAYER: Application / Tests
 // Unit tests for ModifyCategoryVocabulary use case.
@@ -59,6 +64,12 @@ function buildMockDeps(
     messagingPort: { sendMessage: mockSendMessage },
     transitionState: {
       execute: mockTransitionExecute,
+      currentState: vi.fn().mockReturnValue(null),
+      precondition: (state: { revision: string; currentState: string }) => ({
+        revision: state.revision,
+        currentState: state.currentState,
+        expiry: 'any',
+      }),
     } as unknown as TransitionConversationState,
     ...overrides,
   };
@@ -114,7 +125,9 @@ const mockConfig = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockFindConfigByUserId.mockResolvedValue(mockConfig);
-  mockTransitionExecute.mockResolvedValue(undefined);
+  mockTransitionExecute.mockImplementation((input: { payload: Record<string, unknown> }) =>
+    Promise.resolve({ status: 'updated', state: buildCategoryConversationState(input.payload) }),
+  );
 });
 
 describe('ModifyCategoryVocabulary', () => {
@@ -595,4 +608,26 @@ describe('ModifyCategoryVocabulary', () => {
     );
     expect(mockSaveVocabulary).not.toHaveBeenCalled();
   });
+  it.each([true, false])(
+    'replaces presentation evidence after edits only on successful delivery (success=%s)',
+    async (success) => {
+      mockParse.mockResolvedValue({ kind: 'add', name: 'salud' });
+      mockFindVocabularyBySpreadsheetId.mockResolvedValue(null);
+      mockSendMessage.mockResolvedValueOnce(
+        success ? { status: 'success' } : { status: 'failure', errorCode: 'NETWORK_ERROR' },
+      );
+      const payload = buildPresentedCategoryPayload({ categories: ['Food'] });
+      await new ModifyCategoryVocabulary(buildMockDeps()).execute({
+        ...baseInput,
+        statePayload: payload,
+      });
+      const written = mockTransitionExecute.mock.calls.at(-1)?.[0] as {
+        payload: Record<string, unknown>;
+      };
+      expect(written.payload.categoryProposalId).not.toBe(payload.categoryProposalId);
+      expect(isCategoryProposalPresented(written.payload)).toBe(success);
+      expect(written.payload.categoryAcceptance).toBeNull();
+      expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    },
+  );
 });

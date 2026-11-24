@@ -1,3 +1,4 @@
+import { presentCategoryProposal } from '../../services/PresentCategoryProposal';
 import type { SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
 // LAYER: Application
 // Use case: detect the linked category vocabulary from the user's spreadsheet.
@@ -5,6 +6,7 @@ import type { SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConf
 import type { Logger } from 'pino';
 import {
   assertCurrentOnboardingProposal,
+  captureConfirmedOnboardingContext,
   onboardingContextIssue,
   mappingRecoveryPayload,
 } from '../../services/ConfirmedOnboardingContext';
@@ -29,6 +31,7 @@ import {
 } from '../../services/OAuthAccessTokenService';
 import {
   serializeCategoryOnboardingState,
+  DEFAULT_ONBOARDING_CATEGORIES,
   type CategoryOnboardingState,
 } from '../../dtos/CategoryOnboardingState';
 
@@ -55,8 +58,6 @@ export interface DetectCategoriesDeps {
   categoryVocabularyRepository: ICategoryVocabularyRepository;
 }
 
-const DEFAULT_CATEGORIES = ['Alimentacion', 'Transporte', 'Servicios', 'Ocio', 'Salud', 'Otros'];
-
 export class DetectCategories {
   constructor(private readonly deps: DetectCategoriesDeps) {}
 
@@ -72,8 +73,14 @@ export class DetectCategories {
     const categoryMapping = mappings.find((mapping) => mapping.GasttoField === 'categoria');
     if (!categoryMapping) return this.recoverMapping(input, config, 'category_mapping_missing');
 
+    const proposalPayload =
+      statePayload?.confirmedMappings !== undefined
+        ? statePayload
+        : captureConfirmedOnboardingContext(config, mappings, statePayload);
+    if (!proposalPayload) return this.recoverMapping(input, config, 'confirmed_context_missing');
+
     const subcategoryMapping = mappings.find((mapping) => mapping.GasttoField === 'subcategoria');
-    const dataStartRow = resolveDataStartRow(statePayload) ?? (config.headerRowIndex ?? 1) + 1;
+    const dataStartRow = resolveDataStartRow(proposalPayload) ?? (config.headerRowIndex ?? 1) + 1;
 
     try {
       if (subcategoryMapping) {
@@ -96,7 +103,7 @@ export class DetectCategories {
           hierarchy,
           externalId,
           userId,
-          statePayload,
+          proposalPayload,
         );
       }
 
@@ -118,7 +125,7 @@ export class DetectCategories {
         categories,
         externalId,
         userId,
-        statePayload,
+        proposalPayload,
       );
     } catch (error) {
       if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
@@ -136,16 +143,16 @@ export class DetectCategories {
     statePayload: Record<string, unknown> | null,
   ): Promise<DetectCategoriesOutput> {
     const categories =
-      detectedCategories.length > 0
-        ? detectedCategories
-        : DEFAULT_CATEGORIES.map((category) => category.toLowerCase());
+      detectedCategories.length > 0 ? detectedCategories : [...DEFAULT_ONBOARDING_CATEGORIES];
     const vocabulary =
       (await this.deps.categoryVocabularyRepository.findBySpreadsheetId(spreadsheetId)) ??
       new CategoryVocabulary(spreadsheetId);
     for (const category of categories) addCategoryIfMissing(vocabulary, category);
 
     const state = toOnboardingState(vocabulary, [], false);
-    const message = onboardingCopies.categoryConfirmationPrompt(categories);
+    const message = onboardingCopies.categoryConfirmationPrompt(
+      state.categories.map((category) => category.name),
+    );
     await this.sendProposal(externalId, userId, statePayload, state, message, vocabulary);
     return { kind: 'proposal', categories, state, message };
   }
@@ -158,9 +165,7 @@ export class DetectCategories {
     statePayload: Record<string, unknown> | null,
   ): Promise<DetectCategoriesOutput> {
     const detectedCategories =
-      hierarchy.categories.length > 0
-        ? hierarchy.categories
-        : DEFAULT_CATEGORIES.map((category) => category.toLowerCase());
+      hierarchy.categories.length > 0 ? hierarchy.categories : [...DEFAULT_ONBOARDING_CATEGORIES];
     const vocabulary =
       (await this.deps.categoryVocabularyRepository.findBySpreadsheetId(spreadsheetId)) ??
       new CategoryVocabulary(spreadsheetId);
@@ -191,9 +196,10 @@ export class DetectCategories {
     message: string,
     vocabulary: CategoryVocabulary,
   ): Promise<void> {
-    await this.deps.transitionState.execute({
+    await presentCategoryProposal(this.deps, {
       userId,
-      targetState: 'ONBOARDING_CATEGORIES',
+      externalId,
+      message,
       payload: {
         ...serializeCategoryOnboardingState(state, previousPayload),
         categoryDraft: {
@@ -202,7 +208,6 @@ export class DetectCategories {
         },
       },
     });
-    await this.deps.messagingPort.sendMessage(externalId, message);
   }
 
   private async recoverMapping(

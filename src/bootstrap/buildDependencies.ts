@@ -537,6 +537,7 @@ function buildGoogleOAuthFeature(
   });
 
   const confirmCategories = new ConfirmCategories({
+    detectCategories,
     logger: infra.rootLogger,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     categoryVocabularyRepository: core.categoryVocabularyRepo,

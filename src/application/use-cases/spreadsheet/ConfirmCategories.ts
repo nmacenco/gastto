@@ -1,7 +1,10 @@
+import { presentCategoryProposal } from '../../services/PresentCategoryProposal';
+import type { DetectCategories } from './DetectCategories';
 import type { SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
 import type { Logger } from 'pino';
 import {
   assertCurrentOnboardingProposal,
+  captureConfirmedOnboardingContext,
   onboardingContextIssue,
   mappingRecoveryPayload,
 } from '../../services/ConfirmedOnboardingContext';
@@ -31,6 +34,11 @@ import type { OnboardingVocabularyCommit } from '../../ports/OnboardingVocabular
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import {
   parseCategoryOnboardingState,
+  categoryProposalFingerprint,
+  mayBeLegacyPlaceholder,
+  isCategoryProposalPresented,
+  isCategoryProposalAccepted,
+  parseCategoryProposalMetadata,
   serializeCategoryOnboardingState,
   type CategoryOnboardingState,
 } from '../../dtos/CategoryOnboardingState';
@@ -49,6 +57,7 @@ export interface ConfirmCategoriesOutput {
 
 export interface ConfirmCategoriesDeps {
   logger?: Pick<Logger, 'error'>;
+  detectCategories?: Pick<DetectCategories, 'execute'>;
   spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   categoryVocabularyRepository: ICategoryVocabularyRepository;
   userRepository: IUserRepository;
@@ -79,6 +88,45 @@ export class ConfirmCategories {
       return this.handleInvalidProposal(input);
     }
 
+    if (statePayload?.confirmedMappings === undefined) {
+      const identifiedDraft = statePayload?.categoryDraft;
+      const matchingDestination =
+        statePayload?.spreadsheetId === config.id ||
+        (statePayload?.provider === config.provider &&
+          statePayload?.fileId === config.fileId &&
+          statePayload?.sheetName === config.sheetName);
+      const context =
+        (identifiedDraft || !mayBeLegacyPlaceholder(state)) && matchingDestination && mappings
+          ? captureConfirmedOnboardingContext(config, mappings, statePayload)
+          : null;
+      if (context) return this.represent(input, state, context);
+      // Placeholder defaults have no identified draft. Read the real columns again.
+      if (this.deps.detectCategories) {
+        const detected = await this.deps.detectCategories.execute(input);
+        return {
+          nextState: detected.kind === 'recovery' ? detected.nextState : 'ONBOARDING_CATEGORIES',
+          message: detected.message,
+        };
+      }
+      return this.recoverMapping(input, config, 'legacy_context_missing');
+    }
+    const observedCategoryState = this.deps.transitionState.currentState(userId);
+    if (observedCategoryState && observedCategoryState.currentState !== 'ONBOARDING_CATEGORIES') {
+      throw new StaleConversationStateError({ status: 'stale' });
+    }
+    const observedPayload = observedCategoryState?.statePayload ?? null;
+    const matchingPresentation =
+      isCategoryProposalPresented(observedPayload) &&
+      categoryProposalFingerprint(observedPayload!) === categoryProposalFingerprint(statePayload);
+    if (
+      !matchingPresentation ||
+      !isCategoryProposalPresented(statePayload) ||
+      (statePayload.paymentReview === true &&
+        (!isCategoryProposalAccepted(statePayload) || !isCategoryProposalAccepted(observedPayload)))
+    ) {
+      return this.represent(input, state, statePayload);
+    }
+
     if (
       this.deps.detectPaymentMethods &&
       this.deps.columnMappingRepository &&
@@ -102,6 +150,11 @@ export class ConfirmCategories {
             targetState: 'ONBOARDING_CATEGORIES',
             payload: {
               ...serializeCategoryOnboardingState(state, statePayload),
+              categoryAcceptance: {
+                proposalId: statePayload.categoryProposalId,
+                fingerprint:
+                  parseCategoryProposalMetadata(statePayload)!.categoryPresentation!.fingerprint,
+              },
               paymentReview: true,
               paymentMethods: proposal.names,
               paymentColumnMapped: proposal.columnMapped,
@@ -142,6 +195,20 @@ export class ConfirmCategories {
       return { nextState: result === 'committed' ? 'IDLE' : 'ONBOARDING_CATEGORIES', message };
     }
 
+    this.deps.transitionState.assertExecutionIsValid(userId);
+    const compatibilityState = this.deps.transitionState.currentState(userId);
+    if (
+      !compatibilityState ||
+      compatibilityState.currentState !== 'ONBOARDING_CATEGORIES' ||
+      !isCategoryProposalPresented(compatibilityState.statePayload) ||
+      categoryProposalFingerprint(compatibilityState.statePayload!) !==
+        categoryProposalFingerprint(statePayload)
+    ) {
+      throw new StaleConversationStateError({ status: 'stale' });
+    }
+    if (compatibilityState?.expiresAt && compatibilityState.expiresAt.getTime() <= Date.now()) {
+      throw new StaleConversationStateError({ status: 'expired' });
+    }
     const persisted = await this.deps.categoryVocabularyRepository.findBySpreadsheetId(config.id);
     const vocabulary = this.reconcileHierarchy(
       persisted ?? new CategoryVocabulary(config.id),
@@ -181,6 +248,17 @@ export class ConfirmCategories {
     const issue = onboardingContextIssue(input.userId, config, input.statePayload, mappings);
     if (issue) {
       await this.recoverMapping(input, config, issue);
+      return;
+    }
+    const observedPayload =
+      this.deps.transitionState.currentState(input.userId)?.statePayload ?? null;
+    if (
+      !isCategoryProposalAccepted(input.statePayload) ||
+      !isCategoryProposalAccepted(observedPayload) ||
+      categoryProposalFingerprint(input.statePayload) !==
+        categoryProposalFingerprint(observedPayload!)
+    ) {
+      await this.execute(input);
       return;
     }
     const names = this.paymentNames(input.statePayload);
@@ -226,6 +304,27 @@ export class ConfirmCategories {
         `${error.message}\n${paymentSetupCopies.onboardingReview(names, input.statePayload.paymentColumnMapped === true)}`,
       );
     }
+  }
+
+  private async represent(
+    input: ConfirmCategoriesInput,
+    state: CategoryOnboardingState,
+    payload: Record<string, unknown>,
+  ): Promise<ConfirmCategoriesOutput> {
+    const message =
+      onboardingCopies.categoryReviewRequired() +
+      '\n\n' +
+      onboardingCopies.categoryHierarchyConfirmationPrompt(
+        state.categories,
+        state.orphanSubcategories,
+      );
+    await presentCategoryProposal(this.deps, {
+      userId: input.userId,
+      externalId: input.externalId,
+      payload: serializeCategoryOnboardingState(state, payload),
+      message,
+    });
+    return { nextState: 'ONBOARDING_CATEGORIES', message };
   }
 
   private async recoverMapping(

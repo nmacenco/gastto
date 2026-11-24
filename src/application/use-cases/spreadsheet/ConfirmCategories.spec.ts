@@ -1,3 +1,8 @@
+import {
+  buildConfirmedMappings,
+  buildCategoryConversationState,
+  buildPresentedCategoryPayload,
+} from '../../../__tests__/factories/onboarding';
 // LAYER: Application / Tests
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,9 +26,17 @@ const mockSaveVocabulary = vi.fn();
 const mockUpdateStatus = vi.fn();
 const mockSendMessage = vi.fn().mockResolvedValue({ status: 'success' });
 const mockTransitionExecute = vi.fn();
+let mockObserved = buildCategoryConversationState(null);
+function observedInput(input: ConfirmCategoriesInput): ConfirmCategoriesInput {
+  mockObserved = buildCategoryConversationState(input.statePayload);
+  return input;
+}
 
 function buildMockDeps(overrides: Partial<ConfirmCategoriesDeps> = {}): ConfirmCategoriesDeps {
   return {
+    columnMappingRepository: {
+      findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
+    } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
     spreadsheetConfigRepository: {
       findByUserId: mockFindConfigByUserId,
       updateCategoriesConfirmed: mockUpdateCategoriesConfirmed,
@@ -38,7 +51,13 @@ function buildMockDeps(overrides: Partial<ConfirmCategoriesDeps> = {}): ConfirmC
     messagingPort: { sendMessage: mockSendMessage },
     transitionState: {
       execute: mockTransitionExecute,
-      currentState: vi.fn().mockReturnValue(null),
+      assertExecutionIsValid: vi.fn(),
+      currentState: vi.fn().mockImplementation(() => mockObserved),
+      precondition: (state: { revision: string; currentState: string }) => ({
+        revision: state.revision,
+        currentState: state.currentState,
+        expiry: 'any',
+      }),
     } as unknown as TransitionConversationState,
     ...overrides,
   };
@@ -48,20 +67,20 @@ const legacyInput: ConfirmCategoriesInput = {
   userId: 'user-123',
   externalId: '987654321',
   channel: 'telegram',
-  statePayload: { categories: ['Food', 'Leisure'] },
+  statePayload: buildPresentedCategoryPayload({ categories: ['Food', 'Leisure'] }),
 };
 
 const hierarchyInput: ConfirmCategoriesInput = {
   ...legacyInput,
-  statePayload: {
-    headerRowIndex: 3,
+  statePayload: buildPresentedCategoryPayload({
+    headerRowIndex: 1,
     categories: [
       { name: 'Food', subcategories: ['Restaurant'] },
       { name: 'Leisure', subcategories: ['Restaurant', 'Cinema'] },
     ],
     orphanSubcategories: ['Unassigned'],
     subcategoryColumnMapped: true,
-  },
+  }),
 };
 
 const mockConfig = {
@@ -80,18 +99,15 @@ const mockConfig = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockObserved = buildCategoryConversationState(hierarchyInput.statePayload);
   mockFindConfigByUserId.mockResolvedValue(mockConfig);
   mockFindVocabulary.mockResolvedValue(null);
   mockSaveVocabulary.mockResolvedValue(undefined);
   mockUpdateCategoriesConfirmed.mockResolvedValue(undefined);
   mockUpdateStatus.mockResolvedValue(undefined);
-  mockTransitionExecute.mockResolvedValue({
-    userId: 'user-123',
-    currentState: 'IDLE',
-    statePayload: null,
-    enteredAt: new Date(),
-    expiresAt: null,
-    updatedAt: new Date(),
+  mockTransitionExecute.mockImplementation((input: { payload: Record<string, unknown> | null }) => {
+    mockObserved = buildCategoryConversationState(input.payload);
+    return Promise.resolve({ status: 'updated', state: mockObserved });
   });
 });
 
@@ -102,9 +118,7 @@ describe('ConfirmCategories', () => {
     const useCase = new ConfirmCategories(
       buildMockDeps({
         columnMappingRepository: {
-          findBySpreadsheetId: vi
-            .fn()
-            .mockResolvedValue([{ GasttoField: 'medio_pago', columnIndex: 4 }]),
+          findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
         } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
         detectPaymentMethods: { execute: detect } as unknown as NonNullable<
           ConfirmCategoriesDeps['detectPaymentMethods']
@@ -118,7 +132,10 @@ describe('ConfirmCategories', () => {
       expect.objectContaining({
         fileId: 'file-123',
         sheetName: 'Gastos',
-        mappings: [{ field: 'medio_pago', columnIndex: 4 }],
+        mappings: [
+          { field: 'categoria', columnIndex: 2 },
+          { field: 'medio_pago', columnIndex: 4 },
+        ],
       }),
     );
     expect(mockTransitionExecute.mock.calls[0]?.[0]).toMatchObject({
@@ -139,7 +156,11 @@ describe('ConfirmCategories', () => {
     const useCase = new ConfirmCategories(
       buildMockDeps({
         columnMappingRepository: {
-          findBySpreadsheetId: vi.fn().mockResolvedValue([]),
+          findBySpreadsheetId: vi
+            .fn()
+            .mockResolvedValue(
+              buildConfirmedMappings().filter((row) => row.GasttoField !== 'medio_pago'),
+            ),
         } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
         detectPaymentMethods: { execute: detect } as unknown as NonNullable<
           ConfirmCategoriesDeps['detectPaymentMethods']
@@ -148,13 +169,29 @@ describe('ConfirmCategories', () => {
       }),
     );
 
-    const failed = await useCase.execute(hierarchyInput);
+    const failed = await useCase.execute(
+      observedInput({
+        ...hierarchyInput,
+        statePayload: buildPresentedCategoryPayload(
+          hierarchyInput.statePayload!,
+          buildConfirmedMappings().filter((row) => row.GasttoField !== 'medio_pago'),
+        ),
+      }),
+    );
     expect(failed.nextState).toBe('ONBOARDING_CATEGORIES');
     expect(failed.message).toContain('reintentar');
     expect(mockTransitionExecute).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
 
-    const retried = await useCase.execute(hierarchyInput);
+    const retried = await useCase.execute(
+      observedInput({
+        ...hierarchyInput,
+        statePayload: buildPresentedCategoryPayload(
+          hierarchyInput.statePayload!,
+          buildConfirmedMappings().filter((row) => row.GasttoField !== 'medio_pago'),
+        ),
+      }),
+    );
     expect(retried.nextState).toBe('ONBOARDING_CATEGORIES');
     expect(mockTransitionExecute.mock.calls[0]?.[0]).toMatchObject({
       payload: { paymentReview: true, paymentMethods: [], paymentColumnMapped: false },
@@ -169,13 +206,18 @@ describe('ConfirmCategories', () => {
       userId: 'user-123',
       revision: '7',
       currentState: 'ONBOARDING_CATEGORIES',
+      statePayload: buildPresentedCategoryPayload({
+        ...hierarchyInput.statePayload,
+        paymentReview: true,
+        paymentMethods: ['Visa'],
+      }),
       expiresAt: null,
     };
     const useCase = new ConfirmCategories(
       buildMockDeps({
-        columnMappingRepository: { findBySpreadsheetId: vi.fn() } as unknown as NonNullable<
-          ConfirmCategoriesDeps['columnMappingRepository']
-        >,
+        columnMappingRepository: {
+          findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
+        } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
         detectPaymentMethods: { execute: vi.fn() } as unknown as NonNullable<
           ConfirmCategoriesDeps['detectPaymentMethods']
         >,
@@ -194,7 +236,7 @@ describe('ConfirmCategories', () => {
     const result = await useCase.execute({
       ...hierarchyInput,
       statePayload: {
-        ...hierarchyInput.statePayload,
+        ...buildPresentedCategoryPayload({ ...hierarchyInput.statePayload, paymentReview: true }),
         paymentReview: true,
         paymentMethods: ['Visa'],
       },
@@ -224,13 +266,18 @@ describe('ConfirmCategories', () => {
       userId: 'user-123',
       revision: '7',
       currentState: 'ONBOARDING_CATEGORIES',
+      statePayload: buildPresentedCategoryPayload({
+        ...hierarchyInput.statePayload,
+        paymentReview: true,
+        paymentMethods: ['Visa'],
+      }),
       expiresAt: null,
     };
     const useCase = new ConfirmCategories(
       buildMockDeps({
-        columnMappingRepository: { findBySpreadsheetId: vi.fn() } as unknown as NonNullable<
-          ConfirmCategoriesDeps['columnMappingRepository']
-        >,
+        columnMappingRepository: {
+          findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
+        } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
         detectPaymentMethods: { execute: vi.fn() } as unknown as NonNullable<
           ConfirmCategoriesDeps['detectPaymentMethods']
         >,
@@ -249,7 +296,7 @@ describe('ConfirmCategories', () => {
     const input = {
       ...hierarchyInput,
       statePayload: {
-        ...hierarchyInput.statePayload,
+        ...buildPresentedCategoryPayload({ ...hierarchyInput.statePayload, paymentReview: true }),
         paymentReview: true,
         paymentMethods: ['Visa'],
       },
@@ -304,7 +351,7 @@ describe('ConfirmCategories', () => {
   });
 
   it('upgrades and persists a legacy flat payload without subcategories', async () => {
-    await new ConfirmCategories(buildMockDeps()).execute(legacyInput);
+    await new ConfirmCategories(buildMockDeps()).execute(observedInput(legacyInput));
     const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;
 
     expect(saved.getCategories().map((category) => category.name)).toEqual(['Food', 'Leisure']);
@@ -330,17 +377,17 @@ describe('ConfirmCategories', () => {
     mockFindVocabulary.mockResolvedValue(persisted);
     const input: ConfirmCategoriesInput = {
       ...hierarchyInput,
-      statePayload: {
+      statePayload: buildPresentedCategoryPayload({
         categories: [
           { name: 'Food', subcategories: [] },
           { name: 'Leisure', subcategories: ['Restaurant'] },
         ],
         orphanSubcategories: [],
         subcategoryColumnMapped: true,
-      },
+      }),
     };
 
-    await new ConfirmCategories(buildMockDeps()).execute(input);
+    await new ConfirmCategories(buildMockDeps()).execute(observedInput(input));
     const saved = mockSaveVocabulary.mock.calls[0]![0] as CategoryVocabulary;
 
     expect(saved.getCategories().map((category) => category.id)).toEqual([
@@ -364,7 +411,7 @@ describe('ConfirmCategories', () => {
     persisted.addCategory('Leisure');
     mockFindVocabulary.mockResolvedValue(persisted);
 
-    await new ConfirmCategories(buildMockDeps()).execute(legacyInput);
+    await new ConfirmCategories(buildMockDeps()).execute(observedInput(legacyInput));
 
     expect(mockSaveVocabulary).toHaveBeenCalledWith(persisted);
     expect(mockUpdateCategoriesConfirmed).not.toHaveBeenCalled();
@@ -387,6 +434,7 @@ describe('ConfirmCategories', () => {
       subcategoryColumnMapped: true,
     },
   ])('recovers an absent, empty, or malformed proposal: %#', async (statePayload) => {
+    mockObserved = buildCategoryConversationState(statePayload);
     const result = await new ConfirmCategories(buildMockDeps()).execute({
       ...legacyInput,
       statePayload,
@@ -480,25 +528,27 @@ describe('ConfirmCategories', () => {
           onboardingCommit: { execute: commit },
         }),
       );
-      const result = await useCase.execute({
-        ...legacyInput,
-        statePayload: {
-          ...legacyInput.statePayload,
-          spreadsheetId: 'config-1',
-          proposalId: 'confirmed-proposal',
-          headerRowIndex: 1,
-          confirmedMappings: [
-            {
-              gasttoField: 'medio_pago',
-              columnIndex: 0,
-              columnHeader: 'Pago',
-              confirmedAt: new Date().toISOString(),
-            },
-          ],
-          paymentReview,
-          paymentMethods: [],
-        },
-      });
+      const result = await useCase.execute(
+        observedInput({
+          ...legacyInput,
+          statePayload: {
+            ...legacyInput.statePayload,
+            spreadsheetId: 'config-1',
+            proposalId: 'confirmed-proposal',
+            headerRowIndex: 1,
+            confirmedMappings: [
+              {
+                gasttoField: 'medio_pago',
+                columnIndex: 0,
+                columnHeader: 'Pago',
+                confirmedAt: new Date().toISOString(),
+              },
+            ],
+            paymentReview,
+            paymentMethods: [],
+          },
+        }),
+      );
       expect(result.nextState).toBe('ONBOARDING_MAPPING');
       expect(detect).not.toHaveBeenCalled();
       expect(commit).not.toHaveBeenCalled();
@@ -508,6 +558,43 @@ describe('ConfirmCategories', () => {
         expect.anything(),
         onboardingCopies.onboardingComplete(),
       );
+    },
+  );
+  it('guards the executable compatibility path when presentation is absent, then accepts a later reply', async () => {
+    const useCase = new ConfirmCategories(buildMockDeps());
+    const input = {
+      ...legacyInput,
+      statePayload: { ...legacyInput.statePayload, categoryPresentation: null },
+    };
+    await useCase.execute(input);
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenLastCalledWith(
+      input.externalId,
+      expect.stringContaining('Food'),
+    );
+    const written = mockTransitionExecute.mock.calls.at(-1)?.[0] as {
+      payload: Record<string, unknown>;
+    };
+    await useCase.execute({ ...input, statePayload: written.payload });
+    expect(mockSaveVocabulary).toHaveBeenCalledOnce();
+    expect(mockUpdateStatus).toHaveBeenCalledWith('user-123', 'active');
+  });
+  it.each(['closed', 'expired'] as const)(
+    'does not activate through compatibility confirmation after the flow is %s',
+    async (reason) => {
+      mockObserved = {
+        ...buildCategoryConversationState(hierarchyInput.statePayload),
+        ...(reason === 'closed'
+          ? { currentState: 'IDLE' }
+          : { expiresAt: new Date(Date.now() - 1000) }),
+      };
+      await expect(
+        new ConfirmCategories(buildMockDeps()).execute(hierarchyInput),
+      ).rejects.toHaveProperty('name', 'StaleConversationStateError');
+      expect(mockSaveVocabulary).not.toHaveBeenCalled();
+      expect(mockUpdateStatus).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
     },
   );
 });

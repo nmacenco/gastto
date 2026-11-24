@@ -363,3 +363,7 @@ Invalid-column lists, correction examples, rejected proposals, and resume prompt
 Successful confirmation returns and persists the configuration ID (`spreadsheetId`), reviewed `proposalId`, provider/file/sheet, valid effective `headerRowIndex`, and `confirmedMappings` containing each field, column, header and exact ISO confirmation timestamp. These values describe the proposal actually written by `replaceBySpreadsheetId`. They survive category edits and payment review, allowing downstream reads to detect missing or replaced rows instead of treating a lost payment column as intentionally unmapped. Invalid header input uses the stored header row, or row 1 if absent.
 
 Inconsistent category setup returns from `ONBOARDING_CATEGORIES` to `ONBOARDING_MAPPING` with destination metadata and no confirmable draft. Writing `revisar` generates a fresh mapping proposal through the existing no-proposal worker route; cancellation remains available.
+
+## Presented category proposal handoff (2026-11-24)
+
+The mapping `proposalId` remains distinct from the downstream `categoryProposalId`. Category presentation evidence binds both the mapping snapshot and the reviewed category draft. After an interrupted handoff, an affirmative reply first re-presents or re-detects categories and waits; it cannot accept a previously unseen list or open payment review in the same incoming message. Missing mappings continue to require fresh mapping review.

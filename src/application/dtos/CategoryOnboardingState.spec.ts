@@ -1,8 +1,13 @@
+import { buildPresentedCategoryPayload } from '../../__tests__/factories/onboarding';
 // LAYER: Application / Tests
 
 import { describe, expect, it } from 'vitest';
 import {
   parseCategoryOnboardingState,
+  parseCategoryProposalMetadata,
+  isCategoryProposalPresented,
+  isCategoryProposalAccepted,
+  categoryProposalFingerprint,
   serializeCategoryOnboardingState,
   type CategoryOnboardingState,
 } from './CategoryOnboardingState';
@@ -122,5 +127,46 @@ describe('CategoryOnboardingState', () => {
     expect(serializeCategoryOnboardingState(state)).toEqual(state);
     expect(serializeCategoryOnboardingState(state, undefined)).toEqual(state);
     expect(serializeCategoryOnboardingState(state, null)).toEqual(state);
+  });
+  it('treats missing legacy presentation metadata as unpresented', () => {
+    expect(parseCategoryProposalMetadata({ categories: ['Food'] })).toEqual({
+      categoryProposalId: null,
+      categoryPresentation: null,
+      categoryAcceptance: null,
+    });
+    expect(isCategoryProposalPresented({ categories: ['Food'] })).toBe(false);
+    expect(isCategoryProposalAccepted({ categories: ['Food'], paymentReview: true })).toBe(false);
+  });
+
+  it('rejects malformed metadata and mismatched identities without invalidating readable vocabulary', () => {
+    const payload = buildPresentedCategoryPayload({ categories: ['Food'] });
+    expect(isCategoryProposalPresented({ ...payload, categoryProposalId: 'old' })).toBe(false);
+    expect(
+      parseCategoryProposalMetadata({
+        ...payload,
+        categoryPresentation: { presentedAt: 'yesterday' },
+      }),
+    ).toBeNull();
+    expect(
+      parseCategoryOnboardingState({ ...payload, categoryPresentation: 'bad' })?.categories,
+    ).toEqual([{ name: 'Food', subcategories: [] }]);
+  });
+
+  it('binds delivery to draft IDs and destination while ignoring JSONB object key order and payment edits', () => {
+    const payload = buildPresentedCategoryPayload({
+      categories: ['Food'],
+      paymentReview: true,
+      categoryDraft: {
+        categories: [{ id: 'parent', name: 'Food', normalizedName: 'food' }],
+        subcategories: [],
+      },
+    });
+    const reordered = Object.fromEntries(Object.entries(payload).reverse());
+    expect(categoryProposalFingerprint(reordered)).toBe(categoryProposalFingerprint(payload));
+    expect(isCategoryProposalAccepted(reordered)).toBe(true);
+    expect(isCategoryProposalAccepted({ ...payload, paymentMethods: ['Visa'] })).toBe(true);
+    expect(isCategoryProposalPresented({ ...payload, categoryDraft: null })).toBe(false);
+    expect(isCategoryProposalPresented({ ...payload, headerRowIndex: 5 })).toBe(false);
+    expect(isCategoryProposalPresented({ ...payload, confirmedMappings: [] })).toBe(false);
   });
 });

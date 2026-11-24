@@ -84,7 +84,7 @@ Commands that explicitly name `categoría` or `category` are handled as parent c
 
 ### Atomic confirmation
 
-Category confirmation advances to payment-method review without writing the live vocabulary. The identified category draft retains parent and child IDs across renames and moves. After payment review, `DrizzleOnboardingVocabularyCommit` locks the conversation and active configuration, validates the reviewed payload, and writes the hierarchy, payment catalog, confirmation markers, user activation, and `IDLE` in one transaction. A failure rolls back the complete finalization and sends no completion message. Legacy in-flight category proposals enter payment review before finalization.
+Category confirmation advances to payment-method review without writing the live vocabulary. The identified category draft retains parent and child IDs across renames and moves. After payment review, `DrizzleOnboardingVocabularyCommit` locks the conversation and active configuration, validates the reviewed payload, and writes the hierarchy, payment catalog, confirmation markers, user activation, and `IDLE` in one transaction. A failure rolls back the complete finalization and sends no completion message. Legacy in-flight category proposals must be re-presented or re-detected before another reply can enter payment review.
 
 ### Parent-first expense classification and review
 
@@ -192,3 +192,7 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 ## Mapping recovery (2026-11-24)
 
 Category and subcategory columns must still match the captured mapping confirmation when context metadata is present. A linked C/D mapping reads indexes 2 and 3 from the same rows below the confirmed header. Missing category setup no longer creates hidden flat defaults. It returns a typed recovery result and routes to reconnection or fresh mapping review, without committing a hierarchy. See [category confirmation](./category-confirmation.md#confirmed-mapping-context-and-recovery-2026-11-24) for the persisted context and legacy limitation.
+
+## Hierarchy delivery evidence (2026-11-24)
+
+Every detected or edited hierarchy is first persisted as unpresented. Only adapter-reported successful delivery records evidence bound to its proposal ID, complete hierarchy, orphan warnings, stable draft identities and destination/mapping context. A failed send or interrupted evidence write cannot authorize acceptance. Re-presentation retains the identified draft and waits for another reply. Old placeholder-generated defaults are re-detected from the linked sheet rows instead of being silently committed. See [category confirmation](./category-confirmation.md#successful-presentation-before-acceptance-2026-11-24) for recovery and finalization rules.

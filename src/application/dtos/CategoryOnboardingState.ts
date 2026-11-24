@@ -2,6 +2,7 @@
 // Canonical, backward-compatible payload for the ONBOARDING_CATEGORIES state.
 
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { CategoryVocabulary } from '../../domain/entities/CategoryVocabulary';
 import { DomainValidationError } from '../../domain/errors/DomainValidationError';
 
@@ -59,7 +60,7 @@ export function serializeCategoryOnboardingState(
   state: CategoryOnboardingState,
   previousPayload?: Record<string, unknown> | null,
 ): Record<string, unknown> {
-  return {
+  const payload: Record<string, unknown> = {
     ...(previousPayload ?? {}),
     categories: state.categories.map((category) => ({
       name: category.name,
@@ -68,6 +69,14 @@ export function serializeCategoryOnboardingState(
     orphanSubcategories: [...state.orphanSubcategories],
     subcategoryColumnMapped: state.subcategoryColumnMapped,
   };
+  if (
+    previousPayload?.categoryProposalId !== undefined &&
+    categoryProposalFingerprint(previousPayload) !== categoryProposalFingerprint(payload)
+  ) {
+    payload.categoryPresentation = null;
+    payload.categoryAcceptance = null;
+  }
+  return payload;
 }
 
 function normalizeState(state: CategoryOnboardingState): CategoryOnboardingState {
@@ -119,4 +128,97 @@ function deduplicateNames(names: readonly string[]): string[] {
     if (!uniqueNames.has(normalized)) uniqueNames.set(normalized, trimmed);
   }
   return [...uniqueNames.values()];
+}
+
+// Missing metadata is a legacy draft, never evidence of successful delivery.
+const CategoryPresentationSchema = z.object({
+  proposalId: z.string().min(1),
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  presentedAt: z.string().datetime(),
+});
+export const CategoryProposalMetadataSchema = z.object({
+  categoryProposalId: z.string().min(1).nullable().default(null),
+  categoryPresentation: CategoryPresentationSchema.nullable().default(null),
+  categoryAcceptance: z
+    .object({
+      proposalId: z.string().min(1),
+      fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+    })
+    .nullable()
+    .default(null),
+});
+export type CategoryProposalMetadata = z.infer<typeof CategoryProposalMetadataSchema>;
+
+export function parseCategoryProposalMetadata(payload: unknown): CategoryProposalMetadata | null {
+  const result = CategoryProposalMetadataSchema.safeParse(payload);
+  return result.success ? result.data : null;
+}
+
+export function categoryProposalFingerprint(payload: Record<string, unknown>): string {
+  const state = parseCategoryOnboardingState(payload);
+  const binding = {
+    state,
+    categoryDraft: payload.categoryDraft,
+    spreadsheetId: payload.spreadsheetId,
+    proposalId: payload.proposalId,
+    provider: payload.provider,
+    fileId: payload.fileId,
+    sheetName: payload.sheetName,
+    headerRowIndex: payload.headerRowIndex,
+    confirmedMappings: payload.confirmedMappings,
+  };
+  return createHash('sha256')
+    .update(
+      JSON.stringify(binding, (_key: string, value: unknown) => {
+        if (!isRecord(value)) return value;
+        return Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((key) => [key, value[key]]),
+        );
+      }),
+    )
+    .digest('hex');
+}
+
+export function isCategoryProposalPresented(payload: Record<string, unknown> | null): boolean {
+  if (!payload || !parseCategoryOnboardingState(payload)?.categories.length) return false;
+  const metadata = parseCategoryProposalMetadata(payload);
+  return (
+    metadata !== null &&
+    metadata.categoryProposalId !== null &&
+    metadata.categoryPresentation?.proposalId === metadata.categoryProposalId &&
+    metadata.categoryPresentation.fingerprint === categoryProposalFingerprint(payload)
+  );
+}
+
+export function isCategoryProposalAccepted(payload: Record<string, unknown> | null): boolean {
+  if (!payload || !isCategoryProposalPresented(payload)) return false;
+  const metadata = parseCategoryProposalMetadata(payload)!;
+  return (
+    metadata.categoryAcceptance?.proposalId === metadata.categoryProposalId &&
+    metadata.categoryAcceptance?.fingerprint === categoryProposalFingerprint(payload)
+  );
+}
+
+export const DEFAULT_ONBOARDING_CATEGORIES = [
+  'alimentacion',
+  'transporte',
+  'servicios',
+  'ocio',
+  'salud',
+  'otros',
+];
+
+export function mayBeLegacyPlaceholder(state: CategoryOnboardingState): boolean {
+  return (
+    !state.subcategoryColumnMapped &&
+    state.orphanSubcategories.length === 0 &&
+    state.categories.length === DEFAULT_ONBOARDING_CATEGORIES.length &&
+    state.categories.every(
+      (category) =>
+        category.subcategories.length === 0 &&
+        DEFAULT_ONBOARDING_CATEGORIES.includes(category.name.toLowerCase()),
+    )
+  );
 }

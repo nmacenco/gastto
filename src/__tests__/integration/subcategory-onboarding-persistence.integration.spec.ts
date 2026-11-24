@@ -1,3 +1,7 @@
+import { DrizzleColumnMappingRepository } from '../../infrastructure/db/repositories/DrizzleColumnMappingRepository';
+import { captureConfirmedOnboardingContext } from '../../application/services/ConfirmedOnboardingContext';
+import { presentCategoryProposal } from '../../application/services/PresentCategoryProposal';
+import { onboardingCopies } from '../../application/copies/onboarding.copies';
 // LAYER: Infrastructure / Integration Tests
 // End-to-end persistence checks for hierarchy confirmation against PostgreSQL.
 
@@ -78,6 +82,7 @@ function buildUseCase() {
   const transitionState = new TransitionConversationState(conversationRepository);
   const useCase = new ConfirmCategories({
     spreadsheetConfigRepository: new DrizzleSpreadsheetConfigRepository(db),
+    columnMappingRepository: new DrizzleColumnMappingRepository(db),
     categoryVocabularyRepository: new DrizzleCategoryVocabularyRepository(db),
     userRepository: new DrizzleUserRepository(db, {} as Redis),
     messagingPort: { sendMessage },
@@ -88,14 +93,39 @@ function buildUseCase() {
 
 async function confirm(statePayload: Record<string, unknown>) {
   const { useCase, transitionState } = buildUseCase();
-  return transitionState.runForUser(userId, () =>
-    useCase.execute({
+  const configs = new DrizzleSpreadsheetConfigRepository(db);
+  const mappings = new DrizzleColumnMappingRepository(db);
+  await mappings.replaceBySpreadsheetId(spreadsheetId, [
+    {
+      GasttoField: 'categoria',
+      columnIndex: 2,
+      columnHeader: 'Category',
+      inferred: false,
+      confirmedAt: new Date(),
+    },
+  ]);
+  const context = captureConfirmedOnboardingContext(
+    (await configs.findByUserId(userId))!,
+    await mappings.findBySpreadsheetId(spreadsheetId),
+    statePayload,
+  )!;
+  return transitionState.runForUser(userId, async () => {
+    await presentCategoryProposal(
+      { transitionState, messagingPort: { sendMessage } },
+      {
+        userId,
+        externalId: 'telegram-user',
+        payload: context,
+        message: 'Review category proposal',
+      },
+    );
+    return useCase.execute({
       userId,
       externalId: 'telegram-user',
       channel: 'telegram',
-      statePayload,
-    }),
-  );
+      statePayload: transitionState.currentState(userId)!.statePayload,
+    });
+  });
 }
 
 const canonicalPayload = {
@@ -127,7 +157,7 @@ describePostgres('subcategory onboarding confirmation (PostgreSQL)', () => {
       statePayload: null,
       expiresAt: null,
     });
-    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it('confirms a legacy flat payload without creating children', async () => {
@@ -163,7 +193,7 @@ describePostgres('subcategory onboarding confirmation (PostgreSQL)', () => {
 
     await expect(db.select().from(schema.userCategories)).resolves.toHaveLength(2);
     await expect(db.select().from(schema.userSubcategories)).resolves.toHaveLength(2);
-    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage).toHaveBeenCalledTimes(4);
   });
 
   it('reactivates a confirmed user and clears an interrupted conversation', async () => {
@@ -285,6 +315,9 @@ describePostgres('subcategory onboarding confirmation (PostgreSQL)', () => {
     expect(user?.status).toBe('onboarding');
     expect(config?.categoriesConfirmedAt).toBeNull();
     expect(conversation?.currentState).toBe('ONBOARDING_CATEGORIES');
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      'telegram-user',
+      onboardingCopies.onboardingComplete(),
+    );
   });
 });

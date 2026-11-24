@@ -20,7 +20,7 @@ export function onboardingContextIssue(
   })) {
     if (payload?.[key] !== undefined && payload[key] !== value) return 'destination_changed';
   }
-  if (payload?.confirmedMappings === undefined) return null; // Legacy drafts: presentation migration is separate.
+  if (payload?.confirmedMappings === undefined) return null; // Legacy drafts must be rebound or re-detected before confirmation.
   if (typeof payload.proposalId !== 'string' || !payload.proposalId) return 'proposal_missing';
   if (payload.headerRowIndex !== (config.headerRowIndex ?? 1)) return 'header_changed';
   const proposal = readActiveColumnMappingProposal(
@@ -62,12 +62,42 @@ export function assertCurrentOnboardingProposal(
   userId: string,
   payload: Record<string, unknown> | null,
 ): void {
-  if (payload?.proposalId === undefined) return;
   const observed = transition.currentState(userId);
-  if (
-    observed?.statePayload?.proposalId !== undefined &&
-    observed.statePayload.proposalId !== payload.proposalId
-  ) {
-    throw new StaleConversationStateError({ status: 'stale' });
+  for (const key of ['proposalId', 'categoryProposalId']) {
+    if (
+      observed?.statePayload?.[key] !== undefined &&
+      observed.statePayload[key] !== payload?.[key]
+    ) {
+      throw new StaleConversationStateError({ status: 'stale' });
+    }
   }
+}
+
+export function captureConfirmedOnboardingContext(
+  config: SpreadsheetConfig,
+  mappings: readonly ColumnMapping[],
+  previous: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (
+    previous?.headerRowIndex !== undefined &&
+    previous.headerRowIndex !== (config.headerRowIndex ?? 1)
+  )
+    return null;
+  if (
+    !mappings.some((row) => row.GasttoField === 'categoria') ||
+    mappings.some((row) => row.spreadsheetId !== config.id || !row.confirmedAt)
+  )
+    return null;
+  return {
+    ...previous,
+    ...mappingRecoveryPayload(config),
+    proposalId:
+      typeof previous?.proposalId === 'string' ? previous.proposalId : `legacy:${config.id}`,
+    confirmedMappings: mappings.map((row) => ({
+      gasttoField: row.GasttoField,
+      columnIndex: row.columnIndex,
+      columnHeader: row.columnHeader,
+      confirmedAt: row.confirmedAt!.toISOString(),
+    })),
+  };
 }

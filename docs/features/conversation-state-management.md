@@ -145,3 +145,7 @@ Recovery presentation uses the effective persisted state and existing financial-
 ## Onboarding prerequisite recovery (2026-11-24)
 
 `ONBOARDING_CATEGORIES` can transition to `ONBOARDING_MAPPING` when the category column is missing or captured destination/mapping context is inconsistent. Recovery persists only the active destination and header context, then asks for `revisar` or cancellation. The next mapping message generates a new proposal; the previous category/payment draft cannot be accepted. Missing configuration retains the existing `ONBOARDING_START` reconnection transition. Recovery writes use the observed revision and expiry preconditions, so stale or expired execution cannot overwrite a newer draft or announce recovery after a failed transition.
+
+## Category presentation revisions (2026-11-24)
+
+Category detection, editing and re-presentation perform two guarded writes: a new unpresented proposal before sending, then presentation evidence only after adapter-reported success, using the saved draft revision. The observed expiry is retained for both writes. A stale or expired evidence write leaves no eligible marker on the newer state. Confirmation checks the category proposal and context; a legacy/unpresented proposal consumes the reply only to recover or re-present, then waits. Category acceptance evidence survives payment editing until the atomic final commit. Cancellation clears this metadata with the rest of the payload.

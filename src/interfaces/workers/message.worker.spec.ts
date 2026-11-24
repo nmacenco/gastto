@@ -1,3 +1,7 @@
+import {
+  buildConfirmedMappings,
+  buildPresentedCategoryPayload,
+} from '../../__tests__/factories/onboarding';
 import { CancelConversationFlow } from '../../application/use-cases/conversation/CancelConversationFlow';
 import { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
 import type { IConversationStateRepository } from '../../domain/ports/repositories';
@@ -4798,16 +4802,25 @@ describe('processMessageJob', () => {
               provider: 'google',
               fileId: 'file-123',
               sheetName: 'Gastos',
+              headerRowIndex: 2,
             }),
           } as unknown as DetectCategoriesDeps['spreadsheetConfigRepository'],
           columnMappingRepository: {
-            findBySpreadsheetId: vi
-              .fn()
-              .mockResolvedValue([{ GasttoField: 'categoria', columnIndex: 2 }]),
+            findBySpreadsheetId: vi.fn().mockResolvedValue([
+              {
+                spreadsheetId: 'config-1',
+                confirmedAt: new Date('2026-08-31T10:00:00Z'),
+                GasttoField: 'categoria',
+                columnIndex: 2,
+                columnHeader: 'Categoría',
+              },
+            ]),
           } as unknown as DetectCategoriesDeps['columnMappingRepository'],
           messagingPort: { sendMessage: mockSendMessage },
           transitionState: {
             execute: mockTransitionStateExecute,
+            currentState: vi.fn().mockReturnValue(null),
+            precondition: deps.transitionState.precondition.bind(deps.transitionState),
           } as unknown as DetectCategoriesDeps['transitionState'],
           categoryVocabularyRepository: {
             findBySpreadsheetId: vi.fn().mockResolvedValue(null),
@@ -5343,6 +5356,75 @@ describe('processMessageJob', () => {
     });
 
     describe('ONBOARDING_CATEGORIES', () => {
+      it.each(['ok', 'sí', 'confirmar'])(
+        're-presents an unpresented draft on %s and waits for a new reply',
+        async (rawMessage) => {
+          const deps = buildMockDeps();
+          let observed = buildConversationState({
+            currentState: 'ONBOARDING_CATEGORIES',
+            statePayload: {
+              ...buildPresentedCategoryPayload({ categories: ['Food'] }),
+              categoryPresentation: null,
+            },
+          });
+          mockGetConversationStateExecute.mockImplementation(() => Promise.resolve(observed));
+          mockTransitionStateExecute.mockImplementation((input) => {
+            observed = buildConversationState({
+              currentState: input.targetState,
+              statePayload: input.payload ?? null,
+              revision: String(Number(observed.revision) + 1),
+            });
+            return Promise.resolve({ status: 'updated', state: observed });
+          });
+          vi.spyOn(deps.transitionState, 'currentState').mockImplementation(() => observed);
+          const detectPayments = vi.fn().mockResolvedValue({ names: ['Visa'], columnMapped: true });
+          const commit = vi.fn();
+          const save = vi.fn();
+          deps.confirmCategories = new ConfirmCategories({
+            spreadsheetConfigRepository: {
+              findByUserId: vi.fn().mockResolvedValue({
+                id: 'config-1',
+                userId: 'user-123',
+                isActive: true,
+                provider: 'google',
+                fileId: 'file-123',
+                sheetName: 'Gastos',
+                headerRowIndex: 1,
+              }),
+            } as unknown as ConfirmCategoriesDeps['spreadsheetConfigRepository'],
+            columnMappingRepository: {
+              findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
+            } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
+            categoryVocabularyRepository: { findBySpreadsheetId: vi.fn(), save },
+            userRepository: {
+              updateStatus: vi.fn(),
+            } as unknown as ConfirmCategoriesDeps['userRepository'],
+            transitionState: deps.transitionState,
+            messagingPort: { sendMessage: mockSendMessage },
+            detectPaymentMethods: { execute: detectPayments } as unknown as NonNullable<
+              ConfirmCategoriesDeps['detectPaymentMethods']
+            >,
+            onboardingCommit: { execute: commit },
+          });
+          await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+          expect(mockSendMessage).toHaveBeenLastCalledWith(
+            '123456789',
+            expect.stringContaining('Food'),
+          );
+          expect(observed.statePayload?.paymentReview).toBeUndefined();
+          expect(detectPayments).not.toHaveBeenCalled();
+          expect(commit).not.toHaveBeenCalled();
+          expect(save).not.toHaveBeenCalled();
+          await processMessageJob(
+            buildJob({ ...baseJobData, rawMessage, externalMessageId: 'next-confirm' }),
+            deps,
+          );
+          expect(detectPayments).toHaveBeenCalledOnce();
+          expect(observed.statePayload?.paymentReview).toBe(true);
+          expect(commit).not.toHaveBeenCalled();
+        },
+      );
+
       it('delegates to DetectCategories on first entry when categories are not yet in payload', async () => {
         const deps = buildMockDeps();
         mockGetConversationStateExecute.mockResolvedValue(
@@ -5461,12 +5543,12 @@ describe('processMessageJob', () => {
         let observed = buildConversationState({
           currentState: 'ONBOARDING_CATEGORIES',
           revision: '1',
-          statePayload: {
+          statePayload: buildPresentedCategoryPayload({
             categories: ['comida'],
             paymentReview: true,
             paymentColumnMapped: true,
             paymentMethods: ['B', 'TC', 'TR', 'CREDITO SANTANDER', 'efectivo', 'tarjeta de débito'],
-          },
+          }),
         });
         mockGetConversationStateExecute.mockImplementation(() => Promise.resolve(observed));
         mockTransitionStateExecute.mockImplementation((input) => {
@@ -5482,6 +5564,10 @@ describe('processMessageJob', () => {
           id: 'config-1',
           userId: 'user-123',
           isActive: true,
+          provider: 'google',
+          fileId: 'file-123',
+          sheetName: 'Gastos',
+          headerRowIndex: 1,
         });
         const commit = vi.fn().mockImplementation(() => {
           observed = buildConversationState({
@@ -5496,7 +5582,7 @@ describe('processMessageJob', () => {
             findByUserId: mockSpreadsheetConfigFindByUserId,
           } as unknown as ConfirmCategoriesDeps['spreadsheetConfigRepository'],
           categoryVocabularyRepository: {
-            findBySpreadsheetId: vi.fn(),
+            findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
             save: vi.fn(),
           },
           userRepository: {
@@ -5505,7 +5591,7 @@ describe('processMessageJob', () => {
           messagingPort: { sendMessage: mockSendMessage },
           transitionState: deps.transitionState,
           columnMappingRepository: {
-            findBySpreadsheetId: vi.fn(),
+            findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
           } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
           detectPaymentMethods: {
             execute: vi.fn(),
@@ -5544,6 +5630,10 @@ describe('processMessageJob', () => {
           id: 'config-1',
           userId: 'user-123',
           isActive: true,
+          provider: 'google',
+          fileId: 'file-123',
+          sheetName: 'Gastos',
+          headerRowIndex: 1,
           categoriesConfirmedAt: new Date('2026-08-30T10:00:00Z'),
         });
         const updateCategoriesConfirmed = vi.fn();
@@ -5554,6 +5644,9 @@ describe('processMessageJob', () => {
         const saveVocabulary = vi.fn().mockResolvedValue(undefined);
 
         deps.confirmCategories = new ConfirmCategories({
+          columnMappingRepository: {
+            findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
+          } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
           spreadsheetConfigRepository: {
             findByUserId: findSpreadsheetConfig,
             updateCategoriesConfirmed,
@@ -5568,13 +5661,24 @@ describe('processMessageJob', () => {
           messagingPort: { sendMessage: mockSendMessage },
           transitionState: {
             execute: mockTransitionStateExecute,
+            assertExecutionIsValid: vi.fn(),
+            currentState: vi
+              .fn()
+              .mockReturnValue(
+                buildConversationState({
+                  currentState: 'ONBOARDING_CATEGORIES',
+                  statePayload: buildPresentedCategoryPayload({
+                    categories: ['comida', 'transporte'],
+                  }),
+                }),
+              ),
           } as unknown as ConfirmCategoriesDeps['transitionState'],
         });
         mockGetConversationStateExecute
           .mockResolvedValueOnce(
             buildConversationState({
               currentState: 'ONBOARDING_CATEGORIES',
-              statePayload: { categories: ['comida', 'transporte'] },
+              statePayload: buildPresentedCategoryPayload({ categories: ['comida', 'transporte'] }),
               expiresAt: new Date('2026-08-31T12:00:00Z'),
             }),
           )

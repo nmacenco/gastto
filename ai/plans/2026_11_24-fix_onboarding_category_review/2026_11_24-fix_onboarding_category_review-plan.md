@@ -89,22 +89,22 @@ Ensure a reply cannot accept an unseen or outdated category proposal. Complete t
 
 #### To-do actions
 
-- [ ] Add backward-compatible parsing/serialization for proposal and presentation metadata, distinguishing missing legacy evidence from an eligible current proposal. Retain unrelated setup metadata and stable draft IDs.
-- [ ] Persist the draft as unpresented, send the visible category hierarchy, then record successful presentation against the same proposal and observed revision. Treat thrown errors and returned failure results as unsuccessful presentation. Ensure a crash or stale CAS between these operations remains recoverable.
-- [ ] Apply the same presentation lifecycle after category edits. Prevent an old presentation marker from authorizing a modified draft.
-- [ ] Route `ok`, `sí`, or `confirmar` against an unpresented/legacy category draft to re-presentation or prerequisite recovery, then wait for a new reply. Preserve the ordinary confirmation experience after a valid proposal is presented.
-- [ ] Recover the old placeholder-generated state by checking prerequisites and re-detecting categories when its prior spreadsheet proposal cannot be trusted. Do not accidentally persist the old hidden defaults during final payment confirmation.
-- [ ] Add tests for a failed send result, thrown delivery error, crash before presentation evidence, stale presentation update, modified hierarchy, interrupted draft, legacy flat/canonical payloads, cancellation, and subsequent valid confirmation. Assert no premature payment review, catalog commit, or activation.
-- [ ] Add an integration regression using real PostgreSQL/Redis repositories and the supported deletion/identity lifecycle with external services mocked: configure an account, delete it, register the same messaging identity as a fresh account, confirm A/C/D mappings, show the real hierarchy, confirm categories, show mapped payment values, and atomically activate after final confirmation.
-- [ ] Assert new account/configuration identity, absence of old catalogs and account-owned stale context, preservation of external sheet content during deletion, correct ordering of visible proposals, and persistence of the reviewed categories, children, payment methods, and final `IDLE` state. Test onboarding interruption/resumption without repeating the entire deletion matrix.
-- [ ] Update category, subcategory, mapping, payment, and account-deletion feature docs where implemented behavior changes, plus `docs/features/README.md`. Update persisted payload documentation and any ADR/index introduced by the implementation.
-- [ ] Run targeted unit/worker and PostgreSQL/Redis integration regressions, followed by `pnpm test`. Include an acceptance transcript matching the reported conversation and explain any original trigger still unproven. Do not mark unavailable integration execution as passed.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Add backward-compatible parsing/serialization for proposal and presentation metadata, distinguishing missing legacy evidence from an eligible current proposal. Retain unrelated setup metadata and stable draft IDs.
+- [x] Persist the draft as unpresented, send the visible category hierarchy, then record successful presentation against the same proposal and observed revision. Treat thrown errors and returned failure results as unsuccessful presentation. Ensure a crash or stale CAS between these operations remains recoverable.
+- [x] Apply the same presentation lifecycle after category edits. Prevent an old presentation marker from authorizing a modified draft.
+- [x] Route `ok`, `sí`, or `confirmar` against an unpresented/legacy category draft to re-presentation or prerequisite recovery, then wait for a new reply. Preserve the ordinary confirmation experience after a valid proposal is presented.
+- [x] Recover the old placeholder-generated state by checking prerequisites and re-detecting categories when its prior spreadsheet proposal cannot be trusted. Do not accidentally persist the old hidden defaults during final payment confirmation.
+- [x] Add tests for a failed send result, thrown delivery error, crash before presentation evidence, stale presentation update, modified hierarchy, interrupted draft, legacy flat/canonical payloads, cancellation, and subsequent valid confirmation. Assert no premature payment review, catalog commit, or activation.
+- [x] Add an integration regression using real PostgreSQL/Redis repositories and the supported deletion/identity lifecycle with external services mocked: configure an account, delete it, register the same messaging identity as a fresh account, confirm A/C/D mappings, show the real hierarchy, confirm categories, show mapped payment values, and atomically activate after final confirmation.
+- [x] Assert new account/configuration identity, absence of old catalogs and account-owned stale context, preservation of external sheet content during deletion, correct ordering of visible proposals, and persistence of the reviewed categories, children, payment methods, and final `IDLE` state. Test onboarding interruption/resumption without repeating the entire deletion matrix.
+- [x] Update category, subcategory, mapping, payment, and account-deletion feature docs where implemented behavior changes, plus `docs/features/README.md`. Update persisted payload documentation and any ADR/index introduced by the implementation.
+- [x] Run targeted unit/worker and PostgreSQL/Redis integration regressions, followed by `pnpm test`. Include an acceptance transcript matching the reported conversation and explain any original trigger still unproven. Do not mark unavailable integration execution as passed.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Review Phase 1, then execute Phase 2 to require successful category presentation and verify the complete deletion/re-registration lifecycle.
+Review the completed Phase 2 changes, choose whether to commit them, and optionally export the conversation alongside this plan.
 
 ## Phase 1 execution evidence (2026-11-24)
 
@@ -116,3 +116,33 @@ Review Phase 1, then execute Phase 2 to require successful category presentation
 - This phase's erasure comparison exercises transactional storage erasure, not the complete messaging-identity, credential revocation, Redis cleanup and account-deletion service lifecycle. That lifecycle, delivery evidence, and interrupted legacy draft re-presentation remain Phase 2 work. Legacy drafts without `confirmedMappings` retain compatibility in this phase.
 - Canonical category, mapping, hierarchy, payment and FSM documentation and the feature index were synchronized. Persisted JSONB metadata is documented in the data model; no schema migration or new architectural mechanism was introduced.
 - Validation: 432 targeted tests passed across seven suites. Five opt-in PostgreSQL regression cases passed using a disposable container. `pnpm test` passed with 212 suites / 2,937 tests passed and 12 suites / 68 tests skipped; opt-in tests were not counted as passed by that general run. `pnpm run typecheck` passed. `pnpm run lint` passed (existing package-module warning only). Review/continuation and commit choices are presented to the user at the phase boundary; Phase 2 has not started.
+
+## Phase 2 execution evidence (2026-11-24)
+
+- `categoryProposalId`, nullable `categoryPresentation` and nullable `categoryAcceptance` distinguish readable legacy vocabulary from an eligible proposal. The fingerprint binds normalized hierarchy/orphans, stable draft IDs, destination, effective header, mapping proposal and confirmed mapping snapshot; it ignores JSONB object-key order and unrelated payment edits.
+- Detection, modification and re-presentation share the unpresented-write/send/successful-evidence lifecycle. Evidence is written with the saved draft revision and observed expiry. Failed send results, thrown errors, interruption or stale CAS never create eligible evidence. Flat proposals display the complete draft, including merged persisted vocabulary.
+- Application confirmation compares evidence with the observed state. All confirmation aliases re-present unpresented drafts and wait for another message. Compatibility confirmation also rejects closed/expired execution before live writes. Payment editing cannot import evidence from a different observed category state.
+- Legacy vocabulary with a verified destination is rebound to confirmed repository mappings and re-presented; identified category/child IDs are retained. Unbound or potentially placeholder-generated defaults are re-detected. An old `paymentReview` flag cannot bypass category review or persist hidden defaults. Re-presentation clears the old payment proposal.
+- Final activation rechecks persisted category acceptance and configuration/mapping identity under transaction locks. Direct commit calls lacking presentation/acceptance or using changed mappings are rejected without catalog writes.
+- Disposable PostgreSQL/Redis regression uses `ResolveUserIdentityUseCase`, real encrypted token storage, `AccountDeletionService`, real queue/key cleanup, real configuration/mapping/conversation/catalog repositories and atomic activation. Only OAuth, Sheets and messaging providers are simulated. It verifies old account/configuration/catalog/token/context cleanup, a new account and configuration for the same messaging identity, unchanged external sheet rows, C/D presentation before mapped payment A, reviewed catalogs and final active/IDLE state. Separate cases cover delivery interruption, legacy flat/canonical/identified drafts, placeholder recovery, cancellation and stale evidence writes.
+- No schema migration or new architectural mechanism was introduced. Feature documentation/index, JSONB payload documentation and applicable HU-4.07 task acceptance criteria were synchronized. Historical criteria describing superseded signatures, detection-time live persistence or new HTTP routes remain unchecked.
+- The original disappearance of confirmed mappings remains unproven. Fresh, repeated and erased-account setup retain A/C/D; inconsistent reads are protected deterministically rather than attributed to an unverified repository defect.
+
+### Final validation
+
+- `pnpm test`: 213 suites and 2,954 tests passed; 13 suites and 79 tests skipped. Skipped integration execution is not counted as a pass.
+- Opt-in PostgreSQL/Redis validation: 27 cases passed across category presentation/deletion lifecycle, mapping context, compatibility hierarchy persistence and atomic activation suites. After the final observed-state guard, the 22 cases in the three affected presentation/compatibility/activation suites passed again.
+- Targeted unit/worker checks passed, including the three confirmation aliases, compatibility closure/expiry, unsuccessful delivery, stale presentation CAS and metadata binding.
+- `pnpm run lint` and `pnpm run typecheck` passed. Lint emits the existing package-module warning only. `git diff --check` passed.
+- Both phases are complete. No commit, deployment or production data access was performed in this execution. The final review/commit choice is presented at the phase boundary.
+
+### Acceptance transcript
+
+This transcript summarizes the mocked-provider integration boundaries, not a production chat export. The full deletion/registration lifecycle and persisted outcomes are asserted by the integration suite.
+
+1. An existing account finishes onboarding, requests deletion through the supported deletion barrier, and is erased. Its old catalogs, OAuth credential, conversation, retained processing job and owned Redis keys disappear; the external sheet rows remain unchanged.
+2. The same Telegram identity registers again with a new user/configuration ID and confirms the proposal: payment `A`, category `C`, subcategory `D`, header row `2`.
+3. Gastto confirms the mapping, then shows `comida > restaurante`, `transporte > peajes`, and `salud`, with the category confirmation instruction. No payment review or activation has occurred yet.
+4. User: `confirmar`. Gastto reads payment `A` below the header and shows `Visa` and `Efectivo`. The user remains in onboarding and the catalogs remain drafts.
+5. User: `confirmar`. Gastto atomically stores the reviewed hierarchy and payment catalog, activates the user, clears the payload and returns `IDLE` with `¡Todo listo! Ya podés empezar a registrar gastos.`
+6. Interrupted/old-placeholder variant: user sends `ok`, `sí`, or `confirmar` against an unpresented draft. Gastto re-presents the hierarchy (or re-detects old hidden defaults) and waits. Only a subsequent reply may open payment review. A missing confirmed mapping instead asks for fresh mapping review and cancellation remains available.

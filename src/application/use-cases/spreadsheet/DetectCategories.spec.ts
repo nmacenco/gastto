@@ -1,3 +1,4 @@
+import { buildCategoryConversationState } from '../../../__tests__/factories/onboarding';
 // LAYER: Application / Tests
 // Unit tests for DetectCategories use case.
 
@@ -14,7 +15,13 @@ import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary'
 describe('DetectCategories', () => {
   function buildColumnMappingRepository(mappings: unknown[]) {
     return {
-      findBySpreadsheetId: vi.fn().mockResolvedValue(mappings),
+      findBySpreadsheetId: vi.fn().mockResolvedValue(
+        mappings.map((value) => ({
+          spreadsheetId: 'config-123',
+          confirmedAt: new Date('2026-11-24T12:00:00Z'),
+          ...(value as object),
+        })),
+      ),
       upsertMany: vi.fn(),
       confirm: vi.fn(),
       confirmBySpreadsheetId: vi.fn(),
@@ -22,7 +29,10 @@ describe('DetectCategories', () => {
     } as unknown as DetectCategoriesDeps['columnMappingRepository'];
   }
 
-  function buildDeps(overrides: Partial<DetectCategoriesDeps> = {}): {
+  function buildDeps(
+    overrides: Partial<DetectCategoriesDeps> = {},
+    headerRowIndex = 1,
+  ): {
     deps: DetectCategoriesDeps;
     sendMessage: ReturnType<typeof vi.fn<MessagingOutputPort['sendMessage']>>;
     transitionExecute: ReturnType<typeof vi.fn>;
@@ -31,7 +41,14 @@ describe('DetectCategories', () => {
     const sendMessage = vi
       .fn<MessagingOutputPort['sendMessage']>()
       .mockResolvedValue({ status: 'success' });
-    const transitionExecute = vi.fn().mockResolvedValue(undefined);
+    const transitionExecute = vi
+      .fn()
+      .mockImplementation((input: { payload: Record<string, unknown> }) =>
+        Promise.resolve({
+          status: 'updated',
+          state: buildCategoryConversationState(input.payload),
+        }),
+      );
     const saveVocabulary = vi
       .fn<ICategoryVocabularyRepository['save']>()
       .mockResolvedValue(undefined);
@@ -73,6 +90,7 @@ describe('DetectCategories', () => {
           provider: 'google',
           fileId: 'file-123',
           sheetName: 'Gastos',
+          headerRowIndex,
         }),
         create: vi.fn(),
         createOrResumeInitial: vi.fn(),
@@ -82,11 +100,15 @@ describe('DetectCategories', () => {
         updateCategoriesConfirmed: vi.fn(),
       },
       columnMappingRepository: {
-        findBySpreadsheetId: vi
-          .fn()
-          .mockResolvedValue([
-            { GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Categoria' },
-          ]),
+        findBySpreadsheetId: vi.fn().mockResolvedValue([
+          {
+            spreadsheetId: 'config-123',
+            confirmedAt: new Date('2026-11-24T12:00:00Z'),
+            GasttoField: 'categoria',
+            columnIndex: 2,
+            columnHeader: 'Categoria',
+          },
+        ]),
       },
       messagingPort: {
         sendMessage,
@@ -94,6 +116,11 @@ describe('DetectCategories', () => {
       transitionState: {
         execute: transitionExecute,
         currentState: vi.fn().mockReturnValue(null),
+        precondition: (state: { revision: string; currentState: string }) => ({
+          revision: state.revision,
+          currentState: state.currentState,
+          expiry: 'any',
+        }),
       },
       categoryVocabularyRepository: {
         findBySpreadsheetId: vi.fn().mockResolvedValue(null),
@@ -141,11 +168,14 @@ describe('DetectCategories', () => {
 
   it('starts reading below the detected header row', async () => {
     const readCategories = vi.fn().mockResolvedValue(['comida', 'transporte']);
-    const { deps, sendMessage } = buildDeps({
-      categoryReaderPortFactory: {
-        create: vi.fn().mockReturnValue({ readCategories }),
+    const { deps, sendMessage } = buildDeps(
+      {
+        categoryReaderPortFactory: {
+          create: vi.fn().mockReturnValue({ readCategories }),
+        },
       },
-    });
+      2,
+    );
 
     const result = await new DetectCategories(deps).execute({
       userId: 'user-123',
@@ -357,16 +387,19 @@ describe('DetectCategories', () => {
       orphanSubcategories: [],
     });
     const readCategories = vi.fn();
-    const { deps, saveVocabulary } = buildDeps({
-      columnMappingRepository: buildColumnMappingRepository([
-        { GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Category' },
-        { GasttoField: 'subcategoria', columnIndex: 4, columnHeader: 'Subcategory' },
-      ]),
-      categoryReaderPortFactory: { create: vi.fn().mockReturnValue({ readCategories }) },
-      categoryHierarchyReaderPortFactory: {
-        create: vi.fn().mockReturnValue({ readHierarchy }),
+    const { deps, saveVocabulary } = buildDeps(
+      {
+        columnMappingRepository: buildColumnMappingRepository([
+          { GasttoField: 'categoria', columnIndex: 2, columnHeader: 'Category' },
+          { GasttoField: 'subcategoria', columnIndex: 4, columnHeader: 'Subcategory' },
+        ]),
+        categoryReaderPortFactory: { create: vi.fn().mockReturnValue({ readCategories }) },
+        categoryHierarchyReaderPortFactory: {
+          create: vi.fn().mockReturnValue({ readHierarchy }),
+        },
       },
-    });
+      2,
+    );
 
     const result = await new DetectCategories(deps).execute({
       userId: 'user-123',
@@ -525,6 +558,7 @@ describe('DetectCategories', () => {
       ]),
       transitionState: {
         execute: vi.fn().mockRejectedValue(new Error('database unavailable')),
+        currentState: vi.fn().mockReturnValue(null),
       } as unknown as DetectCategoriesDeps['transitionState'],
     });
 
