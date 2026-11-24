@@ -10,7 +10,7 @@ import { ExpenseCorrectionState } from '../../../domain/value-objects/expense-co
 import { tryNormalizeExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { ExpenseClarificationState } from '../../../domain/value-objects/expense-clarification-state';
 import type { CompleteExpenseClarification } from './CompleteExpenseClarification';
-import type { CorrectExpenseUseCase } from './CorrectExpenseUseCase';
+import type { CorrectExpenseUseCase, CorrectExpenseOutcome } from './CorrectExpenseUseCase';
 import type { QueuePendingExpense } from './QueuePendingExpense';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { RegisterExpenseUseCase } from './RegisterExpense';
@@ -39,6 +39,10 @@ export interface DispatchExpenseSemanticActionInput {
 
 export type DispatchExpenseSemanticActionOutcome =
   | { readonly status: 'review_required'; readonly payload: ExpenseReviewPayload }
+  | {
+      readonly status: 'category_choice';
+      readonly correction: Extract<CorrectExpenseOutcome, { status: 'unresolved_category' }>;
+    }
   | { readonly status: 'missing_data'; readonly field: 'monto' | 'moneda' }
   | { readonly status: 'authorization_required' }
   | { readonly status: 'expense_queued'; readonly pendingCount: 1 | 2 }
@@ -147,6 +151,9 @@ export class DispatchExpenseSemanticAction {
         });
         if (correction.status === 'corrected' || correction.status === 'high_amount_confirmation') {
           return { status: 'review_required', payload: correction.payload };
+        }
+        if (correction.status === 'unresolved_category') {
+          return { status: 'category_choice', correction };
         }
         if (correction.status === 'invalid_subcategory') {
           return { status: 'clarification_required', reason: 'invalid_subcategory' };

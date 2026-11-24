@@ -26,6 +26,7 @@ import { DrizzleColumnMappingRepository } from '../infrastructure/db/repositorie
 import { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
 import { DrizzlePaymentMethodCatalogRepository } from '../infrastructure/db/repositories/DrizzlePaymentMethodCatalogRepository';
 import { DrizzleExpensePaymentResolutionCommit } from '../infrastructure/db/repositories/DrizzleExpensePaymentResolutionCommit';
+import { DrizzleExpenseCategoryChoiceCommit } from '../infrastructure/db/repositories/DrizzleExpenseCategoryChoiceCommit';
 import { DrizzleSettingsVocabularyCommit } from '../infrastructure/db/repositories/DrizzleSettingsVocabularyCommit';
 import { DrizzleCategoryKeywordVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryKeywordVocabularyRepository';
 import { DrizzleUserCategoryRepository } from '../infrastructure/db/repositories/DrizzleUserCategoryRepository';
@@ -77,6 +78,7 @@ import { RedisUserProcessingLock } from '../infrastructure/redis/RedisUserProces
 // Application
 import { RegisterExpenseUseCase } from '../application/use-cases/expense/RegisterExpense';
 import { ResolveExpensePaymentMethod } from '../application/use-cases/expense/ResolveExpensePaymentMethod';
+import { ResolveExpenseCategoryChoice } from '../application/use-cases/expense/ResolveExpenseCategoryChoice';
 import { DispatchExpenseSemanticAction } from '../application/use-cases/expense/DispatchExpenseSemanticAction';
 import { DispatchControlSemanticAction } from '../application/use-cases/expense/DispatchControlSemanticAction';
 import { PresentUndoConfirmation } from '../application/use-cases/expense/PresentUndoConfirmation';
@@ -951,6 +953,11 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     catalogRepository: paymentCatalogRepo,
     commit: paymentResolutionCommit,
   });
+  const resolveExpenseCategoryChoice = new ResolveExpenseCategoryChoice({
+    transitionState,
+    // @ts-expect-error TODO: schema type mismatch until all tables are defined in drizzle schema
+    commit: new DrizzleExpenseCategoryChoiceCommit(infra.db),
+  });
   const resolveExpenseReviewReply = new ResolveExpenseReviewReplyUseCase({
     resolveExpenseSummaryAction,
     correctExpense,
@@ -975,6 +982,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
     categoryVocabularyRepo,
     settingsVocabularyFlow,
     resolveExpensePaymentMethod,
+    resolveExpenseCategoryChoice,
     userCategoryRepo,
     expenseRecordRepo,
     expenseQueueRepo,

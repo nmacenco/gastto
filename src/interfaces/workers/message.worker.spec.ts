@@ -3558,6 +3558,58 @@ describe('processMessageJob', () => {
       expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
     });
 
+    it('starts a guarded category choice without saving the reviewed expense', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      const observed = buildConversationState({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: payload,
+      });
+      mockGetConversationStateExecute.mockResolvedValue(observed);
+      vi.spyOn(deps.transitionState, 'currentState').mockReturnValue(observed);
+      const choice = {
+        _type: 'ExpenseCategoryChoice' as const,
+        choiceId: 'choice-1',
+        stage: 'choose' as const,
+        attemptedName: 'Mascotas',
+        suggestedName: null,
+        sourceConfigId: 'sheet-1',
+        baseline: {
+          categories: [{ id: 'cat-1', name: 'Comida', normalizedName: 'comida', isActive: true }],
+          subcategories: [],
+        },
+        original: payload,
+        proposed: payload,
+        correctionCycles: 0,
+      };
+      const start = vi.fn().mockResolvedValue({ status: 'choose', choice });
+      deps.resolveExpenseCategoryChoice = { start } as unknown as NonNullable<
+        MessageWorkerDeps['resolveExpenseCategoryChoice']
+      >;
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({
+        status: 'unresolved_category',
+        attemptedName: 'Mascotas',
+        suggestedName: null,
+        candidates: ['Comida'],
+        sourceConfigId: 'sheet-1',
+        payload,
+        correctionCycles: 0,
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'categoría: Mascotas' }),
+        deps,
+      );
+
+      expect(start).toHaveBeenCalledOnce();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.categoryChoice(choice),
+      );
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+    });
+
     it('re-presents one hierarchy-aware summary after zero-amount confirmation', async () => {
       const deps = buildMockDeps();
       const payload = buildReviewStatePayload({
@@ -3728,6 +3780,77 @@ describe('processMessageJob', () => {
   });
 
   describe('EXPENSE_CORRECTING state', () => {
+    it('keeps a new expense-like reply inside the pending category choice', async () => {
+      const deps = buildMockDeps();
+      const review = buildReviewStatePayload();
+      const choice = {
+        _type: 'ExpenseCategoryChoice',
+        choiceId: 'choice-1',
+        stage: 'choose',
+        attemptedName: 'Mascotas',
+        suggestedName: null,
+        sourceConfigId: 'sheet-1',
+        baseline: { categories: [], subcategories: [] },
+        original: review,
+        proposed: review,
+        correctionCycles: 0,
+      };
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: choice,
+        }),
+      );
+      const reply = vi.fn().mockResolvedValue({ status: 'invalid' });
+      deps.resolveExpenseCategoryChoice = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['resolveExpenseCategoryChoice']
+      >;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 12 EUR' }), deps);
+
+      expect(reply).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Taxi 12 EUR',
+        receivedAt: baseJobData.receivedAt,
+      });
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+    });
+
+    it('rejects an old review callback while a category choice is pending', async () => {
+      const deps = buildMockDeps();
+      const review = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCategoryChoice',
+            choiceId: 'choice-1',
+            stage: 'choose',
+            attemptedName: 'Mascotas',
+            suggestedName: null,
+            sourceConfigId: 'sheet-1',
+            baseline: { categories: [], subcategories: [] },
+            original: review,
+            proposed: review,
+            correctionCycles: 0,
+          },
+        }),
+      );
+      const reply = vi.fn();
+      deps.resolveExpenseCategoryChoice = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['resolveExpenseCategoryChoice']
+      >;
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: '', callbackData: { action: 'confirm' } }),
+        deps,
+      );
+
+      expect(reply).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.noActiveReview());
+    });
+
     it('cancels before correction handling', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(

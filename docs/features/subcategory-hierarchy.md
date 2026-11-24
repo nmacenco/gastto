@@ -95,6 +95,7 @@ Category confirmation advances to payment-method review without writing the live
 - New `EXPENSE_REVIEW` payloads explicitly retain nullable child IDs/names, child status, and the capability flag. Hierarchy-enabled Telegram reviews show the child or an explicit `❓ Sin subcategoría`; disabled and legacy reviews keep the five-field category-only output.
 - Category and subcategory corrections are resolved as one parent-aware selection. Combined changes are atomic, child-only changes remain scoped to the current active parent, and category-only changes clear a child whose stable ID no longer belongs to the resolved parent.
 - Invalid or inactive children produce typed parent-specific guidance and leave the complete persisted review, correction count, timeout, high-amount flag, queue count, and undo metadata unchanged.
+- An explicitly requested unknown parent category may be added during expense correction after a separate confirmation. The pending expense remains in review after the catalog commit, and a child that does not belong to the newly selected parent is cleared. Adding a child during correction is planned for the next phase.
 
 ### Conversational payload compatibility
 

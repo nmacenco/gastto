@@ -35,6 +35,15 @@ export type CorrectExpenseOutcome =
   | { status: 'not_interpretable' }
   | { status: 'new_expense' }
   | {
+      status: 'unresolved_category';
+      attemptedName: string;
+      suggestedName: string | null;
+      candidates: string[];
+      sourceConfigId: string;
+      payload: ExpenseReviewPayload;
+      correctionCycles: number;
+    }
+  | {
       status: 'invalid_subcategory';
       parentCategory: string;
       attemptedSubcategory: string;
@@ -70,9 +79,18 @@ interface CorrectionHierarchyContext {
   paymentCatalog: PaymentMethodCatalog | null;
 }
 
+function normalizeCategoryTarget(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es')
+    .trim();
+}
+
 type ApplySuggestionOutcome =
   | { status: 'applied'; payload: ExpenseReviewPayload }
   | Extract<CorrectExpenseOutcome, { status: 'not_interpretable' }>
+  | Extract<CorrectExpenseOutcome, { status: 'unresolved_category' }>
   | Extract<CorrectExpenseOutcome, { status: 'invalid_subcategory' }>;
 
 export class CorrectExpenseUseCase {
@@ -108,6 +126,17 @@ export class CorrectExpenseUseCase {
     }
 
     const applied = await this.applySuggestion(input, state.payload, suggestion, hierarchy);
+    if (applied.status === 'unresolved_category') {
+      if (state.correctionCycles + 1 > MAX_CORRECTION_CYCLES)
+        return { status: 'cycle_limit', payload: state.payload };
+      return {
+        ...applied,
+        payload: {
+          ...applied.payload,
+          pendingHighAmountConfirmation: await this.isHighAmount(userId, applied.payload),
+        },
+      };
+    }
     if (applied.status !== 'applied') return applied;
     const updatedPayload = applied.payload;
 
@@ -274,6 +303,31 @@ export class CorrectExpenseUseCase {
         );
       }
 
+      if (categoryWasCorrected && suggestion.categoriaRaw?.trim()) {
+        const attemptedName = suggestion.categoriaRaw.trim();
+        const exact = hierarchy.vocabulary
+          ?.getCategories()
+          .find(
+            (category) =>
+              normalizeCategoryTarget(category.name) === normalizeCategoryTarget(attemptedName),
+          );
+        const explicitlyNamed = normalizeCategoryTarget(input.rawMessage).includes(
+          normalizeCategoryTarget(attemptedName),
+        );
+        if (!exact && explicitlyNamed && hierarchy.spreadsheetId) {
+          const proposed = this.applyOtherFields(current, suggestion, paymentSelection);
+          return {
+            status: 'unresolved_category',
+            attemptedName,
+            suggestedName: selectedParentName,
+            candidates:
+              hierarchy.vocabulary?.getCategories().map((category) => category.name) ?? [],
+            sourceConfigId: hierarchy.spreadsheetId,
+            payload: proposed,
+            correctionCycles: input.state.correctionCycles,
+          };
+        }
+      }
       if (categoryWasCorrected && (selectedParentId === null || selectedParentName === null)) {
         return { status: 'not_interpretable' };
       }
@@ -371,6 +425,30 @@ export class CorrectExpenseUseCase {
       parentCategory,
       attemptedSubcategory,
       allowedSubcategories,
+    };
+  }
+
+  private applyOtherFields(
+    current: ExpenseReviewPayload,
+    suggestion: CorrectionSuggestionValues,
+    paymentSelection: ExpenseReviewPayload['paymentMethodSelection'],
+  ): ExpenseReviewPayload {
+    const extracted = { ...current.extracted };
+    if (suggestion.changedFields.includes('monto') && suggestion.monto !== null)
+      extracted.monto = suggestion.monto;
+    if (suggestion.changedFields.includes('moneda') && suggestion.moneda !== null)
+      extracted.moneda = suggestion.moneda;
+    if (suggestion.changedFields.includes('fecha') && suggestion.fechaRaw !== null)
+      extracted.fechaRaw = suggestion.fechaRaw;
+    if (suggestion.changedFields.includes('medio_pago'))
+      extracted.medioPago = suggestion.medioPago?.trim() || null;
+    return {
+      ...current,
+      extracted,
+      resolvedDate: suggestion.changedFields.includes('fecha')
+        ? this.resolveDate(extracted.fechaRaw)
+        : current.resolvedDate,
+      ...(paymentSelection === undefined ? {} : { paymentMethodSelection: paymentSelection }),
     };
   }
 

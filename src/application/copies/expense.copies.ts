@@ -294,6 +294,29 @@ export const expenseCopies = {
       exit: CANCEL_EXIT_HINT,
     });
   },
+  categoryChoice: (input: {
+    attemptedName: string;
+    suggestedName: string | null;
+    baseline: { categories: Array<{ name: string; isActive: boolean }> };
+  }) => {
+    const candidates = input.baseline.categories
+      .filter((item) => item.isActive)
+      .map((item) => item.name);
+    return composeMessage({
+      explanation: input.suggestedName
+        ? `No encontré "${input.attemptedName}" entre tus categorías. ¿Quisiste decir "${input.suggestedName}"?`
+        : `No encontré "${input.attemptedName}" entre tus categorías.`,
+      action: `${candidates.length ? `Categorías disponibles: ${candidates.join(', ')}.\n\n` : ''}Escribí "elegir Nombre" para usar una existente${input.suggestedName ? ', o "sí" para usar la sugerida' : ''}. Escribí "agregar" para crear "${input.attemptedName}". Escribí "volver" para regresar al gasto sin este cambio.`,
+      exit: CANCEL_EXIT_HINT,
+    });
+  },
+  categoryAddConfirmation: (name: string) =>
+    composeMessage({
+      explanation: `¿Querés agregar "${name}" a tus categorías? Quedará disponible para futuros gastos aunque canceles este.`,
+      action:
+        'Escribí "confirmar agregar" para crearla, "no" para elegir otra opción o "volver" para regresar al gasto.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   correctionHighAmountConfirmation: () =>
     composeMessage({
       explanation: 'El monto corregido es inusualmente alto.',

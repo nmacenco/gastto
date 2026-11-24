@@ -46,6 +46,7 @@ import type { PresentUndoConfirmation } from '../application/use-cases/expense/P
 import type { DispatchOptionSelection } from '../application/use-cases/spreadsheet/DispatchOptionSelection';
 import type { CompleteExpenseClarification } from '../application/use-cases/expense/CompleteExpenseClarification';
 import type { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
+import type { ResolveExpenseCategoryChoice } from '../application/use-cases/expense/ResolveExpenseCategoryChoice';
 import type { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { CancelExpenseRegistrationUseCase } from '../application/use-cases/expense/CancelExpenseRegistrationUseCase';
@@ -189,6 +190,7 @@ export interface Dependencies {
   categoryVocabularyRepo: DrizzleCategoryVocabularyRepository;
   settingsVocabularyFlow?: SettingsVocabularyFlow;
   resolveExpensePaymentMethod?: ResolveExpensePaymentMethod;
+  resolveExpenseCategoryChoice?: ResolveExpenseCategoryChoice;
   userCategoryRepo: DrizzleUserCategoryRepository;
   expenseRecordRepo: DrizzleExpenseRecordRepository;
   expenseQueueRepo: DrizzleExpenseQueueRepository;

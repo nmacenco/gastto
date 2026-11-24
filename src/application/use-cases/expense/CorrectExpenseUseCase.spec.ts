@@ -212,6 +212,91 @@ function buildDeps(
 }
 
 describe('CorrectExpenseUseCase', () => {
+  it('offers a named missing category without mutating the review, preserving other corrections', async () => {
+    const { useCase, transitionMock } = buildDeps({
+      interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+        intent: 'correction',
+        changedFields: ['monto', 'categoria'],
+        monto: 25,
+        moneda: null,
+        categoriaRaw: 'Mascotas',
+        subcategoriaRaw: null,
+        fechaRaw: null,
+      }),
+    });
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: '25 EUR, categoría: Mascotas',
+      state: buildCorrectionState(),
+      channel: 'telegram',
+      intentMode: 'infer',
+    });
+    expect(result).toMatchObject({
+      status: 'unresolved_category',
+      attemptedName: 'Mascotas',
+      sourceConfigId: 'sheet-1',
+      payload: { extracted: { monto: 25 } },
+    });
+    expect(transitionMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a suggested existing category separately from the requested new name', async () => {
+    const { useCase } = buildDeps({
+      interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+        intent: 'correction',
+        changedFields: ['categoria'],
+        monto: null,
+        moneda: null,
+        categoriaRaw: 'Mascotas',
+        subcategoriaRaw: null,
+        fechaRaw: null,
+      }),
+      classifier: vi
+        .fn<ICategoryClassifier['execute']>()
+        .mockResolvedValue(
+          HierarchicalClassificationResult.create(
+            ClassificationSelection.fallback('cat-1', 'Comida'),
+          ),
+        ),
+    });
+    expect(
+      await useCase.execute({
+        userId: 'user-123',
+        rawMessage: 'categoría: Mascotas',
+        state: buildCorrectionState(),
+        channel: 'telegram',
+        intentMode: 'infer',
+      }),
+    ).toMatchObject({
+      status: 'unresolved_category',
+      attemptedName: 'Mascotas',
+      suggestedName: 'Comida',
+    });
+  });
+
+  it('does not offer creation from a category name supplied only by the model', async () => {
+    const { useCase } = buildDeps({
+      interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+        intent: 'correction',
+        changedFields: ['categoria'],
+        monto: null,
+        moneda: null,
+        categoriaRaw: 'Mascotas',
+        subcategoriaRaw: null,
+        fechaRaw: null,
+      }),
+    });
+    expect(
+      await useCase.execute({
+        userId: 'user-123',
+        rawMessage: 'cambiá la categoría',
+        state: buildCorrectionState(),
+        channel: 'telegram',
+        intentMode: 'infer',
+      }),
+    ).toEqual({ status: 'not_interpretable' });
+  });
+
   it('applies an amount and unknown payment correction in one unsavable review', async () => {
     const catalog = new PaymentMethodCatalog('sheet-1', [
       { id: 'visa-id', name: 'Visa', normalizedName: 'visa', isActive: true },

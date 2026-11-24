@@ -117,6 +117,8 @@ import type {
   ResolveExpensePaymentMethod,
   ResolveExpensePaymentAction,
 } from '../../application/use-cases/expense/ResolveExpensePaymentMethod';
+import type { ResolveExpenseCategoryChoice } from '../../application/use-cases/expense/ResolveExpenseCategoryChoice';
+import { parseExpenseCategoryChoice } from '../../application/use-cases/expense/ExpenseCategoryChoiceState';
 import { parseSettingsVocabularyPayload } from '../../application/use-cases/spreadsheet/SettingsVocabularyFlow';
 import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadsheet/SettingsOAuthFlow';
 import { randomUUID } from 'node:crypto';
@@ -175,6 +177,7 @@ export interface MessageWorkerDeps {
   completeExpenseClarification: CompleteExpenseClarification;
   sendGuidance: SendExpenseGuidance;
   correctExpense: CorrectExpenseUseCase | null;
+  resolveExpenseCategoryChoice?: ResolveExpenseCategoryChoice | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
@@ -549,7 +552,9 @@ export async function processMessageJob(
             !isUndoIntent(data.rawMessage)) ||
           (currentState === 'EXPENSE_REVIEW' &&
             data.callbackData === undefined &&
-            parseExpensePaymentCommand(data.rawMessage) !== null)
+            parseExpensePaymentCommand(data.rawMessage) !== null) ||
+          (currentState === 'EXPENSE_CORRECTING' &&
+            parseExpenseCategoryChoice(conversationState?.statePayload) !== null)
         ) {
           await routeByState(currentState, data, conversationState, opts, messaging);
           return;
@@ -631,6 +636,14 @@ export async function processMessageJob(
             } else {
               await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
             }
+          } else if (outcome.status === 'category_choice') {
+            await renderExpenseReviewReplyOutcome(
+              outcome.correction,
+              userId,
+              messaging,
+              externalId,
+              opts,
+            );
           } else if (outcome.status === 'queue_full') {
             await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
           } else if (outcome.status === 'clarification_required') {
@@ -1379,6 +1392,7 @@ async function routeByState(
 
   if (
     jobData.callbackData === undefined &&
+    parseExpenseCategoryChoice(conversationState?.statePayload) === null &&
     shouldQueueAdditionalExpense(
       currentState,
       conversationState?.statePayload ?? null,
@@ -2592,6 +2606,41 @@ async function handleExpenseCorrection(
 ): Promise<void> {
   const { userId, rawMessage, channel, externalId } = jobData;
 
+  if (parseExpenseCategoryChoice(statePayload) !== null) {
+    if (jobData.callbackData !== undefined || !opts.resolveExpenseCategoryChoice) {
+      await messaging.sendMessage(externalId, expenseCopies.staleReview());
+      return;
+    }
+    const result = await opts.resolveExpenseCategoryChoice.reply({
+      userId,
+      rawMessage,
+      receivedAt: jobData.receivedAt,
+    });
+    if (result.status === 'review')
+      await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
+    else if (result.status === 'choose')
+      await messaging.sendMessage(externalId, expenseCopies.categoryChoice(result.choice));
+    else if (result.status === 'confirm')
+      await messaging.sendMessage(
+        externalId,
+        expenseCopies.categoryAddConfirmation(result.choice.attemptedName),
+      );
+    else if (result.status === 'invalid') {
+      const choice = parseExpenseCategoryChoice(
+        opts.transitionState.currentState(userId)?.statePayload,
+      );
+      await messaging.sendMessage(
+        externalId,
+        choice?.stage === 'confirm'
+          ? expenseCopies.categoryAddConfirmation(choice.attemptedName)
+          : choice
+            ? expenseCopies.categoryChoice(choice)
+            : expenseCopies.staleReview(),
+      );
+    } else await messaging.sendMessage(externalId, expenseCopies.staleReview());
+    return;
+  }
+
   if (!opts.correctExpense) {
     await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
     return;
@@ -2709,6 +2758,28 @@ async function renderExpenseReviewReplyOutcome(
     case 'invalid_subcategory':
       await messaging.sendMessage(externalId, expenseCopies.invalidSubcategory(outcome));
       return;
+    case 'unresolved_category': {
+      const current = opts.transitionState.currentState(userId);
+      const original =
+        current?.currentState === 'EXPENSE_REVIEW'
+          ? tryNormalizeExpenseReviewPayload(current.statePayload)
+          : current?.currentState === 'EXPENSE_CORRECTING'
+            ? ExpenseCorrectionState.fromPayload(current.statePayload).payload
+            : null;
+      if (!original || !opts.resolveExpenseCategoryChoice) {
+        await messaging.sendMessage(externalId, expenseCopies.staleReview());
+        return;
+      }
+      const result = await opts.resolveExpenseCategoryChoice.start({
+        userId,
+        original,
+        correction: outcome,
+      });
+      if (result.status === 'choose')
+        await messaging.sendMessage(externalId, expenseCopies.categoryChoice(result.choice));
+      else await messaging.sendMessage(externalId, expenseCopies.staleReview());
+      return;
+    }
     case 'high_amount_confirmation':
     case 'corrected':
       await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);

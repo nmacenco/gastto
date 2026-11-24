@@ -214,6 +214,7 @@ export async function registerWorkers(
     completeExpenseClarification: deps.completeExpenseClarification,
     sendGuidance: deps.telegram.sendExpenseGuidance,
     correctExpense: deps.correctExpense,
+    resolveExpenseCategoryChoice: deps.resolveExpenseCategoryChoice ?? null,
     generateExpenseSummary: deps.generateExpenseSummary,
     resolveExpenseSummaryAction: deps.resolveExpenseSummaryAction,
     cancelExpenseRegistration: deps.cancelExpenseRegistration,
