@@ -141,3 +141,7 @@ See `docs/architecture/data-model.md` for the full schema, foreign keys, and rel
 ## Recovery guidance (2026-11-15)
 
 Recovery presentation uses the effective persisted state and existing financial-claim guard. Expired/unknown states do not advertise cancellation; `IDLE` receives no cancellation suffix. This presentation contract adds no state or transition and does not clear claims.
+
+## Onboarding prerequisite recovery (2026-11-24)
+
+`ONBOARDING_CATEGORIES` can transition to `ONBOARDING_MAPPING` when the category column is missing or captured destination/mapping context is inconsistent. Recovery persists only the active destination and header context, then asks for `revisar` or cancellation. The next mapping message generates a new proposal; the previous category/payment draft cannot be accepted. Missing configuration retains the existing `ONBOARDING_START` reconnection transition. Recovery writes use the observed revision and expiry preconditions, so stale or expired execution cannot overwrite a newer draft or announce recovery after a failed transition.

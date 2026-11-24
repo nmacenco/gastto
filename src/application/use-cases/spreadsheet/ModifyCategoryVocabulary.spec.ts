@@ -1,3 +1,4 @@
+import { RegexCategoryModificationParser } from '../../../infrastructure/adapters/RegexCategoryModificationParser';
 // LAYER: Application / Tests
 // Unit tests for ModifyCategoryVocabulary use case.
 // Mocks all ports: parser, repositories, messaging, transition.
@@ -556,5 +557,42 @@ describe('ModifyCategoryVocabulary', () => {
     expect(mockSaveVocabulary).not.toHaveBeenCalled();
     expect(result.message).toContain('duplicado');
     expect(result.state.categories[0]?.subcategories).toEqual(['Delivery', 'Groceries']);
+  });
+  it('preserves confirmed mapping context through a category edit', async () => {
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(null);
+    const context = {
+      spreadsheetId: 'config-1',
+      proposalId: 'reviewed',
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Gastos',
+      headerRowIndex: 3,
+      confirmedMappings: [
+        {
+          gasttoField: 'medio_pago',
+          columnIndex: 0,
+          columnHeader: 'Pago',
+          confirmedAt: '2026-11-24T12:00:00.000Z',
+        },
+      ],
+    };
+    const useCase = new ModifyCategoryVocabulary(
+      buildMockDeps({ categoryModificationParser: new RegexCategoryModificationParser() }),
+    );
+    await useCase.execute({
+      ...baseInput,
+      rawMessage: 'agregar Salud',
+      statePayload: { ...baseInput.statePayload, ...context },
+    });
+    expect(mockTransitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining(context) as Record<string, unknown>,
+      }),
+    );
+    expect(mockSendMessage).toHaveBeenLastCalledWith(
+      baseInput.externalId,
+      expect.stringContaining('Salud'),
+    );
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
   });
 });

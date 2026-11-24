@@ -38,3 +38,7 @@ Setup payment reviews and settings drafts show editing options/examples on indiv
 ## Expense message formatting (2026-11-16)
 
 Expense unresolved-payment guidance presents `medio de pago: Nombre`, `agregar medio de pago`, and `sin medio de pago` on separate bullet lines, followed by the optional cancellation footer. The review remains unsavable until payment resolution; callback button eligibility is unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Onboarding mapping integrity (2026-11-24)
+
+Category confirmation validates captured destination/header/mapping context before detecting payments and again before final catalog activation. A payment column confirmed at A (index 0) is read from A below the confirmed header. Unexpected loss or replacement of a captured mapping returns to column review and clears the category/payment draft; it must not produce an empty local-only proposal or activation success. Local-only payment editing remains available when the confirmed snapshot deliberately omits `medio_pago`. Payment edits preserve the captured context and validate it before changing the draft. Legacy drafts without a captured mapping snapshot retain compatibility pending the category presentation/recovery phase.

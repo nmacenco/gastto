@@ -38,6 +38,7 @@ function buildMockDeps(overrides: Partial<ConfirmCategoriesDeps> = {}): ConfirmC
     messagingPort: { sendMessage: mockSendMessage },
     transitionState: {
       execute: mockTransitionExecute,
+      currentState: vi.fn().mockReturnValue(null),
     } as unknown as TransitionConversationState,
     ...overrides,
   };
@@ -65,6 +66,7 @@ const hierarchyInput: ConfirmCategoriesInput = {
 
 const mockConfig = {
   id: 'config-1',
+  isActive: true,
   userId: 'user-123',
   provider: 'google' as const,
   fileId: 'file-123',
@@ -462,4 +464,50 @@ describe('ConfirmCategories', () => {
     expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.reconnectAccount());
     expect(result.nextState).toBe('ONBOARDING_START');
   });
+  it.each([false, true])(
+    'blocks lost confirmed payment mapping before review or activation (paymentReview=%s)',
+    async (paymentReview) => {
+      const detect = vi.fn();
+      const commit = vi.fn();
+      const useCase = new ConfirmCategories(
+        buildMockDeps({
+          columnMappingRepository: {
+            findBySpreadsheetId: vi.fn().mockResolvedValue([]),
+          } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
+          detectPaymentMethods: { execute: detect } as unknown as NonNullable<
+            ConfirmCategoriesDeps['detectPaymentMethods']
+          >,
+          onboardingCommit: { execute: commit },
+        }),
+      );
+      const result = await useCase.execute({
+        ...legacyInput,
+        statePayload: {
+          ...legacyInput.statePayload,
+          spreadsheetId: 'config-1',
+          proposalId: 'confirmed-proposal',
+          headerRowIndex: 1,
+          confirmedMappings: [
+            {
+              gasttoField: 'medio_pago',
+              columnIndex: 0,
+              columnHeader: 'Pago',
+              confirmedAt: new Date().toISOString(),
+            },
+          ],
+          paymentReview,
+          paymentMethods: [],
+        },
+      });
+      expect(result.nextState).toBe('ONBOARDING_MAPPING');
+      expect(detect).not.toHaveBeenCalled();
+      expect(commit).not.toHaveBeenCalled();
+      expect(mockSaveVocabulary).not.toHaveBeenCalled();
+      expect(mockUpdateStatus).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        expect.anything(),
+        onboardingCopies.onboardingComplete(),
+      );
+    },
+  );
 });

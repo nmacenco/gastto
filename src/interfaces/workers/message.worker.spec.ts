@@ -70,7 +70,7 @@ const mockValidateSpreadsheetAccessExecute = vi.fn();
 const mockInferColumnMappingExecute = vi.fn();
 const mockConfirmColumnMappingExecute = vi.fn();
 const mockCorrectColumnMappingExecute = vi.fn();
-const mockDetectCategoriesExecute = vi.fn();
+const mockDetectCategoriesExecute = vi.fn<DetectCategories['execute']>();
 const mockConfirmCategoriesExecute = vi.fn();
 const mockModifyCategoryVocabularyExecute = vi.fn();
 const mockLoadCorrectionState = vi.fn();
@@ -4793,6 +4793,8 @@ describe('processMessageJob', () => {
           spreadsheetConfigRepository: {
             findByUserId: vi.fn().mockResolvedValue({
               id: 'config-1',
+              userId: 'user-123',
+              isActive: true,
               provider: 'google',
               fileId: 'file-123',
               sheetName: 'Gastos',
@@ -5358,6 +5360,59 @@ describe('processMessageJob', () => {
         expect(mockSendMessage).not.toHaveBeenCalled();
       });
 
+      it.each([true, false])(
+        'stops after prerequisite recovery instead of confirming hidden defaults (missingConfig=%s)',
+        async (missingConfig) => {
+          const deps = buildMockDeps();
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({ currentState: 'ONBOARDING_CATEGORIES', statePayload: null }),
+          );
+          deps.detectCategories = new DetectCategories({
+            spreadsheetConfigRepository: {
+              findByUserId: vi.fn().mockResolvedValue(
+                missingConfig
+                  ? null
+                  : {
+                      id: 'config-1',
+                      userId: 'user-123',
+                      isActive: true,
+                      provider: 'google',
+                      fileId: 'file',
+                      sheetName: 'Gastos',
+                    },
+              ),
+            } as unknown as DetectCategoriesDeps['spreadsheetConfigRepository'],
+            columnMappingRepository: {
+              findBySpreadsheetId: vi.fn().mockResolvedValue([]),
+            } as unknown as DetectCategoriesDeps['columnMappingRepository'],
+            categoryReaderPortFactory: { create: vi.fn() },
+            categoryHierarchyReaderPortFactory: { create: vi.fn() },
+            oauthAccessTokenService: {
+              getValidAccessToken: vi.fn(),
+              forceRefreshAccessToken: vi.fn(),
+            },
+            categoryVocabularyRepository: { findBySpreadsheetId: vi.fn(), save: vi.fn() },
+            messagingPort: { sendMessage: mockSendMessage },
+            transitionState: deps.transitionState,
+          });
+          await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'ok' }), deps);
+          expect(mockConfirmCategoriesExecute).not.toHaveBeenCalled();
+          expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+            expect.objectContaining({
+              targetState: missingConfig ? 'ONBOARDING_START' : 'ONBOARDING_MAPPING',
+            }),
+          );
+          expect(mockSendMessage).not.toHaveBeenCalledWith(
+            expect.anything(),
+            onboardingCopies.onboardingPlaceholder(),
+          );
+          expect(mockSendMessage).not.toHaveBeenCalledWith(
+            expect.anything(),
+            onboardingCopies.onboardingComplete(),
+          );
+        },
+      );
+
       it('falls back to placeholder on first entry when DetectCategories is not wired', async () => {
         const deps = buildMockDeps();
         deps.detectCategories = null;
@@ -5423,7 +5478,11 @@ describe('processMessageJob', () => {
           return Promise.resolve({ status: 'updated', state: observed });
         });
         vi.spyOn(deps.transitionState, 'currentState').mockImplementation(() => observed);
-        mockSpreadsheetConfigFindByUserId.mockResolvedValue({ id: 'config-1' });
+        mockSpreadsheetConfigFindByUserId.mockResolvedValue({
+          id: 'config-1',
+          userId: 'user-123',
+          isActive: true,
+        });
         const commit = vi.fn().mockImplementation(() => {
           observed = buildConversationState({
             currentState: 'IDLE',
@@ -5483,6 +5542,8 @@ describe('processMessageJob', () => {
         const deps = buildMockDeps();
         const findSpreadsheetConfig = vi.fn().mockResolvedValue({
           id: 'config-1',
+          userId: 'user-123',
+          isActive: true,
           categoriesConfirmedAt: new Date('2026-08-30T10:00:00Z'),
         });
         const updateCategoriesConfirmed = vi.fn();

@@ -122,7 +122,7 @@ No HTTP route is added. The feature uses the existing `ONBOARDING_CATEGORIES` FS
 
 ### Application contracts
 
-- `DetectCategories.execute(input): Promise<{ categories, state, message }>` detects and persists a flat or linked proposal.
+- `DetectCategories.execute(input): Promise<DetectCategoriesOutput>` returns either a flat/linked proposal (`kind: proposal`) or prerequisite recovery (`kind: recovery`) without a confirmable state.
 - `ModifyCategoryVocabulary.execute(input): Promise<{ categories, state, message }>` applies one category or parent-aware child operation.
 - `ConfirmCategories.execute(input): Promise<{ nextState, message }>` atomically saves the reviewed hierarchy before onboarding finalization.
 - `parseCategoryOnboardingState(payload)` validates canonical state and upgrades valid legacy state.
@@ -188,3 +188,7 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - No new FSM state, database migration, or HTTP endpoint is required.
 - Category/subcategory vocabulary writes use soft-disable rather than destructive deletion.
 - Migrations `0007_material_eternals.sql` and `0008_add_subcategory_mapping_field.sql` are additive and preserve existing rows as null hierarchy history without inferred backfill.
+
+## Mapping recovery (2026-11-24)
+
+Category and subcategory columns must still match the captured mapping confirmation when context metadata is present. A linked C/D mapping reads indexes 2 and 3 from the same rows below the confirmed header. Missing category setup no longer creates hidden flat defaults. It returns a typed recovery result and routes to reconnection or fresh mapping review, without committing a hierarchy. See [category confirmation](./category-confirmation.md#confirmed-mapping-context-and-recovery-2026-11-24) for the persisted context and legacy limitation.

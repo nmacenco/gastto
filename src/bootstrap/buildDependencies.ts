@@ -525,6 +525,7 @@ function buildGoogleOAuthFeature(
   });
 
   const detectCategories = new DetectCategories({
+    logger: infra.rootLogger,
     categoryReaderPortFactory: categoryReaderFactory,
     categoryHierarchyReaderPortFactory: categoryHierarchyReaderFactory,
     oauthAccessTokenService: core.oauthAccessTokenService,
@@ -536,6 +537,7 @@ function buildGoogleOAuthFeature(
   });
 
   const confirmCategories = new ConfirmCategories({
+    logger: infra.rootLogger,
     spreadsheetConfigRepository: core.spreadsheetConfigRepo,
     categoryVocabularyRepository: core.categoryVocabularyRepo,
     userRepository: core.userRepo,

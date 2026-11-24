@@ -68,6 +68,8 @@ describe('DetectCategories', () => {
       spreadsheetConfigRepository: {
         findByUserId: vi.fn().mockResolvedValue({
           id: 'config-123',
+          userId: 'user-123',
+          isActive: true,
           provider: 'google',
           fileId: 'file-123',
           sheetName: 'Gastos',
@@ -91,6 +93,7 @@ describe('DetectCategories', () => {
       },
       transitionState: {
         execute: transitionExecute,
+        currentState: vi.fn().mockReturnValue(null),
       },
       categoryVocabularyRepository: {
         findBySpreadsheetId: vi.fn().mockResolvedValue(null),
@@ -131,6 +134,7 @@ describe('DetectCategories', () => {
       { name: 'transporte', subcategories: [] },
     ]);
     expect(payload?.subcategoryColumnMapped).toBe(false);
+    if (result.kind !== 'proposal') throw new Error('Expected proposal');
     expect(result.categories).toEqual(['comida', 'transporte']);
     expect(result.message).toContain('comida');
   });
@@ -151,6 +155,7 @@ describe('DetectCategories', () => {
     });
 
     expect(readCategories).toHaveBeenCalledWith('file-123', 2, 'Gastos', 3);
+    if (result.kind !== 'proposal') throw new Error('Expected proposal');
     expect(result.categories).toEqual(['comida', 'transporte']);
     expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('comida'));
     expect(sendMessage).not.toHaveBeenCalledWith('123456789', expect.stringContaining('categoria'));
@@ -190,6 +195,7 @@ describe('DetectCategories', () => {
         subcategories: [],
       })),
     );
+    if (result.kind !== 'proposal') throw new Error('Expected proposal');
     expect(result.categories).toEqual([
       'alimentacion',
       'transporte',
@@ -200,37 +206,54 @@ describe('DetectCategories', () => {
     ]);
   });
 
-  it('falls back to defaults and does not persist when there is no spreadsheet config', async () => {
-    const { deps, sendMessage, saveVocabulary } = buildDeps({
-      spreadsheetConfigRepository: {
-        findByUserId: vi.fn().mockResolvedValue(null),
-        findById: vi.fn(),
-        create: vi.fn(),
-        createOrResumeInitial: vi.fn(),
-        updateAccessVerified: vi.fn(),
-        updateHeaderRowIndex: vi.fn(),
-        updateCategoriesConfirmed: vi.fn(),
-      },
-    });
-    const useCase = new DetectCategories(deps);
-
-    const result = await useCase.execute({
+  it('requires reconnect without creating a confirmable default proposal when config is missing', async () => {
+    const { deps, sendMessage, transitionExecute, saveVocabulary } = buildDeps();
+    vi.spyOn(deps.spreadsheetConfigRepository, 'findByUserId').mockResolvedValue(null);
+    const result = await new DetectCategories(deps).execute({
       userId: 'user-123',
       externalId: '123456789',
       channel: 'telegram',
       statePayload: null,
     });
-
+    expect(result).toEqual({
+      kind: 'recovery',
+      nextState: 'ONBOARDING_START',
+      message: onboardingCopies.reconnectAccount(),
+    });
+    expect(result).not.toHaveProperty('state');
+    expect(transitionExecute).toHaveBeenCalledWith({
+      userId: 'user-123',
+      targetState: 'ONBOARDING_START',
+      payload: { promptShown: true },
+    });
+    expect(sendMessage).toHaveBeenCalledWith('123456789', onboardingCopies.reconnectAccount());
     expect(saveVocabulary).not.toHaveBeenCalled();
-    expect(sendMessage).toHaveBeenCalledWith('123456789', expect.stringContaining('configurando'));
-    expect(result.categories).toEqual([
-      'alimentacion',
-      'transporte',
-      'servicios',
-      'ocio',
-      'salud',
-      'otros',
-    ]);
+  });
+
+  it('requires mapping review without hidden defaults when the category column is missing', async () => {
+    const { deps, transitionExecute, saveVocabulary } = buildDeps({
+      columnMappingRepository: buildColumnMappingRepository([]),
+    });
+    const result = await new DetectCategories(deps).execute({
+      userId: 'user-123',
+      externalId: '123456789',
+      channel: 'telegram',
+      statePayload: null,
+    });
+    expect(result).toMatchObject({ kind: 'recovery', nextState: 'ONBOARDING_MAPPING' });
+    expect(result).not.toHaveProperty('state');
+    expect(result.message).toContain('revisar');
+    expect(result.message).toContain('cancelar');
+    const recoveryWrite = transitionExecute.mock.calls[0]?.[0] as {
+      payload: Record<string, unknown>;
+    };
+    expect(recoveryWrite.payload).not.toHaveProperty('categories');
+    expect(transitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetState: 'ONBOARDING_MAPPING',
+      }),
+    );
+    expect(saveVocabulary).not.toHaveBeenCalled();
   });
 
   it('reads onboarding categories with a proactively refreshed expired token', async () => {
@@ -259,6 +282,7 @@ describe('DetectCategories', () => {
 
     expect(createCategoryReader).toHaveBeenCalledWith('refreshed-access-token');
     expect(readCategories).toHaveBeenCalledTimes(1);
+    if (result.kind !== 'proposal') throw new Error('Expected proposal');
     expect(result.categories).toEqual(['comida']);
     expect(transitionExecute).not.toHaveBeenCalledWith(
       expect.objectContaining({ targetState: 'ONBOARDING_START' }),
@@ -283,8 +307,8 @@ describe('DetectCategories', () => {
     });
 
     expect(result).toEqual({
-      categories: [],
-      state: { categories: [], orphanSubcategories: [], subcategoryColumnMapped: false },
+      kind: 'recovery',
+      nextState: 'ONBOARDING_START',
       message: onboardingCopies.reconnectAccount(),
     });
     expect(sendMessage).toHaveBeenCalledWith('123456789', onboardingCopies.reconnectAccount());
@@ -354,6 +378,7 @@ describe('DetectCategories', () => {
     expect(readHierarchy).toHaveBeenCalledOnce();
     expect(readHierarchy).toHaveBeenCalledWith('file-123', 2, 4, 'Gastos', 3);
     expect(readCategories).not.toHaveBeenCalled();
+    if (result.kind !== 'proposal') throw new Error('Expected proposal');
     expect(result.state).toEqual({
       categories: [
         { name: 'food', subcategories: ['restaurant', 'groceries'] },
@@ -390,6 +415,7 @@ describe('DetectCategories', () => {
       statePayload: null,
     });
 
+    if (result.kind !== 'proposal') throw new Error('Expected proposal');
     expect(result.state.categories).toEqual([
       { name: 'food', subcategories: ['groceries'] },
       { name: 'health', subcategories: [] },
@@ -426,6 +452,7 @@ describe('DetectCategories', () => {
       statePayload: null,
     });
 
+    if (result.kind !== 'proposal') throw new Error('Expected proposal');
     expect(result.categories).toEqual([
       'alimentacion',
       'transporte',
@@ -484,6 +511,7 @@ describe('DetectCategories', () => {
     });
 
     expect(saveVocabulary).not.toHaveBeenCalled();
+    if (result.kind !== 'proposal') throw new Error('Expected proposal');
     expect(result.state.categories).toEqual([
       { name: 'food', subcategories: ['manual', 'restaurant'] },
     ]);
@@ -549,9 +577,36 @@ describe('DetectCategories', () => {
     const first = await useCase.execute(input);
     const second = await useCase.execute(input);
 
+    if (first.kind !== 'proposal' || second.kind !== 'proposal')
+      throw new Error('Expected proposals');
     expect(first.state).toEqual(second.state);
     expect(persisted.getCategories()).toHaveLength(1);
     expect(persisted.getSubcategories()).toHaveLength(1);
     expect(saveVocabulary).not.toHaveBeenCalled();
   });
+  it.each([
+    { spreadsheetId: 'wrong-config' },
+    { provider: 'microsoft' },
+    { fileId: 'wrong-file' },
+    { sheetName: 'wrong-sheet' },
+    { confirmedMappings: [], proposalId: 'proposal', headerRowIndex: 1 },
+  ])(
+    'recovers inconsistent destination or mapping context %j without reading data',
+    async (statePayload) => {
+      const { deps, saveVocabulary, transitionExecute } = buildDeps();
+      const result = await new DetectCategories(deps).execute({
+        userId: 'user-123',
+        externalId: 'chat',
+        channel: 'telegram',
+        statePayload,
+      });
+      expect(result).toMatchObject({ kind: 'recovery', nextState: 'ONBOARDING_MAPPING' });
+      expect(vi.spyOn(deps.categoryReaderPortFactory, 'create')).not.toHaveBeenCalled();
+      expect(vi.spyOn(deps.categoryHierarchyReaderPortFactory, 'create')).not.toHaveBeenCalled();
+      expect(saveVocabulary).not.toHaveBeenCalled();
+      expect(transitionExecute).not.toHaveBeenCalledWith(
+        expect.objectContaining({ targetState: 'IDLE' }),
+      );
+    },
+  );
 });

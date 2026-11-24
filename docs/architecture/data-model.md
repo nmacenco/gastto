@@ -97,6 +97,10 @@ An unknown-category or unknown-subcategory correction may keep the conversation 
 
 `SETTINGS_FILE` holds a revision-bound list of displayed file IDs and names, the source configuration ID, and the flow ID. Selection starts a new candidate for the chosen file; no active configuration is changed until guarded activation after sheet, mapping, and category review. Custom generated migration `0014_add_settings_file_state` extends the CHECK. Apply migrations `0012`, `0013`, and `0014` in order before starting Phase 4 workers; all three still require application in a credentialed environment.
 
+### Confirmed onboarding mapping snapshot (2026-11-24)
+
+New `ONBOARDING_CATEGORIES` JSONB payloads retain `spreadsheetId`, `proposalId`, provider, file, sheet, effective one-based `headerRowIndex`, and `confirmedMappings`. The snapshot array contains `{ gasttoField, columnIndex, columnHeader, confirmedAt }`, where columns are zero-based and `confirmedAt` is the ISO timestamp used to write the confirmed repository rows. It captures all mappings, so absent optional fields can be distinguished from subsequently lost rows. Category editing and payment review serialize this metadata unchanged. Reads validate configuration ownership/active destination and compare the full snapshot against current mappings before detection or advancement. No table change or migration is required. Older payloads without the snapshot remain compatible; presentation evidence and migration of interrupted legacy drafts are pending Phase 2 of the onboarding category review plan.
+
 ### expense_queue
 
 FIFO queue of pending expense messages while a user is in a blocking conversational state.

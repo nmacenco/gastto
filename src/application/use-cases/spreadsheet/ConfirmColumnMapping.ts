@@ -1,3 +1,4 @@
+import { assertCurrentOnboardingProposal } from '../../services/ConfirmedOnboardingContext';
 // LAYER: Application
 // Use case: finalize the column mapping when the user confirms the proposal.
 // Loads the proposed mappings, marks them as confirmed, transitions to
@@ -41,6 +42,7 @@ export class ConfirmColumnMapping {
   async execute(input: ConfirmColumnMappingInput): Promise<ConfirmColumnMappingOutput> {
     const { userId, externalId } = input;
 
+    assertCurrentOnboardingProposal(this.deps.transitionState, userId, input.statePayload);
     const config = await this.deps.spreadsheetConfigRepository.findByUserId(userId);
     if (!config) {
       return this.handleReconnect(externalId, userId);
@@ -77,10 +79,19 @@ export class ConfirmColumnMapping {
     await this.deps.correctionStateRepository.clear(userId);
 
     const payload: Record<string, unknown> = {
+      spreadsheetId: config.id,
+      proposalId: proposal.proposalId,
+      confirmedMappings: proposal.mappings.map((mapping) => ({
+        gasttoField: mapping.GasttoField,
+        columnIndex: mapping.columnIndex,
+        columnHeader: mapping.columnHeader,
+        confirmedAt: confirmedAt.toISOString(),
+      })),
       provider: config.provider,
       fileId: config.fileId,
       sheetName: config.sheetName,
     };
+    payload.headerRowIndex = config.headerRowIndex ?? 1;
     const headerRowIndex = input.statePayload?.headerRowIndex;
     if (
       typeof headerRowIndex === 'number' &&

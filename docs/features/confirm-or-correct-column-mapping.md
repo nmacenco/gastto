@@ -357,3 +357,9 @@ Invalid columns, unparseable or multiple corrections, rejected mappings and resu
 ## Setup message formatting (2026-11-16)
 
 Invalid-column lists, correction examples, rejected proposals, and resume prompts separate context, action, and the exact optional footer `Escribí cancelar si quieres salir.`. Required cancellation/restart sequences use numbered steps without an optional footer. Field labels, column numbers, and proposal guards are preserved. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Downstream mapping identity (2026-11-24)
+
+Successful confirmation returns and persists the configuration ID (`spreadsheetId`), reviewed `proposalId`, provider/file/sheet, valid effective `headerRowIndex`, and `confirmedMappings` containing each field, column, header and exact ISO confirmation timestamp. These values describe the proposal actually written by `replaceBySpreadsheetId`. They survive category edits and payment review, allowing downstream reads to detect missing or replaced rows instead of treating a lost payment column as intentionally unmapped. Invalid header input uses the stored header row, or row 1 if absent.
+
+Inconsistent category setup returns from `ONBOARDING_CATEGORIES` to `ONBOARDING_MAPPING` with destination metadata and no confirmable draft. Writing `revisar` generates a fresh mapping proposal through the existing no-proposal worker route; cancellation remains available.

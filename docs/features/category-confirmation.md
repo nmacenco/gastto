@@ -80,7 +80,7 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - Detection tests cover flat compatibility and linked hierarchy behavior.
 - Parser/modification tests cover flat and parent-aware commands plus rejection paths.
 - Confirmation tests cover canonical/legacy reconciliation, ordering, idempotency, recovery, and failures.
-- Worker tests cover detection, modification, confirmation, interrupted recovery, both channels, and the unchanged FSM.
+- Worker tests cover detection, modification, confirmation, interrupted recovery, both channels, and guarded mapping recovery.
 - PostgreSQL integration tests cover atomic hierarchy persistence and rollback through the production migration chain.
 
 ## Related User Stories
@@ -101,3 +101,13 @@ Hierarchy errors and category rename/removal re-prompts retain the draft and inc
 ## Setup message formatting (2026-11-16)
 
 Hierarchy error prompts preserve parent/child indentation and separate the correction instruction, current hierarchy, orphan warnings, and cancellation footer. Existing structured confirmation summaries remain concise. Payment review after category confirmation uses one line per edit option and a separate local-only storage warning. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Confirmed mapping context and recovery (2026-11-24)
+
+Mapping confirmation now retains `spreadsheetId`, `proposalId`, provider, file, sheet, effective header row, and `confirmedMappings`. Each snapshot entry contains `gasttoField`, zero-based `columnIndex`, `columnHeader`, and the confirmation timestamp as an ISO string. Category draft serialization and manual edits retain this metadata; payment review retains it too. Detection and confirmation validate the active configuration owner/destination and compare all captured mappings, including deliberately absent optional fields, with repository rows. Changed rows, confirmation timestamps, or header offsets require mapping review. A stale proposal supplied to a newer observed execution is rejected. Existing revision/CAS and expiry checks apply to draft and recovery transitions.
+
+`DetectCategoriesOutput` is a discriminated union: `{ kind: 'proposal', categories, state, message }` or `{ kind: 'recovery', nextState, message }`. Recovery exposes no category state. Missing configuration or authorization follows `ONBOARDING_START` reconnection. Missing category mapping or inconsistent captured context transitions to `ONBOARDING_MAPPING`, clears the category/payment draft, and asks the user to write `revisar` to generate a fresh column proposal, with a separate cancellation option. The next message generates that proposal; it cannot confirm old mappings in the same turn. No payment detection or activation occurs during recovery.
+
+Defaults are offered visibly only after a successful category read with no usable categories. Linked C/D reads continue to use the same rows and the effective header offset. An intentionally unmapped payment column still permits local storage; loss of a captured payment column requires recovery before either payment review or final confirmation. Structured injected Pino diagnostics record the use case, reason code, configuration/proposal IDs and user ID, without cell contents or conversational payloads.
+
+Legacy drafts without `confirmedMappings` retain their compatibility behavior in this phase; optional destination metadata is still checked. Successful-presentation evidence and legacy re-presentation are pending Phase 2 in `ai/plans/2026_11_24-fix_onboarding_category_review/2026_11_24-fix_onboarding_category_review-plan.md`.

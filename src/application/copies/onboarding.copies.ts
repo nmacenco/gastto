@@ -357,6 +357,13 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     return message;
   },
 
+  categoryMappingRecovery: () =>
+    composeMessage({
+      explanation: 'No pude validar las columnas confirmadas para esta planilla.',
+      action: 'Escribí revisar para generar y revisar un nuevo mapeo antes de continuar con las categorías y medios de pago.',
+      exit: CANCEL_EXIT_HINT,
+    }),
+
   mappingProposalRecoveryPrompt: () =>
     composeMessage({
       explanation: 'No pude validar el mapeo que estabas revisando.',
