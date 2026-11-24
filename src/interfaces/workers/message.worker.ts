@@ -118,7 +118,10 @@ import type {
   ResolveExpensePaymentAction,
 } from '../../application/use-cases/expense/ResolveExpensePaymentMethod';
 import type { ResolveExpenseCategoryChoice } from '../../application/use-cases/expense/ResolveExpenseCategoryChoice';
-import { parseExpenseCategoryChoice } from '../../application/use-cases/expense/ExpenseCategoryChoiceState';
+import {
+  parseExpenseCategoryChoice,
+  type ExpenseCategoryChoiceState,
+} from '../../application/use-cases/expense/ExpenseCategoryChoiceState';
 import { parseSettingsVocabularyPayload } from '../../application/use-cases/spreadsheet/SettingsVocabularyFlow';
 import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadsheet/SettingsOAuthFlow';
 import { randomUUID } from 'node:crypto';
@@ -2619,12 +2622,9 @@ async function handleExpenseCorrection(
     if (result.status === 'review')
       await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
     else if (result.status === 'choose')
-      await messaging.sendMessage(externalId, expenseCopies.categoryChoice(result.choice));
+      await messaging.sendMessage(externalId, expenseChoiceCopy(result.choice));
     else if (result.status === 'confirm')
-      await messaging.sendMessage(
-        externalId,
-        expenseCopies.categoryAddConfirmation(result.choice.attemptedName),
-      );
+      await messaging.sendMessage(externalId, expenseChoiceConfirmationCopy(result.choice));
     else if (result.status === 'invalid') {
       const choice = parseExpenseCategoryChoice(
         opts.transitionState.currentState(userId)?.statePayload,
@@ -2632,9 +2632,9 @@ async function handleExpenseCorrection(
       await messaging.sendMessage(
         externalId,
         choice?.stage === 'confirm'
-          ? expenseCopies.categoryAddConfirmation(choice.attemptedName)
+          ? expenseChoiceConfirmationCopy(choice)
           : choice
-            ? expenseCopies.categoryChoice(choice)
+            ? expenseChoiceCopy(choice)
             : expenseCopies.staleReview(),
       );
     } else await messaging.sendMessage(externalId, expenseCopies.staleReview());
@@ -2758,7 +2758,8 @@ async function renderExpenseReviewReplyOutcome(
     case 'invalid_subcategory':
       await messaging.sendMessage(externalId, expenseCopies.invalidSubcategory(outcome));
       return;
-    case 'unresolved_category': {
+    case 'unresolved_category':
+    case 'unresolved_subcategory': {
       const current = opts.transitionState.currentState(userId);
       const original =
         current?.currentState === 'EXPENSE_REVIEW'
@@ -2776,7 +2777,7 @@ async function renderExpenseReviewReplyOutcome(
         correction: outcome,
       });
       if (result.status === 'choose')
-        await messaging.sendMessage(externalId, expenseCopies.categoryChoice(result.choice));
+        await messaging.sendMessage(externalId, expenseChoiceCopy(result.choice));
       else await messaging.sendMessage(externalId, expenseCopies.staleReview());
       return;
     }
@@ -2785,6 +2786,18 @@ async function renderExpenseReviewReplyOutcome(
       await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
       return;
   }
+}
+
+function expenseChoiceCopy(choice: ExpenseCategoryChoiceState): string {
+  return choice.kind === 'subcategory'
+    ? expenseCopies.subcategoryChoice(choice)
+    : expenseCopies.categoryChoice(choice);
+}
+
+function expenseChoiceConfirmationCopy(choice: ExpenseCategoryChoiceState): string {
+  return choice.kind === 'subcategory'
+    ? expenseCopies.subcategoryAddConfirmation(choice.attemptedName, choice.parentCategoryName!)
+    : expenseCopies.categoryAddConfirmation(choice.attemptedName);
 }
 
 async function handleClarification(

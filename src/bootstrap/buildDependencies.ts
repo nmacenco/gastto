@@ -830,6 +830,7 @@ export function buildDependencies(env: Env, infra: BuildDependenciesInfra): Depe
       expenseRepo: expenseRecordRepo,
       spreadsheetConfigRepo,
       categoryVocabularyRepo,
+      columnMappingRepo,
       paymentCatalogRepo,
       transitionState,
     },

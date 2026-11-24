@@ -8,6 +8,13 @@ import { CloudFile } from '../../domain/entities/CloudFile';
 import { SheetInfo } from '../../domain/entities/SheetInfo';
 
 describe('onboardingCopies', () => {
+  it('shows the immediate expense example and settings option 5 after setup', () => {
+    const copy = onboardingCopies.onboardingComplete();
+    expect(copy).toContain('Cafe 850');
+    expect(copy).toContain('configuración');
+    expect(copy).toContain('opción 5');
+    expect(copy).toContain('categorías o subcategorías');
+  });
   describe('category hierarchy proposal', () => {
     it('formats parents, nested children, and every orphan deterministically', () => {
       const result = onboardingCopies.categoryHierarchyConfirmationPrompt(

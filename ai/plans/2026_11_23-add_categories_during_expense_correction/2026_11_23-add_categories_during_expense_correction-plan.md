@@ -33,15 +33,15 @@ Description: Deliver a complete category choice and creation flow that the user 
 
 Description: Extend the reviewed-expense choice flow to children under a specific parent, then tell users about settings when setup completes.
 
-- [ ] Extend the typed correction result and pending-choice payload with the selected parent ID and attempted child name. Resolve children only within that parent. When the parent is unknown or merely suggested, settle the parent first; do not create a child under an inferred parent.
-- [ ] Present the active children under that parent and the choices to select an existing child, add the named child, or cancel. Require a second explicit confirmation naming both child and parent. If no subcategory is currently configured, explain that the child can be stored in Gastto and will be written to the spreadsheet only when a subcategory column is mapped.
-- [ ] Extend the guarded catalog-confirmation use case and transaction for one child addition. Enforce parent existence, active status, duplicate/inactive child rules, source configuration and review ownership, baseline freshness, expiry, and idempotent retry. Rebind the saved child ID, advance the review binding, and re-present the pending expense without saving it. Preserve parent/child snapshots and existing spreadsheet-column behavior.
-- [ ] Add `configuración` guidance to the onboarding completion message, explaining that option 5 manages categories and subcategories after setup. Keep the current immediate-expense example.
-- [ ] Add tests for parent-scoped duplicate names, same child name under different parents, missing or changed parent, mapped and unmapped child columns, stale/replayed confirmation, cancel/back, full review restoration, final expense confirmation, and the setup-completion copy.
-- [ ] Update `docs/features/expense-correction.md`, `docs/features/subcategory-hierarchy.md`, `docs/features/chat-spreadsheet-settings.md`, and `docs/features/README.md`. Update `docs/architecture/data-model.md` if the persisted contract or schema changes. Run `pnpm test` for the affected and full suites; fix failures.
-- [ ] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
-- [ ] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
+- [x] Extend the typed correction result and pending-choice payload with the selected parent ID and attempted child name. Resolve children only within that parent. When the parent is unknown or merely suggested, settle the parent first; do not create a child under an inferred parent.
+- [x] Present the active children under that parent and the choices to select an existing child, add the named child, or cancel. Require a second explicit confirmation naming both child and parent. If no subcategory is currently configured, explain that the child can be stored in Gastto and will be written to the spreadsheet only when a subcategory column is mapped.
+- [x] Extend the guarded catalog-confirmation use case and transaction for one child addition. Enforce parent existence, active status, duplicate/inactive child rules, source configuration and review ownership, baseline freshness, expiry, and idempotent retry. Rebind the saved child ID, advance the review binding, and re-present the pending expense without saving it. Preserve parent/child snapshots and existing spreadsheet-column behavior.
+- [x] Add `configuración` guidance to the onboarding completion message, explaining that option 5 manages categories and subcategories after setup. Keep the current immediate-expense example.
+- [x] Add tests for parent-scoped duplicate names, same child name under different parents, missing or changed parent, mapped and unmapped child columns, stale/replayed confirmation, cancel/back, full review restoration, final expense confirmation, and the setup-completion copy.
+- [x] Update `docs/features/expense-correction.md`, `docs/features/subcategory-hierarchy.md`, `docs/features/chat-spreadsheet-settings.md`, and `docs/features/README.md`. Update `docs/architecture/data-model.md` if the persisted contract or schema changes. Run `pnpm test` for the affected and full suites; fix failures.
+- [x] Run `pnpm run lint` and `pnpm run typecheck` to verify linting and typechecking. Fix issues if any.
+- [x] Ask the user if they want to review the changes before continuing, or proceed directly with the next phase.
 
 ## Next step
 
-Implement Phase 2: add the parent-scoped subcategory flow and expose settings after setup.
+Both phases are implemented and verified. Review the changes and decide whether to commit this phase.

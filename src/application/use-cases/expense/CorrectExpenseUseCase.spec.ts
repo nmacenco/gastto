@@ -10,6 +10,7 @@ import type { LLMPort } from '../../../domain/ports/services';
 import type { CorrectExpenseOutcome } from './CorrectExpenseUseCase';
 import type {
   ICategoryVocabularyRepository,
+  IColumnMappingRepository,
   IExpenseRecordRepository,
   ISpreadsheetConfigRepository,
 } from '../../../domain/ports/repositories';
@@ -78,6 +79,7 @@ function buildDeps(
     >;
     transition?: ReturnType<typeof vi.fn<TransitionConversationState['execute']>>;
     paymentCatalog?: PaymentMethodCatalog | null;
+    columnMappings?: Awaited<ReturnType<IColumnMappingRepository['findBySpreadsheetId']>>;
   } = {},
 ) {
   const interpretCorrectionMock: ReturnType<typeof vi.fn<LLMPort['interpretCorrection']>> =
@@ -195,6 +197,9 @@ function buildDeps(
         expenseRepo,
         spreadsheetConfigRepo,
         categoryVocabularyRepo,
+        columnMappingRepo: {
+          findBySpreadsheetId: vi.fn().mockResolvedValue(overrides.columnMappings ?? []),
+        } as unknown as IColumnMappingRepository,
         paymentCatalogRepo: {
           findBySpreadsheetId: vi.fn().mockResolvedValue(overrides.paymentCatalog ?? null),
         },
@@ -526,7 +531,7 @@ describe('CorrectExpenseUseCase', () => {
         .fn<ICategoryClassifier['execute']>()
         .mockResolvedValue(
           HierarchicalClassificationResult.create(
-            ClassificationSelection.confirmed('category-transport', 'Transporte'),
+            ClassificationSelection.confirmed('cat-2', 'Transporte'),
           ),
         ),
     });
@@ -633,7 +638,7 @@ describe('CorrectExpenseUseCase', () => {
         .fn<ICategoryClassifier['execute']>()
         .mockResolvedValue(
           HierarchicalClassificationResult.create(
-            ClassificationSelection.confirmed('category-transport', 'Transporte'),
+            ClassificationSelection.confirmed('cat-2', 'Transporte'),
           ),
         ),
     });
@@ -849,16 +854,22 @@ describe('CorrectExpenseUseCase', () => {
         channel: 'telegram',
         intentMode: 'infer',
       }),
-    ).resolves.toEqual({
-      status: 'invalid_subcategory',
-      parentCategory: 'Transporte',
-      attemptedSubcategory: 'Restaurante',
-      allowedSubcategories: ['Peajes'],
+    ).resolves.toMatchObject({
+      status: 'unresolved_subcategory',
+      parentCategoryId: 'cat-2',
+      parentCategoryName: 'Transporte',
+      attemptedName: 'Restaurante',
+      candidates: ['Peajes'],
+      payload: {
+        extracted: { monto: 99, subcategoriaRaw: null, confianzaSubcategoria: 'nula' },
+        resolvedCategoryId: 'cat-2',
+        resolvedSubcategoryId: null,
+      },
     });
 
     expect(state.toPayload()).toEqual(snapshot);
     expect(transitionMock).not.toHaveBeenCalled();
-    expect(findAverageAmountByUserIdMock).not.toHaveBeenCalled();
+    expect(findAverageAmountByUserIdMock).toHaveBeenCalledOnce();
   });
 
   it('resolves a child-only correction under the current active parent', async () => {
@@ -972,11 +983,12 @@ describe('CorrectExpenseUseCase', () => {
         channel: 'telegram',
         intentMode: 'infer',
       }),
-    ).resolves.toEqual({
-      status: 'invalid_subcategory',
-      parentCategory: 'Comida',
-      attemptedSubcategory: 'Común',
-      allowedSubcategories: ['Restaurante', 'Supermercado'],
+    ).resolves.toMatchObject({
+      status: 'unresolved_subcategory',
+      parentCategoryId: 'cat-1',
+      parentCategoryName: 'Comida',
+      attemptedName: 'Común',
+      candidates: ['Restaurante', 'Supermercado'],
     });
     expect(transitionMock).not.toHaveBeenCalled();
   });
@@ -1020,11 +1032,91 @@ describe('CorrectExpenseUseCase', () => {
         channel: 'telegram',
         intentMode: 'infer',
       }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
+      status: 'unresolved_subcategory',
+      parentCategoryId: 'cat-other',
+      parentCategoryName: 'Otros',
+      attemptedName: 'Varios',
+      candidates: [],
+    });
+  });
+
+  it('reports whether the child column is confirmed when offering an unknown child', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['subcategoria'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: null,
+      subcategoriaRaw: 'Delivery',
+      fechaRaw: null,
+    });
+    const { useCase } = buildDeps({
+      interpretCorrection,
+      classifier: vi
+        .fn<ICategoryClassifier['execute']>()
+        .mockResolvedValue(
+          HierarchicalClassificationResult.create(
+            ClassificationSelection.confirmed('cat-1', 'Comida'),
+          ),
+        ),
+      columnMappings: [
+        {
+          id: 'mapping-1',
+          spreadsheetId: 'sheet-1',
+          GasttoField: 'subcategoria',
+          columnIndex: 5,
+          columnHeader: 'Subcategoría',
+          inferred: false,
+          confirmedAt: new Date(),
+        },
+      ],
+    });
+    const result = await useCase.execute({
+      userId: 'user-123',
+      rawMessage: 'subcategoría Delivery',
+      state: buildCorrectionState(buildReviewPayload({ resolvedCategoryId: 'cat-1' })),
+      channel: 'telegram',
+      intentMode: 'infer',
+    });
+    expect(result).toMatchObject({
+      status: 'unresolved_subcategory',
+      parentCategoryId: 'cat-1',
+      subcategoryColumnMapped: true,
+    });
+  });
+
+  it('does not offer child creation beneath a classifier-inferred different parent', async () => {
+    const interpretCorrection = vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+      intent: 'correction',
+      changedFields: ['subcategoria'],
+      monto: null,
+      moneda: null,
+      categoriaRaw: null,
+      subcategoriaRaw: 'Delivery',
+      fechaRaw: null,
+    });
+    const classifier = vi
+      .fn<ICategoryClassifier['execute']>()
+      .mockResolvedValue(
+        HierarchicalClassificationResult.create(
+          ClassificationSelection.confirmed('cat-2', 'Transporte'),
+        ),
+      );
+    const { useCase } = buildDeps({ interpretCorrection, classifier });
+    expect(
+      await useCase.execute({
+        userId: 'user-123',
+        rawMessage: 'subcategoría Delivery',
+        state: buildCorrectionState(buildReviewPayload({ resolvedCategoryId: 'cat-1' })),
+        channel: 'telegram',
+        intentMode: 'infer',
+      }),
+    ).toEqual({
       status: 'invalid_subcategory',
-      parentCategory: 'Otros',
-      attemptedSubcategory: 'Varios',
-      allowedSubcategories: [],
+      parentCategory: 'Comida',
+      attemptedSubcategory: 'Delivery',
+      allowedSubcategories: ['Restaurante', 'Supermercado'],
     });
   });
 

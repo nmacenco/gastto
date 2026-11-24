@@ -41,7 +41,10 @@ export type DispatchExpenseSemanticActionOutcome =
   | { readonly status: 'review_required'; readonly payload: ExpenseReviewPayload }
   | {
       readonly status: 'category_choice';
-      readonly correction: Extract<CorrectExpenseOutcome, { status: 'unresolved_category' }>;
+      readonly correction: Extract<
+        CorrectExpenseOutcome,
+        { status: 'unresolved_category' | 'unresolved_subcategory' }
+      >;
     }
   | { readonly status: 'missing_data'; readonly field: 'monto' | 'moneda' }
   | { readonly status: 'authorization_required' }
@@ -152,7 +155,10 @@ export class DispatchExpenseSemanticAction {
         if (correction.status === 'corrected' || correction.status === 'high_amount_confirmation') {
           return { status: 'review_required', payload: correction.payload };
         }
-        if (correction.status === 'unresolved_category') {
+        if (
+          correction.status === 'unresolved_category' ||
+          correction.status === 'unresolved_subcategory'
+        ) {
           return { status: 'category_choice', correction };
         }
         if (correction.status === 'invalid_subcategory') {

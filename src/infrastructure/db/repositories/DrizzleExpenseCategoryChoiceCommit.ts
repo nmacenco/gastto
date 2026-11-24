@@ -69,7 +69,22 @@ export class DrizzleExpenseCategoryChoiceCommit implements ExpenseCategoryChoice
         const current = await loadVocabularySnapshot(tx, config.id);
         if (!sameSnapshot(current, stored.baseline)) throw new ConflictingChoice();
         const normalized = input.selected.name.trim().toLowerCase();
-        const existing = current.categories.find((row) => row.normalizedName === normalized);
+        const parent =
+          stored.kind === 'subcategory'
+            ? current.categories.find(
+                (row) =>
+                  row.id === stored.parentCategoryId &&
+                  row.isActive &&
+                  row.name === stored.parentCategoryName,
+              )
+            : null;
+        if (stored.kind === 'subcategory' && !parent) throw new ConflictingChoice();
+        const existing =
+          stored.kind === 'subcategory'
+            ? current.subcategories.find(
+                (row) => row.categoryId === parent!.id && row.normalizedName === normalized,
+              )
+            : current.categories.find((row) => row.normalizedName === normalized);
         if (input.selected.add) {
           if (
             normalized !== stored.attemptedName.trim().toLowerCase() ||
@@ -77,31 +92,57 @@ export class DrizzleExpenseCategoryChoiceCommit implements ExpenseCategoryChoice
             (existing && existing.id !== input.selected.id)
           )
             throw new ConflictingChoice();
-          const draft = {
-            categories: existing
-              ? current.categories.map((row) =>
-                  row.id === existing.id ? { ...row, isActive: true } : row,
-                )
-              : [
-                  ...current.categories,
-                  {
-                    id: input.selected.id,
-                    name: input.selected.name.trim(),
-                    normalizedName: normalized,
-                    isActive: true,
-                  },
-                ],
-            subcategories: current.subcategories,
-          };
+          const draft =
+            stored.kind === 'subcategory'
+              ? {
+                  categories: current.categories,
+                  subcategories: existing
+                    ? current.subcategories.map((row) =>
+                        row.id === existing.id ? { ...row, isActive: true } : row,
+                      )
+                    : [
+                        ...current.subcategories,
+                        {
+                          id: input.selected.id,
+                          categoryId: parent!.id,
+                          name: input.selected.name.trim(),
+                          normalizedName: normalized,
+                          isActive: true,
+                        },
+                      ],
+                }
+              : {
+                  categories: existing
+                    ? current.categories.map((row) =>
+                        row.id === existing.id ? { ...row, isActive: true } : row,
+                      )
+                    : [
+                        ...current.categories,
+                        {
+                          id: input.selected.id,
+                          name: input.selected.name.trim(),
+                          normalizedName: normalized,
+                          isActive: true,
+                        },
+                      ],
+                  subcategories: current.subcategories,
+                };
           await persistVocabularySnapshot(tx, config.id, current, draft);
         } else if (!existing?.isActive || existing.id !== input.selected.id)
           throw new ConflictingChoice();
         const next = normalizeExpenseReviewPayload(input.next);
         const priorBinding = stored.original.reviewBinding;
         if (
-          next.resolvedCategoryId !== input.selected.id ||
-          next.resolvedCategory !== (existing?.name ?? input.selected.name.trim()) ||
-          next.categoryStatus !== 'confirmed' ||
+          (stored.kind === 'category'
+            ? next.resolvedCategoryId !== input.selected.id ||
+              next.resolvedCategory !== (existing?.name ?? input.selected.name.trim()) ||
+              next.categoryStatus !== 'confirmed'
+            : next.resolvedCategoryId !== parent!.id ||
+              next.resolvedCategory !== parent!.name ||
+              next.resolvedSubcategoryId !== input.selected.id ||
+              next.resolvedSubcategory !== (existing?.name ?? input.selected.name.trim()) ||
+              next.subcategoryStatus !== 'confirmed' ||
+              next.subcategoryEnabled !== true) ||
           next.reviewBinding?.presentedAt !== null ||
           next.reviewBinding?.revision !==
             (priorBinding && priorBinding.revision !== Number.MAX_SAFE_INTEGER

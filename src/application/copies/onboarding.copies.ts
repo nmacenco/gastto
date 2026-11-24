@@ -409,7 +409,8 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
   onboardingComplete: () =>
     composeMessage({
       explanation: '¡Todo listo! Ya podés empezar a registrar gastos.',
-      action: 'Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
+      action:
+        'Escribí algo como "Cafe 850" y lo guardo en tu planilla.\n\nCuando quieras cambiar categorías o subcategorías, escribí "configuración" y elegí la opción 5.',
     }),
 
   categoryUpdatedPrompt: (categories: string[]) => {

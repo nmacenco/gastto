@@ -317,6 +317,31 @@ export const expenseCopies = {
         'Escribí "confirmar agregar" para crearla, "no" para elegir otra opción o "volver" para regresar al gasto.',
       exit: CANCEL_EXIT_HINT,
     }),
+  subcategoryChoice: (input: {
+    attemptedName: string;
+    suggestedName: string | null;
+    parentCategoryId: string | null;
+    parentCategoryName: string | null;
+    subcategoryColumnMapped: boolean;
+    baseline: { subcategories: Array<{ categoryId: string; name: string; isActive: boolean }> };
+  }) => {
+    const parent = input.parentCategoryName ?? 'esta categoría';
+    const candidates = input.baseline.subcategories
+      .filter((child) => child.categoryId === input.parentCategoryId && child.isActive)
+      .map((child) => child.name);
+    return composeMessage({
+      explanation: `No encontré la subcategoría "${input.attemptedName}" dentro de "${parent}".${input.suggestedName ? ` ¿Quisiste decir "${input.suggestedName}"?` : ''}${input.subcategoryColumnMapped ? '' : '\n\nSi la agregás, quedará en Gastto, pero no se escribirá en la planilla porque no hay una columna de subcategoría configurada.'}`,
+      action: `${candidates.length ? `Subcategorías disponibles en "${parent}": ${candidates.join(', ')}.\n\n` : `"${parent}" todavía no tiene subcategorías activas.\n\n`}Escribí "elegir Nombre" para usar una existente${input.suggestedName ? ', o "sí" para usar la sugerida' : ''}. Escribí "agregar" para crear "${input.attemptedName}" dentro de "${parent}". Escribí "volver" para regresar al gasto sin este cambio.`,
+      exit: CANCEL_EXIT_HINT,
+    });
+  },
+  subcategoryAddConfirmation: (child: string, parent: string) =>
+    composeMessage({
+      explanation: `¿Querés agregar la subcategoría "${child}" dentro de "${parent}"? Quedará disponible para futuros gastos aunque canceles este.`,
+      action:
+        'Escribí "confirmar agregar" para crearla, "no" para elegir otra opción o "volver" para regresar al gasto.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   correctionHighAmountConfirmation: () =>
     composeMessage({
       explanation: 'El monto corregido es inusualmente alto.',

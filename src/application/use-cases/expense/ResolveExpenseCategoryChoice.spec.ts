@@ -114,7 +114,117 @@ function setup() {
   return { flow, correction, execute, commitExecute, baseline, current: () => observed };
 }
 
+function childCorrection(ctx: ReturnType<typeof setup>) {
+  ctx.baseline.subcategories.push({
+    id: 'child-1',
+    categoryId: '11111111-1111-4111-8111-111111111111',
+    name: 'Restaurante',
+    normalizedName: 'restaurante',
+    isActive: true,
+  });
+  ctx.baseline.subcategories.push({
+    id: 'child-other-parent',
+    categoryId: 'another-parent',
+    name: 'Peajes',
+    normalizedName: 'peajes',
+    isActive: true,
+  });
+  return {
+    status: 'unresolved_subcategory' as const,
+    attemptedName: 'Peajes',
+    suggestedName: null,
+    candidates: ['Restaurante'],
+    parentCategoryId: '11111111-1111-4111-8111-111111111111',
+    parentCategoryName: 'Comida',
+    subcategoryColumnMapped: false,
+    sourceConfigId: 'sheet-1',
+    payload: { ...original(), extracted: { ...original().extracted, monto: 25 } },
+    correctionCycles: 1,
+  };
+}
+
 describe('ResolveExpenseCategoryChoice', () => {
+  it('confirms a child under its parent and restores the corrected expense for review', async () => {
+    const ctx = setup();
+    const correction = childCorrection(ctx);
+    const started = await ctx.flow.start({ userId: 'user-1', original: original(), correction });
+    expect(started).toMatchObject({
+      status: 'choose',
+      choice: { kind: 'subcategory', parentCategoryName: 'Comida', attemptedName: 'Peajes' },
+    });
+    expect(ctx.commitExecute).not.toHaveBeenCalled();
+    expect(
+      (
+        await ctx.flow.reply({
+          userId: 'user-1',
+          rawMessage: 'agregar',
+          receivedAt: new Date().toISOString(),
+        })
+      ).status,
+    ).toBe('confirm');
+    expect(ctx.commitExecute).not.toHaveBeenCalled();
+    const result = await ctx.flow.reply({
+      userId: 'user-1',
+      rawMessage: 'confirmar agregar',
+      receivedAt: new Date().toISOString(),
+    });
+    expect(result).toMatchObject({
+      status: 'review',
+      payload: {
+        extracted: { monto: 25, subcategoriaRaw: 'Peajes' },
+        resolvedCategoryId: correction.parentCategoryId,
+        resolvedSubcategory: 'Peajes',
+        subcategoryEnabled: true,
+        reviewBinding: { revision: 2, presentedAt: null },
+      },
+    });
+    expect(ctx.commitExecute.mock.calls[0]?.[0]).toMatchObject({
+      choice: { kind: 'subcategory', parentCategoryId: correction.parentCategoryId },
+      selected: { name: 'Peajes', add: true },
+    });
+    expect(ctx.current().currentState).toBe('EXPENSE_REVIEW');
+  });
+
+  it('selects only children of the active parent and lets the user return to the original expense', async () => {
+    const ctx = setup();
+    const correction = childCorrection(ctx);
+    await ctx.flow.start({ userId: 'user-1', original: original(), correction });
+    expect(
+      await ctx.flow.reply({
+        userId: 'user-1',
+        rawMessage: 'elegir Peajes',
+        receivedAt: new Date().toISOString(),
+      }),
+    ).toEqual({ status: 'invalid' });
+    expect(ctx.commitExecute).not.toHaveBeenCalled();
+    expect(
+      await ctx.flow.reply({
+        userId: 'user-1',
+        rawMessage: 'elegir Restaurante',
+        receivedAt: new Date().toISOString(),
+      }),
+    ).toMatchObject({
+      status: 'review',
+      payload: { resolvedSubcategoryId: 'child-1', extracted: { monto: 25 } },
+    });
+    const another = setup();
+    await another.flow.start({
+      userId: 'user-1',
+      original: original(),
+      correction: childCorrection(another),
+    });
+    expect(
+      await another.flow.reply({
+        userId: 'user-1',
+        rawMessage: 'volver',
+        receivedAt: new Date().toISOString(),
+      }),
+    ).toMatchObject({
+      status: 'review',
+      payload: { extracted: { monto: 12 }, resolvedSubcategoryId: null },
+    });
+    expect(another.commitExecute).not.toHaveBeenCalled();
+  });
   it('requires a separate add confirmation and keeps the corrected amount pending', async () => {
     const ctx = setup();
     const started = await ctx.flow.start({

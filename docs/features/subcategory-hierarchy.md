@@ -94,8 +94,9 @@ Category confirmation advances to payment-method review without writing the live
 - The hierarchical result contains independent category and subcategory selections with stable IDs, names, statuses, and confidence. A missing child uses null identifiers/names plus `none`/`nula` and never triggers automatic selection merely because the parent has one child.
 - New `EXPENSE_REVIEW` payloads explicitly retain nullable child IDs/names, child status, and the capability flag. Hierarchy-enabled Telegram reviews show the child or an explicit `❓ Sin subcategoría`; disabled and legacy reviews keep the five-field category-only output.
 - Category and subcategory corrections are resolved as one parent-aware selection. Combined changes are atomic, child-only changes remain scoped to the current active parent, and category-only changes clear a child whose stable ID no longer belongs to the resolved parent.
-- Invalid or inactive children produce typed parent-specific guidance and leave the complete persisted review, correction count, timeout, high-amount flag, queue count, and undo metadata unchanged.
-- An explicitly requested unknown parent category may be added during expense correction after a separate confirmation. The pending expense remains in review after the catalog commit, and a child that does not belong to the newly selected parent is cleared. Adding a child during correction is planned for the next phase.
+- Invalid or inactive children supplied only by the classifier produce parent-specific guidance and leave the complete persisted review unchanged. An explicitly named unknown child under an exact active parent instead opens a guarded choice with that parent's active children.
+- An explicitly requested unknown parent category or child under a known parent may be added during expense correction after a separate confirmation. The pending expense remains in review after the catalog commit, with stable parent and child IDs and the usual final expense confirmation still required. If the parent is unknown, its choice is resolved first. A child that does not belong to a newly selected parent is cleared.
+- An unmapped child column does not prevent local child creation. The bot explains that the child remains in Gastto and is written to the spreadsheet only when a `subcategoria` column is mapped.
 
 ### Conversational payload compatibility
 

@@ -30,7 +30,10 @@ export class ResolveExpenseCategoryChoice {
   async start(input: {
     userId: string;
     original: ExpenseReviewPayload;
-    correction: Extract<CorrectExpenseOutcome, { status: 'unresolved_category' }>;
+    correction: Extract<
+      CorrectExpenseOutcome,
+      { status: 'unresolved_category' | 'unresolved_subcategory' }
+    >;
   }): Promise<ExpenseCategoryChoiceOutcome> {
     const observed = this.deps.transitionState.currentState(input.userId);
     if (
@@ -45,10 +48,23 @@ export class ResolveExpenseCategoryChoice {
     const baseline = await this.deps.commit.load(input.correction.sourceConfigId);
     const choice: ExpenseCategoryChoiceState = {
       _type: 'ExpenseCategoryChoice',
+      kind: input.correction.status === 'unresolved_subcategory' ? 'subcategory' : 'category',
       choiceId: randomUUID(),
       stage: 'choose',
       attemptedName: input.correction.attemptedName,
       suggestedName: input.correction.suggestedName,
+      parentCategoryId:
+        input.correction.status === 'unresolved_subcategory'
+          ? input.correction.parentCategoryId
+          : null,
+      parentCategoryName:
+        input.correction.status === 'unresolved_subcategory'
+          ? input.correction.parentCategoryName
+          : null,
+      subcategoryColumnMapped:
+        input.correction.status === 'unresolved_subcategory'
+          ? input.correction.subcategoryColumnMapped
+          : false,
       sourceConfigId: input.correction.sourceConfigId,
       baseline,
       original: input.original,
@@ -121,8 +137,12 @@ export class ResolveExpenseCategoryChoice {
       return { status: 'choose', choice: updated };
     }
     let selected: { id: string; name: string; add: boolean } | null = null;
+    const options =
+      choice.kind === 'subcategory'
+        ? choice.baseline.subcategories.filter((row) => row.categoryId === choice.parentCategoryId)
+        : choice.baseline.categories;
     if (choice.stage === 'confirm' && /^confirmar agregar$/iu.test(command)) {
-      const existing = choice.baseline.categories.find(
+      const existing = options.find(
         (row) => row.normalizedName === normalizeName(choice.attemptedName),
       );
       if (existing?.isActive) return { status: 'invalid' };
@@ -135,10 +155,7 @@ export class ResolveExpenseCategoryChoice {
       const match = command.match(/^elegir\s+(.+)$/iu);
       const named = match?.[1] ?? (/^s[ií]$/iu.test(command) ? choice.suggestedName : null);
       const existing =
-        named &&
-        choice.baseline.categories.find(
-          (row) => row.isActive && row.normalizedName === normalizeName(named),
-        );
+        named && options.find((row) => row.isActive && row.normalizedName === normalizeName(named));
       if (existing) selected = { id: existing.id, name: existing.name, add: false };
     }
     if (!selected) return { status: 'invalid' };
@@ -150,7 +167,7 @@ export class ResolveExpenseCategoryChoice {
           child.categoryId === selected.id &&
           child.isActive,
       );
-    const next: ExpenseReviewPayload = {
+    const nextCategory: ExpenseReviewPayload = {
       ...choice.proposed,
       extracted: {
         ...choice.proposed.extracted,
@@ -167,6 +184,22 @@ export class ResolveExpenseCategoryChoice {
       subcategoryStatus: keepChild ? (choice.proposed.subcategoryStatus ?? 'none') : 'none',
       reviewBinding: advanceExpenseReviewBinding(choice.original.reviewBinding),
     };
+    const next: ExpenseReviewPayload =
+      choice.kind === 'subcategory'
+        ? {
+            ...choice.proposed,
+            extracted: {
+              ...choice.proposed.extracted,
+              subcategoriaRaw: selected.name,
+              confianzaSubcategoria: 'alta',
+            },
+            resolvedSubcategory: selected.name,
+            resolvedSubcategoryId: selected.id,
+            subcategoryStatus: 'confirmed',
+            subcategoryEnabled: true,
+            reviewBinding: advanceExpenseReviewBinding(choice.original.reviewBinding),
+          }
+        : nextCategory;
     const result = await this.deps.commit.execute({
       userId: input.userId,
       expected: this.deps.transitionState.precondition(observed, 'unexpired'),
