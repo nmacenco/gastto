@@ -118,3 +118,7 @@ Amount/currency clarification, currency-option reformulation and zero confirmati
 ## Expense message formatting (2026-11-16)
 
 Amount and currency questions and reformulated currency options place `Escribí cancelar si quieres salir.` in its own paragraph. Currency option ordering is preserved. Semantic-router `pendingQuestion` uses the same formatted copy; extraction, missing-field selection, and routing rules are unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Date validation (2026-11-25)
+
+Re-interpretation validates any extracted explicit date before persisting clarification or review state. Unsupported or impossible dates use `EXPENSE_DATE_INVALID` and date-format guidance from [expense review](./expense-summary-review.md); an ordinary clarification answer does not replace the retained draft on this failure. Recovery of initial failures and replacement/queue protection verification remain tracked in Phase 2 of the receipt-date plan.

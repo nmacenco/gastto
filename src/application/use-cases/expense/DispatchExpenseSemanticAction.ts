@@ -1,3 +1,4 @@
+import { ExpenseDateInvalidError } from '../../services/ExpenseDateInvalidError';
 // LAYER: Application. Executes only explicitly enabled semantic expense actions.
 import type {
   ConversationState,
@@ -171,7 +172,8 @@ export class DispatchExpenseSemanticAction {
       }
 
       return { status: 'clarification_required', reason: 'unsupported_action' };
-    } catch {
+    } catch (error) {
+      if (error instanceof ExpenseDateInvalidError) throw error;
       const current = this.deps.transitionState.currentState(input.userId);
       if (enteredReceiving && current?.currentState === 'EXPENSE_RECEIVING') {
         try {

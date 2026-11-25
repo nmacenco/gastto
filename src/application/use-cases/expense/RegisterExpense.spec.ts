@@ -705,6 +705,50 @@ describe('RegisterExpenseUseCase', () => {
   });
 
   describe('interpret()', () => {
+    it.each(['2026-11-31', '31/11/2026', 'unsupported', '', '24 Nov 2026 at 24:00'])(
+      'rejects explicit invalid date %s before review or financial writes',
+      async (fechaRaw) => {
+        mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ fechaRaw }));
+        const { useCase } = buildUseCase();
+        await expect(useCase.interpret(buildInput())).rejects.toMatchObject({
+          code: 'EXPENSE_DATE_INVALID',
+        });
+        expect(mockConversationTransition).not.toHaveBeenCalled();
+        expect(mockClassifierExecute).not.toHaveBeenCalled();
+        expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+        expect(mockAppendRow).not.toHaveBeenCalled();
+      },
+    );
+
+    it('builds the reported receipt review without saving it', async () => {
+      const rawMessage =
+        'Fecha : 24 Nov 2026 at 17:12\nComercio: Mercadona\nImporte: 13,79 €\nTarjeta:CREDITO SANTANDER\nNombre: Mercadona\nTransacción: Mercadon';
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({
+          fechaRaw: '24 Nov 2026 at 17:12',
+          monto: 13.79,
+          moneda: 'EUR',
+        }),
+      );
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage }));
+      expect(result).toMatchObject({
+        status: 'ready_for_review',
+        payload: {
+          resolvedDate: '2026-11-24',
+          extracted: { monto: 13.79, moneda: 'EUR' },
+        },
+      });
+      expect(mockConversationTransition).toHaveBeenCalledWith(
+        'user-123',
+        'EXPENSE_REVIEW',
+        expect.objectContaining({ resolvedDate: '2026-11-24' }),
+        expect.any(Date),
+      );
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+      expect(mockAppendRow).not.toHaveBeenCalled();
+    });
+
     it('keeps a day-first numeric date from a Spanish expense message', async () => {
       mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ fechaRaw: '20/10/2026' }));
       const { useCase } = buildUseCase();
@@ -879,7 +923,14 @@ describe('RegisterExpenseUseCase', () => {
 
       expect(result.status).toBe('ready_for_review');
       if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
-      expect(result.payload.resolvedDate).toBe(new Date().toISOString().slice(0, 10));
+      const today = new Date();
+      expect(result.payload.resolvedDate).toBe(
+        [
+          today.getFullYear(),
+          String(today.getMonth() + 1).padStart(2, '0'),
+          String(today.getDate()).padStart(2, '0'),
+        ].join('-'),
+      );
       expect(result.payload).toMatchObject({
         resolvedCategoryId: 'category-food',
         resolvedSubcategory: null,

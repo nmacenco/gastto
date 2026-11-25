@@ -1,3 +1,5 @@
+import { resolveExpenseCalendarDate } from '../../services/resolveExpenseCalendarDate';
+import { ExpenseDateInvalidError } from '../../services/ExpenseDateInvalidError';
 // LAYER: Application
 // Use case: correct one or more fields of an expense in review.
 // Orchestrates: LLM interpretation → category resolution → high-amount guard
@@ -524,31 +526,9 @@ export class CorrectExpenseUseCase {
   }
 
   private resolveDate(fechaRaw: string | null): string {
-    const today = new Date();
-    const normalized = (fechaRaw ?? '').toLowerCase().trim();
-
-    if (normalized === 'ayer') {
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      return yesterday.toISOString().slice(0, 10);
-    }
-
-    if (normalized === 'hoy') {
-      return today.toISOString().slice(0, 10);
-    }
-
-    if (normalized === 'mañana') {
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      return tomorrow.toISOString().slice(0, 10);
-    }
-
-    const parsed = Date.parse(normalized);
-    if (!Number.isNaN(parsed)) {
-      return new Date(parsed).toISOString().slice(0, 10);
-    }
-
-    return today.toISOString().slice(0, 10);
+    const result = resolveExpenseCalendarDate(fechaRaw, new Date());
+    if (result.kind === 'invalid') throw new ExpenseDateInvalidError(result.reason);
+    return result.date;
   }
 
   private async isHighAmount(userId: string, payload: ExpenseReviewPayload): Promise<boolean> {

@@ -59,3 +59,7 @@ Formatting and explicit cancellation ownership now cover [clarification](./clari
 ## Readability completion (2026-11-16)
 
 The [formatting convention](./conversational-message-formatting.md) now documents the final audit and intentional exceptions. [Delivery](./send-responses-to-user.md) covers newline preservation, bounded Telegram fragments, and the WhatsApp placeholder limitation. Residual guidance is documented in [file selection](./select-spreadsheet-file.md), [sheet selection](./select-sheet.md), [cloud connection](./cloud-storage-connection.md), [settings](./chat-spreadsheet-settings.md), [access approval](./telegram-access-approval.md), [routing](./incoming-message-routing.md), and [expense review](./expense-summary-review.md).
+
+## Receipt date validation (2026-11-25)
+
+[Expense review](./expense-summary-review.md) documents explicit calendar parsing, validated receipt times, and controlled invalid-date feedback. [Correction](./expense-correction.md) preserves the pending review on invalid dates; [clarification](./clarification-request.md) validates dates before replacing its retained context.

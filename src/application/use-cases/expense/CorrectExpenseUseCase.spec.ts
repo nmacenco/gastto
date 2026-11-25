@@ -592,6 +592,35 @@ describe('CorrectExpenseUseCase', () => {
     expect(transitionMock).not.toHaveBeenCalled();
   });
 
+  it.each(['2026-11-31', 'unsupported'])(
+    'preserves the existing review on invalid correction %s',
+    async (fechaRaw) => {
+      const { useCase, transitionMock } = buildDeps({
+        interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
+          intent: 'correction',
+          changedFields: ['fecha'],
+          monto: null,
+          moneda: null,
+          categoriaRaw: null,
+          subcategoriaRaw: null,
+          fechaRaw,
+        }),
+      });
+      const state = buildCorrectionState();
+      await expect(
+        useCase.execute({
+          userId: 'user-123',
+          rawMessage: 'cambiar fecha',
+          state,
+          channel: 'telegram',
+          intentMode: 'infer',
+        }),
+      ).rejects.toMatchObject({ code: 'EXPENSE_DATE_INVALID' });
+      expect(transitionMock).not.toHaveBeenCalled();
+      expect(state.payload.resolvedDate).toBe('2026-07-25');
+    },
+  );
+
   it('updates date to previous day when the user says "ayer"', async () => {
     const { useCase, transitionMock } = buildDeps({
       interpretCorrection: vi.fn<LLMPort['interpretCorrection']>().mockResolvedValue({
@@ -617,7 +646,13 @@ describe('CorrectExpenseUseCase', () => {
     expect(result.status).toBe('corrected');
     const expectedYesterday = new Date();
     expectedYesterday.setDate(expectedYesterday.getDate() - 1);
-    expect(getPayload(result).resolvedDate).toBe(expectedYesterday.toISOString().slice(0, 10));
+    expect(getPayload(result).resolvedDate).toBe(
+      [
+        expectedYesterday.getFullYear(),
+        String(expectedYesterday.getMonth() + 1).padStart(2, '0'),
+        String(expectedYesterday.getDate()).padStart(2, '0'),
+      ].join('-'),
+    );
     expect(transitionMock).toHaveBeenCalledWith(
       expect.objectContaining({ targetState: 'EXPENSE_REVIEW' }),
     );

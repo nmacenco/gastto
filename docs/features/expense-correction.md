@@ -119,3 +119,7 @@ Correction examples and invalid-subcategory feedback include an explicit cancell
 ## Expense message formatting (2026-11-16)
 
 Correction prompts separate the question from the examples and the optional cancellation footer. Subcategory errors separate the parent/child explanation from correction instructions. High-amount and correction-limit prompts retain explicit confirmation, with cancellation in its own paragraph. Existing field labels, correction commands, and state/revision guards remain unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Date validation (2026-11-25)
+
+Date corrections use the same explicit calendar formats and validated receipt time suffixes as [expense review](./expense-summary-review.md). `ayer`, `hoy`, and `mañana` use the current local calendar day, without UTC conversion. An invalid explicit date raises `EXPENSE_DATE_INVALID` before persisting a replacement review, preserving the existing date and draft. The worker presents date-format guidance based on the effective persisted state. Invalid dates no longer silently substitute today.

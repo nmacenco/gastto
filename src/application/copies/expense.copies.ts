@@ -154,6 +154,14 @@ export const expenseCopies = {
   ambiguousResponse: () => composeMessage(expenseGuidanceBlocks.ambiguousReview()),
   fallbackError: (context: RecoveryContext = 'unknown') =>
     recoveryGuidance(expenseGuidanceBlocks.fallback(), context),
+  invalidDate: (context: RecoveryContext) =>
+    recoveryGuidance(
+      {
+        explanation: 'No pude interpretar la fecha de este gasto.',
+        action: 'Usá el formato AAAA-MM-DD, por ejemplo 2026-11-24.',
+      },
+      context,
+    ),
   extractionTimeout: () =>
     composeMessage({
       explanation: 'La interpretación tardó demasiado. No guardé este gasto.',

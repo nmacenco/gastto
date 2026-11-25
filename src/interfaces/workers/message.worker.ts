@@ -1,3 +1,4 @@
+import { ExpenseDateInvalidError } from '../../application/services/ExpenseDateInvalidError';
 import type { MessageBlocks } from '../../application/copies/compose-message';
 // LAYER: Interfaces
 // BullMQ worker — Stage 2 of the async pipeline (ADR-005).
@@ -771,6 +772,34 @@ export async function processMessageJob(
         } catch {
           opts.logger.error({
             msg: 'Failed to send extraction recovery message',
+            endpoint: 'processMessageJob',
+            code: 'FALLBACK_SEND_FAILED',
+            userId,
+          });
+        }
+        return;
+      }
+      if (err instanceof ExpenseDateInvalidError) {
+        opts.logger.error({
+          msg: 'Expense date validation failed',
+          endpoint: 'processMessageJob',
+          code: err.code,
+          stage: 'expense_date_validation',
+          reason: err.reason,
+          userId,
+          correlationId: `${channel}:${data.externalMessageId}`,
+        });
+        const effective = await readRecoveryState(() =>
+          opts.getConversationState.execute({ userId }),
+        );
+        try {
+          await messaging.sendMessage(
+            externalId,
+            expenseCopies.invalidDate(resolveRecoveryContext(effective)),
+          );
+        } catch {
+          opts.logger.error({
+            msg: 'Failed to send date validation guidance',
             endpoint: 'processMessageJob',
             code: 'FALLBACK_SEND_FAILED',
             userId,

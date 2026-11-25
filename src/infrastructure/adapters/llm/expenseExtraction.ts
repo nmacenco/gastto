@@ -43,7 +43,8 @@ export function buildExtractionSystemPrompt(): string {
 6. Si subcategoryEnabled es false, devolver subcategoria_raw: null y confianza_subcategoria: "nula".
 7. No inventar relaciones ni trasladar una subcategoría a otro padre. Si un nombre existe bajo varios padres, usar únicamente el contexto explícito del mensaje.
 8. Si el usuario menciona un medio de pago, conservar su texto explícito. paymentMethods son candidatos configurados, pero no adivinar una tarjeta concreta a partir de "tarjeta" ni inferir el medio por la categoría. Si no se menciona, devolver medio_pago: null.
-9. ${UNTRUSTED_DATA_GUARD}
+9. Para fecha_raw, devolver la fecha de calendario explícita en YYYY-MM-DD cuando sea resoluble. Conservar el día indicado por el usuario sin convertirlo a UTC; ignorar la hora del recibo. Si no hay fecha, devolver null. No reemplazar una fecha inválida o no interpretable por null ni por la fecha de hoy: conservar ese texto para su validación.
+10. ${UNTRUSTED_DATA_GUARD}
 
 Esquema de salida (siempre JSON puro, sin backticks):
 {

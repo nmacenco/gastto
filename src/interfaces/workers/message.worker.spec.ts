@@ -1,3 +1,4 @@
+import { ExpenseDateInvalidError } from '../../application/services/ExpenseDateInvalidError';
 import {
   buildConfirmedMappings,
   buildPresentedCategoryPayload,
@@ -5662,16 +5663,14 @@ describe('processMessageJob', () => {
           transitionState: {
             execute: mockTransitionStateExecute,
             assertExecutionIsValid: vi.fn(),
-            currentState: vi
-              .fn()
-              .mockReturnValue(
-                buildConversationState({
-                  currentState: 'ONBOARDING_CATEGORIES',
-                  statePayload: buildPresentedCategoryPayload({
-                    categories: ['comida', 'transporte'],
-                  }),
+            currentState: vi.fn().mockReturnValue(
+              buildConversationState({
+                currentState: 'ONBOARDING_CATEGORIES',
+                statePayload: buildPresentedCategoryPayload({
+                  categories: ['comida', 'transporte'],
                 }),
-              ),
+              }),
+            ),
           } as unknown as ConfirmCategoriesDeps['transitionState'],
         });
         mockGetConversationStateExecute
@@ -6134,6 +6133,40 @@ describe('processMessageJob', () => {
         expenseCopies.clarificationAmount(),
       );
     });
+  });
+
+  describe('invalid extracted expense dates', () => {
+    it.each(['EXPENSE_RECEIVING', 'IDLE'] as const)(
+      'uses persisted %s for safe guidance and logs only diagnostic metadata',
+      async (currentState) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute
+          .mockResolvedValueOnce(buildConversationState({ currentState: 'IDLE' }))
+          .mockResolvedValue(buildConversationState({ currentState }));
+        mockRegisterExpenseInterpret.mockRejectedValueOnce(
+          new ExpenseDateInvalidError('invalid-calendar-date'),
+        );
+        await processMessageJob(buildJob(baseJobData), deps);
+        expect(mockSendMessage).toHaveBeenCalledTimes(1);
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expenseCopies.invalidDate(currentState === 'IDLE' ? 'idle' : 'cancellable'),
+        );
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+        expect(mockLoggerError).toHaveBeenCalledWith({
+          msg: 'Expense date validation failed',
+          endpoint: 'processMessageJob',
+          code: 'EXPENSE_DATE_INVALID',
+          stage: 'expense_date_validation',
+          reason: 'invalid-calendar-date',
+          userId: 'user-123',
+          correlationId: `telegram:${baseJobData.externalMessageId}`,
+        });
+        expect(mockLoggerError).not.toHaveBeenCalledWith(
+          expect.objectContaining({ code: 'UNEXPECTED_HANDLER_ERROR' }),
+        );
+      },
+    );
   });
 
   describe('unexpected handler errors (no BullMQ retry)', () => {
