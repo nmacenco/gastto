@@ -354,6 +354,7 @@ export class ResolveExpenseSummaryActionUseCase {
       userId: input.userId,
       targetState: 'EXPENSE_CORRECTING',
       payload: correctionState.toPayload(),
+      expiresAt: this.deps.transitionState.currentState(input.userId)!.expiresAt,
     });
 
     await this.deps.messagingPort.sendMessage(

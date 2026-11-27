@@ -13,6 +13,7 @@ Allow a user reviewing an expense summary to correct the amount, currency, categ
 - Queue admission no longer depends on a lexical correction regular expression. Natural variants such as `eran 35 EUR y la categoria es transporte` reach the correction flow even though they also contain an amount and currency.
 - From the inline **Corregir** action, `ResolveExpenseSummaryActionUseCase` creates a typed `ExpenseCorrectionState`, transitions to `EXPENSE_CORRECTING`, and sends examples of natural-language corrections.
 - The next message in `EXPENSE_CORRECTING` is interpreted against the stored review payload.
+- Entering correction from the summary action retains the review's existing expiration deadline. Unknown-category and unknown-subcategory choices opened on the next turn use that same deadline instead of rejecting the current expense as stale because its expiration was cleared.
 - The correctable fields are:
   - amount (`monto`),
   - currency (`moneda`),
@@ -98,6 +99,7 @@ Additional Definition of Done coverage:
 - Provider schema and contextual prompts: `src/infrastructure/adapters/llm/OpenAIAdapter.spec.ts`, `ClaudeAdapter.spec.ts`, and `NvidiaAdapter.spec.ts`.
 - Correction-versus-queue regression: provider, application, and worker tests cover `eran 35 EUR y la categoria es transporte`, `Taxi 12 EUR`, unrelated input, and rejection of correction fields on non-correction intents.
 - Inline action and dependency wiring: `src/application/use-cases/expense/ResolveExpenseSummaryActionUseCase.spec.ts`, `src/bootstrap/buildDependencies.spec.ts`, and `src/bootstrap/registerWorkers.spec.ts`.
+- Correction-entry expiration regression: `ResolveExpenseSummaryActionUseCase.spec.ts` runs the real action resolver, state transition, and category-choice use cases across separate turns for both unknown parents and unknown children, retaining the original deadline without saving the expense or changing the catalog.
 - Full worker flow and corrupted-state recovery: `src/interfaces/workers/message.worker.spec.ts`.
 - Conversation-level correction safety: `tests/integration/semantic-router-expense-flows.integration.spec.ts` proves the mixed affirmative correction produces a new review, rejects the old binding, performs one correction call, and saves the corrected amount once.
 
