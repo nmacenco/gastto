@@ -154,6 +154,19 @@ export const expenseCopies = {
   ambiguousResponse: () => composeMessage(expenseGuidanceBlocks.ambiguousReview()),
   fallbackError: (context: RecoveryContext = 'unknown') =>
     recoveryGuidance(expenseGuidanceBlocks.fallback(), context),
+  invalidDateRecovered: () =>
+    composeMessage({
+      explanation: 'No pude interpretar la fecha de este gasto. No lo guardé.',
+      action: 'Volvé a enviarlo con una fecha como 2026-11-24.',
+    }),
+  invalidDate: (context: RecoveryContext) =>
+    recoveryGuidance(
+      {
+        explanation: 'No pude interpretar la fecha de este gasto.',
+        action: 'Usá el formato AAAA-MM-DD, por ejemplo 2026-11-24.',
+      },
+      context,
+    ),
   extractionTimeout: () =>
     composeMessage({
       explanation: 'La interpretación tardó demasiado. No guardé este gasto.',
@@ -294,6 +307,54 @@ export const expenseCopies = {
       exit: CANCEL_EXIT_HINT,
     });
   },
+  categoryChoice: (input: {
+    attemptedName: string;
+    suggestedName: string | null;
+    baseline: { categories: Array<{ name: string; isActive: boolean }> };
+  }) => {
+    const candidates = input.baseline.categories
+      .filter((item) => item.isActive)
+      .map((item) => item.name);
+    return composeMessage({
+      explanation: input.suggestedName
+        ? `No encontré "${input.attemptedName}" entre tus categorías. ¿Quisiste decir "${input.suggestedName}"?`
+        : `No encontré "${input.attemptedName}" entre tus categorías.`,
+      action: `${candidates.length ? `Categorías disponibles: ${candidates.join(', ')}.\n\n` : ''}Escribí "elegir Nombre" para usar una existente${input.suggestedName ? ', o "sí" para usar la sugerida' : ''}. Escribí "agregar" para crear "${input.attemptedName}". Escribí "volver" para regresar al gasto sin este cambio.`,
+      exit: CANCEL_EXIT_HINT,
+    });
+  },
+  categoryAddConfirmation: (name: string) =>
+    composeMessage({
+      explanation: `¿Querés agregar "${name}" a tus categorías? Quedará disponible para futuros gastos aunque canceles este.`,
+      action:
+        'Escribí "confirmar agregar" para crearla, "no" para elegir otra opción o "volver" para regresar al gasto.',
+      exit: CANCEL_EXIT_HINT,
+    }),
+  subcategoryChoice: (input: {
+    attemptedName: string;
+    suggestedName: string | null;
+    parentCategoryId: string | null;
+    parentCategoryName: string | null;
+    subcategoryColumnMapped: boolean;
+    baseline: { subcategories: Array<{ categoryId: string; name: string; isActive: boolean }> };
+  }) => {
+    const parent = input.parentCategoryName ?? 'esta categoría';
+    const candidates = input.baseline.subcategories
+      .filter((child) => child.categoryId === input.parentCategoryId && child.isActive)
+      .map((child) => child.name);
+    return composeMessage({
+      explanation: `No encontré la subcategoría "${input.attemptedName}" dentro de "${parent}".${input.suggestedName ? ` ¿Quisiste decir "${input.suggestedName}"?` : ''}${input.subcategoryColumnMapped ? '' : '\n\nSi la agregás, quedará en Gastto, pero no se escribirá en la planilla porque no hay una columna de subcategoría configurada.'}`,
+      action: `${candidates.length ? `Subcategorías disponibles en "${parent}": ${candidates.join(', ')}.\n\n` : `"${parent}" todavía no tiene subcategorías activas.\n\n`}Escribí "elegir Nombre" para usar una existente${input.suggestedName ? ', o "sí" para usar la sugerida' : ''}. Escribí "agregar" para crear "${input.attemptedName}" dentro de "${parent}". Escribí "volver" para regresar al gasto sin este cambio.`,
+      exit: CANCEL_EXIT_HINT,
+    });
+  },
+  subcategoryAddConfirmation: (child: string, parent: string) =>
+    composeMessage({
+      explanation: `¿Querés agregar la subcategoría "${child}" dentro de "${parent}"? Quedará disponible para futuros gastos aunque canceles este.`,
+      action:
+        'Escribí "confirmar agregar" para crearla, "no" para elegir otra opción o "volver" para regresar al gasto.',
+      exit: CANCEL_EXIT_HINT,
+    }),
   correctionHighAmountConfirmation: () =>
     composeMessage({
       explanation: 'El monto corregido es inusualmente alto.',

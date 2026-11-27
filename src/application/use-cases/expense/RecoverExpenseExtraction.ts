@@ -2,14 +2,23 @@
 import type { ConversationState } from '../../../domain/entities/ConversationState';
 import { getFinancialExecutionClaim } from '../../../domain/entities/ConversationState';
 import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
-import type { LLMExtractionErrorCode } from '../../../domain/errors/LLMExtractionError';
+import type { LLMExtractionError } from '../../../domain/errors/LLMExtractionError';
+import type { ExpenseDateInvalidError } from '../../services/ExpenseDateInvalidError';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
 
 /** Sent to the interface only after the failed initial attempt was reset. */
 export class RecoveredExpenseExtractionError extends Error {
-  constructor(public readonly code: LLMExtractionErrorCode) {
-    super(code);
+  readonly code: LLMExtractionError['code'] | ExpenseDateInvalidError['code'];
+  readonly reason: ExpenseDateInvalidError['reason'] | undefined;
+
+  constructor(
+    failure: LLMExtractionError | ExpenseDateInvalidError,
+    readonly recoveredRevision: string,
+  ) {
+    super(failure.code);
     this.name = 'RecoveredExpenseExtractionError';
+    this.code = failure.code;
+    this.reason = 'reason' in failure ? failure.reason : undefined;
   }
 }
 
@@ -32,7 +41,10 @@ export class RecoverExpenseExtraction {
         targetState: 'IDLE',
         payload: null,
         expiresAt: null,
-        expected: this.transitionState.precondition(observed),
+        expected: this.transitionState.precondition(
+          observed,
+          observed.expiresAt === null ? 'any' : 'unexpired',
+        ),
       });
       return 'recovered';
     } catch (error) {

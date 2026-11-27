@@ -1,3 +1,5 @@
+import { presentCategoryProposal } from '../../services/PresentCategoryProposal';
+import { assertCurrentOnboardingProposal } from '../../services/ConfirmedOnboardingContext';
 // LAYER: Application
 // Use case: apply parent-aware category vocabulary changes and return the
 // complete proposal for re-confirmation.
@@ -57,6 +59,7 @@ export class ModifyCategoryVocabulary {
 
   async execute(input: ModifyCategoryVocabularyInput): Promise<ModifyCategoryVocabularyOutput> {
     const { userId, externalId, rawMessage, statePayload } = input;
+    assertCurrentOnboardingProposal(this.deps.transitionState, userId, statePayload);
     const payloadState = parseCategoryOnboardingState(statePayload);
 
     const config = await this.deps.spreadsheetConfigRepository.findByUserId(userId);
@@ -280,9 +283,10 @@ export class ModifyCategoryVocabulary {
     message: string,
     vocabulary?: CategoryVocabulary,
   ): Promise<ModifyCategoryVocabularyOutput> {
-    await this.deps.transitionState.execute({
+    await presentCategoryProposal(this.deps, {
       userId: input.userId,
-      targetState: 'ONBOARDING_CATEGORIES',
+      externalId: input.externalId,
+      message,
       payload: {
         ...serializeCategoryOnboardingState(state, input.statePayload),
         ...(vocabulary
@@ -295,7 +299,6 @@ export class ModifyCategoryVocabulary {
           : {}),
       },
     });
-    await this.deps.messagingPort.sendMessage(input.externalId, message);
     return { categories: state.categories.map((category) => category.name), state, message };
   }
 }

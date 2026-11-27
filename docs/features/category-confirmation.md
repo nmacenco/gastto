@@ -43,7 +43,7 @@ After column mapping, Gastto proposes the spreadsheet's active category vocabula
 - It detects payment values after category confirmation and keeps both reviewed vocabularies in the guarded conversation payload.
 - Final payment confirmation reconciles identified category drafts and commits both vocabularies, confirmation markers, user activation, and `IDLE` together in one database transaction.
 - Orphan warning values are never persisted as vocabulary rows.
-- A repeated final confirmation is guarded by the conversation revision; legacy in-flight category payloads enter payment review before finalization.
+- A repeated final confirmation is guarded by the conversation revision; legacy in-flight category payloads are re-presented or re-detected before a new confirmation can enter payment review.
 - A catalog commit failure advances no finalization step and sends no completion.
 - Activation or FSM transition failures also send no false completion.
 - An invalid proposal remains in `ONBOARDING_CATEGORIES` with a cleared payload so detection can recover.
@@ -80,7 +80,7 @@ See [`docs/architecture/data-model.md`](../architecture/data-model.md).
 - Detection tests cover flat compatibility and linked hierarchy behavior.
 - Parser/modification tests cover flat and parent-aware commands plus rejection paths.
 - Confirmation tests cover canonical/legacy reconciliation, ordering, idempotency, recovery, and failures.
-- Worker tests cover detection, modification, confirmation, interrupted recovery, both channels, and the unchanged FSM.
+- Worker tests cover detection, modification, confirmation, interrupted recovery, both channels, and guarded mapping recovery.
 - PostgreSQL integration tests cover atomic hierarchy persistence and rollback through the production migration chain.
 
 ## Related User Stories
@@ -101,3 +101,25 @@ Hierarchy errors and category rename/removal re-prompts retain the draft and inc
 ## Setup message formatting (2026-11-16)
 
 Hierarchy error prompts preserve parent/child indentation and separate the correction instruction, current hierarchy, orphan warnings, and cancellation footer. Existing structured confirmation summaries remain concise. Payment review after category confirmation uses one line per edit option and a separate local-only storage warning. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Confirmed mapping context and recovery (2026-11-24)
+
+Mapping confirmation now retains `spreadsheetId`, `proposalId`, provider, file, sheet, effective header row, and `confirmedMappings`. Each snapshot entry contains `gasttoField`, zero-based `columnIndex`, `columnHeader`, and the confirmation timestamp as an ISO string. Category draft serialization and manual edits retain this metadata; payment review retains it too. Detection and confirmation validate the active configuration owner/destination and compare all captured mappings, including deliberately absent optional fields, with repository rows. Changed rows, confirmation timestamps, or header offsets require mapping review. A stale proposal supplied to a newer observed execution is rejected. Existing revision/CAS and expiry checks apply to draft and recovery transitions.
+
+`DetectCategoriesOutput` is a discriminated union: `{ kind: 'proposal', categories, state, message }` or `{ kind: 'recovery', nextState, message }`. Recovery exposes no category state. Missing configuration or authorization follows `ONBOARDING_START` reconnection. Missing category mapping or inconsistent captured context transitions to `ONBOARDING_MAPPING`, clears the category/payment draft, and asks the user to write `revisar` to generate a fresh column proposal, with a separate cancellation option. The next message generates that proposal; it cannot confirm old mappings in the same turn. No payment detection or activation occurs during recovery.
+
+Defaults are offered visibly only after a successful category read with no usable categories. Linked C/D reads continue to use the same rows and the effective header offset. An intentionally unmapped payment column still permits local storage; loss of a captured payment column requires recovery before either payment review or final confirmation. Structured injected Pino diagnostics record the use case, reason code, configuration/proposal IDs and user ID, without cell contents or conversational payloads.
+
+Legacy drafts without `confirmedMappings` must be rebound to confirmed repository mappings or re-detected before acceptance, as described below.
+
+## Successful presentation before acceptance (2026-11-24)
+
+A saved category list alone cannot authorize confirmation. `PresentCategoryProposal` writes a new `categoryProposalId` with null `categoryPresentation` and `categoryAcceptance`, sends the full current vocabulary, then records evidence only when the messaging adapter returns `status: success`. The evidence update uses the revision returned by the draft write and retains the observed deadline; a stale or expired write fails. A thrown send error or returned failure leaves the draft unpresented. Adapter success does not prove that a person read the message.
+
+The presentation fingerprint binds the normalized hierarchy, orphan warnings, mapping capability, stable draft IDs, destination, header and confirmed mapping snapshot. JSONB object key order does not affect it. Category edits generate a new proposal and repeat the delivery lifecycle, so old evidence cannot authorize an edited hierarchy. Serialization also clears evidence if the hierarchy changes.
+
+`ConfirmCategories.execute` enforces eligibility directly for both normal onboarding and the compatibility finalization path. A reply such as `ok`, `sí`, or `confirmar` to an unpresented or mismatched draft shows the proposal again and waits for a new reply. It does not detect payments, persist live catalogs or activate the user during that re-presentation. A subsequent eligible category confirmation records `categoryAcceptance` while entering payment review. Payment edits preserve this evidence; final confirmation requires it to match the current category proposal. The atomic commit rechecks acceptance and the confirmed destination/mappings under the transaction locks before writing either catalog.
+
+An equivalent legacy draft with a matching destination can be rebound to confirmed repository mappings and re-presented, preserving its vocabulary and identified category/child IDs. Missing context is re-detected through `DetectCategories`; missing prerequisites follow typed recovery. The old flat default set without an identified draft is treated as potentially placeholder-generated and read again from the real category/subcategory columns, even if an old `paymentReview` flag exists. Re-presentation and re-detection clear the old payment review; a fresh reply is required before payment detection. Unrelated onboarding metadata is retained. Cancellation clears the entire draft before any acceptance.
+
+Unit/worker regressions cover returned delivery failure, thrown errors, interruption before evidence, stale CAS, changed hierarchy, the confirmation aliases and the guarded compatibility path. Disposable PostgreSQL/Redis regressions cover complete deletion and registration of the same chat with a new account/configuration identity, credential and Redis cleanup, ordered C/D hierarchy and A payment proposals, atomic finalization, legacy recovery, interruption and cancellation. These regressions reproduce and fix the placeholder/premature-acceptance paths; the original cause of mapping disappearance remains unproven.

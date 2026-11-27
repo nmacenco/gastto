@@ -91,6 +91,20 @@ describe('RecoverExpenseExtraction', () => {
     });
   });
 
+  it('guards an expiring receiving attempt with database-time expiry', async () => {
+    const h = setup();
+    h.observed.expiresAt = new Date(Date.now() - 1_000);
+    h.transition.mockResolvedValue({ status: 'expired' });
+    await h.state.runWithState(h.observed, async () => {
+      expect(await h.recover.execute(h.observed)).toBe('stale');
+    });
+    expect(h.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expected: { revision: '5', currentState: 'EXPENSE_RECEIVING', expiry: 'unexpired' },
+      }),
+    );
+  });
+
   it('propagates persistence failure without claiming recovery', async () => {
     const h = setup();
     h.transition.mockRejectedValue(new Error('database unavailable'));

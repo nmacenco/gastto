@@ -51,6 +51,9 @@ import { normalizeExpenseReviewPayload } from '../../../domain/value-objects/exp
 import type { PaymentMethodSelection } from '../../../domain/value-objects/payment-method-selection';
 import type { AccountExternalWorkFence } from '../../ports/AccountExternalWorkFence';
 
+import { resolveExpenseCalendarDate } from '../../services/resolveExpenseCalendarDate';
+import { ExpenseDateInvalidError } from '../../services/ExpenseDateInvalidError';
+
 export interface RegisterExpenseInput {
   userId: string;
   rawMessage: string;
@@ -58,33 +61,6 @@ export interface RegisterExpenseInput {
   queueRegisteredCount?: number;
   immediateUndoExpenseId?: string;
   correlationId?: string;
-}
-
-function resolveExpenseCalendarDate(rawDate: string | null): string {
-  const value = rawDate?.trim();
-  if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-
-  const spanishNumericDate = value?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (spanishNumericDate) {
-    const day = Number(spanishNumericDate[1]);
-    const month = Number(spanishNumericDate[2]);
-    const year = Number(spanishNumericDate[3]);
-    const date = new Date(year, month - 1, day);
-    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-      throw new RangeError('Invalid extracted expense date');
-    }
-    return [year, String(month).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
-  }
-
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) throw new RangeError('Invalid extracted expense date');
-  // The review records the calendar day stated by the user. Converting local
-  // midnight to UTC can silently move a date-only expense to the previous day.
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('-');
 }
 
 export class RegisterExpenseUseCase {
@@ -120,6 +96,7 @@ export class RegisterExpenseUseCase {
     | { status: 'needs_zero_confirmation'; payload: ExpenseReviewPayload }
     | { status: 'ready_for_review'; payload: ExpenseReviewPayload }
   > {
+    const now = new Date();
     // Check the configured provider before doing any expense interpretation.
     // A terminal OAuth failure should never produce a review that cannot be saved.
     const config = await this.spreadsheetConfigRepo.findByUserId(input.userId);
@@ -203,6 +180,7 @@ export class RegisterExpenseUseCase {
     const observed = this.transitionState.currentState?.(input.userId);
     const signal = this.transitionState.signal?.(input.userId);
     let extracted: ExtractedExpense;
+    let resolvedDate: string;
     try {
       extracted = await this.llm.extractExpense(
         input.rawMessage,
@@ -217,20 +195,27 @@ export class RegisterExpenseUseCase {
           : []),
       );
       if (signal?.aborted) throw new StaleConversationStateError({ status: 'stale' });
+      const dateResult = resolveExpenseCalendarDate(extracted.fechaRaw, now);
+      if (dateResult.kind === 'invalid') throw new ExpenseDateInvalidError(dateResult.reason);
+      resolvedDate = dateResult.date;
     } catch (error) {
       if (signal?.aborted) throw new StaleConversationStateError({ status: 'stale' });
       const initialAttempt =
         activeState?.currentState === 'IDLE' || activeState?.currentState === 'EXPENSE_RECEIVING';
       if (
-        error instanceof LLMExtractionError &&
-        error.code !== 'LLM_CANCELLED' &&
+        (error instanceof ExpenseDateInvalidError ||
+          (error instanceof LLMExtractionError && error.code !== 'LLM_CANCELLED')) &&
         initialAttempt &&
         observed?.currentState === 'EXPENSE_RECEIVING' &&
-        input.queueRegisteredCount === undefined
+        input.queueRegisteredCount === undefined &&
+        observed.statePayload?.queueRegisteredCount === undefined
       ) {
         const recovery = await new RecoverExpenseExtraction(this.transitionState).execute(observed);
-        if (recovery === 'stale') throw new StaleConversationStateError({ status: 'stale' });
-        throw new RecoveredExpenseExtractionError(error.code);
+        if (recovery === 'stale' || signal?.aborted)
+          throw new StaleConversationStateError({ status: 'stale' });
+        const recoveredState = this.transitionState.currentState(input.userId);
+        if (!recoveredState) throw new StaleConversationStateError({ status: 'stale' });
+        throw new RecoveredExpenseExtractionError(error, recoveredState.revision);
       }
       throw error;
     }
@@ -312,6 +297,7 @@ export class RegisterExpenseUseCase {
     });
     const basePayload = this.buildReviewPayload(
       finalExtracted,
+      resolvedDate,
       input.rawMessage,
       classification,
       subcategoryEnabled,
@@ -491,13 +477,12 @@ export class RegisterExpenseUseCase {
 
   private buildReviewPayload(
     extracted: ExtractedExpense,
+    resolvedDate: string,
     rawMessage: string,
     classification: HierarchicalClassificationResult,
     subcategoryEnabled: boolean,
     paymentMethodSelection: PaymentMethodSelection,
   ): ExpenseReviewPayload {
-    const resolvedDate = resolveExpenseCalendarDate(extracted.fechaRaw);
-
     const canonicalExtracted =
       classification.subcategory.id === null
         ? { ...extracted, subcategoriaRaw: null, confianzaSubcategoria: 'nula' as const }

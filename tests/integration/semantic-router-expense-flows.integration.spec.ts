@@ -1,3 +1,9 @@
+import { DrizzleUserCategoryRepository } from '../../src/infrastructure/db/repositories/DrizzleUserCategoryRepository';
+import { DrizzleCategoryVocabularyRepository } from '../../src/infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
+import { DrizzleCategoryKeywordVocabularyRepository } from '../../src/infrastructure/db/repositories/DrizzleCategoryKeywordVocabularyRepository';
+import { ClassifyExpenseCategory } from '../../src/application/use-cases/expense/ClassifyExpenseCategory';
+import { CategoryFallbackMapper } from '../../src/infrastructure/adapters/category/CategoryFallbackMapper';
+import { SubcategoryFallbackMatcher } from '../../src/infrastructure/adapters/category/SubcategoryFallbackMatcher';
 import { LLMExtractionError } from '../../src/domain/errors/LLMExtractionError';
 import { expenseCopies } from '../../src/application/copies/expense.copies';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
@@ -84,6 +90,8 @@ const WEBHOOK_SECRET = 'expense-flow-secret';
 const EXTERNAL_ID = '34600111222';
 const MERCADONA_MESSAGE =
   'Fecha: 11 sept 2026, 21:09\nComercio: Mercadona\nImporte: 16,55\u00a0€\nTarjeta: CREDITO SANTANDER\nNombre: Mercadona\nTransacción: Mercadona';
+const REPORTED_RECEIPT =
+  'Fecha : 24 Nov 2026 at 17:12\nComercio: Mercadona\nImporte: 13,79 €\nTarjeta:CREDITO SANTANDER\nNombre: Mercadona\nTransacción: Mercadon';
 const ROUTER_METADATA = {
   provider: 'openai',
   model: 'gpt-4o-mini-2024-07-18',
@@ -166,6 +174,15 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
     const expenseRepo = new DrizzleExpenseRecordRepository(db);
     const queueRepo = new DrizzleExpenseQueueRepository(db);
     const operationLogRepo = new DrizzleOperationLogRepository(db);
+    const categoryRepo = new DrizzleUserCategoryRepository(db);
+    const categoryVocabularyRepo = new DrizzleCategoryVocabularyRepository(db);
+    const categoryClassifier = new ClassifyExpenseCategory(
+      new DrizzleCategoryKeywordVocabularyRepository(spreadsheetConfigRepo, categoryRepo),
+      categoryVocabularyRepo,
+      new CategoryFallbackMapper(),
+      new SubcategoryFallbackMatcher(),
+      0.6,
+    );
     await columnMappingRepo.upsertMany([
       mapping(spreadsheet.id, 'monto', 0),
       mapping(spreadsheet.id, 'moneda', 1),
@@ -211,28 +228,12 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
       expenseRepo,
       spreadsheetConfigRepo,
       columnMappingRepo,
-      { findActiveBySpreadsheetId: vi.fn().mockResolvedValue([]) } as never,
-      { findBySpreadsheetId: vi.fn().mockResolvedValue(null) } as never,
+      categoryRepo,
+      categoryVocabularyRepo,
       transitionState,
       operationLogRepo,
       profileRepo,
-      {
-        execute: vi.fn(async (input) => ({
-          category: {
-            id: null,
-            name: input.llmCategory,
-            status: input.llmCategory ? ('confirmed' as const) : ('none' as const),
-            confidence: input.llmConfidence,
-          },
-          subcategory: {
-            id: null,
-            name: null,
-            categoryId: null,
-            status: 'none' as const,
-            confidence: 'nula' as const,
-          },
-        })),
-      },
+      categoryClassifier,
       {
         getValidAccessToken: vi.fn().mockResolvedValue({
           accessToken: 'integration-token',
@@ -245,21 +246,10 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
     const completeClarification = new CompleteExpenseClarification(registerExpense);
     const correctExpense = new CorrectExpenseUseCase({
       llm,
-      classifier: {
-        execute: vi.fn(async () => ({
-          category: { id: null, name: null, status: 'none', confidence: 'nula' },
-          subcategory: {
-            id: null,
-            name: null,
-            categoryId: null,
-            status: 'none',
-            confidence: 'nula',
-          },
-        })),
-      },
+      classifier: categoryClassifier,
       expenseRepo,
       spreadsheetConfigRepo,
-      categoryVocabularyRepo: { findBySpreadsheetId: vi.fn().mockResolvedValue(null) } as never,
+      categoryVocabularyRepo,
       transitionState,
     });
     const queuePendingExpense = new QueuePendingExpense(queueRepo);
@@ -303,7 +293,10 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
     const presenterFactory = (output: MessagingOutputPort, chatId: string) => ({
       presentSummary: async (summary: ExpenseSummary, binding: ExpenseReviewBinding) => {
         summaries.push({ summary, binding });
-        await output.sendMessage(chatId, `REVIEW ${summary.amount} ${summary.currency}`);
+        await output.sendMessage(
+          chatId,
+          `REVIEW ${summary.date} ${summary.amount} ${summary.currency}`,
+        );
       },
       showTimeoutWarning: async () => undefined,
       notifyCancellation: async () => undefined,
@@ -443,6 +436,139 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router expense fl
       expect(harness.routerDecide).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ['off', 'IDLE', false],
+    ['enabled', 'IDLE', false],
+    ['off', 'IDLE', true],
+    ['off', 'EXPENSE_RECEIVING', true],
+    ['enabled', 'IDLE', true],
+    ['enabled', 'EXPENSE_RECEIVING', true],
+  ] as const)(
+    'reviews the reported receipt in %s from %s after prior failure=%s and confirms exactly once',
+    async (mode, initialState, priorFailure) => {
+      const harness = await buildHarness(mode);
+      if (initialState === 'EXPENSE_RECEIVING')
+        await harness.deps.transitionState.runForUser(harness.userId, () =>
+          harness.deps.transitionState.execute({
+            userId: harness.userId,
+            targetState: 'EXPENSE_RECEIVING',
+            payload: { raw_message: 'earlier attempt' },
+          }),
+        );
+      const extracted = {
+        ...extractedFor(REPORTED_RECEIPT),
+        monto: 13.79,
+        fechaRaw: '24 Nov 2026 at 17:12',
+      };
+      if (priorFailure) {
+        harness.extractExpense.mockResolvedValueOnce({ ...extracted, fechaRaw: '2026-11-31' });
+        await deliverWebhookAndProcess(harness, REPORTED_RECEIPT, 93001);
+        expect(await harness.stateRepo.findByUserId(harness.userId)).toMatchObject({
+          currentState: 'IDLE',
+          statePayload: null,
+          expiresAt: null,
+        });
+        expect(
+          harness.messages.filter((text) => text === expenseCopies.invalidDateRecovered()),
+        ).toHaveLength(1);
+        expect(harness.summaries).toHaveLength(0);
+        expect(harness.appendRow).not.toHaveBeenCalled();
+        expect(await harness.expenseRepo.findLatestByUserId(harness.userId)).toBeNull();
+        expect(harness.errors).toHaveBeenCalledWith(
+          expect.objectContaining({
+            code: 'EXPENSE_DATE_INVALID',
+            stage: 'expense_date_validation',
+            reason: 'invalid-calendar-date',
+          }),
+        );
+        expect(harness.errors).not.toHaveBeenCalledWith(
+          expect.objectContaining({ code: 'UNEXPECTED_HANDLER_ERROR' }),
+        );
+      }
+      harness.extractExpense.mockResolvedValueOnce(extracted);
+      await deliverWebhookAndProcess(harness, REPORTED_RECEIPT, 93002);
+      expect(await harness.stateRepo.findByUserId(harness.userId)).toMatchObject({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: { resolvedDate: '2026-11-24', extracted: { monto: 13.79, moneda: 'EUR' } },
+      });
+      expect(harness.summaries).toHaveLength(1);
+      expect(harness.messages).toContain('REVIEW 2026-11-24 13.79 EUR');
+      expect(harness.summaries[0]?.summary).toMatchObject({
+        date: '2026-11-24',
+        amount: 13.79,
+        currency: 'EUR',
+      });
+      expect(harness.appendRow).not.toHaveBeenCalled();
+      expect(await harness.expenseRepo.findLatestByUserId(harness.userId)).toBeNull();
+      const confirm = job(harness, 'sí', 'confirm-receipt-date', futureTimestamp());
+      await processMessageJob(confirm, harness.deps);
+      await processMessageJob(confirm, harness.deps);
+      expect(harness.appendRow).toHaveBeenCalledOnce();
+      expect(await db.select().from(schema.expenseRecords)).toHaveLength(1);
+      const saved = await harness.expenseRepo.findLatestByUserId(harness.userId);
+      expect(saved).toMatchObject({ monto: 13.79, moneda: 'EUR' });
+      expect(saved?.fechaGasto.toISOString().slice(0, 10)).toBe('2026-11-24');
+    },
+  );
+
+  it.each(['off', 'enabled'] as const)(
+    'preserves clarification and its replacement in %s when their extracted dates are invalid',
+    async (mode) => {
+      const harness = await buildHarness(mode);
+      harness.extractExpense.mockResolvedValueOnce({
+        ...extractedFor('Cafe'),
+        monto: null,
+        fechaRaw: null,
+      });
+      await deliverWebhookAndProcess(harness, 'Taxi en euros', 94001);
+      const before = await harness.stateRepo.findByUserId(harness.userId);
+      expect(before?.currentState).toBe('EXPENSE_CLARIFYING');
+      harness.extractExpense.mockResolvedValueOnce({
+        ...extractedFor('Cafe'),
+        fechaRaw: 'unsupported',
+      });
+      await deliverWebhookAndProcess(harness, '25', 94002);
+      expect(await harness.stateRepo.findByUserId(harness.userId)).toEqual(before);
+      harness.extractExpense.mockResolvedValueOnce({
+        ...extractedFor(REPORTED_RECEIPT),
+        fechaRaw: '2026-11-31',
+      });
+      await deliverWebhookAndProcess(harness, REPORTED_RECEIPT, 94003);
+      expect(await harness.stateRepo.findByUserId(harness.userId)).toEqual(before);
+      expect(harness.messages).not.toContain(expenseCopies.invalidDateRecovered());
+      expect(harness.messages).not.toContain(expenseCopies.clarificationInterrupted());
+      expect(harness.appendRow).not.toHaveBeenCalled();
+      expect(harness.summaries).toHaveLength(0);
+      expect(await harness.expenseRepo.findLatestByUserId(harness.userId)).toBeNull();
+    },
+  );
+
+  it('retains the queued expense when its date fails after confirming the active review', async () => {
+    const harness = await buildHarness('enabled');
+    await deliverWebhookAndProcess(harness, MERCADONA_MESSAGE, 95001);
+    await deliverWebhookAndProcess(harness, REPORTED_RECEIPT, 95002);
+    const queued = await harness.queueRepo.findByUserId(harness.userId);
+    expect(queued).toHaveLength(1);
+    harness.extractExpense.mockResolvedValueOnce({
+      ...extractedFor(REPORTED_RECEIPT),
+      fechaRaw: '2026-11-31',
+    });
+    await processMessageJob(
+      job(harness, 'sí', 'confirm-before-invalid-queue', futureTimestamp()),
+      harness.deps,
+    );
+    expect(await harness.queueRepo.findByUserId(harness.userId)).toEqual(queued);
+    expect(await harness.stateRepo.findByUserId(harness.userId)).toMatchObject({
+      currentState: 'EXPENSE_RECEIVING',
+    });
+    expect(harness.appendRow).toHaveBeenCalledOnce();
+    expect(await db.select().from(schema.expenseRecords)).toHaveLength(1);
+    expect(harness.summaries).toHaveLength(1);
+    expect(harness.messages).not.toContain(expenseCopies.invalidDateRecovered());
+    expect(harness.messages).not.toContain(expenseCopies.expenseQueueClosingSummary(1));
+    expect(harness.messages).toContain(expenseCopies.invalidDate('cancellable'));
+  });
 
   it('runs the canonical webhook conversation and saves the exact expense only after bound confirmation', async () => {
     const harness = await buildHarness();

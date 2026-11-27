@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
 import { DispatchExpenseSemanticAction } from './DispatchExpenseSemanticAction';
+import { ExpenseDateInvalidError } from '../../services/ExpenseDateInvalidError';
 
 const state: ConversationState = {
   userId: 'user-1',
@@ -54,6 +55,23 @@ function input(overrides: Partial<Parameters<DispatchExpenseSemanticAction['exec
 }
 
 describe('DispatchExpenseSemanticAction', () => {
+  it('propagates date validation to the worker without generic recovery', async () => {
+    const error = new ExpenseDateInvalidError('unsupported-format');
+    const transitionState = buildTransitionState();
+    const useCase = new DispatchExpenseSemanticAction({
+      snapshotValidator: { execute: vi.fn().mockResolvedValue({ status: 'current', state }) },
+      transitionState,
+      registerExpense: { interpret: vi.fn().mockRejectedValue(error) },
+      completeClarification: { execute: vi.fn() },
+      correctExpense: { execute: vi.fn() },
+      queuePendingExpense: { execute: vi.fn() },
+    });
+    await expect(useCase.execute(input())).rejects.toBe(error);
+    expect(transitionState.execute).toHaveBeenCalledTimes(1);
+    expect(transitionState.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ targetState: 'EXPENSE_RECEIVING' }),
+    );
+  });
   it('revalidates the snapshot and passes the unchanged original message to interpretation', async () => {
     const interpret = vi.fn().mockResolvedValue({ status: 'ready_for_review', payload });
     const snapshotValidator = {
@@ -132,7 +150,7 @@ describe('DispatchExpenseSemanticAction', () => {
     },
   );
 
-  it('fails closed when interpretation throws', async () => {
+  it('propagates interpretation persistence failures without generic recovery', async () => {
     const useCase = new DispatchExpenseSemanticAction({
       transitionState: buildTransitionState(),
       snapshotValidator: { execute: vi.fn().mockResolvedValue({ status: 'current', state }) },
@@ -142,10 +160,7 @@ describe('DispatchExpenseSemanticAction', () => {
       queuePendingExpense: { execute: vi.fn() },
     });
 
-    await expect(useCase.execute(input())).resolves.toEqual({
-      status: 'clarification_required',
-      reason: 'dispatch_failed',
-    });
+    await expect(useCase.execute(input())).rejects.toThrow('extractor failed');
   });
 
   it('completes clarification through the dedicated boundary with the persisted payload', async () => {
@@ -334,7 +349,7 @@ describe('DispatchExpenseSemanticAction', () => {
           rawMessage: 'Taxi 25 EUR',
         }),
       ),
-    ).resolves.toEqual({ status: 'clarification_required', reason: 'dispatch_failed' });
+    ).rejects.toThrow('extractor failed');
   });
 
   it('reports review queue overflow without invoking correction interpretation', async () => {

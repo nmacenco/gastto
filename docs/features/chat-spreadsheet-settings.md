@@ -10,7 +10,7 @@ Let a user inspect the stored Google or Microsoft connection and current spreads
 
 - `8. Eliminar cuenta` opens the account deletion confirmation preview in development. Production replies that deletion is not yet available until the complete cleanup flow ships. See [account deletion](./account-deletion.md).
 
-- The exact `configuración` command opens a numbered menu from `IDLE`. While an expense is active, the user is asked to finish or cancel it first. An unresolved financial execution claim remains protected.
+- The exact `configuración` command opens a numbered menu from `IDLE`. The setup-completion message includes an immediate expense example and tells the user that option 5 manages categories and subcategories. While an expense is active, the user is asked to finish or cancel it first. An unresolved financial execution claim remains protected.
 - `1` reports stored credential status (`missing`, `revoked`, or `available`), provider, and selected file and sheet names. An expired access token remains `available` when a non-revoked credential is stored. The message explains that live access was not checked. Incomplete destinations show onboarding guidance.
 - `2` starts voluntary Google reauthorization when the current destination has a file and sheet. `3` lists recent Google spreadsheets and starts a file candidate. `4` lists sheets in the current file and starts a sheet candidate. Unknown responses show menu guidance.
 - `6` opens the active destination's payment catalog as a local draft. `detectar` reads proposed values from the mapped payment column; manual editing remains available without provider access. An empty confirmation activates configured catalog mode. See [payment methods](./payment-methods.md).

@@ -80,16 +80,23 @@ Extraction completion logs include the configured deadline. NVIDIA extraction al
 
 For the exact NVIDIA model `z-ai/glm-5.3-flash`, initial extraction requests use streaming. The adapter assembles only final-answer content from SSE events, discards reasoning text, and waits for the completion marker before validating the JSON. It records the first event latency and counts of stream/reasoning events without recording their text. The same configured deadline bounds the entire stream; receiving early events does not extend it. Other NVIDIA model IDs retain their JSON response path.
 
-The initial review preserves the calendar date extracted from a written receipt (for example, `21 oct 2026` becomes `2026-10-21`) or a Spanish numeric date (`20/10/2026` becomes `2026-10-20`). It does not convert a local date-only value through UTC, which could move it to the previous day.
+The initial review resolves dates deterministically before classification, clarification, or review persistence. Supported explicit formats are `YYYY-MM-DD`, day-first `D/M/YYYY`, and `D month YYYY` with English or Spanish full month names or abbreviations (including `sept`, `ene`, `abr`, `ago`, and `dic`, with an optional abbreviation period). These formats may end in ` at HH:mm` or `, HH:mm`; hours must be 00–23 and minutes 00–59. For example, `24 Nov 2026 at 17:12` becomes `2026-11-24`, preserving the written day without UTC conversion. Month lengths, leap years, and nonzero calendar components are validated for every format. Trailing text, ISO timestamps, month-first numeric dates, and unrecognized formats are rejected rather than guessed.
 
-A failed initial attempt from `IDLE` or `EXPENSE_RECEIVING` resets only its owned receiving revision to `IDLE`, clearing its failed payload and expiry before notifying the user. Queued-batch interpretation, clarification, and correction do not use this reset. No expense record or spreadsheet row is written on this path. The user can resend the expense and must still confirm its review before saving.
+Only a null date defaults to the local calendar day captured once at the start of interpretation. Blank or invalid explicit strings never default to today. Spanish `hoy`, `ayer`, and `mañana` resolve relative to that captured local day; these values remain compatible with date correction.
+
+Post-extraction date failures use the application error `EXPENSE_DATE_INVALID` with a safe reason (`unsupported-format` or `invalid-calendar-date`), distinct from provider failures. The worker sends “No pude interpretar la fecha de este gasto. Usá el formato AAAA-MM-DD, por ejemplo 2026-11-24.” Cancellation guidance is added only when the reloaded persisted state permits it; unresolved financial claims retain administrator guidance. No review, expense record, spreadsheet append, or success message is produced. For an eligible initial receiving attempt, the owned revision is reset before date-specific resend guidance is sent, as described below. Re-interpretation during clarification, replacement, correction, or a queued batch does not use this reset.
+
+The shared provider prompt requests an explicit calendar date as `YYYY-MM-DD`, preserves the stated day, and uses null only when no date was supplied. Unsupported explicit text is retained for validation. The nullable-string extraction schema is unchanged, and provider compliance is never assumed.
+
+A typed LLM failure (except cancellation) or an `EXPENSE_DATE_INVALID` failure on an initial attempt from `IDLE` or `EXPENSE_RECEIVING` resets only its owned receiving revision to `IDLE`, clearing its failed payload and expiry before notifying the user. Queued-batch interpretation, clarification, and correction do not use this reset. A retained receiving payload with a queue batch count is also protected if a caller omits that count. No expense record or spreadsheet row is written on this path. The user can resend the expense and must still confirm its review before saving. Recovery uses an unexpired database precondition when the receiving attempt has an expiry. Classifier, context-loading, and persistence failures remain outside extraction/date recovery. Semantic dispatch propagates interpretation failures to the worker and never performs a second generic reset.
 
 Public failure copies after successful recovery:
 
+- Invalid date: “No pude interpretar la fecha de este gasto. No lo guardé. Volvé a enviarlo con una fecha como 2026-11-24.”
 - Timeout: “La interpretación tardó demasiado. No guardé este gasto. Volvé a enviarlo para intentar de nuevo”.
 - Invalid output/provider failure: “No pude interpretar este gasto. No lo guardé. Volvé a enviarlo para intentar de nuevo”.
 
-A stale revision or invalidated lease cannot reset another attempt or send a false recovery message. Persistence failures propagate to the generic handler. Generic fallback copy is “Parece que algo falló. Intentá de nuevo en unos momentos.” and makes no state-reset promise.
+The recovered error carries the committed IDLE revision and, for dates, its diagnostic reason. Before sending resend guidance, the worker reloads state and requires that same IDLE revision, no financial claim, and a valid lease. A newer revision or an unavailable state read suppresses the recovery notice. A stale revision or invalidated lease cannot reset another attempt or send a false recovery message. Recovery persistence failures propagate to the generic handler, without labeling the failed reset as recovered. Generic fallback copy is “Parece que algo falló. Revisá el último mensaje del chat.” with state-appropriate cancellation guidance, and makes no state-reset promise.
 
 ## API / Interface
 
@@ -123,6 +130,10 @@ A stale revision or invalidated lease cannot reset another attempt or send a fal
 - [x] Enabled review correction, direct queue admission, queue overflow, stale binding rejection, and exact-once corrected confirmation are covered at dispatcher and worker boundaries.
 - [x] PostgreSQL/Redis conversation coverage preserves the active review through two queued expenses and overflow, invalidates the old correction binding, and saves only the newly presented binding once.
 
+- [x] Full Mercadona receipt (`24 Nov 2026 at 17:12`, `13,79 €`) reaches review with calendar date `2026-11-24`, amount `13.79`, and currency `EUR`, without saving.
+- [x] Resolver rejects impossible dates and invalid/trailing time text; missing dates and receipt days are verified around midnight under Madrid, Los Angeles, and Kiritimati time zones.
+- [x] Typed date failures reach controlled worker guidance and safe logs, including semantic dispatch; invalid corrections preserve the previous review.
+
 ## Related User Stories
 
 - `docs/user-stories/01-mvp/02-Registro de Gastos/E1-US-06-interpreted-expense-summary-for-review/E1-US-06 — Interpreted expense summary for review.md`
@@ -151,3 +162,7 @@ Review summaries preserve field ordering, amounts, dates, hierarchy markers, pay
 ## Final readability audit (2026-11-16)
 
 Queue-full guidance separates the queue limit from the instruction to finish or cancel the active expense. Queue size, callback eligibility and ordering remain unchanged. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.
+
+## Receipt recovery validation (2026-11-25)
+
+The PostgreSQL/Redis expense-flow harness verifies direct registration and invalid-date recovery from IDLE/receiving with semantic routing off and enabled, followed by a visible date/amount/currency review and exactly one saved row despite duplicate confirmation. It uses actual classification, application use cases, and database repositories, with provider, OAuth, spreadsheet, semantic proposal, and messaging boundaries replaced locally. Invalid clarification answers/replacements preserve their original persisted revision, and invalid queued interpretation retains its FIFO item without a batch-completion message. See the [acceptance record](../../ai/plans/2026_11_24-fix_expense_receipt_date/validation.md); the original redacted production exception was not inspected.

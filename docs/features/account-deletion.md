@@ -64,3 +64,9 @@ The read-only `redis:restore:inspect` command inventories retained jobs and acco
 The code also sends structured Pino events to stdout for the hosting platform and, when `SENTRY_DSN` is configured, unexpected HTTP errors to Sentry after a scrubbing hook. Events may contain account UUIDs or chat IDs. Search by those identifiers in each hosted system, where supported, to verify erasure. Local cleanup cannot remove hosted events, and their retention and per-account deletion capability remain unverified.
 
 This inventory covers application-owned stores and external sinks visible in source. Hosted logs, backups, replicas, exports, and processor retention require Phase 3 operational evidence. The production action remains disabled until the listed races and retention limits are resolved.
+
+## Onboarding after deletion and fresh registration (2026-11-24)
+
+A disposable PostgreSQL/Redis regression now runs the supported account-deletion service and identity resolver through the same Telegram chat identity. It configures and activates the old account, revokes its simulated OAuth credential, removes its account/configuration/catalogs and owned Redis context/jobs, then registers a new account with a new configuration ID. It verifies that deletion makes no spreadsheet mutation call and leaves the simulated sheet rows unchanged.
+
+The new onboarding confirms payment A, category C and subcategory D, presents the linked hierarchy before accepting it, then reads mapped payment values and atomically activates both catalogs with `IDLE` after a separate final confirmation. Delivery failure, interrupted drafts and legacy placeholder recovery are covered independently. This local regression does not establish the original cause of the reported lost mappings, verify hosted retention, or change the production deletion flag and release gates above.

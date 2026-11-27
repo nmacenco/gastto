@@ -1,3 +1,10 @@
+import { RecoveredExpenseExtractionError } from '../../application/use-cases/expense/RecoverExpenseExtraction';
+import { StaleConversationStateError } from '../../domain/errors/StaleConversationStateError';
+import { ExpenseDateInvalidError } from '../../application/services/ExpenseDateInvalidError';
+import {
+  buildConfirmedMappings,
+  buildPresentedCategoryPayload,
+} from '../../__tests__/factories/onboarding';
 import { CancelConversationFlow } from '../../application/use-cases/conversation/CancelConversationFlow';
 import { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
 import type { IConversationStateRepository } from '../../domain/ports/repositories';
@@ -70,7 +77,7 @@ const mockValidateSpreadsheetAccessExecute = vi.fn();
 const mockInferColumnMappingExecute = vi.fn();
 const mockConfirmColumnMappingExecute = vi.fn();
 const mockCorrectColumnMappingExecute = vi.fn();
-const mockDetectCategoriesExecute = vi.fn();
+const mockDetectCategoriesExecute = vi.fn<DetectCategories['execute']>();
 const mockConfirmCategoriesExecute = vi.fn();
 const mockModifyCategoryVocabularyExecute = vi.fn();
 const mockLoadCorrectionState = vi.fn();
@@ -3558,6 +3565,58 @@ describe('processMessageJob', () => {
       expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
     });
 
+    it('starts a guarded category choice without saving the reviewed expense', async () => {
+      const deps = buildMockDeps();
+      const payload = buildReviewStatePayload();
+      const observed = buildConversationState({
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: payload,
+      });
+      mockGetConversationStateExecute.mockResolvedValue(observed);
+      vi.spyOn(deps.transitionState, 'currentState').mockReturnValue(observed);
+      const choice = {
+        _type: 'ExpenseCategoryChoice' as const,
+        choiceId: 'choice-1',
+        stage: 'choose' as const,
+        attemptedName: 'Mascotas',
+        suggestedName: null,
+        sourceConfigId: 'sheet-1',
+        baseline: {
+          categories: [{ id: 'cat-1', name: 'Comida', normalizedName: 'comida', isActive: true }],
+          subcategories: [],
+        },
+        original: payload,
+        proposed: payload,
+        correctionCycles: 0,
+      };
+      const start = vi.fn().mockResolvedValue({ status: 'choose', choice });
+      deps.resolveExpenseCategoryChoice = { start } as unknown as NonNullable<
+        MessageWorkerDeps['resolveExpenseCategoryChoice']
+      >;
+      mockResolveExpenseReviewReplyExecute.mockResolvedValue({
+        status: 'unresolved_category',
+        attemptedName: 'Mascotas',
+        suggestedName: null,
+        candidates: ['Comida'],
+        sourceConfigId: 'sheet-1',
+        payload,
+        correctionCycles: 0,
+      });
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'categoría: Mascotas' }),
+        deps,
+      );
+
+      expect(start).toHaveBeenCalledOnce();
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.categoryChoice(choice),
+      );
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+    });
+
     it('re-presents one hierarchy-aware summary after zero-amount confirmation', async () => {
       const deps = buildMockDeps();
       const payload = buildReviewStatePayload({
@@ -3728,6 +3787,77 @@ describe('processMessageJob', () => {
   });
 
   describe('EXPENSE_CORRECTING state', () => {
+    it('keeps a new expense-like reply inside the pending category choice', async () => {
+      const deps = buildMockDeps();
+      const review = buildReviewStatePayload();
+      const choice = {
+        _type: 'ExpenseCategoryChoice',
+        choiceId: 'choice-1',
+        stage: 'choose',
+        attemptedName: 'Mascotas',
+        suggestedName: null,
+        sourceConfigId: 'sheet-1',
+        baseline: { categories: [], subcategories: [] },
+        original: review,
+        proposed: review,
+        correctionCycles: 0,
+      };
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: choice,
+        }),
+      );
+      const reply = vi.fn().mockResolvedValue({ status: 'invalid' });
+      deps.resolveExpenseCategoryChoice = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['resolveExpenseCategoryChoice']
+      >;
+
+      await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'Taxi 12 EUR' }), deps);
+
+      expect(reply).toHaveBeenCalledWith({
+        userId: 'user-123',
+        rawMessage: 'Taxi 12 EUR',
+        receivedAt: baseJobData.receivedAt,
+      });
+      expect(mockQueuePendingExpenseExecute).not.toHaveBeenCalled();
+    });
+
+    it('rejects an old review callback while a category choice is pending', async () => {
+      const deps = buildMockDeps();
+      const review = buildReviewStatePayload();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({
+          currentState: 'EXPENSE_CORRECTING',
+          statePayload: {
+            _type: 'ExpenseCategoryChoice',
+            choiceId: 'choice-1',
+            stage: 'choose',
+            attemptedName: 'Mascotas',
+            suggestedName: null,
+            sourceConfigId: 'sheet-1',
+            baseline: { categories: [], subcategories: [] },
+            original: review,
+            proposed: review,
+            correctionCycles: 0,
+          },
+        }),
+      );
+      const reply = vi.fn();
+      deps.resolveExpenseCategoryChoice = { reply } as unknown as NonNullable<
+        MessageWorkerDeps['resolveExpenseCategoryChoice']
+      >;
+
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: '', callbackData: { action: 'confirm' } }),
+        deps,
+      );
+
+      expect(reply).not.toHaveBeenCalled();
+      expect(mockResolveExpenseSummaryActionExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledWith('123456789', expenseCopies.noActiveReview());
+    });
+
     it('cancels before correction handling', async () => {
       const deps = buildMockDeps();
       mockGetConversationStateExecute.mockResolvedValue(
@@ -4159,10 +4289,7 @@ describe('processMessageJob', () => {
         deps,
       );
 
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'IDLE',
-      });
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationInterrupted(),
@@ -4670,19 +4797,30 @@ describe('processMessageJob', () => {
           spreadsheetConfigRepository: {
             findByUserId: vi.fn().mockResolvedValue({
               id: 'config-1',
+              userId: 'user-123',
+              isActive: true,
               provider: 'google',
               fileId: 'file-123',
               sheetName: 'Gastos',
+              headerRowIndex: 2,
             }),
           } as unknown as DetectCategoriesDeps['spreadsheetConfigRepository'],
           columnMappingRepository: {
-            findBySpreadsheetId: vi
-              .fn()
-              .mockResolvedValue([{ GasttoField: 'categoria', columnIndex: 2 }]),
+            findBySpreadsheetId: vi.fn().mockResolvedValue([
+              {
+                spreadsheetId: 'config-1',
+                confirmedAt: new Date('2026-08-31T10:00:00Z'),
+                GasttoField: 'categoria',
+                columnIndex: 2,
+                columnHeader: 'Categoría',
+              },
+            ]),
           } as unknown as DetectCategoriesDeps['columnMappingRepository'],
           messagingPort: { sendMessage: mockSendMessage },
           transitionState: {
             execute: mockTransitionStateExecute,
+            currentState: vi.fn().mockReturnValue(null),
+            precondition: deps.transitionState.precondition.bind(deps.transitionState),
           } as unknown as DetectCategoriesDeps['transitionState'],
           categoryVocabularyRepository: {
             findBySpreadsheetId: vi.fn().mockResolvedValue(null),
@@ -5218,6 +5356,75 @@ describe('processMessageJob', () => {
     });
 
     describe('ONBOARDING_CATEGORIES', () => {
+      it.each(['ok', 'sí', 'confirmar'])(
+        're-presents an unpresented draft on %s and waits for a new reply',
+        async (rawMessage) => {
+          const deps = buildMockDeps();
+          let observed = buildConversationState({
+            currentState: 'ONBOARDING_CATEGORIES',
+            statePayload: {
+              ...buildPresentedCategoryPayload({ categories: ['Food'] }),
+              categoryPresentation: null,
+            },
+          });
+          mockGetConversationStateExecute.mockImplementation(() => Promise.resolve(observed));
+          mockTransitionStateExecute.mockImplementation((input) => {
+            observed = buildConversationState({
+              currentState: input.targetState,
+              statePayload: input.payload ?? null,
+              revision: String(Number(observed.revision) + 1),
+            });
+            return Promise.resolve({ status: 'updated', state: observed });
+          });
+          vi.spyOn(deps.transitionState, 'currentState').mockImplementation(() => observed);
+          const detectPayments = vi.fn().mockResolvedValue({ names: ['Visa'], columnMapped: true });
+          const commit = vi.fn();
+          const save = vi.fn();
+          deps.confirmCategories = new ConfirmCategories({
+            spreadsheetConfigRepository: {
+              findByUserId: vi.fn().mockResolvedValue({
+                id: 'config-1',
+                userId: 'user-123',
+                isActive: true,
+                provider: 'google',
+                fileId: 'file-123',
+                sheetName: 'Gastos',
+                headerRowIndex: 1,
+              }),
+            } as unknown as ConfirmCategoriesDeps['spreadsheetConfigRepository'],
+            columnMappingRepository: {
+              findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
+            } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
+            categoryVocabularyRepository: { findBySpreadsheetId: vi.fn(), save },
+            userRepository: {
+              updateStatus: vi.fn(),
+            } as unknown as ConfirmCategoriesDeps['userRepository'],
+            transitionState: deps.transitionState,
+            messagingPort: { sendMessage: mockSendMessage },
+            detectPaymentMethods: { execute: detectPayments } as unknown as NonNullable<
+              ConfirmCategoriesDeps['detectPaymentMethods']
+            >,
+            onboardingCommit: { execute: commit },
+          });
+          await processMessageJob(buildJob({ ...baseJobData, rawMessage }), deps);
+          expect(mockSendMessage).toHaveBeenLastCalledWith(
+            '123456789',
+            expect.stringContaining('Food'),
+          );
+          expect(observed.statePayload?.paymentReview).toBeUndefined();
+          expect(detectPayments).not.toHaveBeenCalled();
+          expect(commit).not.toHaveBeenCalled();
+          expect(save).not.toHaveBeenCalled();
+          await processMessageJob(
+            buildJob({ ...baseJobData, rawMessage, externalMessageId: 'next-confirm' }),
+            deps,
+          );
+          expect(detectPayments).toHaveBeenCalledOnce();
+          expect(observed.statePayload?.paymentReview).toBe(true);
+          expect(commit).not.toHaveBeenCalled();
+        },
+      );
+
       it('delegates to DetectCategories on first entry when categories are not yet in payload', async () => {
         const deps = buildMockDeps();
         mockGetConversationStateExecute.mockResolvedValue(
@@ -5234,6 +5441,59 @@ describe('processMessageJob', () => {
         });
         expect(mockSendMessage).not.toHaveBeenCalled();
       });
+
+      it.each([true, false])(
+        'stops after prerequisite recovery instead of confirming hidden defaults (missingConfig=%s)',
+        async (missingConfig) => {
+          const deps = buildMockDeps();
+          mockGetConversationStateExecute.mockResolvedValue(
+            buildConversationState({ currentState: 'ONBOARDING_CATEGORIES', statePayload: null }),
+          );
+          deps.detectCategories = new DetectCategories({
+            spreadsheetConfigRepository: {
+              findByUserId: vi.fn().mockResolvedValue(
+                missingConfig
+                  ? null
+                  : {
+                      id: 'config-1',
+                      userId: 'user-123',
+                      isActive: true,
+                      provider: 'google',
+                      fileId: 'file',
+                      sheetName: 'Gastos',
+                    },
+              ),
+            } as unknown as DetectCategoriesDeps['spreadsheetConfigRepository'],
+            columnMappingRepository: {
+              findBySpreadsheetId: vi.fn().mockResolvedValue([]),
+            } as unknown as DetectCategoriesDeps['columnMappingRepository'],
+            categoryReaderPortFactory: { create: vi.fn() },
+            categoryHierarchyReaderPortFactory: { create: vi.fn() },
+            oauthAccessTokenService: {
+              getValidAccessToken: vi.fn(),
+              forceRefreshAccessToken: vi.fn(),
+            },
+            categoryVocabularyRepository: { findBySpreadsheetId: vi.fn(), save: vi.fn() },
+            messagingPort: { sendMessage: mockSendMessage },
+            transitionState: deps.transitionState,
+          });
+          await processMessageJob(buildJob({ ...baseJobData, rawMessage: 'ok' }), deps);
+          expect(mockConfirmCategoriesExecute).not.toHaveBeenCalled();
+          expect(mockTransitionStateExecute).toHaveBeenCalledWith(
+            expect.objectContaining({
+              targetState: missingConfig ? 'ONBOARDING_START' : 'ONBOARDING_MAPPING',
+            }),
+          );
+          expect(mockSendMessage).not.toHaveBeenCalledWith(
+            expect.anything(),
+            onboardingCopies.onboardingPlaceholder(),
+          );
+          expect(mockSendMessage).not.toHaveBeenCalledWith(
+            expect.anything(),
+            onboardingCopies.onboardingComplete(),
+          );
+        },
+      );
 
       it('falls back to placeholder on first entry when DetectCategories is not wired', async () => {
         const deps = buildMockDeps();
@@ -5283,12 +5543,12 @@ describe('processMessageJob', () => {
         let observed = buildConversationState({
           currentState: 'ONBOARDING_CATEGORIES',
           revision: '1',
-          statePayload: {
+          statePayload: buildPresentedCategoryPayload({
             categories: ['comida'],
             paymentReview: true,
             paymentColumnMapped: true,
             paymentMethods: ['B', 'TC', 'TR', 'CREDITO SANTANDER', 'efectivo', 'tarjeta de débito'],
-          },
+          }),
         });
         mockGetConversationStateExecute.mockImplementation(() => Promise.resolve(observed));
         mockTransitionStateExecute.mockImplementation((input) => {
@@ -5300,7 +5560,15 @@ describe('processMessageJob', () => {
           return Promise.resolve({ status: 'updated', state: observed });
         });
         vi.spyOn(deps.transitionState, 'currentState').mockImplementation(() => observed);
-        mockSpreadsheetConfigFindByUserId.mockResolvedValue({ id: 'config-1' });
+        mockSpreadsheetConfigFindByUserId.mockResolvedValue({
+          id: 'config-1',
+          userId: 'user-123',
+          isActive: true,
+          provider: 'google',
+          fileId: 'file-123',
+          sheetName: 'Gastos',
+          headerRowIndex: 1,
+        });
         const commit = vi.fn().mockImplementation(() => {
           observed = buildConversationState({
             currentState: 'IDLE',
@@ -5314,7 +5582,7 @@ describe('processMessageJob', () => {
             findByUserId: mockSpreadsheetConfigFindByUserId,
           } as unknown as ConfirmCategoriesDeps['spreadsheetConfigRepository'],
           categoryVocabularyRepository: {
-            findBySpreadsheetId: vi.fn(),
+            findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
             save: vi.fn(),
           },
           userRepository: {
@@ -5323,7 +5591,7 @@ describe('processMessageJob', () => {
           messagingPort: { sendMessage: mockSendMessage },
           transitionState: deps.transitionState,
           columnMappingRepository: {
-            findBySpreadsheetId: vi.fn(),
+            findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
           } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
           detectPaymentMethods: {
             execute: vi.fn(),
@@ -5360,6 +5628,12 @@ describe('processMessageJob', () => {
         const deps = buildMockDeps();
         const findSpreadsheetConfig = vi.fn().mockResolvedValue({
           id: 'config-1',
+          userId: 'user-123',
+          isActive: true,
+          provider: 'google',
+          fileId: 'file-123',
+          sheetName: 'Gastos',
+          headerRowIndex: 1,
           categoriesConfirmedAt: new Date('2026-08-30T10:00:00Z'),
         });
         const updateCategoriesConfirmed = vi.fn();
@@ -5370,6 +5644,9 @@ describe('processMessageJob', () => {
         const saveVocabulary = vi.fn().mockResolvedValue(undefined);
 
         deps.confirmCategories = new ConfirmCategories({
+          columnMappingRepository: {
+            findBySpreadsheetId: vi.fn().mockResolvedValue(buildConfirmedMappings()),
+          } as unknown as NonNullable<ConfirmCategoriesDeps['columnMappingRepository']>,
           spreadsheetConfigRepository: {
             findByUserId: findSpreadsheetConfig,
             updateCategoriesConfirmed,
@@ -5384,13 +5661,22 @@ describe('processMessageJob', () => {
           messagingPort: { sendMessage: mockSendMessage },
           transitionState: {
             execute: mockTransitionStateExecute,
+            assertExecutionIsValid: vi.fn(),
+            currentState: vi.fn().mockReturnValue(
+              buildConversationState({
+                currentState: 'ONBOARDING_CATEGORIES',
+                statePayload: buildPresentedCategoryPayload({
+                  categories: ['comida', 'transporte'],
+                }),
+              }),
+            ),
           } as unknown as ConfirmCategoriesDeps['transitionState'],
         });
         mockGetConversationStateExecute
           .mockResolvedValueOnce(
             buildConversationState({
               currentState: 'ONBOARDING_CATEGORIES',
-              statePayload: { categories: ['comida', 'transporte'] },
+              statePayload: buildPresentedCategoryPayload({ categories: ['comida', 'transporte'] }),
               expiresAt: new Date('2026-08-31T12:00:00Z'),
             }),
           )
@@ -5848,6 +6134,221 @@ describe('processMessageJob', () => {
     });
   });
 
+  describe('invalid extracted expense dates', () => {
+    beforeEach(() => {
+      mockReleaseLock.mockResolvedValue(undefined);
+    });
+    it('sends date-specific resend guidance only for the committed recovery revision', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(buildConversationState())
+        .mockResolvedValue(buildConversationState({ revision: '44' }));
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new RecoveredExpenseExtractionError(
+          new ExpenseDateInvalidError('invalid-calendar-date'),
+          '44',
+        ),
+      );
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).toHaveBeenCalledExactlyOnceWith(
+        '123456789',
+        expenseCopies.invalidDateRecovered(),
+      );
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'EXPENSE_DATE_INVALID',
+          stage: 'expense_date_validation',
+          reason: 'invalid-calendar-date',
+        }),
+      );
+      const log: unknown = mockLoggerError.mock.calls.at(-1)?.[0];
+      expect(log).not.toHaveProperty('error');
+      expect(log).not.toHaveProperty('rawMessage');
+    });
+
+    it('suppresses recovery notification when the worker lease renewal is lost', async () => {
+      vi.useFakeTimers();
+      try {
+        const deps = buildMockDeps();
+        deps.transitionState.invalidateExecution = vi.fn();
+        deps.userProcessingLock.renew = vi
+          .fn<typeof deps.userProcessingLock.renew>()
+          .mockResolvedValue(false);
+        mockGetConversationStateExecute
+          .mockResolvedValueOnce(buildConversationState())
+          .mockResolvedValue(buildConversationState({ revision: '44' }));
+        mockRegisterExpenseInterpret.mockImplementationOnce(async () => {
+          await vi.advanceTimersByTimeAsync(30_000);
+          throw new RecoveredExpenseExtractionError(
+            new ExpenseDateInvalidError('unsupported-format'),
+            '44',
+          );
+        });
+        await processMessageJob(buildJob(baseJobData), deps);
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockLoggerError).toHaveBeenCalledWith(
+          expect.objectContaining({ code: 'LOCK_RENEW_LOST' }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not claim a reset when the effective recovery state cannot be loaded', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(buildConversationState())
+        .mockRejectedValueOnce(new Error('read failed'));
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new RecoveredExpenseExtractionError(
+          new ExpenseDateInvalidError('unsupported-format'),
+          '44',
+        ),
+      );
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('uses administrator guidance if current persisted state contains a financial claim', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(buildConversationState())
+        .mockResolvedValue(
+          buildConversationState({
+            currentState: 'EXPENSE_RECEIVING',
+            statePayload: {
+              executionClaim: {
+                claimId: 'claim',
+                kind: 'save',
+                operationId: 'op',
+                sourceMessageId: null,
+                status: 'outcome_unknown',
+                target: {},
+              },
+            },
+          }),
+        );
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new ExpenseDateInvalidError('unsupported-format'),
+      );
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).toHaveBeenCalledExactlyOnceWith(
+        '123456789',
+        expenseCopies.financialOutcomeUnknown(),
+      );
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
+    it.each(['IDLE', 'EXPENSE_REVIEW'] as const)(
+      'suppresses a stale recovery notice after a newer %s revision',
+      async (currentState) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute
+          .mockResolvedValueOnce(buildConversationState())
+          .mockResolvedValue(buildConversationState({ revision: '45', currentState }));
+        mockRegisterExpenseInterpret.mockRejectedValueOnce(
+          new RecoveredExpenseExtractionError(
+            new ExpenseDateInvalidError('unsupported-format'),
+            '44',
+          ),
+        );
+        await processMessageJob(buildJob(baseJobData), deps);
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      },
+    );
+
+    it('does not notify after invalidated execution', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new StaleConversationStateError({ status: 'stale' }),
+      );
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).not.toHaveBeenCalled();
+      expect(mockLoggerError).not.toHaveBeenCalled();
+    });
+
+    it('does not promise recovery when its persistence fails', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_RECEIVING' }),
+      );
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(new Error('recovery write failed'));
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).toHaveBeenCalledExactlyOnceWith(
+        '123456789',
+        expenseCopies.fallbackError('cancellable'),
+      );
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.invalidDateRecovered(),
+      );
+    });
+
+    it('retains the old clarification and queue count when a replacement has an invalid date', async () => {
+      const deps = buildMockDeps();
+      const payload = {
+        ...buildClarificationStatePayload('monto', 'Cafe'),
+        queueRegisteredCount: 2,
+      };
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_CLARIFYING', statePayload: payload }),
+      );
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new ExpenseDateInvalidError('unsupported-format'),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'Pagué 30 euros por el café' }),
+        deps,
+      );
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({ queueRegisteredCount: 2 }),
+      );
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledExactlyOnceWith(
+        '123456789',
+        expenseCopies.invalidDate('cancellable'),
+      );
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationInterrupted(),
+      );
+    });
+
+    it.each(['EXPENSE_RECEIVING', 'IDLE'] as const)(
+      'uses persisted %s for safe guidance and logs only diagnostic metadata',
+      async (currentState) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute
+          .mockResolvedValueOnce(buildConversationState({ currentState: 'IDLE' }))
+          .mockResolvedValue(buildConversationState({ currentState }));
+        mockRegisterExpenseInterpret.mockRejectedValueOnce(
+          new ExpenseDateInvalidError('invalid-calendar-date'),
+        );
+        await processMessageJob(buildJob(baseJobData), deps);
+        expect(mockSendMessage).toHaveBeenCalledTimes(1);
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          '123456789',
+          expenseCopies.invalidDate(currentState === 'IDLE' ? 'idle' : 'cancellable'),
+        );
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+        expect(mockLoggerError).toHaveBeenCalledWith({
+          msg: 'Expense date validation failed',
+          endpoint: 'processMessageJob',
+          code: 'EXPENSE_DATE_INVALID',
+          stage: 'expense_date_validation',
+          reason: 'invalid-calendar-date',
+          userId: 'user-123',
+          correlationId: `telegram:${baseJobData.externalMessageId}`,
+        });
+        expect(mockLoggerError).not.toHaveBeenCalledWith(
+          expect.objectContaining({ code: 'UNEXPECTED_HANDLER_ERROR' }),
+        );
+      },
+    );
+  });
+
   describe('unexpected handler errors (no BullMQ retry)', () => {
     it('catches a thrown use-case error without rethrowing, sends a single fallback, and logs structured error', async () => {
       const deps = buildMockDeps();
@@ -6066,10 +6567,7 @@ describe('processMessageJob', () => {
         deps,
       );
 
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'IDLE',
-      });
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationInterrupted(),

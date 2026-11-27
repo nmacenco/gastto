@@ -41,7 +41,7 @@ describe('ConversationState FSM', () => {
     it('allows category-stage reconnection without permitting unrelated transitions', () => {
       expect(canTransition('ONBOARDING_CATEGORIES', 'ONBOARDING_START')).toBe(true);
       expect(canTransition('ONBOARDING_CATEGORIES', 'EXPENSE_RECEIVING')).toBe(false);
-      expect(canTransition('ONBOARDING_CATEGORIES', 'ONBOARDING_MAPPING')).toBe(false);
+      expect(canTransition('ONBOARDING_CATEGORIES', 'ONBOARDING_MAPPING')).toBe(true);
     });
 
     it.each(ONBOARDING_STATES)('allows %s to exit to IDLE on timeout', (from) => {

@@ -21,7 +21,7 @@ Let users configure payment methods for the active spreadsheet destination and r
 
 ## Verification
 
-Domain and application tests cover catalog identity, matching, unknown review protection, detection, correction, retry normalization, and worker routing. PostgreSQL integration tests require a container runtime; the local environment used for this change does not provide one.
+Domain and application tests cover catalog identity, matching, unknown review protection, detection, correction, retry normalization, and worker routing. PostgreSQL integration tests require a container runtime. The onboarding presentation regression was executed with disposable PostgreSQL and Redis containers; enable the opt-in suites with `RUN_POSTGRES_INTEGRATION=true`.
 
 ## Persistence comparison
 
@@ -38,3 +38,11 @@ Setup payment reviews and settings drafts show editing options/examples on indiv
 ## Expense message formatting (2026-11-16)
 
 Expense unresolved-payment guidance presents `medio de pago: Nombre`, `agregar medio de pago`, and `sin medio de pago` on separate bullet lines, followed by the optional cancellation footer. The review remains unsavable until payment resolution; callback button eligibility is unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Onboarding mapping integrity (2026-11-24)
+
+Category confirmation validates captured destination/header/mapping context before detecting payments and again before final catalog activation. A payment column confirmed at A (index 0) is read from A below the confirmed header. Unexpected loss or replacement of a captured mapping returns to column review and clears the category/payment draft; it must not produce an empty local-only proposal or activation success. Local-only payment editing remains available when the confirmed snapshot deliberately omits `medio_pago`. Payment edits preserve the captured context and validate it before changing the draft. Legacy drafts without captured mapping context must be rebound and re-presented, or re-detected, before a fresh category confirmation can enter payment review.
+
+## Category acceptance prerequisite (2026-11-24)
+
+Payment review retains the successful category presentation and `categoryAcceptance` tied to the current hierarchy/destination fingerprint. Payment edits preserve this evidence because they do not change categories. Final onboarding confirmation validates it in `ConfirmCategories` and again inside `DrizzleOnboardingVocabularyCommit`, together with current confirmed mappings. Missing or obsolete evidence causes category re-presentation and clears the old payment proposal; it never implicitly accepts the categories. Recovered placeholder drafts re-read C/D before detecting payment values in A, and require separate category and payment confirmations.

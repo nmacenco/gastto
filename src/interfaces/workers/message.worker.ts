@@ -1,3 +1,4 @@
+import { ExpenseDateInvalidError } from '../../application/services/ExpenseDateInvalidError';
 import type { MessageBlocks } from '../../application/copies/compose-message';
 // LAYER: Interfaces
 // BullMQ worker — Stage 2 of the async pipeline (ADR-005).
@@ -117,6 +118,11 @@ import type {
   ResolveExpensePaymentMethod,
   ResolveExpensePaymentAction,
 } from '../../application/use-cases/expense/ResolveExpensePaymentMethod';
+import type { ResolveExpenseCategoryChoice } from '../../application/use-cases/expense/ResolveExpenseCategoryChoice';
+import {
+  parseExpenseCategoryChoice,
+  type ExpenseCategoryChoiceState,
+} from '../../application/use-cases/expense/ExpenseCategoryChoiceState';
 import { parseSettingsVocabularyPayload } from '../../application/use-cases/spreadsheet/SettingsVocabularyFlow';
 import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadsheet/SettingsOAuthFlow';
 import { randomUUID } from 'node:crypto';
@@ -175,6 +181,7 @@ export interface MessageWorkerDeps {
   completeExpenseClarification: CompleteExpenseClarification;
   sendGuidance: SendExpenseGuidance;
   correctExpense: CorrectExpenseUseCase | null;
+  resolveExpenseCategoryChoice?: ResolveExpenseCategoryChoice | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
@@ -252,6 +259,7 @@ export async function processMessageJob(
   }
 
   let renewalInFlight = false;
+  let leaseValid = true;
   const renewalTimer = setInterval(() => {
     if (renewalInFlight) return;
     renewalInFlight = true;
@@ -259,6 +267,7 @@ export async function processMessageJob(
       .renew(userId, lockToken, USER_LOCK_TTL_MS)
       .then((renewed) => {
         if (!renewed) {
+          leaseValid = false;
           opts.transitionState.invalidateExecution(userId);
           opts.logger.error({
             msg: 'Lost per-user processing lock during renewal',
@@ -269,6 +278,7 @@ export async function processMessageJob(
         }
       })
       .catch((error: unknown) => {
+        leaseValid = false;
         opts.transitionState.invalidateExecution(userId);
         opts.logger.error({
           msg: 'Failed to renew per-user processing lock',
@@ -549,7 +559,9 @@ export async function processMessageJob(
             !isUndoIntent(data.rawMessage)) ||
           (currentState === 'EXPENSE_REVIEW' &&
             data.callbackData === undefined &&
-            parseExpensePaymentCommand(data.rawMessage) !== null)
+            parseExpensePaymentCommand(data.rawMessage) !== null) ||
+          (currentState === 'EXPENSE_CORRECTING' &&
+            parseExpenseCategoryChoice(conversationState?.statePayload) !== null)
         ) {
           await routeByState(currentState, data, conversationState, opts, messaging);
           return;
@@ -631,6 +643,14 @@ export async function processMessageJob(
             } else {
               await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
             }
+          } else if (outcome.status === 'category_choice') {
+            await renderExpenseReviewReplyOutcome(
+              outcome.correction,
+              userId,
+              messaging,
+              externalId,
+              opts,
+            );
           } else if (outcome.status === 'queue_full') {
             await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
           } else if (outcome.status === 'clarification_required') {
@@ -738,23 +758,68 @@ export async function processMessageJob(
       if (err instanceof AccountDeletionInProgressError) return;
       if (err instanceof StaleConversationStateError) return;
       if (err instanceof RecoveredExpenseExtractionError) {
+        if (!leaseValid) return;
+        const effective = await readRecoveryState(() =>
+          opts.getConversationState.execute({ userId }),
+        );
+        if (
+          effective?.currentState !== 'IDLE' ||
+          effective.revision !== err.recoveredRevision ||
+          resolveRecoveryContext(effective) !== 'idle' ||
+          !leaseValid
+        )
+          return;
         opts.logger.error({
-          msg: 'Initial expense extraction failed; state recovered',
+          msg: 'Initial expense interpretation failed; state recovered',
           endpoint: 'processMessageJob',
           code: err.code,
+          ...(err.reason === undefined
+            ? {}
+            : { stage: 'expense_date_validation', reason: err.reason }),
           userId,
           correlationId: `${channel}:${data.externalMessageId}`,
         });
         try {
           await messaging.sendMessage(
             externalId,
-            err.code === 'LLM_TIMEOUT'
-              ? expenseCopies.extractionTimeout()
-              : expenseCopies.extractionFailed(),
+            err.code === 'EXPENSE_DATE_INVALID'
+              ? expenseCopies.invalidDateRecovered()
+              : err.code === 'LLM_TIMEOUT'
+                ? expenseCopies.extractionTimeout()
+                : expenseCopies.extractionFailed(),
           );
         } catch {
           opts.logger.error({
             msg: 'Failed to send extraction recovery message',
+            endpoint: 'processMessageJob',
+            code: 'FALLBACK_SEND_FAILED',
+            userId,
+          });
+        }
+        return;
+      }
+      if (err instanceof ExpenseDateInvalidError) {
+        if (!leaseValid) return;
+        opts.logger.error({
+          msg: 'Expense date validation failed',
+          endpoint: 'processMessageJob',
+          code: err.code,
+          stage: 'expense_date_validation',
+          reason: err.reason,
+          userId,
+          correlationId: `${channel}:${data.externalMessageId}`,
+        });
+        const effective = await readRecoveryState(() =>
+          opts.getConversationState.execute({ userId }),
+        );
+        try {
+          await messaging.sendMessage(
+            externalId,
+            expenseCopies.invalidDate(resolveRecoveryContext(effective)),
+          );
+        } catch {
+          opts.logger.error({
+            msg: 'Failed to send date validation guidance',
             endpoint: 'processMessageJob',
             code: 'FALLBACK_SEND_FAILED',
             userId,
@@ -1379,6 +1444,7 @@ async function routeByState(
 
   if (
     jobData.callbackData === undefined &&
+    parseExpenseCategoryChoice(conversationState?.statePayload) === null &&
     shouldQueueAdditionalExpense(
       currentState,
       conversationState?.statePayload ?? null,
@@ -2592,6 +2658,38 @@ async function handleExpenseCorrection(
 ): Promise<void> {
   const { userId, rawMessage, channel, externalId } = jobData;
 
+  if (parseExpenseCategoryChoice(statePayload) !== null) {
+    if (jobData.callbackData !== undefined || !opts.resolveExpenseCategoryChoice) {
+      await messaging.sendMessage(externalId, expenseCopies.staleReview());
+      return;
+    }
+    const result = await opts.resolveExpenseCategoryChoice.reply({
+      userId,
+      rawMessage,
+      receivedAt: jobData.receivedAt,
+    });
+    if (result.status === 'review')
+      await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
+    else if (result.status === 'choose')
+      await messaging.sendMessage(externalId, expenseChoiceCopy(result.choice));
+    else if (result.status === 'confirm')
+      await messaging.sendMessage(externalId, expenseChoiceConfirmationCopy(result.choice));
+    else if (result.status === 'invalid') {
+      const choice = parseExpenseCategoryChoice(
+        opts.transitionState.currentState(userId)?.statePayload,
+      );
+      await messaging.sendMessage(
+        externalId,
+        choice?.stage === 'confirm'
+          ? expenseChoiceConfirmationCopy(choice)
+          : choice
+            ? expenseChoiceCopy(choice)
+            : expenseCopies.staleReview(),
+      );
+    } else await messaging.sendMessage(externalId, expenseCopies.staleReview());
+    return;
+  }
+
   if (!opts.correctExpense) {
     await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
     return;
@@ -2709,11 +2807,46 @@ async function renderExpenseReviewReplyOutcome(
     case 'invalid_subcategory':
       await messaging.sendMessage(externalId, expenseCopies.invalidSubcategory(outcome));
       return;
+    case 'unresolved_category':
+    case 'unresolved_subcategory': {
+      const current = opts.transitionState.currentState(userId);
+      const original =
+        current?.currentState === 'EXPENSE_REVIEW'
+          ? tryNormalizeExpenseReviewPayload(current.statePayload)
+          : current?.currentState === 'EXPENSE_CORRECTING'
+            ? ExpenseCorrectionState.fromPayload(current.statePayload).payload
+            : null;
+      if (!original || !opts.resolveExpenseCategoryChoice) {
+        await messaging.sendMessage(externalId, expenseCopies.staleReview());
+        return;
+      }
+      const result = await opts.resolveExpenseCategoryChoice.start({
+        userId,
+        original,
+        correction: outcome,
+      });
+      if (result.status === 'choose')
+        await messaging.sendMessage(externalId, expenseChoiceCopy(result.choice));
+      else await messaging.sendMessage(externalId, expenseCopies.staleReview());
+      return;
+    }
     case 'high_amount_confirmation':
     case 'corrected':
       await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
       return;
   }
+}
+
+function expenseChoiceCopy(choice: ExpenseCategoryChoiceState): string {
+  return choice.kind === 'subcategory'
+    ? expenseCopies.subcategoryChoice(choice)
+    : expenseCopies.categoryChoice(choice);
+}
+
+function expenseChoiceConfirmationCopy(choice: ExpenseCategoryChoiceState): string {
+  return choice.kind === 'subcategory'
+    ? expenseCopies.subcategoryAddConfirmation(choice.attemptedName, choice.parentCategoryName!)
+    : expenseCopies.categoryAddConfirmation(choice.attemptedName);
 }
 
 async function handleClarification(
@@ -2759,14 +2892,17 @@ async function handleClarification(
 
   // Interruption: a new expense message cancels the current clarification flow.
   if (isNewExpenseDuringClarification(rawMessage, state.missingField)) {
-    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
-
     const result = await opts.registerExpense.interpret({
       userId,
       rawMessage,
       channel,
+      ...(state.queueRegisteredCount === undefined
+        ? {}
+        : { queueRegisteredCount: state.queueRegisteredCount }),
     });
+    if (result.status !== 'authorization_required') {
+      await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
+    }
 
     if (result.status === 'authorization_required') {
       await messaging.sendMessage(externalId, expenseCopies.saveAuthorizationFailure());

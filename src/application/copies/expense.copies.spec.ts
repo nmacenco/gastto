@@ -5,6 +5,38 @@ import { describe, it, expect } from 'vitest';
 import { expenseCopies } from './expense.copies';
 
 describe('expenseCopies', () => {
+  it('names the parent, active children, and local-only behavior when no child column is mapped', () => {
+    const choice = expenseCopies.subcategoryChoice({
+      attemptedName: 'Peajes',
+      suggestedName: null,
+      parentCategoryId: 'parent-1',
+      parentCategoryName: 'Comida',
+      subcategoryColumnMapped: false,
+      baseline: {
+        subcategories: [
+          { categoryId: 'parent-1', name: 'Restaurante', isActive: true },
+          { categoryId: 'other', name: 'Peajes', isActive: true },
+        ],
+      },
+    });
+    expect(choice).toContain('"Peajes" dentro de "Comida"');
+    expect(choice).toContain('Restaurante');
+    expect(choice).toContain('no se escribirá en la planilla');
+    expect(choice).not.toContain('Subcategorías disponibles en "Comida": Peajes');
+    expect(choice).toContain('cancelar');
+    expect(expenseCopies.subcategoryAddConfirmation('Peajes', 'Comida')).toContain(
+      '"Peajes" dentro de "Comida"',
+    );
+    const mapped = expenseCopies.subcategoryChoice({
+      attemptedName: 'Peajes',
+      suggestedName: null,
+      parentCategoryId: 'parent-1',
+      parentCategoryName: 'Comida',
+      subcategoryColumnMapped: true,
+      baseline: { subcategories: [] },
+    });
+    expect(mapped).not.toContain('no se escribirá en la planilla');
+  });
   describe('save recovery copies', () => {
     it('provides distinct network, authorization, and structure recovery instructions', () => {
       expect(expenseCopies.saveNetworkFailure()).toContain('reintentar');

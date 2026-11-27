@@ -4,7 +4,7 @@
 // clarification transitions triggered by the fallback. All external ports
 // are mocked (no DB, no LLM, no Telegram).
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RegisterExpenseUseCase, type RegisterExpenseInput } from './RegisterExpense';
 import type {
   LLMPort,
@@ -33,7 +33,11 @@ import { CategoryVocabulary } from '../../../domain/entities/CategoryVocabulary'
 import { PaymentMethodCatalog } from '../../../domain/entities/PaymentMethodCatalog';
 import type { IPaymentMethodCatalogRepository } from '../../../domain/ports/PaymentMethodCatalogRepository';
 import type { ColumnMapping } from '../../../domain/entities/SpreadsheetConfig';
-import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import { TransitionConversationState } from '../conversation/TransitionConversationState';
+import type { ConversationState } from '../../../domain/entities/ConversationState';
+import type { IConversationStateRepository } from '../../../domain/ports/repositories';
+import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import { RecoveredExpenseExtractionError } from './RecoverExpenseExtraction';
 import type { TransitionConversationStateInput } from '../conversation/TransitionConversationState';
 import {
   AccountDeletionInProgressError,
@@ -272,6 +276,223 @@ beforeEach(() => {
 });
 
 describe('RegisterExpenseUseCase', () => {
+  describe('owned date failure recovery', () => {
+    afterEach(() => {
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+      expect(mockAppendRow).not.toHaveBeenCalled();
+    });
+    function owned(currentState: ConversationState['currentState'] = 'EXPENSE_RECEIVING') {
+      const observed: ConversationState = {
+        userId: 'user-123',
+        revision: '5',
+        currentState,
+        statePayload: { raw_message: 'retained draft' },
+        enteredAt: new Date(),
+        updatedAt: new Date(),
+        expiresAt: null,
+      };
+      const transition = vi
+        .fn<IConversationStateRepository['transition']>()
+        .mockImplementation((input) =>
+          Promise.resolve({
+            status: 'updated',
+            state: {
+              ...observed,
+              revision: '6',
+              currentState: input.nextState,
+              statePayload: input.payload,
+              expiresAt: input.expiresAt,
+            },
+          }),
+        );
+      const state = new TransitionConversationState({
+        transition,
+        findByUserId: vi.fn(),
+        create: vi.fn(),
+        findExpired: vi.fn(),
+      });
+      const { useCase } = buildUseCase({ conversationRepo: state });
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ fechaRaw: '2026-11-31' }));
+      return { observed, transition, state, useCase };
+    }
+
+    it.each(['IDLE', 'EXPENSE_RECEIVING'] as const)(
+      'recovers an initial date failure from %s before exposing resend guidance',
+      async (initial) => {
+        const h = owned(initial);
+        await h.state.runWithState(h.observed, async () => {
+          await expect(h.useCase.interpret(buildInput())).rejects.toMatchObject({
+            name: 'RecoveredExpenseExtractionError',
+            code: 'EXPENSE_DATE_INVALID',
+            reason: 'invalid-calendar-date',
+            recoveredRevision: '6',
+          });
+          expect(h.state.currentState('user-123')).toMatchObject({
+            currentState: 'IDLE',
+            statePayload: null,
+            expiresAt: null,
+          });
+        });
+        expect(h.transition).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            nextState: 'IDLE',
+            payload: null,
+            expiresAt: null,
+            expected: {
+              revision: initial === 'IDLE' ? '6' : '5',
+              currentState: 'EXPENSE_RECEIVING',
+              expiry: 'any',
+            },
+          }),
+        );
+        expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+        expect(mockAppendRow).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['EXPENSE_CLARIFYING', 'EXPENSE_CORRECTING', 'EXPENSE_REVIEW'] as const)(
+      'keeps an existing %s draft on date failure',
+      async (currentState) => {
+        const h = owned(currentState);
+        h.observed.statePayload = { ...h.observed.statePayload, queueRegisteredCount: 2 };
+        await expect(
+          h.state.runWithState(h.observed, () => h.useCase.interpret(buildInput())),
+        ).rejects.toMatchObject({ name: 'ExpenseDateInvalidError' });
+        expect(h.transition).not.toHaveBeenCalled();
+        expect(h.observed.statePayload).toEqual({
+          raw_message: 'retained draft',
+          queueRegisteredCount: 2,
+        });
+        expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+        expect(mockAppendRow).not.toHaveBeenCalled();
+      },
+    );
+
+    it('does not reset a retained queued receiving draft when the caller omits its batch count', async () => {
+      const h = owned();
+      h.observed.statePayload = { ...h.observed.statePayload, queueRegisteredCount: 2 };
+      await expect(
+        h.state.runWithState(h.observed, () => h.useCase.interpret(buildInput())),
+      ).rejects.toMatchObject({ name: 'ExpenseDateInvalidError' });
+      expect(h.transition).not.toHaveBeenCalled();
+      expect(h.observed.statePayload.queueRegisteredCount).toBe(2);
+    });
+
+    it('retains a queued interpretation and its batch progress', async () => {
+      const h = owned();
+      await expect(
+        h.state.runWithState(h.observed, () =>
+          h.useCase.interpret(buildInput({ queueRegisteredCount: 2 })),
+        ),
+      ).rejects.toMatchObject({ name: 'ExpenseDateInvalidError' });
+      expect(h.transition).not.toHaveBeenCalled();
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+      expect(mockAppendRow).not.toHaveBeenCalled();
+    });
+
+    it.each(['stale', 'expired'] as const)(
+      'does not claim recovery when CAS returns %s',
+      async (status) => {
+        const h = owned();
+        h.observed.expiresAt = new Date(Date.now() + 60_000);
+        h.transition.mockResolvedValue({ status });
+        await expect(
+          h.state.runWithState(h.observed, () => h.useCase.interpret(buildInput())),
+        ).rejects.toBeInstanceOf(StaleConversationStateError);
+        expect(h.transition).toHaveBeenCalledWith(
+          expect.objectContaining({
+            expected: { revision: '5', currentState: 'EXPENSE_RECEIVING', expiry: 'unexpired' },
+          }),
+        );
+      },
+    );
+
+    it('preserves a newer draft that appears during extraction', async () => {
+      const h = owned();
+      mockLLMExtractExpense.mockImplementationOnce(() => {
+        h.state.adoptCommittedState({
+          ...h.observed,
+          revision: '9',
+          currentState: 'EXPENSE_REVIEW',
+        });
+        return Promise.resolve(buildExtractedExpense({ fechaRaw: 'unsupported' }));
+      });
+      await expect(
+        h.state.runWithState(h.observed, () => h.useCase.interpret(buildInput())),
+      ).rejects.toBeInstanceOf(StaleConversationStateError);
+      expect(h.transition).not.toHaveBeenCalled();
+    });
+
+    it.each(['extraction', 'recovery'])(
+      'suppresses recovery success after lease loss during %s',
+      async (stage) => {
+        const h = owned();
+        if (stage === 'extraction')
+          mockLLMExtractExpense.mockImplementationOnce(() => {
+            h.state.invalidateExecution('user-123');
+            return Promise.resolve(buildExtractedExpense({ fechaRaw: 'unsupported' }));
+          });
+        else
+          h.transition.mockImplementationOnce(() => {
+            h.state.invalidateExecution('user-123');
+            return Promise.resolve({
+              status: 'updated' as const,
+              state: {
+                ...h.observed,
+                revision: '6',
+                currentState: 'IDLE' as const,
+                statePayload: null,
+              },
+            });
+          });
+        await expect(
+          h.state.runWithState(h.observed, () => h.useCase.interpret(buildInput())),
+        ).rejects.toBeInstanceOf(StaleConversationStateError);
+      },
+    );
+
+    it('propagates a failed recovery write without labeling it recovered', async () => {
+      const h = owned();
+      const failure = new Error('database unavailable');
+      h.transition.mockRejectedValue(failure);
+      await expect(
+        h.state.runWithState(h.observed, () => h.useCase.interpret(buildInput())),
+      ).rejects.toBe(failure);
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+      expect(mockAppendRow).not.toHaveBeenCalled();
+    });
+
+    it('preserves a financial claim even in an inconsistent receiving state', async () => {
+      const h = owned();
+      h.observed.statePayload = {
+        executionClaim: {
+          claimId: 'claim',
+          kind: 'save',
+          operationId: 'op',
+          sourceMessageId: null,
+          status: 'outcome_unknown',
+          target: {},
+        },
+      };
+      await expect(
+        h.state.runWithState(h.observed, () => h.useCase.interpret(buildInput())),
+      ).rejects.toBeInstanceOf(StaleConversationStateError);
+      expect(h.transition).not.toHaveBeenCalled();
+    });
+
+    it('does not turn unrelated classification failures into extraction recovery', async () => {
+      const h = owned();
+      mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense());
+      const failure = new Error('classifier failed');
+      mockClassifierExecute.mockRejectedValueOnce(failure);
+      await expect(
+        h.state.runWithState(h.observed, () => h.useCase.interpret(buildInput())),
+      ).rejects.toBe(failure);
+      expect(h.transition).not.toHaveBeenCalled();
+      expect(failure).not.toBeInstanceOf(RecoveredExpenseExtractionError);
+    });
+  });
+
   describe('save()', () => {
     it('does not append or persist when account deletion has fenced the expense', async () => {
       const run = vi.fn(() => Promise.reject(new AccountDeletionInProgressError()));
@@ -705,6 +926,50 @@ describe('RegisterExpenseUseCase', () => {
   });
 
   describe('interpret()', () => {
+    it.each(['2026-11-31', '31/11/2026', 'unsupported', '', '24 Nov 2026 at 24:00'])(
+      'rejects explicit invalid date %s before review or financial writes',
+      async (fechaRaw) => {
+        mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ fechaRaw }));
+        const { useCase } = buildUseCase();
+        await expect(useCase.interpret(buildInput())).rejects.toMatchObject({
+          code: 'EXPENSE_DATE_INVALID',
+        });
+        expect(mockConversationTransition).not.toHaveBeenCalled();
+        expect(mockClassifierExecute).not.toHaveBeenCalled();
+        expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+        expect(mockAppendRow).not.toHaveBeenCalled();
+      },
+    );
+
+    it('builds the reported receipt review without saving it', async () => {
+      const rawMessage =
+        'Fecha : 24 Nov 2026 at 17:12\nComercio: Mercadona\nImporte: 13,79 €\nTarjeta:CREDITO SANTANDER\nNombre: Mercadona\nTransacción: Mercadon';
+      mockLLMExtractExpense.mockResolvedValue(
+        buildExtractedExpense({
+          fechaRaw: '24 Nov 2026 at 17:12',
+          monto: 13.79,
+          moneda: 'EUR',
+        }),
+      );
+      const { useCase } = buildUseCase();
+      const result = await useCase.interpret(buildInput({ rawMessage }));
+      expect(result).toMatchObject({
+        status: 'ready_for_review',
+        payload: {
+          resolvedDate: '2026-11-24',
+          extracted: { monto: 13.79, moneda: 'EUR' },
+        },
+      });
+      expect(mockConversationTransition).toHaveBeenCalledWith(
+        'user-123',
+        'EXPENSE_REVIEW',
+        expect.objectContaining({ resolvedDate: '2026-11-24' }),
+        expect.any(Date),
+      );
+      expect(mockExpenseRecordCreate).not.toHaveBeenCalled();
+      expect(mockAppendRow).not.toHaveBeenCalled();
+    });
+
     it('keeps a day-first numeric date from a Spanish expense message', async () => {
       mockLLMExtractExpense.mockResolvedValue(buildExtractedExpense({ fechaRaw: '20/10/2026' }));
       const { useCase } = buildUseCase();
@@ -879,7 +1144,14 @@ describe('RegisterExpenseUseCase', () => {
 
       expect(result.status).toBe('ready_for_review');
       if (result.status !== 'ready_for_review') throw new Error('Expected ready_for_review');
-      expect(result.payload.resolvedDate).toBe(new Date().toISOString().slice(0, 10));
+      const today = new Date();
+      expect(result.payload.resolvedDate).toBe(
+        [
+          today.getFullYear(),
+          String(today.getMonth() + 1).padStart(2, '0'),
+          String(today.getDate()).padStart(2, '0'),
+        ].join('-'),
+      );
       expect(result.payload).toMatchObject({
         resolvedCategoryId: 'category-food',
         resolvedSubcategory: null,

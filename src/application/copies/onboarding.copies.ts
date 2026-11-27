@@ -357,6 +357,17 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
     return message;
   },
 
+  categoryReviewRequired: () =>
+    'Antes de confirmar, revisá esta propuesta de categorías y subcategorías. Cuando la hayas revisado, enviá confirmar de nuevo.',
+
+  categoryMappingRecovery: () =>
+    composeMessage({
+      explanation: 'No pude validar las columnas confirmadas para esta planilla.',
+      action:
+        'Escribí revisar para generar y revisar un nuevo mapeo antes de continuar con las categorías y medios de pago.',
+      exit: CANCEL_EXIT_HINT,
+    }),
+
   mappingProposalRecoveryPrompt: () =>
     composeMessage({
       explanation: 'No pude validar el mapeo que estabas revisando.',
@@ -409,7 +420,8 @@ ${lines.join('\n')}\n\n¿Está correcto ahora?`;
   onboardingComplete: () =>
     composeMessage({
       explanation: '¡Todo listo! Ya podés empezar a registrar gastos.',
-      action: 'Escribí algo como "Cafe 850" y lo guardo en tu planilla.',
+      action:
+        'Escribí algo como "Cafe 850" y lo guardo en tu planilla.\n\nCuando quieras cambiar categorías o subcategorías, escribí "configuración" y elegí la opción 5.',
     }),
 
   categoryUpdatedPrompt: (categories: string[]) => {
