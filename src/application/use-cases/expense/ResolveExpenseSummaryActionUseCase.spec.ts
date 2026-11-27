@@ -8,12 +8,16 @@ import { ResolveExpenseSummaryActionUseCase } from './ResolveExpenseSummaryActio
 import type { CancelExpenseRegistrationUseCase } from './CancelExpenseRegistrationUseCase';
 import type { RegisterExpenseUseCase } from './RegisterExpense';
 import type { ExpenseReviewPayload } from '../../../domain/value-objects/expense-review-payload';
-import type { TransitionConversationState } from '../conversation/TransitionConversationState';
+import { TransitionConversationState } from '../conversation/TransitionConversationState';
 import type { MessagingOutputPort } from '../../ports/output/messaging.port';
 import { expenseCopies } from '../../copies/expense.copies';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import type { IOperationLogRepository } from '../../../domain/ports/repositories';
 import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
+import type { IConversationStateRepository } from '../../../domain/ports/repositories';
+import type { ConversationState } from '../../../domain/entities/ConversationState';
+import { ResolveExpenseCategoryChoice } from './ResolveExpenseCategoryChoice';
+import { ExpenseCorrectionState } from '../../../domain/value-objects/expense-correction-state';
 
 function buildPayload(overrides: Partial<ExpenseReviewPayload> = {}): ExpenseReviewPayload {
   return {
@@ -472,6 +476,7 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
       expect.objectContaining({
         userId: 'user-123',
         targetState: 'EXPENSE_CORRECTING',
+        expiresAt: new Date('2099-01-01T00:00:00.000Z'),
       }),
     );
     const transitionCall = transitionMock.mock.calls[0];
@@ -489,6 +494,103 @@ describe('ResolveExpenseSummaryActionUseCase', () => {
     );
     expect(sendMessageMock.mock.calls[0]?.[1]).toContain('subcategoría restaurante');
   });
+
+  it.each(['category', 'subcategory'] as const)(
+    'can open an unknown %s choice on the turn after pressing correct',
+    async (kind) => {
+      const payload = buildPayload({
+        reviewBinding: {
+          operationId: 'abcdefghijklmnopqrstuv',
+          revision: 1,
+          presentedAt: new Date(Date.now() - 1000).toISOString(),
+        },
+      });
+      const expiresAt = new Date(Date.now() + 600_000);
+      let persisted: ConversationState = {
+        userId: 'user-123',
+        revision: '1',
+        currentState: 'EXPENSE_REVIEW',
+        statePayload: { ...payload },
+        expiresAt,
+        enteredAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const transition = vi.fn<IConversationStateRepository['transition']>((input) => {
+        persisted = {
+          ...persisted,
+          revision: String(Number(persisted.revision) + 1),
+          currentState: input.nextState,
+          statePayload: input.payload,
+          expiresAt: input.expiresAt,
+          updatedAt: new Date(),
+        };
+        return Promise.resolve({ status: 'updated', state: persisted });
+      });
+      const transitionState = new TransitionConversationState({
+        transition,
+      } as unknown as IConversationStateRepository);
+      const save = vi.fn();
+      const subject = new ResolveExpenseSummaryActionUseCase({
+        transitionState,
+        registerExpense: { save } as unknown as RegisterExpenseUseCase,
+        messagingPort: { sendMessage: vi.fn().mockResolvedValue({ status: 'success' }) },
+        cancelExpenseRegistration: {} as CancelExpenseRegistrationUseCase,
+        operationLogRepo: {} as IOperationLogRepository,
+      });
+      await transitionState.runWithState(persisted, () =>
+        subject.execute({
+          userId: persisted.userId,
+          action: 'correct',
+          chatId: '123456789',
+          authorization: {
+            kind: 'callback',
+            callbackData: {
+              version: 1,
+              action: 'correct',
+              operationId: payload.reviewBinding!.operationId,
+              reviewRevision: 1,
+            },
+            receivedAt: new Date().toISOString(),
+            sourceMessageId: 'correct-1',
+          },
+        }),
+      );
+      const commit = {
+        load: vi.fn().mockResolvedValue({ categories: [], subcategories: [] }),
+        execute: vi.fn(),
+      };
+      const choice = new ResolveExpenseCategoryChoice({ transitionState, commit });
+      const original = ExpenseCorrectionState.fromPayload(persisted.statePayload).payload;
+      const common = {
+        attemptedName: kind === 'category' ? 'gastodiario' : 'comida',
+        suggestedName: null,
+        candidates: [],
+        sourceConfigId: 'sheet-1',
+        payload: original,
+        correctionCycles: 0,
+      };
+      const result = await transitionState.runWithState(persisted, () =>
+        choice.start({
+          userId: persisted.userId,
+          original,
+          correction:
+            kind === 'category'
+              ? { ...common, status: 'unresolved_category' }
+              : {
+                  ...common,
+                  status: 'unresolved_subcategory',
+                  parentCategoryId: 'parent-1',
+                  parentCategoryName: 'gastodiario',
+                  subcategoryColumnMapped: true,
+                },
+        }),
+      );
+      expect(result).toMatchObject({ status: 'choose', choice: { kind, original } });
+      expect(persisted.expiresAt).toEqual(expiresAt);
+      expect(save).not.toHaveBeenCalled();
+      expect(commit.execute).not.toHaveBeenCalled();
+    },
+  );
 
   it('cancel transitions to IDLE and sends the cancellation copy', async () => {
     const { useCase, transitionMock, sendMessageMock, cancelExpenseRegistration } = buildUseCase();
