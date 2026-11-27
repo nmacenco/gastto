@@ -1,3 +1,4 @@
+import type { Logger } from 'pino';
 // LAYER: Infrastructure
 // Excel Online adapter. Uses direct fetch calls to Microsoft Graph API.
 // Does not depend on @microsoft/microsoft-graph-client SDK to keep the dependency surface minimal.
@@ -6,7 +7,10 @@ import type { SpreadsheetPort, Row, AppendResult, CellValue } from '../../../dom
 import type { ValidateSpreadsheetAccessPort } from '../../../domain/ports/spreadsheetAccess';
 import type { SpreadsheetAccessResult } from '../../../domain/value-objects/SpreadsheetAccessResult';
 import { SheetInfo } from '../../../domain/entities/SheetInfo';
-import { SpreadsheetPreview } from '../../../domain/entities/SpreadsheetPreview';
+import {
+  SpreadsheetPreview,
+  hasMeaningfulCellValues,
+} from '../../../domain/entities/SpreadsheetPreview';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { encodeUrlComponent, parseSpreadsheetRange } from './spreadsheetRange';
 
@@ -45,7 +49,10 @@ function providerHttpError(operation: string, status: number): SpreadsheetError 
 }
 
 export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetAccessPort {
-  constructor(private readonly accessToken: string) {}
+  constructor(
+    private readonly accessToken: string,
+    private readonly logger: Logger,
+  ) {}
 
   async listSheets(fileId: string): Promise<SheetInfo[]> {
     const url = `${GRAPH_API_URL}/me/drive/items/${fileId}/workbook/worksheets`;
@@ -242,7 +249,8 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     }
 
     if (!response.ok) {
-      console.error({
+      this.logger.error({
+        msg: 'Microsoft Graph request failed',
         endpoint: 'ExcelOnlineAdapter.fetchPreview',
         code: 'GRAPH_API_ERROR',
         status: response.status,
@@ -259,7 +267,7 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
 
     const rows = parsePreviewRows(data);
 
-    if (rows.length === 0) {
+    if (!hasMeaningfulCellValues(rows)) {
       return { kind: 'empty-sheet' };
     }
 
@@ -302,7 +310,8 @@ export class ExcelOnlineAdapter implements SpreadsheetPort, ValidateSpreadsheetA
     }
 
     if (!response.ok) {
-      console.error({
+      this.logger.error({
+        msg: 'Microsoft Graph request failed',
         endpoint: 'ExcelOnlineAdapter.checkWritePermission',
         code: 'GRAPH_API_ERROR',
         status: response.status,
@@ -444,7 +453,7 @@ function parsePreviewRows(data: unknown): Row[] {
     }
     return {
       index: index + 1,
-      values: row.map((cell) => (typeof cell === 'string' ? cell : String(cell))),
+      values: row.map((cell) => (cell === null || cell === undefined ? '' : String(cell))),
     };
   });
 }

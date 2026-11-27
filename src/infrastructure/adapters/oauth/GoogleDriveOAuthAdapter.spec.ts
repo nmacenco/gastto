@@ -20,7 +20,7 @@ describe('GoogleDriveOAuthAdapter', () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = fetchMock as typeof fetch;
   });
 
   afterEach(() => {
@@ -57,6 +57,29 @@ describe('GoogleDriveOAuthAdapter', () => {
       expect(() => adapter.buildAuthUrl('microsoft', 'state', 'http://localhost/callback')).toThrow(
         InvalidProviderError,
       );
+    });
+  });
+
+  describe('revokeToken', () => {
+    it('sends the token in a POST body and reports confirmed revocation', async () => {
+      fetchMock.mockResolvedValue({ status: 200 });
+      const result = await new GoogleDriveOAuthAdapter(CONFIG).revokeToken(
+        'google',
+        'refresh-secret',
+      );
+      expect(result).toBe('revoked');
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://oauth2.googleapis.com/revoke');
+      expect(init.method).toBe('POST');
+      expect(new URLSearchParams(init.body as string).get('token')).toBe('refresh-secret');
+      expect(url).not.toContain('refresh-secret');
+    });
+
+    it('does not confirm revocation on provider errors or network failures', async () => {
+      const adapter = new GoogleDriveOAuthAdapter(CONFIG);
+      fetchMock.mockResolvedValueOnce({ status: 400 }).mockRejectedValueOnce(new Error('secret'));
+      expect(await adapter.revokeToken('google', 'refresh-secret')).toBe('not_confirmed');
+      expect(await adapter.revokeToken('google', 'refresh-secret')).toBe('not_confirmed');
     });
   });
 

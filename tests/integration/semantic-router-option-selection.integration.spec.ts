@@ -114,7 +114,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router option sel
     const probe = vi.fn().mockResolvedValue({ nextState: 'ONBOARDING_MAPPING', message: 'ok' });
     const listSheets = vi.fn().mockResolvedValue(sheets);
     const getHeaders = vi.fn().mockResolvedValue(['Fecha', 'Monto']);
-    const validateFileAccess = vi.fn().mockResolvedValue(true);
+    const validateFileAccess = vi.fn().mockResolvedValue({ kind: 'accessible' });
     const messaging = {
       sendMessage: vi.fn(async (_externalId: string, message: string) => {
         messages.push(message);
@@ -402,7 +402,9 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router option sel
       sheetList: sheets,
     });
     const before = (await harness.stateRepo.findByUserId(harness.userId))!;
-    vi.spyOn(harness.configRepo, 'createOrResumeInitial').mockRejectedValueOnce(new Error('db down'));
+    vi.spyOn(harness.configRepo, 'createOrResumeInitial').mockRejectedValueOnce(
+      new Error('db down'),
+    );
 
     await expect(dispatchCurrent(harness, 'Movimientos')).rejects.toThrow('db down');
     await expect(harness.configRepo.findByUserId(harness.userId)).resolves.toBeNull();

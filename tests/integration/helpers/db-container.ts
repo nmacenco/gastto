@@ -10,6 +10,8 @@ export function isDockerAvailable(): boolean {
     execSync('docker info', { stdio: 'ignore' });
     return true;
   } catch {
+    if (process.env.RUN_POSTGRES_INTEGRATION === 'true')
+      throw new Error('Required Docker integration runtime unavailable');
     return false;
   }
 }

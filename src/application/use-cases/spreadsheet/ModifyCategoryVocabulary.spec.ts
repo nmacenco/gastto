@@ -1,3 +1,9 @@
+import { isCategoryProposalPresented } from '../../dtos/CategoryOnboardingState';
+import {
+  buildCategoryConversationState,
+  buildPresentedCategoryPayload,
+} from '../../../__tests__/factories/onboarding';
+import { RegexCategoryModificationParser } from '../../../infrastructure/adapters/RegexCategoryModificationParser';
 // LAYER: Application / Tests
 // Unit tests for ModifyCategoryVocabulary use case.
 // Mocks all ports: parser, repositories, messaging, transition.
@@ -58,6 +64,12 @@ function buildMockDeps(
     messagingPort: { sendMessage: mockSendMessage },
     transitionState: {
       execute: mockTransitionExecute,
+      currentState: vi.fn().mockReturnValue(null),
+      precondition: (state: { revision: string; currentState: string }) => ({
+        revision: state.revision,
+        currentState: state.currentState,
+        expiry: 'any',
+      }),
     } as unknown as TransitionConversationState,
     ...overrides,
   };
@@ -113,7 +125,9 @@ const mockConfig = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockFindConfigByUserId.mockResolvedValue(mockConfig);
-  mockTransitionExecute.mockResolvedValue(undefined);
+  mockTransitionExecute.mockImplementation((input: { payload: Record<string, unknown> }) =>
+    Promise.resolve({ status: 'updated', state: buildCategoryConversationState(input.payload) }),
+  );
 });
 
 describe('ModifyCategoryVocabulary', () => {
@@ -557,4 +571,63 @@ describe('ModifyCategoryVocabulary', () => {
     expect(result.message).toContain('duplicado');
     expect(result.state.categories[0]?.subcategories).toEqual(['Delivery', 'Groceries']);
   });
+  it('preserves confirmed mapping context through a category edit', async () => {
+    mockFindVocabularyBySpreadsheetId.mockResolvedValue(null);
+    const context = {
+      spreadsheetId: 'config-1',
+      proposalId: 'reviewed',
+      provider: 'google',
+      fileId: 'file-123',
+      sheetName: 'Gastos',
+      headerRowIndex: 3,
+      confirmedMappings: [
+        {
+          gasttoField: 'medio_pago',
+          columnIndex: 0,
+          columnHeader: 'Pago',
+          confirmedAt: '2026-11-24T12:00:00.000Z',
+        },
+      ],
+    };
+    const useCase = new ModifyCategoryVocabulary(
+      buildMockDeps({ categoryModificationParser: new RegexCategoryModificationParser() }),
+    );
+    await useCase.execute({
+      ...baseInput,
+      rawMessage: 'agregar Salud',
+      statePayload: { ...baseInput.statePayload, ...context },
+    });
+    expect(mockTransitionExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining(context) as Record<string, unknown>,
+      }),
+    );
+    expect(mockSendMessage).toHaveBeenLastCalledWith(
+      baseInput.externalId,
+      expect.stringContaining('Salud'),
+    );
+    expect(mockSaveVocabulary).not.toHaveBeenCalled();
+  });
+  it.each([true, false])(
+    'replaces presentation evidence after edits only on successful delivery (success=%s)',
+    async (success) => {
+      mockParse.mockResolvedValue({ kind: 'add', name: 'salud' });
+      mockFindVocabularyBySpreadsheetId.mockResolvedValue(null);
+      mockSendMessage.mockResolvedValueOnce(
+        success ? { status: 'success' } : { status: 'failure', errorCode: 'NETWORK_ERROR' },
+      );
+      const payload = buildPresentedCategoryPayload({ categories: ['Food'] });
+      await new ModifyCategoryVocabulary(buildMockDeps()).execute({
+        ...baseInput,
+        statePayload: payload,
+      });
+      const written = mockTransitionExecute.mock.calls.at(-1)?.[0] as {
+        payload: Record<string, unknown>;
+      };
+      expect(written.payload.categoryProposalId).not.toBe(payload.categoryProposalId);
+      expect(isCategoryProposalPresented(written.payload)).toBe(success);
+      expect(written.payload.categoryAcceptance).toBeNull();
+      expect(mockSaveVocabulary).not.toHaveBeenCalled();
+    },
+  );
 });

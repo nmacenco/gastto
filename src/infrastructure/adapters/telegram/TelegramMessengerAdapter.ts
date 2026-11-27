@@ -1,3 +1,4 @@
+import { sharedCopies } from '../../../application/copies/shared.copies';
 // LAYER: Infrastructure
 // Telegram Bot API adapter.
 // Implements IChatMessenger (application port) and MessagingOutputPort (application output port).
@@ -35,9 +36,10 @@ function chunkText(text: string, maxLength: number): string[] {
       break;
     }
 
-    let splitIndex = remaining.lastIndexOf('\n\n', maxLength);
+    // Include the complete two-character separator within the fragment limit.
+    let splitIndex = remaining.lastIndexOf('\n\n', maxLength - 2);
     if (splitIndex <= 0) {
-      splitIndex = remaining.lastIndexOf('. ', maxLength);
+      splitIndex = remaining.lastIndexOf('. ', maxLength - 2);
     }
     if (splitIndex <= 0) {
       splitIndex = maxLength;
@@ -68,11 +70,7 @@ export class TelegramMessengerAdapter
   }
 
   async sendWelcome(chatId: string, username?: string): Promise<void> {
-    const text = username
-      ? `¡Hola, ${username}! Bienvenido a Gastto. Soy tu asistente financiero conversacional. Escribime un gasto y lo registro en tu planilla automáticamente.`
-      : '¡Hola! Bienvenido a Gastto. Soy tu asistente financiero conversacional. Escribime un gasto y lo registro en tu planilla automáticamente.';
-
-    await this.sendMessage(chatId, text);
+    await this.sendMessage(chatId, sharedCopies.welcome(username));
   }
 
   async sendMessage(chatId: string, text: string): Promise<SendResult> {

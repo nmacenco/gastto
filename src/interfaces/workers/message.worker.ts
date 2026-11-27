@@ -1,7 +1,16 @@
+import { ExpenseDateInvalidError } from '../../application/services/ExpenseDateInvalidError';
+import type { MessageBlocks } from '../../application/copies/compose-message';
 // LAYER: Interfaces
 // BullMQ worker — Stage 2 of the async pipeline (ADR-005).
 // Consumes `process-message` jobs in the same persistent process as Fastify.
 // Responsibilities: FSM → NLP → user response.
+
+import {
+  readRecoveryState,
+  resolveRecoveryContext,
+} from '../../application/services/recovery-context';
+import { expenseGuidanceBlocks, recoveryGuidance } from '../../application/copies/expense.copies';
+import { spreadsheetRecoveryCopies } from '../../application/copies/spreadsheet-recovery.copies';
 
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
@@ -19,6 +28,7 @@ import type {
   ResolveExpenseSummaryActionUseCase,
 } from '../../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { CancelExpenseRegistrationUseCase } from '../../application/use-cases/expense/CancelExpenseRegistrationUseCase';
+import type { CancelConversationFlow } from '../../application/use-cases/conversation/CancelConversationFlow';
 import type { UndoLastExpenseUseCase } from '../../application/use-cases/expense/UndoLastExpense';
 import type { RetryExpenseSaveUseCase } from '../../application/use-cases/expense/RetryExpenseSaveUseCase';
 import type { QueuePendingExpense } from '../../application/use-cases/expense/QueuePendingExpense';
@@ -32,6 +42,14 @@ import type {
 } from '../../application/use-cases/expense/ResolveExpenseReviewReplyUseCase';
 import type { TransitionConversationState } from '../../application/use-cases/conversation/TransitionConversationState';
 import type { IUserProfilePort } from '../../domain/ports/IUserProfilePort';
+import type { AccessRequestRepository } from '../../domain/ports/AccessRequestRepository';
+import type { RequestAccess } from '../../application/use-cases/user/RequestAccess';
+import type { OAuthAccessTokenProvider } from '../../application/services/OAuthAccessTokenService';
+import type { OperatorMailPort } from '../../application/ports/OperatorMailPort';
+import { markAccessWelcomeShown } from '../../application/use-cases/conversation/markAccessWelcomeShown';
+import { operatorMailFailureContext } from '../../application/ports/OperatorMailPort';
+import { SpreadsheetError } from '../../domain/errors/SpreadsheetError';
+import { accessCopies } from '../../application/copies/access.copies';
 import type { RecoverCorruptedState } from '../../application/use-cases/conversation/RecoverCorruptedState';
 import type { GetConversationState } from '../../application/use-cases/conversation/GetConversationState';
 import type { IUserProcessingLock } from '../../application/ports/UserProcessingLock';
@@ -46,8 +64,10 @@ import {
   type ProcessMessageJobData,
 } from '../../application/ports/ProcessMessageJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
+import { AccountDeletionInProgressError } from '../../application/ports/AccountExternalWorkFence';
 import { parseCategoryOnboardingState } from '../../application/dtos/CategoryOnboardingState';
 import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
+import { assertRestoreSafe } from './restoreQuarantine';
 import {
   tryNormalizeExpenseReviewPayload,
   type ExpenseReviewPayload,
@@ -56,6 +76,7 @@ import type {
   IUserRepository,
   IMappingCorrectionStateRepository,
   IExpenseRecordRepository,
+  ISpreadsheetConfigRepository,
 } from '../../domain/ports/repositories';
 import { ColumnMappingCorrectionState } from '../../domain/value-objects/ColumnMappingCorrectionState';
 import {
@@ -78,10 +99,16 @@ import type { ConfirmCategories } from '../../application/use-cases/spreadsheet/
 import type { ModifyCategoryVocabulary } from '../../application/use-cases/spreadsheet/ModifyCategoryVocabulary';
 import type { StartSpreadsheetReconfigurationUseCase } from '../../application/use-cases/spreadsheet/StartSpreadsheetReconfigurationUseCase';
 import { UserAlreadyProcessingError } from '../../domain/errors/UserAlreadyProcessingError';
+import type { NotifyMessageProcessingContention } from '../../application/use-cases/conversation/NotifyMessageProcessingContention';
 import { StaleConversationStateError } from '../../domain/errors/StaleConversationStateError';
 import { onboardingCopies } from '../../application/copies/onboarding.copies';
 import { expenseCopies } from '../../application/copies/expense.copies';
 import { settingsCopies } from '../../application/copies/settings.copies';
+import {
+  RequestAccountDeletion,
+  accountDeletionCopies,
+  isExactAccountDeletionConfirmation,
+} from '../../application/use-cases/user/RequestAccountDeletion';
 import type { GetSpreadsheetSettings } from '../../application/use-cases/spreadsheet/GetSpreadsheetSettings';
 import type { StartSettingsReauthorization } from '../../application/use-cases/spreadsheet/StartSettingsReauthorization';
 import type { SettingsOAuthCleanup } from '../../application/use-cases/spreadsheet/SettingsOAuthCleanup';
@@ -91,12 +118,20 @@ import type {
   ResolveExpensePaymentMethod,
   ResolveExpensePaymentAction,
 } from '../../application/use-cases/expense/ResolveExpensePaymentMethod';
+import type { ResolveExpenseCategoryChoice } from '../../application/use-cases/expense/ResolveExpenseCategoryChoice';
+import {
+  parseExpenseCategoryChoice,
+  type ExpenseCategoryChoiceState,
+} from '../../application/use-cases/expense/ExpenseCategoryChoiceState';
 import { parseSettingsVocabularyPayload } from '../../application/use-cases/spreadsheet/SettingsVocabularyFlow';
 import { parseSettingsOAuthPayload } from '../../application/use-cases/spreadsheet/SettingsOAuthFlow';
 import { randomUUID } from 'node:crypto';
 import {
   isConfirmIntent,
+  isOnboardingConfirmIntent,
   isCancelIntent,
+  isExplicitCancelCommand,
+  isStartOnboardingCommand,
   isUndoIntent,
   isListColumnsIntent,
   isIdkVariant,
@@ -120,6 +155,18 @@ const USER_LOCK_TTL_MS = 180_000;
 const USER_LOCK_RENEW_MS = 30_000;
 
 export interface MessageWorkerDeps {
+  restoreGuard?: { assertCurrent(): Promise<void> };
+  accountDeletionEnabled?: boolean;
+  accountDeletionGate?: { isDeleting(userId: string): Promise<boolean> };
+  accountDeletion?: {
+    confirm(input: {
+      userId: string;
+      channel: string;
+      externalId: string;
+      revision: string;
+    }): Promise<boolean>;
+    queue: { add(name: string, data: { userId: string }): Promise<unknown> };
+  };
   redis: Redis;
   logger: Logger;
   userProcessingLock: IUserProcessingLock;
@@ -134,9 +181,12 @@ export interface MessageWorkerDeps {
   completeExpenseClarification: CompleteExpenseClarification;
   sendGuidance: SendExpenseGuidance;
   correctExpense: CorrectExpenseUseCase | null;
+  resolveExpenseCategoryChoice?: ResolveExpenseCategoryChoice | null;
   generateExpenseSummary: GenerateExpenseSummaryUseCase | null;
   resolveExpenseSummaryAction: ResolveExpenseSummaryActionUseCase | null;
   cancelExpenseRegistration: CancelExpenseRegistrationUseCase;
+  cancelConversationFlow: CancelConversationFlow;
+  spreadsheetConfigRepository: ISpreadsheetConfigRepository;
   resolveExpenseReviewReply: ResolveExpenseReviewReplyUseCase | null;
   retryExpenseSave?: RetryExpenseSaveUseCase | null;
   undoLastExpense?: UndoLastExpenseUseCase | null | undefined;
@@ -150,6 +200,7 @@ export interface MessageWorkerDeps {
   recoverCorruptedState: RecoverCorruptedState;
   userRepo: IUserRepository;
   messagingAdapters: Record<'telegram' | 'whatsapp', MessagingOutputPort>;
+  notifyMessageProcessingContention: NotifyMessageProcessingContention;
   userProfilePort?: IUserProfilePort | null;
   expenseRecordRepo?: IExpenseRecordRepository | null;
   mappingCorrectionStateRepository?: IMappingCorrectionStateRepository | null;
@@ -171,6 +222,10 @@ export interface MessageWorkerDeps {
   settingsDestinationFlow?: SettingsDestinationFlow | null;
   settingsVocabularyFlow?: SettingsVocabularyFlow | null;
   resolveExpensePaymentMethod?: ResolveExpensePaymentMethod | null;
+  accessRequests?: AccessRequestRepository | undefined;
+  requestAccess?: RequestAccess | undefined;
+  oauthAdmission?: OAuthAccessTokenProvider | undefined;
+  operatorMail?: OperatorMailPort | undefined;
 }
 
 export async function processMessageJob(
@@ -187,6 +242,8 @@ export async function processMessageJob(
   const data = parsed.data;
   const { userId, channel, externalId } = data;
 
+  if (await opts.accountDeletionGate?.isDeleting(userId)) return;
+
   const identity = await opts.userRepo.findByMessagingIdentity(channel, externalId);
   if (identity?.userId !== userId) {
     throw new Error('Messaging identity does not match job user');
@@ -202,6 +259,7 @@ export async function processMessageJob(
   }
 
   let renewalInFlight = false;
+  let leaseValid = true;
   const renewalTimer = setInterval(() => {
     if (renewalInFlight) return;
     renewalInFlight = true;
@@ -209,6 +267,7 @@ export async function processMessageJob(
       .renew(userId, lockToken, USER_LOCK_TTL_MS)
       .then((renewed) => {
         if (!renewed) {
+          leaseValid = false;
           opts.transitionState.invalidateExecution(userId);
           opts.logger.error({
             msg: 'Lost per-user processing lock during renewal',
@@ -219,6 +278,7 @@ export async function processMessageJob(
         }
       })
       .catch((error: unknown) => {
+        leaseValid = false;
         opts.transitionState.invalidateExecution(userId);
         opts.logger.error({
           msg: 'Failed to renew per-user processing lock',
@@ -235,10 +295,239 @@ export async function processMessageJob(
   renewalTimer.unref();
 
   try {
+    if (await opts.accountDeletionGate?.isDeleting(userId)) return;
     const messaging = opts.messagingAdapters[channel];
 
     const conversationState = await opts.getConversationState.execute({ userId });
     const currentState = conversationState?.currentState ?? 'IDLE';
+    // The account option must remain reachable when Google access or access
+    // approval is unavailable. The existing identity check and user lock ran above.
+    if (
+      channel === 'telegram' &&
+      data.callbackData === undefined &&
+      ((data.rawMessage.trim() === '8' &&
+        currentState === 'SETTINGS_MENU' &&
+        conversationState?.statePayload?.screen === undefined) ||
+        conversationState?.statePayload?.screen === 'account_deletion' ||
+        data.rawMessage.trim() === '/eliminar_cuenta')
+    ) {
+      if (conversationState) {
+        await opts.transitionState.runWithState(conversationState, async () => {
+          await handleAccountDeletionPreview(
+            data.rawMessage,
+            userId,
+            conversationState,
+            opts,
+            messaging,
+            externalId,
+          );
+        });
+      } else {
+        await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+      }
+      return;
+    }
+    if (
+      channel === 'telegram' &&
+      opts.accessRequests &&
+      opts.requestAccess &&
+      opts.oauthAdmission
+    ) {
+      const approved = await opts.accessRequests.findApproved(userId);
+      if (!approved) {
+        const pending = await opts.accessRequests.findPending(userId);
+        const sendAccessReply = async (reply: string): Promise<void> => {
+          const showWelcome =
+            !pending && conversationState?.statePayload?.accessWelcomeShown !== true;
+          const result = await messaging.sendMessage(
+            externalId,
+            showWelcome ? [accessCopies.welcome(), reply].join('\n\n') : reply,
+          );
+          if (showWelcome && result.status === 'success') {
+            await markAccessWelcomeShown(conversationState, opts.transitionState);
+          }
+        };
+        if (data.callbackData !== undefined) {
+          await sendAccessReply(pending ? accessCopies.pendingAgain() : accessCopies.askEmail());
+          return;
+        }
+        opts.logger.info({
+          msg: 'Initial access request submission started',
+          endpoint: 'processMessageJob',
+          code: 'ACCESS_REQUEST_SUBMISSION_STARTED',
+          userId,
+          kind: 'initial',
+        });
+        const submission = await opts.requestAccess
+          .execute({
+            userId,
+            rawEmail: data.rawMessage,
+            kind: 'initial',
+          })
+          .catch(async (error: unknown) => {
+            opts.logger.error({
+              msg: 'Initial access request could not be saved',
+              endpoint: 'processMessageJob',
+              code: 'ACCESS_REQUEST_SUBMISSION_FAILED',
+              userId,
+              kind: 'initial',
+              errorType: error instanceof Error ? error.constructor.name : 'unknown',
+            });
+            await sendAccessReply(accessCopies.requestSaveFailed());
+            return null;
+          });
+        if (submission === null) return;
+        if (submission.status === 'invalid') {
+          opts.logger.info({
+            msg: 'Initial access request input rejected before database submission',
+            endpoint: 'processMessageJob',
+            code: 'ACCESS_REQUEST_INPUT_INVALID',
+            userId,
+            kind: 'initial',
+          });
+          await sendAccessReply(
+            pending
+              ? accessCopies.pendingAgain()
+              : conversationState?.statePayload?.accessWelcomeShown === true ||
+                  data.rawMessage.includes('@')
+                ? accessCopies.invalidEmail()
+                : accessCopies.askEmail(),
+          );
+          return;
+        }
+        opts.logger.info({
+          msg: 'Initial access request submission completed',
+          endpoint: 'processMessageJob',
+          code: 'ACCESS_REQUEST_SUBMISSION_COMPLETED',
+          userId,
+          kind: 'initial',
+          requestId: submission.result.request.id,
+          created: submission.result.created,
+        });
+        await sendAccessReply(
+          submission.result.created ? accessCopies.pending() : accessCopies.pendingAgain(),
+        );
+        if (submission.result.created && opts.operatorMail) {
+          opts.logger.info({
+            msg: 'Operator access-request email send started',
+            endpoint: 'processMessageJob',
+            code: 'ACCESS_REQUEST_MAIL_SEND_STARTED',
+            userId,
+            requestId: submission.result.request.id,
+          });
+          try {
+            await opts.operatorMail.sendAccessRequestNotice({
+              requestId: submission.result.request.id,
+              chatId: externalId,
+              email: submission.result.request.email,
+              kind: 'initial',
+              previousEmail: submission.result.previousEmail,
+            });
+          } catch (error) {
+            opts.logger.error({
+              msg: 'Operator access-request email failed',
+              endpoint: 'processMessageJob',
+              code: 'ACCESS_REQUEST_MAIL_FAILED',
+              userId,
+              requestId: submission.result.request.id,
+              ...operatorMailFailureContext(error),
+            });
+            return;
+          }
+          opts.logger.info({
+            msg: 'Operator access-request email accepted',
+            endpoint: 'processMessageJob',
+            code: 'ACCESS_REQUEST_MAIL_ACCEPTED',
+            userId,
+            requestId: submission.result.request.id,
+          });
+          try {
+            await opts.accessRequests.markNotificationSent(submission.result.request.id);
+          } catch (error) {
+            opts.logger.error({
+              msg: 'Operator email was accepted but notification timestamp was not persisted',
+              endpoint: 'processMessageJob',
+              code: 'ACCESS_REQUEST_NOTIFICATION_PERSIST_FAILED',
+              userId,
+              requestId: submission.result.request.id,
+              errorType: error instanceof Error ? error.constructor.name : 'unknown',
+            });
+          }
+        }
+        return;
+      }
+      if (
+        data.callbackData === undefined &&
+        isExplicitCancelCommand(data.rawMessage) &&
+        conversationState !== null &&
+        currentState !== 'IDLE'
+      ) {
+        await opts.transitionState.runWithState(conversationState, async () => {
+          await routeByState(currentState, data, conversationState, opts, messaging);
+        });
+        return;
+      }
+      try {
+        await opts.oauthAdmission.getValidAccessToken({ userId, provider: 'google' });
+      } catch (error) {
+        if (!(error instanceof SpreadsheetError) || error.code !== 'AUTH_ERROR') {
+          await messaging.sendMessage(externalId, accessCopies.oauthUnavailable());
+          return;
+        }
+        if (getFinancialExecutionClaim(conversationState?.statePayload ?? null) !== null) {
+          await messaging.sendMessage(externalId, expenseCopies.financialOutcomeUnknown());
+          return;
+        }
+        if (
+          data.callbackData !== undefined ||
+          data.rawMessage.trim().toLowerCase() !== 'continuar'
+        ) {
+          await messaging.sendMessage(
+            externalId,
+            currentState === 'ONBOARDING_DRIVE'
+              ? accessCopies.pendingOAuth()
+              : currentState === 'IDLE' || currentState === 'ONBOARDING_START'
+                ? accessCopies.continue()
+                : accessCopies.activeFlowNeedsExit(),
+          );
+          return;
+        }
+        if (
+          currentState !== 'IDLE' &&
+          currentState !== 'ONBOARDING_START' &&
+          currentState !== 'ONBOARDING_DRIVE'
+        ) {
+          await messaging.sendMessage(externalId, accessCopies.activeFlowNeedsExit());
+          return;
+        }
+        if (!opts.initiateCloudConnection) {
+          await messaging.sendMessage(externalId, accessCopies.oauthUnavailable());
+          return;
+        }
+        await opts.transitionState.runForUser(userId, async () => {
+          if (currentState === 'IDLE') {
+            await opts.transitionState.execute({
+              userId,
+              targetState: 'ONBOARDING_START',
+              payload: { promptShown: true, reauthorizationOnly: true },
+            });
+          }
+          await opts.initiateCloudConnection!.execute({
+            userId,
+            rawMessage: 'google',
+            externalId,
+            channel,
+            reauthorizationOnly: true,
+            ...(currentState !== 'IDLE' && conversationState
+              ? { resumeFrom: conversationState }
+              : {}),
+          });
+        });
+        return;
+      }
+    }
+    const idleConfig =
+      currentState === 'IDLE' ? await opts.spreadsheetConfigRepository.findByUserId(userId) : null;
     const deterministicDecision = opts.deterministicRoutingPolicy.decide({
       state: currentState,
       rawMessage: data.rawMessage,
@@ -259,9 +548,20 @@ export async function processMessageJob(
           currentState === 'SETTINGS_MAPPING' ||
           currentState === 'SETTINGS_CATEGORIES' ||
           (data.callbackData === undefined && isSettingsCommand(data.rawMessage)) ||
+          (data.callbackData === undefined && isExplicitCancelCommand(data.rawMessage)) ||
+          (currentState === 'IDLE' &&
+            data.callbackData === undefined &&
+            isStartOnboardingCommand(data.rawMessage)) ||
+          (currentState === 'IDLE' &&
+            data.callbackData === undefined &&
+            idleConfig?.categoriesConfirmedAt === null &&
+            !isCancelIntent(data.rawMessage) &&
+            !isUndoIntent(data.rawMessage)) ||
           (currentState === 'EXPENSE_REVIEW' &&
             data.callbackData === undefined &&
-            parseExpensePaymentCommand(data.rawMessage) !== null)
+            parseExpensePaymentCommand(data.rawMessage) !== null) ||
+          (currentState === 'EXPENSE_CORRECTING' &&
+            parseExpenseCategoryChoice(conversationState?.statePayload) !== null)
         ) {
           await routeByState(currentState, data, conversationState, opts, messaging);
           return;
@@ -288,14 +588,7 @@ export async function processMessageJob(
         if (semanticTurn?.status === 'clarification') {
           await messaging.sendMessage(
             externalId,
-            conversationState
-              ? semanticExpenseGuidance(conversationState, semanticTurn.reason)
-              : expenseCopies.semanticExpenseGuidance(
-                  semanticTurn.reason === 'ambiguous_reference' ||
-                    semanticTurn.reason === 'not_found'
-                    ? 'unsupported_action'
-                    : semanticTurn.reason,
-                ),
+            await currentSemanticGuidance(opts, userId, semanticTurn.reason),
           );
           return;
         }
@@ -350,12 +643,20 @@ export async function processMessageJob(
             } else {
               await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
             }
+          } else if (outcome.status === 'category_choice') {
+            await renderExpenseReviewReplyOutcome(
+              outcome.correction,
+              userId,
+              messaging,
+              externalId,
+              opts,
+            );
           } else if (outcome.status === 'queue_full') {
             await messaging.sendMessage(externalId, expenseCopies.expenseQueueFull());
           } else if (outcome.status === 'clarification_required') {
             await messaging.sendMessage(
               externalId,
-              semanticExpenseGuidance(conversationState, outcome.reason),
+              await currentSemanticGuidance(opts, userId, outcome.reason),
             );
           }
           return;
@@ -368,7 +669,7 @@ export async function processMessageJob(
             });
             await messaging.sendMessage(
               externalId,
-              expenseCopies.semanticControlGuidance('unsupported_action'),
+              await currentSemanticGuidance(opts, userId, 'unsupported_action', true),
             );
             return;
           }
@@ -399,7 +700,7 @@ export async function processMessageJob(
           } else if (outcome.status === 'clarification_required') {
             await messaging.sendMessage(
               externalId,
-              expenseCopies.semanticControlGuidance(outcome.reason),
+              await currentSemanticGuidance(opts, userId, outcome.reason, true),
             );
           }
           return;
@@ -412,7 +713,7 @@ export async function processMessageJob(
             });
             await messaging.sendMessage(
               externalId,
-              semanticExpenseGuidance(conversationState, 'not_found'),
+              await currentSemanticGuidance(opts, userId, 'not_found'),
             );
             return;
           }
@@ -439,7 +740,7 @@ export async function processMessageJob(
           if (outcome.status === 'clarification_required') {
             await messaging.sendMessage(
               externalId,
-              semanticExpenseGuidance(conversationState, outcome.reason),
+              await currentSemanticGuidance(opts, userId, outcome.reason),
             );
           }
           return;
@@ -454,25 +755,71 @@ export async function processMessageJob(
         await opts.transitionState.runForUser(userId, route);
       }
     } catch (err) {
+      if (err instanceof AccountDeletionInProgressError) return;
       if (err instanceof StaleConversationStateError) return;
       if (err instanceof RecoveredExpenseExtractionError) {
+        if (!leaseValid) return;
+        const effective = await readRecoveryState(() =>
+          opts.getConversationState.execute({ userId }),
+        );
+        if (
+          effective?.currentState !== 'IDLE' ||
+          effective.revision !== err.recoveredRevision ||
+          resolveRecoveryContext(effective) !== 'idle' ||
+          !leaseValid
+        )
+          return;
         opts.logger.error({
-          msg: 'Initial expense extraction failed; state recovered',
+          msg: 'Initial expense interpretation failed; state recovered',
           endpoint: 'processMessageJob',
           code: err.code,
+          ...(err.reason === undefined
+            ? {}
+            : { stage: 'expense_date_validation', reason: err.reason }),
           userId,
           correlationId: `${channel}:${data.externalMessageId}`,
         });
         try {
           await messaging.sendMessage(
             externalId,
-            err.code === 'LLM_TIMEOUT'
-              ? expenseCopies.extractionTimeout()
-              : expenseCopies.extractionFailed(),
+            err.code === 'EXPENSE_DATE_INVALID'
+              ? expenseCopies.invalidDateRecovered()
+              : err.code === 'LLM_TIMEOUT'
+                ? expenseCopies.extractionTimeout()
+                : expenseCopies.extractionFailed(),
           );
         } catch {
           opts.logger.error({
             msg: 'Failed to send extraction recovery message',
+            endpoint: 'processMessageJob',
+            code: 'FALLBACK_SEND_FAILED',
+            userId,
+          });
+        }
+        return;
+      }
+      if (err instanceof ExpenseDateInvalidError) {
+        if (!leaseValid) return;
+        opts.logger.error({
+          msg: 'Expense date validation failed',
+          endpoint: 'processMessageJob',
+          code: err.code,
+          stage: 'expense_date_validation',
+          reason: err.reason,
+          userId,
+          correlationId: `${channel}:${data.externalMessageId}`,
+        });
+        const effective = await readRecoveryState(() =>
+          opts.getConversationState.execute({ userId }),
+        );
+        try {
+          await messaging.sendMessage(
+            externalId,
+            expenseCopies.invalidDate(resolveRecoveryContext(effective)),
+          );
+        } catch {
+          opts.logger.error({
+            msg: 'Failed to send date validation guidance',
             endpoint: 'processMessageJob',
             code: 'FALLBACK_SEND_FAILED',
             userId,
@@ -485,11 +832,24 @@ export async function processMessageJob(
         endpoint: 'processMessageJob',
         code: 'UNEXPECTED_HANDLER_ERROR',
         userId,
+        ...(err instanceof SpreadsheetError ? { providerDiagnostic: err.providerDiagnostic } : {}),
         errorType: err instanceof Error ? err.constructor.name : 'unknown',
         error: err instanceof Error ? err.message : String(err),
       });
       try {
-        await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+        const effective = await readRecoveryState(() =>
+          opts.getConversationState.execute({ userId }),
+        );
+        const context = resolveRecoveryContext(effective);
+        const message =
+          context === 'cancellable' &&
+          effective?.currentState.startsWith('SETTINGS_') &&
+          effective.revision === conversationState?.revision &&
+          effective.currentState === conversationState?.currentState &&
+          err instanceof SpreadsheetError
+            ? spreadsheetRecoveryCopies.readFailure(err, 'settings', 'la misma selección')
+            : expenseCopies.fallbackError(context);
+        await messaging.sendMessage(externalId, message);
       } catch (sendErr) {
         opts.logger.error({
           msg: 'Failed to send fallback error after handler failure',
@@ -516,6 +876,78 @@ export async function processMessageJob(
   }
 }
 
+async function handleAccountDeletionPreview(
+  rawMessage: string,
+  userId: string,
+  state: ConversationState,
+  opts: MessageWorkerDeps,
+  messaging: MessagingOutputPort,
+  externalId: string,
+): Promise<void> {
+  const deletionEnabled = opts.accountDeletionEnabled ?? process.env.NODE_ENV !== 'production';
+  if (!deletionEnabled) {
+    await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+    return;
+  }
+  const pending = state.statePayload?.screen === 'account_deletion';
+  if (pending) {
+    if (
+      !isExactAccountDeletionConfirmation(rawMessage) &&
+      !['cancelar', 'salir', 'cancel', 'exit'].includes(rawMessage.trim().toLowerCase())
+    ) {
+      await messaging.sendMessage(externalId, accountDeletionCopies.request);
+      return;
+    }
+    if (
+      state.expiresAt &&
+      state.expiresAt.getTime() > Date.now() &&
+      isExactAccountDeletionConfirmation(rawMessage) &&
+      deletionEnabled &&
+      opts.accountDeletion
+    ) {
+      const started = await opts.accountDeletion.confirm({
+        userId,
+        channel: 'telegram',
+        externalId,
+        revision: state.revision,
+      });
+      if (started) {
+        await opts.accountDeletion.queue.add('delete', { userId });
+        await messaging.sendMessage(
+          externalId,
+          'Empezamos a eliminar tu cuenta. Te avisaremos cuando termine.',
+        );
+      } else {
+        await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+      }
+      return;
+    }
+    await opts.transitionState.execute({
+      userId,
+      targetState: 'IDLE',
+      payload: null,
+      expected: opts.transitionState.precondition(state, 'any'),
+    });
+    const reply =
+      state.expiresAt && state.expiresAt.getTime() > Date.now()
+        ? isExactAccountDeletionConfirmation(rawMessage)
+          ? accountDeletionCopies.unavailable
+          : accountDeletionCopies.cancelled
+        : accountDeletionCopies.expired;
+    await messaging.sendMessage(externalId, reply);
+    return;
+  }
+  if (state.currentState !== 'IDLE' && state.currentState !== 'SETTINGS_MENU') {
+    await messaging.sendMessage(externalId, accountDeletionCopies.unavailable);
+    return;
+  }
+  await new RequestAccountDeletion(opts.transitionState, messaging).execute({
+    userId,
+    state,
+    externalId,
+  });
+}
+
 async function routeByState(
   currentState: string,
   jobData: ProcessMessageJobData,
@@ -537,6 +969,27 @@ async function routeByState(
   // review state they must not cancel, reset, or otherwise mutate a flow.
   if (jobData.callbackData !== undefined && currentState !== 'EXPENSE_REVIEW') {
     await messaging.sendMessage(externalId, expenseCopies.noActiveReview());
+    return;
+  }
+
+  if (
+    jobData.callbackData === undefined &&
+    isExplicitCancelCommand(rawMessage) &&
+    conversationState !== null &&
+    (currentState.startsWith('ONBOARDING_') ||
+      currentState.startsWith('SETTINGS_') ||
+      currentState === 'EXPENSE_SAVING_RETRY' ||
+      currentState === 'EXPENSE_SAVING' ||
+      currentState === 'EXPENSE_UNDO_CONFIRMING')
+  ) {
+    await opts.cancelConversationFlow.execute({
+      userId,
+      externalId,
+      channel,
+      state: conversationState,
+      source: 'text',
+      messagingPort: messaging,
+    });
     return;
   }
 
@@ -680,6 +1133,143 @@ async function routeByState(
       await messaging.sendMessage(externalId, settingsCopies.cancelled());
       return;
     }
+    if (conversationState.statePayload?.screen === 'email_change') {
+      if (!opts.requestAccess || !opts.accessRequests) {
+        await messaging.sendMessage(externalId, settingsCopies.unavailable());
+        return;
+      }
+      const active = await opts.accessRequests.findApproved(userId);
+      if (!active) {
+        await messaging.sendMessage(externalId, accessCopies.askEmail());
+        return;
+      }
+      if (rawMessage.trim().toLowerCase() === active.email) {
+        await messaging.sendMessage(externalId, accessCopies.replacementSameEmail());
+        return;
+      }
+      opts.logger.info({
+        msg: 'Replacement access request submission started',
+        endpoint: 'routeByState',
+        code: 'ACCESS_REQUEST_SUBMISSION_STARTED',
+        userId,
+        kind: 'replacement',
+      });
+      const submission = await opts.requestAccess
+        .execute({
+          userId,
+          rawEmail: rawMessage,
+          kind: 'replacement',
+        })
+        .catch(async (error: unknown) => {
+          opts.logger.error({
+            msg: 'Replacement access request could not be saved',
+            endpoint: 'routeByState',
+            code: 'ACCESS_REQUEST_SUBMISSION_FAILED',
+            userId,
+            kind: 'replacement',
+            errorType: error instanceof Error ? error.constructor.name : 'unknown',
+          });
+          await messaging.sendMessage(externalId, accessCopies.replacementSaveFailed());
+          return null;
+        });
+      if (submission === null) return;
+      if (submission.status === 'invalid') {
+        opts.logger.info({
+          msg: 'Replacement access request input rejected before database submission',
+          endpoint: 'routeByState',
+          code: 'ACCESS_REQUEST_INPUT_INVALID',
+          userId,
+          kind: 'replacement',
+        });
+        await messaging.sendMessage(externalId, accessCopies.invalidReplacementEmail());
+        return;
+      }
+      opts.logger.info({
+        msg: 'Replacement access request submission completed',
+        endpoint: 'routeByState',
+        code: 'ACCESS_REQUEST_SUBMISSION_COMPLETED',
+        userId,
+        kind: 'replacement',
+        requestId: submission.result.request.id,
+        created: submission.result.created,
+      });
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'IDLE',
+        payload: null,
+        expected: opts.transitionState.precondition(conversationState, 'unexpired'),
+      });
+      await messaging.sendMessage(
+        externalId,
+        submission.result.created ? accessCopies.pending() : accessCopies.pendingAgain(),
+      );
+      if (submission.result.created && opts.operatorMail) {
+        opts.logger.info({
+          msg: 'Operator account-replacement email send started',
+          endpoint: 'routeByState',
+          code: 'ACCESS_REQUEST_MAIL_SEND_STARTED',
+          userId,
+          requestId: submission.result.request.id,
+        });
+        try {
+          await opts.operatorMail.sendAccessRequestNotice({
+            requestId: submission.result.request.id,
+            chatId: externalId,
+            email: submission.result.request.email,
+            kind: 'replacement',
+            previousEmail: submission.result.previousEmail ?? active.email,
+          });
+        } catch (error) {
+          opts.logger.error({
+            msg: 'Operator account-replacement email failed',
+            endpoint: 'routeByState',
+            code: 'ACCOUNT_CHANGE_MAIL_FAILED',
+            userId,
+            requestId: submission.result.request.id,
+            ...operatorMailFailureContext(error),
+          });
+          return;
+        }
+        opts.logger.info({
+          msg: 'Operator account-replacement email accepted',
+          endpoint: 'routeByState',
+          code: 'ACCESS_REQUEST_MAIL_ACCEPTED',
+          userId,
+          requestId: submission.result.request.id,
+        });
+        try {
+          await opts.accessRequests.markNotificationSent(submission.result.request.id);
+        } catch (error) {
+          opts.logger.error({
+            msg: 'Operator email was accepted but notification timestamp was not persisted',
+            endpoint: 'routeByState',
+            code: 'ACCESS_REQUEST_NOTIFICATION_PERSIST_FAILED',
+            userId,
+            requestId: submission.result.request.id,
+            errorType: error instanceof Error ? error.constructor.name : 'unknown',
+          });
+        }
+      }
+      return;
+    }
+    if (conversationState.statePayload?.screen === 'email_change_ready') {
+      if (rawMessage.trim().toLowerCase() !== 'continuar') {
+        await messaging.sendMessage(externalId, accessCopies.replacementReady());
+        return;
+      }
+      const replacement = await opts.accessRequests?.findApprovedReplacement(userId);
+      if (!replacement || !opts.startSettingsReauthorization) {
+        await messaging.sendMessage(externalId, settingsCopies.authUnavailable());
+        return;
+      }
+      await opts.startSettingsReauthorization.execute({
+        state: conversationState,
+        externalId,
+        channel,
+        accountChangeRequestId: replacement.id,
+      });
+      return;
+    }
     const vocabulary = parseSettingsVocabularyPayload(conversationState.statePayload);
     if (
       (vocabulary?.screen === 'categories' ||
@@ -692,6 +1282,38 @@ async function routeByState(
       return;
     }
     const choice = rawMessage.trim();
+    if (choice === '7') {
+      if (!opts.accessRequests || !opts.requestAccess) {
+        await messaging.sendMessage(externalId, settingsCopies.unavailable());
+        return;
+      }
+      const active = await opts.accessRequests.findApproved(userId);
+      if (!active) {
+        await messaging.sendMessage(externalId, accessCopies.askEmail());
+        return;
+      }
+      const replacement = await opts.accessRequests.findApprovedReplacement(userId);
+      const pending = await opts.accessRequests.findPending(userId);
+      await opts.transitionState.execute({
+        userId,
+        targetState: 'SETTINGS_MENU',
+        payload: {
+          ...conversationState.statePayload,
+          screen: replacement ? 'email_change_ready' : 'email_change',
+        },
+        expiresAt: new Date(Date.now() + SETTINGS_TIMEOUT_MS),
+        expected: opts.transitionState.precondition(conversationState, 'unexpired'),
+      });
+      await messaging.sendMessage(
+        externalId,
+        replacement
+          ? accessCopies.replacementReady()
+          : pending?.kind === 'replacement'
+            ? `${accessCopies.replacementPending()}\n${accessCopies.replacementPrompt()}`
+            : accessCopies.replacementPrompt(),
+      );
+      return;
+    }
     if (choice === '5' && opts.settingsVocabularyFlow) {
       await opts.settingsVocabularyFlow.start({
         state: conversationState,
@@ -788,6 +1410,7 @@ async function routeByState(
       });
       await sendUndoOutcome(result, messaging, externalId);
     } catch (err) {
+      if (err instanceof AccountDeletionInProgressError) throw err;
       opts.logger.error({
         msg: 'Failed to undo while preserving queued review',
         endpoint: 'routeByState',
@@ -821,6 +1444,7 @@ async function routeByState(
 
   if (
     jobData.callbackData === undefined &&
+    parseExpenseCategoryChoice(conversationState?.statePayload) === null &&
     shouldQueueAdditionalExpense(
       currentState,
       conversationState?.statePayload ?? null,
@@ -838,6 +1462,43 @@ async function routeByState(
   switch (currentState) {
     case 'IDLE':
     case 'EXPENSE_RECEIVING': {
+      if (currentState === 'IDLE') {
+        const config = await opts.spreadsheetConfigRepository.findByUserId(userId);
+        if (isStartOnboardingCommand(rawMessage)) {
+          if (
+            config?.categoriesConfirmedAt !== null &&
+            config?.categoriesConfirmedAt !== undefined
+          ) {
+            await messaging.sendMessage(externalId, onboardingCopies.alreadyConfigured());
+            break;
+          }
+          await opts.transitionState.execute({
+            userId,
+            targetState: 'ONBOARDING_START',
+            payload: { promptShown: true },
+          });
+          if (opts.initiateCloudConnection) {
+            await opts.initiateCloudConnection.execute({
+              userId,
+              rawMessage,
+              externalId,
+              channel,
+            });
+          } else {
+            await messaging.sendMessage(externalId, onboardingCopies.welcomePrompt());
+          }
+          break;
+        }
+        if (config?.categoriesConfirmedAt === null && !isCancelIntent(rawMessage)) {
+          await opts.transitionState.execute({
+            userId,
+            targetState: 'ONBOARDING_START',
+            payload: { promptShown: true },
+          });
+          await messaging.sendMessage(externalId, onboardingCopies.setupRequired());
+          break;
+        }
+      }
       if (currentState === 'IDLE' && isUndoIntent(rawMessage) && opts.undoLastExpense) {
         const immediateUndoExpenseId = conversationState?.statePayload?.immediateUndoExpenseId;
         if (typeof immediateUndoExpenseId === 'string') {
@@ -1019,17 +1680,7 @@ async function routeByState(
         await messaging.sendMessage(externalId, onboardingCopies.onboardingPlaceholder());
         break;
       }
-      if (isCancelIntent(rawMessage)) {
-        const state = conversationState?.statePayload?.state;
-        if (typeof state === 'string') {
-          await opts.cancelCloudConnection.execute({ userId, state, externalId, channel });
-        } else {
-          await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-          await messaging.sendMessage(externalId, onboardingCopies.cancelledMessage());
-        }
-      } else {
-        await messaging.sendMessage(externalId, onboardingCopies.waitForAuthPrompt());
-      }
+      await messaging.sendMessage(externalId, onboardingCopies.waitForAuthPrompt());
       break;
     }
 
@@ -1101,7 +1752,7 @@ async function routeByState(
           opts,
           messaging,
         );
-      } else if (isConfirmIntent(rawMessage)) {
+      } else if (isOnboardingConfirmIntent(rawMessage)) {
         if (opts.confirmCategories) {
           await opts.confirmCategories.execute({
             userId,
@@ -1159,7 +1810,7 @@ async function routeByState(
       } else {
         // Estado válido pero no manejado: forzar reset a IDLE para no dejar al usuario atascado
         await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-        await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+        await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
       }
     }
   }
@@ -1267,6 +1918,7 @@ async function handleExpenseSavingRetry(
     const outcome = await opts.retryExpenseSave.execute({
       userId,
       chatId: externalId,
+      channel,
       authorization: {
         receivedAt: jobData.receivedAt,
         sourceMessageId: jobData.externalMessageId,
@@ -1378,6 +2030,10 @@ async function sendUndoOutcome(
     case 'deletion_failed':
       await messaging.sendMessage(chatId, expenseCopies.undoDeletionFailed());
       return;
+    case 'preparation_failed':
+      await messaging.sendMessage(chatId, expenseCopies.undoPreparationFailed());
+      return;
+    case 'outcome_unknown':
     case 'operation_in_progress':
       await messaging.sendMessage(chatId, expenseCopies.financialOutcomeUnknown());
       return;
@@ -1397,7 +2053,10 @@ async function sendUndoOutcome(
 export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMessageJobData> {
   const worker = new Worker<ProcessMessageJobData>(
     'process-message',
-    async (job: Job<ProcessMessageJobData>) => processMessageJob(job, opts),
+    async (job: Job<ProcessMessageJobData>, token?: string) => {
+      await assertRestoreSafe(opts.restoreGuard, job, token, worker, opts.logger);
+      await processMessageJob(job, opts);
+    },
     {
       connection: opts.redis,
       concurrency: 2, // max 2 simultaneous jobs to not saturate LLM API (ADR-005)
@@ -1451,9 +2110,45 @@ export function createMessageWorker(opts: MessageWorkerDeps): Worker<ProcessMess
       errorType: err.constructor.name,
       error: err.message,
     });
+
+    // A failed event is also emitted for intermediate attempts. Verify that
+    // BullMQ actually moved this validated contention job to failed before
+    // telling the user to resend it.
+    if (
+      job &&
+      err instanceof UserAlreadyProcessingError &&
+      attemptsMade !== undefined &&
+      maxAttempts !== undefined &&
+      attemptsMade >= maxAttempts
+    ) {
+      void notifyFinalContention(job, err, opts).catch((error: unknown) => {
+        opts.logger.error({
+          msg: 'Failed to handle final processing contention',
+          endpoint: 'processMessageJob',
+          code: 'CONTENTION_NOTICE_HANDLER_FAILED',
+          jobId: job.id,
+          errorType: error instanceof Error ? error.constructor.name : 'unknown',
+        });
+      });
+    }
   });
 
   return worker;
+}
+
+async function notifyFinalContention(
+  job: Job<ProcessMessageJobData>,
+  error: UserAlreadyProcessingError,
+  opts: MessageWorkerDeps,
+): Promise<void> {
+  const parsed = ProcessMessageJobDataSchema.safeParse(job.data);
+  if (!parsed.success || parsed.data.userId !== error.userId) return;
+  if ((await job.getState()) !== 'failed') return;
+  await opts.notifyMessageProcessingContention.execute({
+    channel: parsed.data.channel,
+    externalId: parsed.data.externalId,
+    externalMessageId: parsed.data.externalMessageId,
+  });
 }
 
 // ── Helpers de formato ────────────────────────────────────────────────────────
@@ -1580,6 +2275,32 @@ async function handleNoHeaderResponse(
   opts: MessageWorkerDeps,
 ): Promise<void> {
   const trimmed = rawMessage.trim();
+
+  if (trimmed.toLocaleLowerCase('es') === 'otra hoja') {
+    const payload: Record<string, unknown> = {
+      selectedFileId: statePayload?.selectedFileId,
+      selectedFileName: statePayload?.selectedFileName,
+      provider: statePayload?.provider,
+      ...(Array.isArray(statePayload?.sheetList) ? { sheetList: statePayload.sheetList } : {}),
+      step: 'choose-another-sheet',
+    };
+    await opts.transitionState.execute({ userId, targetState: 'ONBOARDING_SHEET', payload });
+    if (opts.handleSheetSelection) {
+      await opts.handleSheetSelection.execute({
+        userId,
+        externalId,
+        channel,
+        rawMessage: '',
+        statePayload: payload,
+      });
+    } else {
+      await opts.messagingAdapters[channel].sendMessage(
+        externalId,
+        onboardingCopies.sheetDiscoveryFailed(),
+      );
+    }
+    return;
+  }
   const dataStartRow = Number(trimmed);
 
   if (trimmed === '' || !Number.isInteger(dataStartRow) || dataStartRow < 2) {
@@ -1868,7 +2589,7 @@ async function handleExpenseReview(
         action: 'action' in callbackData ? callbackData.action : 'invalid',
       });
       await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-      await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+      await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
       return;
     }
 
@@ -1913,7 +2634,7 @@ async function handleExpenseReview(
       userId,
     });
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
     return;
   }
 
@@ -1937,6 +2658,38 @@ async function handleExpenseCorrection(
 ): Promise<void> {
   const { userId, rawMessage, channel, externalId } = jobData;
 
+  if (parseExpenseCategoryChoice(statePayload) !== null) {
+    if (jobData.callbackData !== undefined || !opts.resolveExpenseCategoryChoice) {
+      await messaging.sendMessage(externalId, expenseCopies.staleReview());
+      return;
+    }
+    const result = await opts.resolveExpenseCategoryChoice.reply({
+      userId,
+      rawMessage,
+      receivedAt: jobData.receivedAt,
+    });
+    if (result.status === 'review')
+      await presentExpenseSummary(userId, result.payload, messaging, externalId, opts);
+    else if (result.status === 'choose')
+      await messaging.sendMessage(externalId, expenseChoiceCopy(result.choice));
+    else if (result.status === 'confirm')
+      await messaging.sendMessage(externalId, expenseChoiceConfirmationCopy(result.choice));
+    else if (result.status === 'invalid') {
+      const choice = parseExpenseCategoryChoice(
+        opts.transitionState.currentState(userId)?.statePayload,
+      );
+      await messaging.sendMessage(
+        externalId,
+        choice?.stage === 'confirm'
+          ? expenseChoiceConfirmationCopy(choice)
+          : choice
+            ? expenseChoiceCopy(choice)
+            : expenseCopies.staleReview(),
+      );
+    } else await messaging.sendMessage(externalId, expenseCopies.staleReview());
+    return;
+  }
+
   if (!opts.correctExpense) {
     await messaging.sendMessage(externalId, expenseCopies.expenseRegistrationUnavailable());
     return;
@@ -1954,7 +2707,7 @@ async function handleExpenseCorrection(
       error: err instanceof Error ? err.message : String(err),
     });
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
     return;
   }
 
@@ -2054,11 +2807,46 @@ async function renderExpenseReviewReplyOutcome(
     case 'invalid_subcategory':
       await messaging.sendMessage(externalId, expenseCopies.invalidSubcategory(outcome));
       return;
+    case 'unresolved_category':
+    case 'unresolved_subcategory': {
+      const current = opts.transitionState.currentState(userId);
+      const original =
+        current?.currentState === 'EXPENSE_REVIEW'
+          ? tryNormalizeExpenseReviewPayload(current.statePayload)
+          : current?.currentState === 'EXPENSE_CORRECTING'
+            ? ExpenseCorrectionState.fromPayload(current.statePayload).payload
+            : null;
+      if (!original || !opts.resolveExpenseCategoryChoice) {
+        await messaging.sendMessage(externalId, expenseCopies.staleReview());
+        return;
+      }
+      const result = await opts.resolveExpenseCategoryChoice.start({
+        userId,
+        original,
+        correction: outcome,
+      });
+      if (result.status === 'choose')
+        await messaging.sendMessage(externalId, expenseChoiceCopy(result.choice));
+      else await messaging.sendMessage(externalId, expenseCopies.staleReview());
+      return;
+    }
     case 'high_amount_confirmation':
     case 'corrected':
       await presentExpenseSummary(userId, outcome.payload, messaging, externalId, opts);
       return;
   }
+}
+
+function expenseChoiceCopy(choice: ExpenseCategoryChoiceState): string {
+  return choice.kind === 'subcategory'
+    ? expenseCopies.subcategoryChoice(choice)
+    : expenseCopies.categoryChoice(choice);
+}
+
+function expenseChoiceConfirmationCopy(choice: ExpenseCategoryChoiceState): string {
+  return choice.kind === 'subcategory'
+    ? expenseCopies.subcategoryAddConfirmation(choice.attemptedName, choice.parentCategoryName!)
+    : expenseCopies.categoryAddConfirmation(choice.attemptedName);
 }
 
 async function handleClarification(
@@ -2082,7 +2870,7 @@ async function handleClarification(
       userId,
     });
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
     return;
   }
 
@@ -2098,20 +2886,23 @@ async function handleClarification(
       error: err instanceof Error ? err.message : String(err),
     });
     await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.fallbackError());
+    await messaging.sendMessage(externalId, await currentFallbackGuidance(opts, userId));
     return;
   }
 
   // Interruption: a new expense message cancels the current clarification flow.
   if (isNewExpenseDuringClarification(rawMessage, state.missingField)) {
-    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
-
     const result = await opts.registerExpense.interpret({
       userId,
       rawMessage,
       channel,
+      ...(state.queueRegisteredCount === undefined
+        ? {}
+        : { queueRegisteredCount: state.queueRegisteredCount }),
     });
+    if (result.status !== 'authorization_required') {
+      await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
+    }
 
     if (result.status === 'authorization_required') {
       await messaging.sendMessage(externalId, expenseCopies.saveAuthorizationFailure());
@@ -2178,31 +2969,64 @@ function semanticExpenseGuidance(
     | 'ambiguous_reference'
     | 'not_found'
     | 'stale_context',
-): string {
+): MessageBlocks {
   if (conversationState.currentState === 'ONBOARDING_FILE') {
-    if (reason === 'ambiguous_reference') return onboardingCopies.ambiguousFileReference();
-    if (reason === 'stale_context') return onboardingCopies.staleFileReference();
-    return onboardingCopies.fileReferenceNotFound();
+    if (reason === 'ambiguous_reference')
+      return { action: onboardingCopies.ambiguousFileReference() };
+    if (reason === 'stale_context') return { action: onboardingCopies.staleFileReference() };
+    return { action: onboardingCopies.fileReferenceNotFound() };
   }
   if (conversationState.currentState === 'ONBOARDING_SHEET') {
-    if (reason === 'ambiguous_reference') return onboardingCopies.ambiguousSheetReference();
-    if (reason === 'stale_context') return onboardingCopies.staleSheetReference();
-    return onboardingCopies.sheetReferenceNotFound();
+    if (reason === 'ambiguous_reference')
+      return { action: onboardingCopies.ambiguousSheetReference() };
+    if (reason === 'stale_context') return { action: onboardingCopies.staleSheetReference() };
+    return { action: onboardingCopies.sheetReferenceNotFound() };
   }
+  if (
+    conversationState.currentState.startsWith('ONBOARDING_') ||
+    conversationState.currentState.startsWith('SETTINGS_')
+  ) {
+    return expenseGuidanceBlocks.fallback();
+  }
+  if (conversationState.currentState === 'EXPENSE_CORRECTING')
+    return expenseGuidanceBlocks.correction();
+  if (conversationState.currentState === 'EXPENSE_SAVING_RETRY')
+    return expenseGuidanceBlocks.retryChoice();
   const expenseReason =
     reason === 'ambiguous_reference' || reason === 'not_found' ? 'unsupported_action' : reason;
   if (conversationState.currentState === 'EXPENSE_CLARIFYING') {
     try {
       const state = ExpenseClarificationState.fromPayload(conversationState.statePayload);
       return state.missingField === 'monto'
-        ? expenseCopies.clarificationAmount()
-        : expenseCopies.clarificationCurrency();
+        ? expenseGuidanceBlocks.clarificationAmount()
+        : expenseGuidanceBlocks.clarificationCurrency();
     } catch {
-      return expenseCopies.semanticExpenseGuidance(expenseReason);
+      return { action: expenseCopies.semanticExpenseGuidance(expenseReason) };
     }
   }
   if (conversationState.currentState === 'EXPENSE_REVIEW') {
-    return expenseCopies.ambiguousResponse();
+    return expenseGuidanceBlocks.ambiguousReview();
   }
-  return expenseCopies.semanticExpenseGuidance(expenseReason);
+  return { action: expenseCopies.semanticExpenseGuidance(expenseReason) };
+}
+
+async function currentSemanticGuidance(
+  opts: MessageWorkerDeps,
+  userId: string,
+  reason: Parameters<typeof semanticExpenseGuidance>[1],
+  control = false,
+): Promise<string> {
+  const state = await readRecoveryState(() => opts.getConversationState.execute({ userId }));
+  const context = resolveRecoveryContext(state);
+  if (context === 'unknown') return expenseCopies.fallbackError(context);
+  const message =
+    state && !control
+      ? semanticExpenseGuidance(state, reason)
+      : { action: expenseCopies.semanticControlGuidance('stale_context') };
+  return recoveryGuidance(message, context);
+}
+
+async function currentFallbackGuidance(opts: MessageWorkerDeps, userId: string): Promise<string> {
+  const state = await readRecoveryState(() => opts.getConversationState.execute({ userId }));
+  return expenseCopies.fallbackError(resolveRecoveryContext(state));
 }

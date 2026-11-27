@@ -1,0 +1,67 @@
+{
+  "recordedAt": "2026-11-04T17:40:55.717153+00:00",
+  "status": "Local development-tool remediation verified; release-commit CI and operational gates remain pending",
+  "baseCommit": "c4662770503b443a8bdd6764bb09ba1f4db45893",
+  "packageManager": "pnpm@10.34.9",
+  "lockfileSha256": "d95cf4472ca0d86c32d48f494a12d497e30d54439f9ea400997773ce5e9441e6",
+  "checks": {
+    "frozenInstall": "pass",
+    "lint": "pass",
+    "typecheck": "pass",
+    "build": "pass",
+    "fullTests": {
+      "files": 202,
+      "passed": 2685,
+      "failed": 0,
+      "skipped": 0,
+      "postgresMandatory": true,
+      "command": "DOTENV_CONFIG_PATH=/dev/null RUN_POSTGRES_INTEGRATION=true pnpm test --maxWorkers=2",
+      "durationSeconds": 279.12
+    },
+    "securityAndToolchainTests": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "productionAudit": {
+      "date": "2026-11-03T19:50:33.478Z",
+      "scope": "production",
+      "findings": [],
+      "rejected": []
+    },
+    "allDependencyAudit": {
+      "date": "2026-11-03T19:50:35.705Z",
+      "scope": "all",
+      "findings": [],
+      "rejected": []
+    },
+    "isolatedDrizzleGeneration": "pass; generated SQL matches previously reviewed 12-check snapshot delta; no migration applied",
+    "migrationHistory": "unchanged",
+    "applicationSourceComparedWithPreviousCheckpoint": "unchanged",
+    "format": "pass",
+    "diffWhitespace": "pass"
+  },
+  "changedToolingSha256": {
+    "pnpm-lock.yaml": "d95cf4472ca0d86c32d48f494a12d497e30d54439f9ea400997773ce5e9441e6",
+    "pnpm-workspace.yaml": "28881b9804b23baa2c90c4d8d71f1d3329a387a0e39d5d2804b1bccea24d2751",
+    "package.json": "e2e56b097574f4eff938c7ce7d97eb5b09f8598492578cf348fd3cfe8b140de3",
+    ".github/workflows/ci.yml": "833f2bd0cfcbe3d3063c8726418cfb746fdcaa00b588f589145ff4d50b4cf581",
+    "scripts/security/audit.mjs": "fb29a446c8db7f3f350bc71b292232a2f9b9ed3a40f281b346f0ad0b32e7845a",
+    "scripts/security/audit.test.mjs": "4e593687aa41c4a71630f967805ece4facfce48f90b24cfb24da874bc934f34a",
+    "scripts/security/toolchain.test.mjs": "7dff288d3245a6d6e46bc9bc9efca3ab03fd5dbc7a7d5ccfdf4fe9dc3e54b08d"
+  },
+  "releaseRelationship": {
+    "deployedDevelopmentRelease": 93,
+    "deployedImageManifest": "sha256:ed151b67fe79127f93053599d5cc74994f92b4f2334542987c9be6071adfa8e0",
+    "toolingChangesDeployed": false,
+    "hostedCiOnFinalCommit": "pending",
+    "finalReleaseImageBuildAndScan": "pending; previous image scan applies only to the previously deployed artifact"
+  },
+  "remainingGates": [
+    "Designated synthetic account and disposable sheet for expense/OAuth/replay and recovery checks",
+    "Operator secret-rotation confirmation/execution",
+    "Configured alert destination and notification delivery",
+    "Legitimate user/NAT traffic measurements",
+    "Required GitHub checks and artifact checks on the eventual release commit"
+  ]
+}

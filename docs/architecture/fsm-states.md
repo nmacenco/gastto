@@ -1,5 +1,7 @@
 # FSM States — Gastto
 
+Telegram email requests live in `access_requests`, outside the FSM, so cancellation and expiry do not erase them. An approved Telegram chat without a usable Google token must send `continuar` before OAuth begins. Account replacement starts from option 7 in `SETTINGS_MENU`, moves through `SETTINGS_OAUTH`, `SETTINGS_FILE`, `SETTINGS_SHEET`, `SETTINGS_MAPPING`, and `SETTINGS_CATEGORIES`, and carries `accountChangeRequestId` in the state payload. Candidate OAuth tokens are removed on cancellation or expiry. Final settings activation atomically sets the new request active and returns the FSM to `IDLE`. See [Telegram access approval](../features/telegram-access-approval.md).
+
 > **Why this document exists:** The FSM is the operational heart of the system. An agent that generates message-handling code without knowing the valid states and their transitions will produce incoherent logic. ADR-003 mentions the FSM but is not the right place to consult transitions during development.
 > **Related:**
 >
@@ -10,22 +12,22 @@
 
 ## State table
 
-| State                          | Description                                                 | Valid outgoing transitions                                                                    | Timeout |
-| ------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------- |
-| `IDLE`                         | No active flow                                              | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`                                                   | —       |
-| `ONBOARDING_START`             | First contact, no spreadsheet linked                        | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` \| `IDLE`                      | 30 min  |
-| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                                | → `ONBOARDING_DRIVE` \| `ONBOARDING_FILE` \| `IDLE`                                           | 30 min  |
-| `ONBOARDING_FILE`              | Waiting for file selection                                  | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` \| `IDLE`               | 30 min  |
-| `ONBOARDING_SHEET`             | Waiting for sheet selection                                 | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` \| `IDLE` | 30 min  |
-| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet              | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` \| `IDLE`                  | 30 min  |
-| `ONBOARDING_MAPPING`           | Waiting for column-mapping confirmation                     | → `ONBOARDING_MAPPING` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START` \| `IDLE`             | 30 min  |
-| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation                           | → `IDLE` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START`                                     | 30 min  |
-| `EXPENSE_RECEIVING`            | Message received, processing NLP                            | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW` \| `IDLE` \| `ONBOARDING_START`                    | —       |
-| `EXPENSE_CLARIFYING`           | Waiting for user clarification                              | → `EXPENSE_REVIEW` \| `IDLE` \| `ONBOARDING_START`                                            | 10 min  |
-| `EXPENSE_REVIEW`               | Summary sent, waiting for confirmation                      | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`                                          | 10 min  |
-| `EXPENSE_CORRECTING`           | Applying user correction                                    | → `EXPENSE_REVIEW` \| `IDLE`                                                                  | —       |
-| `EXPENSE_SAVING`               | Writing to the spreadsheet or retaining an unresolved claim | → `EXPENSE_SAVING` \| `IDLE` \| `EXPENSE_SAVING_RETRY` \| `ONBOARDING_START`                  | —       |
-| `EXPENSE_SAVING_RETRY`         | Waiting for a user decision after a retryable failed save   | → `EXPENSE_SAVING_RETRY` \| `IDLE` \| `ONBOARDING_VALIDATING_ACCESS`                          | 10 min  |
+| State                          | Description                                                 | Valid outgoing transitions                                                                              | Timeout |
+| ------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------- |
+| `IDLE`                         | No active flow                                              | → `ONBOARDING_START` \| `EXPENSE_RECEIVING`                                                             | —       |
+| `ONBOARDING_START`             | First contact, no spreadsheet linked                        | → `ONBOARDING_START` (set `promptShown`) \| `ONBOARDING_DRIVE` \| `IDLE`                                | 30 min  |
+| `ONBOARDING_DRIVE`             | Waiting for OAuth connection                                | → `ONBOARDING_DRIVE` \| `ONBOARDING_FILE` \| `IDLE`                                                     | 30 min  |
+| `ONBOARDING_FILE`              | Waiting for file selection                                  | → `ONBOARDING_FILE` (store `fileList` / `step`) \| `ONBOARDING_SHEET` \| `IDLE`                         | 30 min  |
+| `ONBOARDING_SHEET`             | Waiting for sheet selection                                 | → `ONBOARDING_SHEET` (store `sheetList` / `step`) \| `ONBOARDING_VALIDATING_ACCESS` \| `IDLE`           | 30 min  |
+| `ONBOARDING_VALIDATING_ACCESS` | Validating read/write access on selected sheet              | → `ONBOARDING_MAPPING` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` \| `IDLE`                            | 30 min  |
+| `ONBOARDING_MAPPING`           | Waiting for column-mapping confirmation                     | → `ONBOARDING_MAPPING` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_SHEET` \| `ONBOARDING_START` \| `IDLE` | 30 min  |
+| `ONBOARDING_CATEGORIES`        | Waiting for category confirmation                           | → `IDLE` \| `ONBOARDING_CATEGORIES` \| `ONBOARDING_START`                                               | 30 min  |
+| `EXPENSE_RECEIVING`            | Message received, processing NLP                            | → `EXPENSE_CLARIFYING` \| `EXPENSE_REVIEW` \| `IDLE` \| `ONBOARDING_START`                              | —       |
+| `EXPENSE_CLARIFYING`           | Waiting for user clarification                              | → `EXPENSE_REVIEW` \| `IDLE` \| `ONBOARDING_START`                                                      | 10 min  |
+| `EXPENSE_REVIEW`               | Summary sent, waiting for confirmation                      | → `EXPENSE_SAVING` \| `EXPENSE_CORRECTING` \| `IDLE`                                                    | 10 min  |
+| `EXPENSE_CORRECTING`           | Applying user correction                                    | → `EXPENSE_REVIEW` \| `IDLE`                                                                            | —       |
+| `EXPENSE_SAVING`               | Writing to the spreadsheet or retaining an unresolved claim | → `EXPENSE_SAVING` \| `IDLE` \| `EXPENSE_SAVING_RETRY` \| `ONBOARDING_START`                            | —       |
+| `EXPENSE_SAVING_RETRY`         | Waiting for a user decision after a retryable failed save   | → `EXPENSE_SAVING_RETRY` \| `IDLE` \| `ONBOARDING_VALIDATING_ACCESS`                                    | 10 min  |
 
 ---
 

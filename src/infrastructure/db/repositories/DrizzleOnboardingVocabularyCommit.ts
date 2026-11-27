@@ -1,8 +1,18 @@
+import { isCategoryProposalAccepted } from '../../../application/dtos/CategoryOnboardingState';
+import { onboardingContextIssue } from '../../../application/services/ConfirmedOnboardingContext';
+import type { SpreadsheetProvider, GasttoField } from '../../../domain/entities/SpreadsheetConfig';
+import { isDeepStrictEqual } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type * as schema from '../schema';
-import { conversationStates, spreadsheetConfigs, userPaymentMethods, users } from '../schema';
+import {
+  conversationStates,
+  spreadsheetConfigs,
+  columnMappings,
+  userPaymentMethods,
+  users,
+} from '../schema';
 import type { OnboardingVocabularyCommit } from '../../../application/ports/OnboardingVocabularyCommit';
 import type { VocabularySnapshot } from '../../../application/ports/SettingsVocabularyCommit';
 import { normalizePaymentMethodName } from '../../../domain/entities/PaymentMethodCatalog';
@@ -35,9 +45,10 @@ export class DrizzleOnboardingVocabularyCommit implements OnboardingVocabularyCo
           state.revision.toString() !== input.expected.revision ||
           (state.expiresAt !== null && state.expiresAt.getTime() <= Date.now()) ||
           payload?.paymentReview !== true ||
-          JSON.stringify(payload.categories) !== JSON.stringify(input.categories) ||
-          JSON.stringify(payload.paymentMethods) !== JSON.stringify(input.paymentMethods) ||
-          JSON.stringify(payload.categoryDraft) !== JSON.stringify(input.categoryDraft) ||
+          !isCategoryProposalAccepted(payload) ||
+          !isDeepStrictEqual(payload.categories, input.categories) ||
+          !isDeepStrictEqual(payload.paymentMethods, input.paymentMethods) ||
+          !isDeepStrictEqual(payload.categoryDraft, input.categoryDraft) ||
           payload.executionClaim !== undefined
         )
           throw new StaleOnboardingCommit();
@@ -49,6 +60,22 @@ export class DrizzleOnboardingVocabularyCommit implements OnboardingVocabularyCo
           )
           .for('update');
         if (!config || config.id !== input.sourceConfigId) throw new StaleOnboardingCommit();
+        const mappings = await tx
+          .select()
+          .from(columnMappings)
+          .where(eq(columnMappings.spreadsheetId, config.id))
+          .for('share');
+        if (
+          payload?.confirmedMappings === undefined ||
+          onboardingContextIssue(
+            input.userId,
+            { ...config, provider: config.provider as SpreadsheetProvider },
+            payload,
+            mappings.map((row) => ({ ...row, GasttoField: row.gasttoField as GasttoField })),
+          )
+        ) {
+          throw new StaleOnboardingCommit();
+        }
         const baseline = await loadVocabularySnapshot(tx, config.id);
         const draft = input.categoryDraft
           ? buildIdentifiedDraft(baseline, input.categories, input.categoryDraft)
@@ -182,8 +209,7 @@ function buildIdentifiedDraft(
       .filter((child) => child.categoryId === parent.id)
       .map((child) => child.name),
   }));
-  if (JSON.stringify(displayed) !== JSON.stringify(categories))
-    throw new VocabularyIdentityConflict();
+  if (!isDeepStrictEqual(displayed, categories)) throw new VocabularyIdentityConflict();
   const activeIds = new Set(active.map((row) => row.id));
   const childIds = new Set(children.map((row) => row.id));
   return {

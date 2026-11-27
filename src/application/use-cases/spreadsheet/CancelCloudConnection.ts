@@ -36,6 +36,22 @@ export class CancelCloudConnection {
 
   async execute(input: CancelCloudConnectionInput): Promise<CancelCloudConnectionOutput> {
     const { userId, state, externalId } = input;
+    await this.deps.transitionState.execute({
+      userId,
+      targetState: 'IDLE',
+      payload: null,
+      expiresAt: null,
+    });
+    await this.cleanup(state, userId);
+
+    const message = onboardingCopies.cancelledMessage();
+    await this.deps.messagingPort.sendMessage(externalId, message);
+
+    return { nextState: 'IDLE', message };
+  }
+
+  /** Invalidate a canceled OAuth nonce after the guarded FSM exit commits. */
+  async cleanup(state: string, _userId: string): Promise<void> {
     const redisKey = `oauth:state:${state}`;
 
     const raw = await this.deps.redis.get(redisKey);
@@ -68,16 +84,5 @@ export class CancelCloudConnection {
         });
       }
     }
-
-    await this.deps.transitionState.execute({
-      userId,
-      targetState: 'IDLE',
-      payload: null,
-    });
-
-    const message = onboardingCopies.cancelledMessage();
-    await this.deps.messagingPort.sendMessage(externalId, message);
-
-    return { nextState: 'IDLE', message };
   }
 }

@@ -38,7 +38,12 @@ One architectural or process decision = one file. Format: `ADR-NNN-kebab-case-ti
 | [ADR-029](./ADR-029-version-spreadsheet-destinations.md) | Version spreadsheet destinations for safe settings changes | Accepted |
 | [ADR-030](./ADR-030-transactional-settings-vocabulary-drafts.md) | Commit settings hierarchy drafts transactionally | Accepted |
 | [ADR-031](./ADR-031-configuration-scoped-payment-catalog.md) | Scope payment catalogs to spreadsheet configurations | Accepted |
+| [ADR-032](./ADR-032-separate-operator-gmail-authorization.md) | Separate operator Gmail authorization from product OAuth | Proposed |
 
 ## Template
 
 For new ADRs, use [`docs/templates/adr.md`](../templates/adr.md).
+
+- [HTTP security boundaries and dependency evidence](2026-11-01-http-security-boundaries.md): limiter budgets, outage policy, runtime and release gates.
+- [ADR-033: Require native Google spreadsheet destinations](2026-11-15-native-google-spreadsheet-destinations.md): MIME validation, explicit user conversion and safe recovery.
+- [ADR-034: Use a durable barrier for account deletion](2026-11-17-durable-account-deletion.md): temporary progress, durable external-work counting, bounded `/start` replay receipts, account-scoped cleanup, Aiven Redis restore detection, conservative offline reconciliation, and gated production activation.

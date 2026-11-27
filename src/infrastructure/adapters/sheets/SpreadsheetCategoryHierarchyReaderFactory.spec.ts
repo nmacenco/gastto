@@ -1,3 +1,4 @@
+import pino from 'pino';
 // LAYER: Infrastructure / Tests
 // Integration-style factory tests with mocked provider HTTP boundaries.
 
@@ -11,7 +12,7 @@ describe('SpreadsheetCategoryHierarchyReaderFactory', () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = fetchMock as typeof fetch;
   });
 
   afterEach(() => {
@@ -46,7 +47,7 @@ describe('SpreadsheetCategoryHierarchyReaderFactory', () => {
       json: () => Promise.resolve({ rowIndex: 1, values: [['Food', 'Cafe']] }),
     });
     const reader = new SpreadsheetCategoryHierarchyReaderFactory(
-      new ExcelOnlineAdapterFactory(),
+      new ExcelOnlineAdapterFactory(pino({ level: 'silent' })),
     ).create('microsoft-token');
 
     await expect(reader.readHierarchy('microsoft-file', 0, 1, 'Gastos')).resolves.toEqual({

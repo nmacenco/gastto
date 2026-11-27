@@ -2,26 +2,34 @@ name: CI
 
 on:
   # Keep required checks independent from deployment branch filters.
+  schedule:
+    - cron: '20 6 * * 1'
   pull_request:
   push:
     branches:
       - main
       - develop
 
+permissions:
+  contents: read
+
 jobs:
   quality:
     name: Quality gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -36,8 +44,33 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Security audit tests
+        run: pnpm security:test
+
+      - name: Production dependency gate
+        run: pnpm security:audit
+
+      - name: All dependency gate
+        run: pnpm security:audit:all
+
+      - name: Audit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-audit
+          path: |
+            security-audit.json
+            security-audit-all.json
+          retention-days: 14
+
+      - name: Integration prerequisites
+        run: docker info
+
       - name: Test
-        run: pnpm test
+        env:
+          RUN_POSTGRES_INTEGRATION: 'true'
+          DOTENV_CONFIG_PATH: /dev/null
+        run: pnpm test --maxWorkers=4
 
   deploy:
     name: Deploy app
@@ -46,10 +79,14 @@ jobs:
     runs-on: ubuntu-latest
     concurrency: deploy-group
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+          persist-credentials: false
+      - uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200
+
+        with:
+          version: v0.5.1
 
       - name: Deploy to production
         if: github.ref == 'refs/heads/main'

@@ -1,3 +1,7 @@
+import {
+  buildPresentedCategoryPayload,
+  buildConfirmedMappings,
+} from '../../../__tests__/factories/onboarding';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -18,6 +22,22 @@ const categoryDraft = {
   subcategories: [{ id: childId, categoryId, name: 'Restaurant', normalizedName: 'restaurant' }],
 };
 const categories = [{ name: 'Meals', subcategories: ['Restaurant'] }];
+function reviewedPayload(paymentMethods: string[] = ['Visa']) {
+  return buildPresentedCategoryPayload(
+    {
+      spreadsheetId: configId,
+      fileId: 'file',
+      sheetName: 'Sheet',
+      categories,
+      orphanSubcategories: [],
+      subcategoryColumnMapped: true,
+      paymentReview: true,
+      paymentMethods,
+      categoryDraft,
+    },
+    buildConfirmedMappings(configId),
+  );
+}
 let container: StartedPostgreSqlContainer;
 let client: postgres.Sql;
 let db: PostgresJsDatabase<typeof schema>;
@@ -47,18 +67,20 @@ beforeEach(async () => {
     accessVerifiedAt: new Date(),
     headerRowIndex: 1,
   });
+  await db.insert(schema.columnMappings).values(
+    buildConfirmedMappings(configId).map((row) => ({
+      spreadsheetId: configId,
+      gasttoField: row.GasttoField,
+      columnIndex: row.columnIndex,
+      columnHeader: row.columnHeader,
+      confirmedAt: row.confirmedAt,
+    })),
+  );
   await db.insert(schema.conversationStates).values({
     userId,
     currentState: 'ONBOARDING_CATEGORIES',
     revision: 3n,
-    statePayload: {
-      categories,
-      orphanSubcategories: [],
-      subcategoryColumnMapped: true,
-      paymentReview: true,
-      paymentMethods: ['Visa'],
-      categoryDraft,
-    },
+    statePayload: reviewedPayload(['Visa']),
   });
 });
 afterAll(async () => {
@@ -109,14 +131,7 @@ describePostgres('onboarding vocabulary finalization (PostgreSQL)', () => {
     await db
       .update(schema.conversationStates)
       .set({
-        statePayload: {
-          categories,
-          orphanSubcategories: [],
-          subcategoryColumnMapped: true,
-          paymentReview: true,
-          paymentMethods: ['Visa', 'visa'],
-          categoryDraft,
-        },
+        statePayload: reviewedPayload(['Visa', 'visa']),
       })
       .where(eq(schema.conversationStates.userId, userId));
     await expect(adapter.execute({ ...input(), paymentMethods: ['Visa', 'visa'] })).resolves.toBe(
@@ -128,4 +143,55 @@ describePostgres('onboarding vocabulary finalization (PostgreSQL)', () => {
     expect(user?.status).toBe('onboarding');
     await expect(adapter.execute(input())).resolves.toBe('stale');
   });
+
+  it('commits only the payment methods retained in the final review and rejects a replay', async () => {
+    await db
+      .update(schema.conversationStates)
+      .set({
+        statePayload: reviewedPayload(['B', 'TC', 'TR', 'CREDITO SANTANDER']),
+      })
+      .where(eq(schema.conversationStates.userId, userId));
+    const adapter = new DrizzleOnboardingVocabularyCommit(db);
+    const reviewed = {
+      ...input(),
+      paymentMethods: ['B', 'TC', 'TR', 'CREDITO SANTANDER'],
+    };
+
+    await expect(adapter.execute(reviewed)).resolves.toBe('committed');
+    const methods = await db
+      .select({ name: schema.userPaymentMethods.displayName })
+      .from(schema.userPaymentMethods)
+      .where(eq(schema.userPaymentMethods.spreadsheetId, configId));
+    expect(methods.map(({ name }) => name).sort()).toEqual(
+      ['B', 'TC', 'TR', 'CREDITO SANTANDER'].sort(),
+    );
+    await expect(adapter.execute(reviewed)).resolves.toBe('stale');
+    expect(await db.select().from(schema.userPaymentMethods)).toHaveLength(4);
+  });
+  it.each(['missing-presentation', 'missing-acceptance', 'changed-mapping'] as const)(
+    'rejects direct finalization with %s before writing catalogs',
+    async (issue) => {
+      if (issue === 'changed-mapping') {
+        await db
+          .update(schema.columnMappings)
+          .set({ columnIndex: 5 })
+          .where(eq(schema.columnMappings.gasttoField, 'medio_pago'));
+      } else {
+        const payload = reviewedPayload();
+        payload[issue === 'missing-presentation' ? 'categoryPresentation' : 'categoryAcceptance'] =
+          null;
+        await db
+          .update(schema.conversationStates)
+          .set({ statePayload: payload })
+          .where(eq(schema.conversationStates.userId, userId));
+      }
+      await expect(new DrizzleOnboardingVocabularyCommit(db).execute(input())).resolves.toBe(
+        'stale',
+      );
+      expect(await db.select().from(schema.userCategories)).toHaveLength(0);
+      expect(await db.select().from(schema.userPaymentMethods)).toHaveLength(0);
+      const [user] = await db.select().from(schema.users).where(eq(schema.users.userId, userId));
+      expect(user?.status).toBe('onboarding');
+    },
+  );
 });

@@ -1,0 +1,1 @@
+ALTER TABLE "redis_recovery_epoch" ADD COLUMN "run_id" text NOT NULL;

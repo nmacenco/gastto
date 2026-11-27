@@ -5,16 +5,22 @@
 //   2. Parses raw payload via TelegramPayloadParser (Infrastructure)
 //   3. Detects /start command and delegates to HandleStartCommand use case
 //   4. For MALFORMED payloads: logs structured error and returns 200 (prevents retry loops)
-//   5. For all other messages: enqueues to incoming-message queue (thin FIFO worker)
+//   5. Enqueues known identities; guides unknown private chats to /start
 //   6. Always returns HTTP 200 to avoid Telegram retry loops
 
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type {
+  FastifyInstance,
+  FastifyRequest,
+  FastifyReply,
+  onRequestAsyncHookHandler,
+} from 'fastify';
 import type { Queue } from 'bullmq';
 import { z } from 'zod';
 import type { HandleStartCommand } from '../../../application/use-cases/conversation/HandleStartCommand';
 import type { SendImmediateAcknowledgement } from '../../../application/use-cases/conversation/SendImmediateAcknowledgement';
 import type { ResolveUserIdentityUseCase } from '../../../application/use-cases/user/ResolveUserIdentity';
 import type { IncomingMessageJobData } from '../../../application/ports/IncomingMessageJob';
+import type { MessagingOutputPort } from '../../../application/ports/output/messaging.port';
 import {
   getTelegramChatScope,
   parseTelegramPayload,
@@ -25,11 +31,24 @@ export interface TelegramWebhookHandlerDeps {
   incomingMessageQueue: Queue<IncomingMessageJobData>;
   handleStartCommand: HandleStartCommand;
   sendImmediateAcknowledgement: SendImmediateAcknowledgement;
+  messaging: MessagingOutputPort;
   resolveIdentity: ResolveUserIdentityUseCase;
+  accountDeletionGate?: {
+    isIdentityDeleting(channel: string, externalId: string): Promise<boolean>;
+    admitIdentityDelivery?(
+      channel: string,
+      externalId: string,
+      enqueue: () => Promise<unknown>,
+    ): Promise<'admitted' | 'unknown' | 'deleting'>;
+  };
+  startReplayGuard?: {
+    claim(chatId: string, messageId: string): Promise<boolean>;
+  };
 }
 
 export interface TelegramWebhookDeps extends TelegramWebhookHandlerDeps {
   webhookSecret: string;
+  admission?: onRequestAsyncHookHandler;
 }
 
 export async function handleTelegramWebhook(
@@ -54,21 +73,76 @@ export async function handleTelegramWebhook(
     return reply.status(200).send({ ok: true });
   }
 
+  if (await deps.accountDeletionGate?.isIdentityDeleting(payload.channel, payload.chatId)) {
+    return reply.status(200).send({ ok: true });
+  }
+
   // /start command short-circuit
   if (payload.messageType === 'TEXT' && payload.text?.toLowerCase() === '/start') {
+    const messageId = payload.externalMessageId;
+    if (
+      messageId &&
+      deps.startReplayGuard &&
+      !(await deps.startReplayGuard.claim(payload.chatId, messageId))
+    ) {
+      return reply.status(200).send({ ok: true });
+    }
     const rawBody = req.body as Record<string, unknown>;
     const message = rawBody?.message as Record<string, unknown> | undefined;
     const from = message?.from as Record<string, unknown> | undefined;
     const username = typeof from?.username === 'string' ? from.username : undefined;
 
+    // Once claimed, retain the bounded receipt even if a later step fails.
+    // The identity may already have been created before that failure.
     const { userId } = await deps.resolveIdentity.execute({
       channel: payload.channel,
       externalId: payload.chatId,
     });
-
     await deps.handleStartCommand.execute({ userId, chatId: payload.chatId, username });
     return reply.status(200).send({ ok: true });
   }
+
+  // Enqueue while the matching user row is share-locked. The deletion
+  // transaction takes an exclusive lock on that row before opening its
+  // barrier, so every admitted job is visible to subsequent cleanup.
+  const enqueue = () =>
+    deps.incomingMessageQueue.add('incoming-message', {
+      messageType: payload.messageType,
+      chatId: payload.chatId,
+      userId: payload.userId,
+      text: payload.text,
+      callbackData: payload.callbackData,
+      timestamp: payload.timestamp.toISOString(),
+      channel: payload.channel,
+      externalMessageId: payload.externalMessageId!,
+      rawPayload: payload.rawPayload,
+    });
+  const admission = deps.accountDeletionGate?.admitIdentityDelivery
+    ? await deps.accountDeletionGate.admitIdentityDelivery(payload.channel, payload.chatId, enqueue)
+    : (await enqueue(), 'admitted');
+  if (admission === 'unknown' && payload.messageType === 'TEXT') {
+    try {
+      const sent = await deps.messaging.sendMessage(
+        payload.chatId,
+        'Para volver a usar Gastto, enviá /start.',
+      );
+      if (sent.status === 'failure') {
+        req.log.error({
+          msg: 'Failed to send account restart guidance',
+          endpoint: '/webhook/telegram',
+          code: 'START_HINT_SEND_FAILED',
+          errorCode: sent.errorCode,
+        });
+      }
+    } catch {
+      req.log.error({
+        msg: 'Failed to send account restart guidance',
+        endpoint: '/webhook/telegram',
+        code: 'START_HINT_SEND_FAILED',
+      });
+    }
+  }
+  if (admission !== 'admitted') return reply.status(200).send({ ok: true });
 
   // Send immediate acknowledgment for text payloads (fire-and-forget) so the
   // user sees a response within <= 1 second even if downstream workers are busy.
@@ -98,20 +172,6 @@ export async function handleTelegramWebhook(
         }),
       );
   }
-
-  // Enqueue everything else to the thin FIFO worker (ADR-011).
-  // MALFORMED payloads are already short-circuited, so externalMessageId is always defined here.
-  await deps.incomingMessageQueue.add('incoming-message', {
-    messageType: payload.messageType,
-    chatId: payload.chatId,
-    userId: payload.userId,
-    text: payload.text,
-    callbackData: payload.callbackData,
-    timestamp: payload.timestamp.toISOString(),
-    channel: payload.channel,
-    externalMessageId: payload.externalMessageId!,
-    rawPayload: payload.rawPayload,
-  });
 
   return reply.status(200).send({ ok: true });
 }
@@ -148,9 +208,11 @@ export function registerTelegramWebhook(app: FastifyInstance, opts: TelegramWebh
       body: TelegramWebhookBodySchema,
       response: {
         200: z.object({ ok: z.literal(true) }),
+        403: z.object({ error: z.string() }),
+        429: z.object({ error: z.string() }),
       },
     },
-    onRequest: [validateTelegramOrigin(opts.webhookSecret)],
+    onRequest: [validateTelegramOrigin(opts.webhookSecret, opts.admission)],
     handler: async (req: FastifyRequest, reply: FastifyReply) => {
       await handleTelegramWebhook(req, reply, opts);
     },

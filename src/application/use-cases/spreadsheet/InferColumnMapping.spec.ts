@@ -1008,7 +1008,7 @@ describe('InferColumnMapping', () => {
       expect(mockInfer).not.toHaveBeenCalled();
     });
 
-    it('sends reconnect message when preview has no rows', async () => {
+    it('returns a zero-row preview to sheet choice without header inference', async () => {
       const deps = buildMockDeps();
       const useCase = new InferColumnMapping(deps);
       const result = await useCase.execute({
@@ -1021,10 +1021,41 @@ describe('InferColumnMapping', () => {
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         '987654321',
-        onboardingCopies.reconnectAccount(),
+        onboardingCopies.emptySheetConfirm('Gastos'),
       );
-      expect(result.nextState).toBe('ONBOARDING_START');
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockDetectHeaderRow).not.toHaveBeenCalled();
+      expect(mockInfer).not.toHaveBeenCalled();
     });
+
+    it('returns blank row objects to sheet choice without header inference', async () => {
+      const result = await new InferColumnMapping(buildMockDeps()).execute({
+        ...baseInput,
+        statePayload: {
+          ...mockStatePayload,
+          preview: { ...mockPreview, rows: [{ index: 1, values: ['', null, ' '] }] },
+        },
+      });
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockDetectHeaderRow).not.toHaveBeenCalled();
+      expect(mockLLMDetectHeaderRow).not.toHaveBeenCalled();
+      expect(mockReplaceBySpreadsheetId).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    { name: 'title-only rows', rows: [{ index: 1, values: ['Resumen mensual'] }] },
+    { name: 'data without headers', rows: [{ index: 1, values: ['2026-10-31', 12, 'Comida'] }] },
+  ])('asks about a possible header only for nonempty $name', async ({ rows }) => {
+    mockDetectHeaderRow.mockResolvedValue(null);
+    mockLLMDetectHeaderRow.mockResolvedValue(null);
+    const result = await new InferColumnMapping(buildMockDeps()).execute({
+      ...baseInput,
+      statePayload: { ...mockStatePayload, preview: { ...mockPreview, rows } },
+    });
+    expect(result.nextState).toBe('ONBOARDING_MAPPING');
+    expect(mockSendMessage).toHaveBeenCalledWith('987654321', onboardingCopies.noHeaderPrompt());
+    expect(mockDetectHeaderRow).toHaveBeenCalledOnce();
   });
 
   describe('Microsoft provider', () => {

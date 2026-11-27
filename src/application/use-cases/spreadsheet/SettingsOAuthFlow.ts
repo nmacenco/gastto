@@ -9,6 +9,7 @@ export interface SettingsOAuthPayload extends Record<string, unknown> {
   sheetName: string;
   state: string;
   reminderJobId: string;
+  accountChangeRequestId?: string;
 }
 
 export function parseSettingsOAuthPayload(
@@ -30,7 +31,9 @@ export function parseSettingsOAuthPayload(
     typeof payload.state !== 'string' ||
     !payload.state ||
     typeof payload.reminderJobId !== 'string' ||
-    !payload.reminderJobId
+    !payload.reminderJobId ||
+    (payload.accountChangeRequestId !== undefined &&
+      (typeof payload.accountChangeRequestId !== 'string' || !payload.accountChangeRequestId))
   )
     return null;
   return payload as SettingsOAuthPayload;

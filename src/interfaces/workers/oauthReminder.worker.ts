@@ -14,10 +14,12 @@ import {
 } from '../../application/ports/OAuthReminderJob';
 import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloadError';
 import { BULLMQ_WORKER_DRAIN_DELAY_SECONDS, registerBullMqErrorListener } from './bullMqRuntime';
+import { assertRestoreSafe } from './restoreQuarantine';
 
 export type { OAuthReminderJobData } from '../../application/ports/OAuthReminderJob';
 
 export interface OAuthReminderWorkerDeps {
+  restoreGuard?: { assertCurrent(): Promise<void> };
   redis: Redis;
   sendOAuthReminder: SendOAuthReminder;
   redirectUri: string;
@@ -72,7 +74,10 @@ export function createOAuthReminderWorker(
 ): Worker<OAuthReminderJobData> {
   const worker = new Worker<OAuthReminderJobData>(
     'oauth-reminder',
-    async (job: Job<OAuthReminderJobData>) => processOAuthReminderJob(job, deps),
+    async (job: Job<OAuthReminderJobData>, token?: string) => {
+      await assertRestoreSafe(deps.restoreGuard, job, token, worker, deps.logger);
+      await processOAuthReminderJob(job, deps);
+    },
     {
       connection: deps.redis,
       concurrency: 2,

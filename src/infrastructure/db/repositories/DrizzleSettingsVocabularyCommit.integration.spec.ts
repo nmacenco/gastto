@@ -197,9 +197,9 @@ describePostgres('settings category commit (PostgreSQL)', () => {
       'CREATE TRIGGER reject_settings_child_insert BEFORE INSERT ON user_subcategories FOR EACH ROW EXECUTE FUNCTION reject_settings_child_insert()',
     );
     try {
-      await expect(new DrizzleSettingsVocabularyCommit(db).execute(input(draft))).rejects.toThrow(
-        'child failed',
-      );
+      await expect(
+        new DrizzleSettingsVocabularyCommit(db).execute(input(draft)),
+      ).rejects.toHaveProperty('cause.message', 'child failed');
     } finally {
       await client.unsafe('DROP TRIGGER reject_settings_child_insert ON user_subcategories');
       await client.unsafe('DROP FUNCTION reject_settings_child_insert()');

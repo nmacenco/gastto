@@ -39,6 +39,7 @@ export class DrizzleSettingsConfigurationActivation implements SettingsConfigura
           payload?.flowId !== candidate.flowId ||
           payload.proposalId !== candidate.proposalId ||
           payload.sourceConfigId !== candidate.sourceConfigId ||
+          payload.accountChangeRequestId !== candidate.accountChangeRequestId ||
           payload.fileId !== candidate.fileId ||
           payload.sheetName !== candidate.sheetName ||
           payload.stage !== 'payment_methods' ||
@@ -65,6 +66,36 @@ export class DrizzleSettingsConfigurationActivation implements SettingsConfigura
           current.provider !== candidate.provider
         )
           throw new StaleSettingsConfiguration();
+
+        let accountChange: typeof schema.accessRequests.$inferSelect | null = null;
+        let candidateToken: typeof schema.candidateOAuthTokens.$inferSelect | null = null;
+        if (candidate.accountChangeRequestId) {
+          const [request] = await tx
+            .select()
+            .from(schema.accessRequests)
+            .where(eq(schema.accessRequests.id, candidate.accountChangeRequestId))
+            .for('update');
+          const [token] = await tx
+            .select()
+            .from(schema.candidateOAuthTokens)
+            .where(eq(schema.candidateOAuthTokens.requestId, candidate.accountChangeRequestId))
+            .for('update');
+          if (
+            !request ||
+            request.userId !== userId ||
+            request.kind !== 'replacement' ||
+            request.status !== 'approved' ||
+            request.activatedAt !== null ||
+            !token ||
+            token.userId !== userId ||
+            token.revokedAt !== null ||
+            token.accessTokenExpiresAt.getTime() <= Date.now()
+          ) {
+            throw new StaleSettingsConfiguration();
+          }
+          accountChange = request;
+          candidateToken = token;
+        }
 
         const [replacement] = await tx
           .insert(schema.spreadsheetConfigs)
@@ -139,6 +170,61 @@ export class DrizzleSettingsConfigurationActivation implements SettingsConfigura
           .update(schema.spreadsheetConfigs)
           .set({ isActive: true, updatedAt: new Date() })
           .where(eq(schema.spreadsheetConfigs.id, replacement.id));
+        if (accountChange && candidateToken) {
+          await tx
+            .update(schema.accessRequests)
+            .set({ status: 'superseded' })
+            .where(
+              and(
+                eq(schema.accessRequests.userId, userId),
+                eq(schema.accessRequests.status, 'approved'),
+                sql`${schema.accessRequests.activatedAt} IS NOT NULL`,
+              ),
+            );
+          const [promoted] = await tx
+            .update(schema.accessRequests)
+            .set({ activatedAt: new Date() })
+            .where(
+              and(
+                eq(schema.accessRequests.id, accountChange.id),
+                eq(schema.accessRequests.status, 'approved'),
+              ),
+            )
+            .returning({ id: schema.accessRequests.id });
+          if (!promoted) throw new StaleSettingsConfiguration();
+          await tx
+            .insert(schema.oauthTokens)
+            .values({
+              userId,
+              provider: 'google',
+              accessTokenEnc: candidateToken.accessTokenEnc,
+              refreshTokenEnc: candidateToken.refreshTokenEnc,
+              iv: candidateToken.iv,
+              refreshIv: candidateToken.refreshIv,
+              accessTokenExpiresAt: candidateToken.accessTokenExpiresAt,
+              scope: candidateToken.scope,
+              grantedAt: candidateToken.grantedAt,
+              lastRefreshedAt: candidateToken.lastRefreshedAt,
+              revokedAt: null,
+            })
+            .onConflictDoUpdate({
+              target: [schema.oauthTokens.userId, schema.oauthTokens.provider],
+              set: {
+                accessTokenEnc: candidateToken.accessTokenEnc,
+                refreshTokenEnc: candidateToken.refreshTokenEnc,
+                iv: candidateToken.iv,
+                refreshIv: candidateToken.refreshIv,
+                accessTokenExpiresAt: candidateToken.accessTokenExpiresAt,
+                scope: candidateToken.scope,
+                grantedAt: candidateToken.grantedAt,
+                lastRefreshedAt: candidateToken.lastRefreshedAt,
+                revokedAt: null,
+              },
+            });
+          await tx
+            .delete(schema.candidateOAuthTokens)
+            .where(eq(schema.candidateOAuthTokens.requestId, accountChange.id));
+        }
         const [updated] = await tx
           .update(schema.conversationStates)
           .set({

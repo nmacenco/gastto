@@ -140,7 +140,9 @@ describe.skipIf(!isDockerAvailable())('Integration :: settings credential commit
       'create trigger reject_settings_exit before update on conversation_states for each row execute function reject_settings_exit()',
     );
     try {
-      await expect(commit.execute(input)).rejects.toThrow('forced settings exit failure');
+      await expect(commit.execute(input)).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: 'forced settings exit failure' }),
+      });
       expect((await tokens.findByUserAndProvider(input.userId, 'google'))?.accessTokenEnc).toEqual(
         Buffer.from('old-access'),
       );
@@ -169,7 +171,9 @@ describe.skipIf(!isDockerAvailable())('Integration :: settings credential commit
       'create trigger reject_settings_token before update on oauth_tokens for each row execute function reject_settings_token()',
     );
     try {
-      await expect(commit.execute(input)).rejects.toThrow('forced token failure');
+      await expect(commit.execute(input)).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: 'forced token failure' }),
+      });
       expect((await tokens.findByUserAndProvider(input.userId, 'google'))?.accessTokenEnc).toEqual(
         Buffer.from('old-access'),
       );

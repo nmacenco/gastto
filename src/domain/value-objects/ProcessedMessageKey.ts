@@ -7,11 +7,13 @@ import { DomainValidationError } from '../errors/DomainValidationError';
 
 export interface ProcessedMessageKeyProps {
   readonly channel: 'telegram' | 'whatsapp';
+  readonly externalIdentityId?: string;
   readonly externalMessageId: string;
 }
 
 export class ProcessedMessageKey implements ProcessedMessageKeyProps {
   readonly channel: 'telegram' | 'whatsapp';
+  readonly externalIdentityId?: string;
   readonly externalMessageId: string;
 
   constructor(props: ProcessedMessageKeyProps) {
@@ -21,14 +23,22 @@ export class ProcessedMessageKey implements ProcessedMessageKeyProps {
     if (!props.externalMessageId || props.externalMessageId.trim().length === 0) {
       throw new DomainValidationError('externalMessageId is required and cannot be empty');
     }
+    if (props.externalIdentityId !== undefined && !props.externalIdentityId.trim()) {
+      throw new DomainValidationError('externalIdentityId cannot be empty');
+    }
 
     this.channel = props.channel;
+    if (props.externalIdentityId !== undefined) this.externalIdentityId = props.externalIdentityId;
     this.externalMessageId = props.externalMessageId;
 
     Object.freeze(this);
   }
 
   equals(other: ProcessedMessageKey): boolean {
-    return this.channel === other.channel && this.externalMessageId === other.externalMessageId;
+    return (
+      this.channel === other.channel &&
+      this.externalIdentityId === other.externalIdentityId &&
+      this.externalMessageId === other.externalMessageId
+    );
   }
 }

@@ -1,0 +1,8 @@
+# Use with compose.local.yml for development without the ngrok tunnel.
+services:
+  app:
+    depends_on: !override
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy

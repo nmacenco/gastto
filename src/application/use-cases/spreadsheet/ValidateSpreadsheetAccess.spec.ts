@@ -162,6 +162,34 @@ describe('ValidateSpreadsheetAccess', () => {
   });
 
   describe('empty-sheet branch', () => {
+    it('routes a success preview containing only blank row objects back to sheet choice', async () => {
+      mockValidateAccess.mockResolvedValue({
+        kind: 'success',
+        preview: new SpreadsheetPreview({
+          provider: 'google',
+          fileId: 'file-123',
+          sheetName: 'Gastos',
+          rows: [{ index: 1, values: ['', null, '   '] }],
+        }),
+      });
+      const result = await new ValidateSpreadsheetAccess(buildMockDeps()).execute({
+        ...baseInput,
+        statePayload: mockStatePayload,
+      });
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockInferColumnMapping).not.toHaveBeenCalled();
+      expect(mockUpdateAccessVerified).not.toHaveBeenCalled();
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'ONBOARDING_SHEET',
+          payload: expect.objectContaining({ step: 'empty-sheet-confirm' }) as Record<
+            string,
+            unknown
+          >,
+        }),
+      );
+    });
+
     it('sends empty-sheet confirm, transitions to ONBOARDING_SHEET with step and sheetList', async () => {
       mockValidateAccess.mockResolvedValue({ kind: 'empty-sheet' });
 

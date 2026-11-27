@@ -9,6 +9,7 @@ import { createLogger } from '../../../infrastructure/logger';
 import type { LoggerFactory, RegisterShutdownHandlers } from '../../../main';
 
 const baseEnv: Env = {
+  ACCESS_APPROVAL_ENABLED: false,
   NODE_ENV: 'test',
   PORT: 0,
   LOG_LEVEL: 'fatal',
@@ -75,6 +76,18 @@ vi.mock('drizzle-orm/postgres-js', () => ({
   drizzle: DrizzleMock,
 }));
 
+vi.mock('../../../infrastructure/redis/RedisRestoreGuard', () => ({
+  RedisRestoreGuard: class {
+    assertCurrent = vi
+      .fn()
+      .mockImplementation(() =>
+        envOverrides.NODE_ENV === 'production' && envOverrides.ACCOUNT_DELETION_ENABLED === 'true'
+          ? Promise.reject(new Error('TEST_QUARANTINE'))
+          : Promise.resolve(),
+      );
+  },
+}));
+
 vi.mock('@sentry/node', () => ({
   init: SentryInitMock,
   captureException: SentryCaptureMock,
@@ -83,22 +96,28 @@ vi.mock('@sentry/node', () => ({
 const fetchMock = vi.fn();
 
 function buildMocks(): void {
-  QueueMock.mockImplementation(() => ({
-    add: vi.fn().mockResolvedValue(undefined),
-    on: vi.fn(),
-    close: vi.fn().mockResolvedValue(undefined),
-  }));
+  QueueMock.mockImplementation(function () {
+    return {
+      add: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+  });
 
-  WorkerMock.mockImplementation(() => ({
-    opts: { concurrency: 1 },
-    on: vi.fn(),
-    close: vi.fn().mockResolvedValue(undefined),
-  }));
+  WorkerMock.mockImplementation(function () {
+    return {
+      opts: { concurrency: 1 },
+      on: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+  });
 
-  RedisMock.mockImplementation(() => ({
-    on: vi.fn(),
-    quit: vi.fn().mockResolvedValue(undefined),
-  }));
+  RedisMock.mockImplementation(function () {
+    return {
+      on: vi.fn(),
+      quit: vi.fn().mockResolvedValue(undefined),
+    };
+  });
 
   PostgresMock.mockImplementation(() => ({
     end: vi.fn().mockResolvedValue(undefined),
@@ -162,6 +181,11 @@ describe('bootstrap', () => {
     const body = JSON.parse(response.payload) as { status: string; ts: string };
     expect(body.status).toBe('ok');
     expect(body.ts).toBeDefined();
+  });
+
+  it('requires restore validation before starting production with deletion enabled', async () => {
+    envOverrides = { NODE_ENV: 'production', ACCOUNT_DELETION_ENABLED: 'true' };
+    await expect(bootstrap(buildEnv(), silentLoggerFactory)).rejects.toThrow('TEST_QUARANTINE');
   });
 
   it('does not install production signal handlers when imported by tests', () => {
@@ -232,8 +256,8 @@ describe('bootstrap', () => {
       url: '/documentation',
     });
 
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toMatch(/\/documentation\//);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
   });
 
   it('auto-registers Telegram webhook when WEBHOOK_BASE_URL is not localhost', async () => {

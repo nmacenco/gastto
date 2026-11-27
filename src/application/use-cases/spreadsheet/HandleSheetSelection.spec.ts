@@ -518,7 +518,8 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toContain('network error');
+      expect(result.message).not.toContain('network error');
+      expect(result.message).toContain('cancelar');
     });
 
     it('returns sheet discovery failed on generic error during listSheets', async () => {
@@ -532,7 +533,9 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.sheetDiscoveryFailed());
+      expect(result.message).toBe(
+        'No pude leer las hojas o su estructura.\n\nRevisá el archivo en Google Sheets. Para elegir otro archivo:\n1. Escribí cancelar para salir de la configuración actual.\n2. Escribí empezar.',
+      );
     });
 
     it('returns error message on SpreadsheetError during getHeaders', async () => {
@@ -547,7 +550,8 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toContain('permission denied');
+      expect(result.message).not.toContain('permission denied');
+      expect(result.message).toContain('cancelar');
     });
 
     it('returns sheet discovery failed on generic error during getHeaders', async () => {
@@ -562,7 +566,9 @@ describe('HandleSheetSelection', () => {
       });
 
       expect(result.nextState).toBe('ONBOARDING_SHEET');
-      expect(result.message).toBe(onboardingCopies.sheetDiscoveryFailed());
+      expect(result.message).toBe(
+        'No pude leer las hojas o su estructura.\n\nRevisá el archivo en Google Sheets. Para elegir otro archivo:\n1. Escribí cancelar para salir de la configuración actual.\n2. Escribí empezar.',
+      );
     });
 
     it('returns file access failed when fileId is missing from statePayload', async () => {
@@ -606,6 +612,23 @@ describe('HandleSheetSelection', () => {
       step: 'empty-sheet-confirm',
       sheetList: mockSheets as unknown as Record<string, unknown>[],
     };
+
+    it('lists choices from an empty sheet without auto-selecting the only sheet', async () => {
+      mockListSheets.mockResolvedValue([new SheetInfo({ name: 'Gastos', index: 0 })]);
+      const result = await new HandleSheetSelection(buildMockDeps()).execute({
+        ...baseInput,
+        rawMessage: 'otra hoja',
+        statePayload: { ...emptySheetPayload, sheetList: [] },
+      });
+      expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(mockListSheets).toHaveBeenCalledWith('file-123');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '987654321',
+        onboardingCopies.sheetListPrompt([new SheetInfo({ name: 'Gastos', index: 0 })]),
+      );
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
+      expect(mockValidateAccess).not.toHaveBeenCalled();
+    });
 
     it('sends out-of-MVP message when user confirms with "sí"', async () => {
       const deps = buildMockDeps();
@@ -1025,6 +1048,9 @@ describe('HandleSheetSelection', () => {
 
       expect(mockUpsertConfig).not.toHaveBeenCalled();
       expect(result.nextState).toBe('ONBOARDING_SHEET');
+      expect(result.message).toBe(onboardingCopies.configuredDestinationConflict());
+      expect(result.message).toContain('cancelar');
+      expect(result.message).toContain('configuración');
     });
   });
 
@@ -1102,4 +1128,47 @@ describe('HandleSheetSelection', () => {
       expect(mockValidateAccess).not.toHaveBeenCalled();
     });
   });
+  it.each(['initial', 'recovery', 'headers'] as const)(
+    'provides an executable successful retry for %s failure',
+    async (mode) => {
+      const useCase = new HandleSheetSelection(buildMockDeps());
+      const error = new SpreadsheetError('private body', {
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      });
+      const payload = {
+        ...mockFilePayload,
+        ...(mode === 'recovery'
+          ? { step: 'empty-sheet-confirm', sheetList: [] }
+          : mode === 'headers'
+            ? { sheetList: mockSheets }
+            : {}),
+      };
+      const rawMessage = mode === 'recovery' ? 'otra hoja' : mode === 'headers' ? 'no sé' : '';
+      mockListSheets.mockResolvedValue(mockSheets);
+      mockGetHeaders.mockResolvedValue(['Amount', 'Category']);
+      if (mode === 'headers') mockGetHeaders.mockRejectedValueOnce(error);
+      else mockListSheets.mockRejectedValueOnce(error);
+      const failed = await useCase.execute({ ...baseInput, rawMessage, statePayload: payload });
+      expect(failed.nextState).toBe('ONBOARDING_SHEET');
+      expect(failed.message).toContain('cancelar');
+      expect(failed.message).not.toContain('private body');
+      const command = mode === 'initial' ? 'reintentar' : rawMessage;
+      expect(failed.message).toContain(command);
+      expect(mockTransitionExecute).not.toHaveBeenCalled();
+      const recovered = await useCase.execute({
+        ...baseInput,
+        rawMessage: command,
+        statePayload: payload,
+      });
+      expect(recovered.payload?.sheetList).toHaveLength(3);
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'ONBOARDING_SHEET',
+          payload: recovered.payload,
+        }),
+      );
+      expect(mockUpsertConfig).not.toHaveBeenCalled();
+    },
+  );
 });

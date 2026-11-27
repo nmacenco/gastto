@@ -24,6 +24,7 @@ function subject(
     fileId: 'file-1',
     sheetName: 'Gastos',
   },
+  approvedRequest?: object | null,
 ) {
   const add = vi.fn().mockResolvedValue({ id: 'job-1' });
   const remove = vi.fn().mockResolvedValue(1);
@@ -35,6 +36,7 @@ function subject(
   const findByUserId = vi.fn().mockResolvedValue(config);
   const useCase = new StartSettingsReauthorization({
     oauthService: {
+      revokeToken: vi.fn(),
       buildAuthUrl: vi.fn().mockReturnValue('https://google.example/auth'),
       exchangeCode: vi.fn(),
       refreshAccessToken: vi.fn(),
@@ -53,6 +55,13 @@ function subject(
     messagingPort: { sendMessage },
     redirectUri: 'https://app.example/auth/google/callback',
     generateState: () => 'new-nonce',
+    ...(approvedRequest === undefined
+      ? {}
+      : {
+          accessRequests: {
+            findById: vi.fn().mockResolvedValue(approvedRequest),
+          } as never,
+        }),
   });
   return { useCase, add, remove, setex, sendMessage, transition, findByUserId };
 }
@@ -130,5 +139,30 @@ describe('StartSettingsReauthorization', () => {
     expect(remove).toHaveBeenCalledWith('job-1');
     expect(setex).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('starts replacement OAuth only for the approved request owned by this user', async () => {
+    const approved = {
+      id: 'request-1',
+      userId: 'user-1',
+      kind: 'replacement',
+      status: 'approved',
+      activatedAt: null,
+    };
+    const t = subject(undefined, approved);
+    await t.useCase.execute({ ...input, accountChangeRequestId: 'request-1' });
+    const transitionInput = t.transition.mock.calls[0]?.[0] as {
+      payload: { accountChangeRequestId: string };
+    };
+    expect(transitionInput.payload.accountChangeRequestId).toBe('request-1');
+    expect(t.sendMessage).toHaveBeenCalledWith(
+      'chat-1',
+      settingsCopies.accountChangeAuthLink('https://google.example/auth'),
+    );
+    const invalid = subject(undefined, { ...approved, userId: 'another-user' });
+    await expect(
+      invalid.useCase.execute({ ...input, accountChangeRequestId: 'request-1' }),
+    ).rejects.toThrow();
+    expect(invalid.add).not.toHaveBeenCalled();
   });
 });

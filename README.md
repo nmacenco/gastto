@@ -5,24 +5,16 @@ Asistente financiero conversacional — WhatsApp & Telegram → Google Sheets / 
 ## Quick Start (Local Development)
 
 ```bash
-# 1. Install dependencies
-pnpm install
-
-# 2. Start Redis (only local infrastructure needed)
-docker-compose up -d
-
-# 3. Configure environment
 cp .env.example .env
-# Edit .env with your Supabase, Redis, Telegram, and Google OAuth credentials
-
-# 4. Apply database migrations
-pnpm db:migrate
-
-# 5. Run the development server
-pnpm dev
+# Fill the local database password, dedicated Telegram bot, ngrok,
+# Google OAuth, encryption, and an LLM provider in the ignored .env.
+docker compose -f compose.local.yml up --build
 ```
 
-The server will be available at `http://localhost:3000`.
+Compose starts PostgreSQL, Redis, migrations, ngrok, and the app. The server is at
+`http://localhost:3000`. See the [local setup guide](docs/development/local-setup.md)
+for Google OAuth callbacks, checks, and the core-only option. No hosted database
+or host-side Node installation is needed for the Compose stack.
 
 ## Documentation
 
@@ -34,11 +26,11 @@ The server will be available at `http://localhost:3000`.
 
 ## Tech Stack
 
-- **Runtime:** Node.js 20 + Fastify
+- **Runtime:** Node.js 24 + Fastify
 - **Language:** TypeScript
 - **Architecture:** Clean Architecture (Domain → Application → Infrastructure → Interfaces)
 - **Queue:** BullMQ + Redis
-- **Database:** PostgreSQL (via Supabase) + Drizzle ORM
+- **Database:** PostgreSQL + Drizzle ORM (local Compose; hosted provider for deployment)
 - **NLP:** OpenAI / Claude
 - **Spreadsheets:** Google Sheets API
 - **Deployment:** Fly.io (optional, not required for local development)

@@ -14,6 +14,7 @@ import type { TransitionConversationState } from '../conversation/TransitionConv
 import type { Redis } from 'ioredis';
 import type { Queue, Job } from 'bullmq';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { canTransition, type ConversationState } from '../../../domain/entities/ConversationState';
 
 const mockBuildAuthUrl = vi.fn();
 const mockTransitionExecute = vi.fn();
@@ -65,6 +66,67 @@ describe('InitiateCloudConnection', () => {
   });
 
   describe('valid Google Drive selection', () => {
+    it('renews a pending link with a valid FSM self-transition and invalidates the old nonce', async () => {
+      const oldState: ConversationState = {
+        userId: 'user-123',
+        revision: '7',
+        currentState: 'ONBOARDING_DRIVE',
+        statePayload: { provider: 'google', state: 'old-state' },
+        enteredAt: new Date(),
+        expiresAt: null,
+        updatedAt: new Date(),
+      };
+      const cleanup = vi.fn().mockResolvedValue(undefined);
+      const transitionExecute = vi
+        .fn()
+        .mockImplementation((input: { targetState: typeof oldState.currentState }) => {
+          if (!canTransition(oldState.currentState, input.targetState))
+            throw new Error('invalid transition');
+          return {
+            status: 'updated',
+            state: {
+              ...oldState,
+              revision: '8',
+              statePayload: { provider: 'google', state: 'test-state-123' },
+            },
+          };
+        });
+      const deps = buildMockDeps({
+        cancelCloudConnection: { cleanup },
+        transitionState: {
+          precondition: (state: ConversationState) => ({
+            revision: state.revision,
+            currentState: state.currentState,
+            expiry: 'any',
+          }),
+          execute: transitionExecute,
+        } as unknown as TransitionConversationState,
+      });
+      await new InitiateCloudConnection(deps).execute({
+        ...baseInput,
+        reauthorizationOnly: true,
+        resumeFrom: oldState,
+      });
+      expect(transitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'ONBOARDING_DRIVE',
+          expected: { revision: '7', currentState: 'ONBOARDING_DRIVE', expiry: 'any' },
+        }),
+      );
+      expect(cleanup).toHaveBeenCalledWith('old-state', 'user-123');
+      expect(mockRedisSetex).toHaveBeenCalledWith(
+        'oauth:state:test-state-123',
+        900,
+        expect.stringContaining('"revision":"8"'),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '123456789',
+        onboardingCopies.authLink(
+          'https://accounts.google.com/o/oauth2/v2/auth?state=test-state-123',
+        ),
+      );
+    });
+
     it('carries the reauthorization flag to the OAuth callback state', async () => {
       await new InitiateCloudConnection(buildMockDeps()).execute({
         ...baseInput,

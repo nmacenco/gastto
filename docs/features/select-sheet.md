@@ -4,6 +4,10 @@
 
 The Select Sheet feature enables users to choose which sheet within their selected spreadsheet file contains their expense records. After completing the file selection (Select Spreadsheet File), the bot enters the `ONBOARDING_SHEET` state and guides the user through discovering available sheets, choosing by number or name, or receiving a header-based description of each sheet when they are unsure.
 
+An explicit `cancelar`, `salir`, `cancel`, or `exit` command exits initial sheet selection before the empty-sheet confirmation or selection parser runs. The initial configuration row may remain incomplete after cancellation; it does not authorize expense registration, and `empezar` restarts setup.
+
+An empty or effectively blank preview returns to `ONBOARDING_SHEET` with `step: 'empty-sheet-confirm'`. `otra hoja` lists available sheets, fetching them if the previous snapshot omitted the list; this recovery does not auto-select a single sheet. A nonempty sheet with unrecognized headers can also return from mapping with `otra hoja` and display the choices. `cancelar` exits either path.
+
 ## Scope
 
 - **In scope:** Google Sheets sheet discovery via `listSheets`, single-sheet auto-confirmation, multi-sheet selection by number or exact normalized name, revision-bound semantic references to displayed sheets, "I don't know" header description flow, invalid name re-prompt, and spreadsheet config persistence.
@@ -34,7 +38,7 @@ The Select Sheet feature enables users to choose which sheet within their select
 
 8. User replies with a number matching the sheet list.
 9. The use case validates that `1 <= choice <= sheetList.length`.
-10. On valid choice: `ISpreadsheetConfigRepository.createOrResumeInitial` persists the initial config with `sheetName`, `fileId`, `fileName`, and a placeholder `accessVerifiedAt`. A completed user's different destination is rejected with guidance to use `configuración`, preserving the old row and its expense references.
+10. On valid choice: `ISpreadsheetConfigRepository.createOrResumeInitial` persists the initial config with `sheetName`, `fileId`, `fileName`, and a placeholder `accessVerifiedAt`. A completed user's different destination is rejected with the executable sequence `cancelar` to leave onboarding, `configuración` from `IDLE`, then the destination-change option. The old row and its expense references remain unchanged.
 11. The FSM transitions to `ONBOARDING_VALIDATING_ACCESS` and only afterwards is the confirmation message sent via `MessagingOutputPort`. This ordering guarantees that a persistence failure cannot leak a success message to the user nor leave the FSM stuck, so a BullMQ retry will not re-send the confirmation.
 12. On invalid number (e.g. `0`, `99`): the user is re-prompted with the sheet list.
 
@@ -190,12 +194,12 @@ interface ISpreadsheetConfigRepository {
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Invalid provider (`microsoft`)           | `comingSoon` message returned; stays in `ONBOARDING_SHEET`.                                              |
 | Missing OAuth token                      | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                      |
-| Expired / revoked token                  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                      |
+| Revoked / unrefreshable token                  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                      |
 | Token decryption failure                 | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.                                      |
 | Missing `fileId` in statePayload         | `fileAccessFailed` message returned; stays in `ONBOARDING_SHEET`.                                        |
-| Network failure during `listSheets`      | `SpreadsheetError` thrown; `sheetDiscoveryFailed` returned.                                              |
-| Non-2xx HTTP from Sheets API             | `SpreadsheetError` thrown with HTTP status; error message returned.                                      |
-| Invalid JSON response                    | `SpreadsheetError` thrown; `sheetDiscoveryFailed` returned.                                              |
+| Network failure during `listSheets`      | `SpreadsheetError` thrown; contextual retry or file-recovery copy returned.                                              |
+| Non-2xx HTTP from Sheets API             | `SpreadsheetError` thrown with HTTP status; safe contextual recovery returned.                                      |
+| Invalid JSON response                    | `SpreadsheetError` thrown; contextual retry or file-recovery copy returned.                                              |
 | Empty sheet list (0 sheets)              | Error message sent; no state transition.                                                                 |
 | Invalid selection number (0, 99)         | Re-prompt with sheet list; stays in `ONBOARDING_SHEET`.                                                  |
 | Invalid name (no normalized exact match) | Re-prompt with sheet list; stays in `ONBOARDING_SHEET`.                                                  |
@@ -301,17 +305,17 @@ interface ISpreadsheetConfigRepository {
 - [x] **Error path — network failure during listSheets:**
   - `fetch` throws network error.
   - `SpreadsheetError` propagated.
-  - `sheetDiscoveryFailed` message sent.
+  - Safe transient retry instructions sent.
 
 - [x] **Error path — API error during listSheets:**
   - Google Sheets returns 403/500.
   - `SpreadsheetError` thrown with HTTP status.
-  - Error message returned to user.
+  - Application-owned recovery instructions returned without provider text.
 
 - [x] **Error path — API error during getHeaders:**
   - Google Sheets returns 404 during IDK flow.
   - `SpreadsheetError` thrown with HTTP status.
-  - Error message returned to user.
+  - Application-owned recovery instructions returned without provider text.
 
 - [x] **Error path — empty sheet list:**
   - File has 0 sheets.
@@ -321,3 +325,15 @@ interface ISpreadsheetConfigRepository {
 ### OneDrive
 
 - **Out of scope for MVP.** The use case returns a "coming soon" message for `microsoft` provider selections.
+
+## Recovery guidance (2026-11-15)
+
+Initial and recovery listing and header-description failures use application-owned messages, never raw provider text. Retryable errors offer `reintentar` for listing, `otra hoja` for empty-sheet recovery, or `no sé` for header descriptions. Permanent/unknown failures and empty lists offer `cancelar`, then `empezar` to choose another file. OAuth authorization failures retain refresh/reconnection behavior. No new back-navigation transition is introduced.
+
+## Message readability
+
+File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.
+
+## Final readability audit (2026-11-16)
+
+Stale, ambiguous, and unavailable sheet references separate their explanation from the next selection instruction. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

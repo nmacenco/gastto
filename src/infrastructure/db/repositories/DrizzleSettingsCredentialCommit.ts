@@ -14,6 +14,19 @@ export class DrizzleSettingsCredentialCommit implements SettingsCredentialCommit
   async execute(input: SettingsCredentialCommitInput): Promise<'committed' | 'stale'> {
     try {
       await this.db.transaction(async (tx) => {
+        const [owner] = await tx
+          .select({ userId: schema.users.userId })
+          .from(schema.users)
+          .where(eq(schema.users.userId, input.userId))
+          .for('share')
+          .limit(1);
+        if (!owner) throw new StaleSettingsFlow();
+        const [deleting] = await tx
+          .select({ userId: schema.accountDeletionOperations.userId })
+          .from(schema.accountDeletionOperations)
+          .where(eq(schema.accountDeletionOperations.userId, input.userId))
+          .limit(1);
+        if (deleting) throw new StaleSettingsFlow();
         const [state] = await tx
           .select()
           .from(schema.conversationStates)

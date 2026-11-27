@@ -223,6 +223,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
           harness.logRepo,
           harness.oauth,
           transition,
+          { error: vi.fn() } as never,
         ).execute({
           userId: harness.userId,
           action: 'confirm',
@@ -295,11 +296,13 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
     const transitionState = new TransitionConversationState(stateRepo);
     const operationLogRepo = new DrizzleOperationLogRepository(db);
     const save = vi.fn().mockResolvedValue({ sheetName: 'Gastos', rowIndex: 9 });
+    const advance = vi.fn().mockResolvedValue({ status: 'empty' });
     const retry = new RetryExpenseSaveUseCase({
       registerExpense: { save } as never,
       transitionState,
       messagingPort: { sendMessage: vi.fn().mockResolvedValue({ status: 'success' }) },
       operationLogRepo,
+      advancePendingExpense: { execute: advance } as never,
     });
     const observed = (await stateRepo.findByUserId(user.userId))!;
     const presentedAt = String(
@@ -311,13 +314,14 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
     };
 
     const first = await transitionState.runWithState(observed, () =>
-      retry.execute({ userId: user.userId, chatId: 'chat-1', authorization }),
+      retry.execute({ userId: user.userId, chatId: 'chat-1', channel: 'telegram', authorization }),
     );
     const claimed = (await stateRepo.findByUserId(user.userId))!;
     const second = await transitionState.runWithState(claimed, () =>
       retry.execute({
         userId: user.userId,
         chatId: 'chat-1',
+        channel: 'telegram',
         authorization: { ...authorization, sourceMessageId: randomUUID() },
       }),
     );
@@ -325,6 +329,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
     expect(first).toEqual({ status: 'handled' });
     expect(second).toEqual({ status: 'operation_in_progress' });
     expect(save).toHaveBeenCalledOnce();
+    expect(advance).toHaveBeenCalledOnce();
   });
 
   it('reconfigures only the captured retry revision and does not replay the expense', async () => {
@@ -406,6 +411,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: semantic router control fl
       logRepo,
       oauth,
       transitionState,
+      { error: vi.fn() } as never,
     );
     const presenter = new PresentUndoConfirmation({
       transitionState,

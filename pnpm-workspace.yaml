@@ -4,3 +4,19 @@ allowBuilds:
   msgpackr-extract: true
   protobufjs: true
   ssh2: true
+
+# Swagger's static-file glob traversal must honor cancellation (GHSA-3g3m-2fjr-6pw4).
+# Remove when @fastify/static declares glob >=14.0.2 itself.
+overrides:
+  '@fastify/static>glob': '^14.0.2'
+  '@sentry/bundler-plugins>glob': '^14.0.2'
+
+  # Development-only advisory fixes; remove when parent ranges include these releases.
+  # Consumers use the named Minimatch class / glob methods, not the removed callable export.
+  'eslint>minimatch': '^11.0.1'
+  '@eslint/config-array>minimatch': '^11.0.1'
+  '@typescript-eslint/typescript-estree>minimatch': '^11.0.1'
+  'readdir-glob>minimatch': '^11.0.1'
+  'archiver-utils>glob': '^14.0.2'
+  # Legacy Drizzle loader uses esbuild transform APIs; verify isolated schema generation.
+  '@esbuild-kit/core-utils>esbuild': '^0.25.4'

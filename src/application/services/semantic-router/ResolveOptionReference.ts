@@ -49,7 +49,11 @@ const sheetInfoSchema = z
 const providerSchema = z.enum(['google', 'microsoft']);
 
 export const onboardingFilePayloadSchema = z
-  .object({ fileList: z.array(cloudFileSchema).min(1).max(20) })
+  .object({
+    fileList: z.array(cloudFileSchema).min(1).max(20),
+    provider: providerSchema.optional(),
+    reauthorizationOnly: z.literal(true).optional(),
+  })
   .strict();
 export const onboardingSheetDefaultPayloadSchema = z
   .object({

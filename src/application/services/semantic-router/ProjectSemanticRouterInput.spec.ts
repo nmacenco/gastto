@@ -86,7 +86,7 @@ describe('ProjectSemanticRouterInput', () => {
       }),
       substep: null,
       expected: {
-        pendingQuestion: '¿Cuánto gastaste?',
+        pendingQuestion: '¿Cuánto gastaste?\n\nEscribí cancelar si quieres salir.',
         missingFields: ['monto'],
         expense: { amount: null, currency: 'EUR', date: '2026-09-14', concept: null },
       },

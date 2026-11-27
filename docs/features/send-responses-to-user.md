@@ -15,8 +15,9 @@ Provide a reliable, channel-agnostic mechanism for sending text messages back to
 - **Message chunking:** Texts exceeding Telegram's 4096-character limit are automatically split into sequential fragments and sent to the same `chat_id`.
   - Splitting prefers `\n\n` (paragraph boundaries), then `. ` (sentence boundaries), then hard cut at 4096 characters.
   - If any fragment fails permanently, remaining fragments are not sent and the operation returns failure.
-- **Structured logging:** Every send attempt is logged with `event: 'message_sent'` containing `chatId`, `textLength`, `attempt`, and `result`. Permanent failures use `console.error` with `event: 'message_send_failed'` containing `chatId`, `textLength`, `errorCode`, and `reason`. Retry scheduling is logged with `event: 'retry_scheduled'`. Message chunking is logged with `event: 'message_chunked'`.
+- **Structured logging:** Every send attempt is logged with `event: 'message_sent'` containing `chatId`, `textLength`, `attempt`, and `result`. Permanent failures use the injected Pino logger with `event: 'message_send_failed'` containing `chatId`, `textLength`, `errorCode`, and `reason`. Retry scheduling is logged with `event: 'retry_scheduled'`. Message chunking is logged with `event: 'message_chunked'`.
 - No stack traces are leaked to clients or external systems.
+- After the process-message worker exhausts lock-contention retries before entering a handler, the application attempts one fixed safe-resend notice through this port. A port failure or rejection is logged; the notice is best effort and does not retry the original financial message. See [incoming message routing](incoming-message-routing.md).
 
 ## Behavior (TODO)
 
@@ -43,7 +44,7 @@ No database schema changes. The feature operates on transient API calls and valu
 - [x] `TelegramMessengerAdapter.spec.ts` — HTTP 5xx triggers 3 retries with correct delays (using `vi.useFakeTimers()`), then returns `SendResultFailure` with `MAX_RETRIES_EXCEEDED`.
 - [x] `TelegramMessengerAdapter.spec.ts` — HTTP 400/403 returns `PERMANENT_FAILURE` immediately with no retries.
 - [x] `TelegramMessengerAdapter.spec.ts` — fragment permanent failure stops remaining fragments.
-- [x] `TelegramMessengerAdapter.spec.ts` — logging spy confirms structured `console.log` and `console.error` calls for all scenarios.
+- [x] `TelegramMessengerAdapter.spec.ts` — logging spies confirm structured Pino calls for all scenarios.
 - [x] `messaging.port.spec.ts` — contract tests for `SendResult` discriminated union.
 
 ## Related User Stories
@@ -55,3 +56,11 @@ No database schema changes. The feature operates on transient API calls and valu
 - The legacy domain-level `MessagingPort` (returning `Promise<void>`) was removed in favor of the application-level `MessagingOutputPort` (returning `Promise<SendResult>`). This aligns with Clean Architecture: the Application layer owns the port contract.
 - A temporary wrapper in `src/main.ts` that bridged the legacy adapter to `MessagingOutputPort` was deleted once the adapter was upgraded.
 - The `message.worker.ts` thick worker now depends on `MessagingOutputPort` instead of the legacy `MessagingPort`.
+
+## Paragraph and fragment preservation
+
+Plain text and inline-keyboard payloads preserve the supplied paragraph breaks, list indentation, URLs, and commands. A short multi-paragraph reply remains one send. Plain text exceeding 4,096 characters is split sequentially; paragraph and sentence separators are only selected when both separator characters fit inside that limit. Concatenating the fragments reproduces the exact original string. Keyboard messages retain their existing single-request delivery behavior.
+
+The production worker currently assigns both channel keys to the Telegram adapter in `src/bootstrap/registerWorkers.ts`; the WhatsApp key is a placeholder, not a native WhatsApp sender. No real WhatsApp delivery was validated or added by this formatting change. The composer and port remain channel-independent.
+
+Adapter tests cover a short nested list, URL and cancellation footer; paragraph boundaries at offsets 4,094, 4,095 and 4,096; sentence-boundary overflow; exact reconstruction; and paragraph preservation with unchanged inline-keyboard bindings. Welcome delivery reuses the application-owned shared copy.

@@ -1,0 +1,97 @@
+name: gastto-local
+
+x-app-image: &app-image
+  build:
+    context: .
+    dockerfile: Dockerfile.dev
+  image: gastto-local-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: gastto
+      POSTGRES_USER: gastto
+      POSTGRES_PASSWORD: ${GASTTO_LOCAL_DB_PASSWORD:?Set GASTTO_LOCAL_DB_PASSWORD in the ignored .env file}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=\"$$POSTGRES_PASSWORD\" psql -h postgres -U gastto -d gastto -tAc 'SELECT 1' >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    <<: *app-image
+    command: ["pnpm", "db:migrate"]
+    environment:
+      DATABASE_URL: postgresql://gastto:${GASTTO_LOCAL_DB_PASSWORD:?Set GASTTO_LOCAL_DB_PASSWORD in the ignored .env file}@postgres:5432/gastto
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ngrok-config:
+    image: node:24-alpine
+    profiles: [tunnel]
+    command: ["node", "/scripts/ngrok-readiness.mjs", "validate"]
+    environment:
+      WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL-}
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN-}
+    volumes:
+      - ./scripts/local/ngrok-readiness.mjs:/scripts/ngrok-readiness.mjs:ro
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    profiles: [tunnel]
+    command: ["http", "app:3000", "--url", "${WEBHOOK_BASE_URL-}"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN-}
+    depends_on:
+      ngrok-config:
+        condition: service_completed_successfully
+
+  ngrok-ready:
+    image: node:24-alpine
+    profiles: [tunnel]
+    network_mode: service:ngrok
+    command: ["node", "/scripts/ngrok-readiness.mjs", "wait"]
+    environment:
+      WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL-}
+    volumes:
+      - ./scripts/local/ngrok-readiness.mjs:/scripts/ngrok-readiness.mjs:ro
+    depends_on:
+      ngrok:
+        condition: service_started
+
+  app:
+    <<: *app-image
+    command: ["pnpm", "dev"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://gastto:${GASTTO_LOCAL_DB_PASSWORD:?Set GASTTO_LOCAL_DB_PASSWORD in the ignored .env file}@postgres:5432/gastto
+      REDIS_URL: redis://redis:6379
+      PORT: 3000
+      NGROK_AUTHTOKEN: ""
+    volumes:
+      - ./src:/app/src
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      ngrok-ready:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:

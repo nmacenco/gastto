@@ -77,6 +77,7 @@ function buildMockDeps(): TelegramWebhookDeps {
       execute: mockHandleStartExecute,
     } as unknown as HandleStartCommand,
     sendImmediateAcknowledgement: buildSendImmediateAcknowledgement(),
+    messaging: buildMessagingPort(),
     resolveIdentity: {
       execute: mockResolveIdentity,
     } as unknown as ResolveUserIdentityUseCase,

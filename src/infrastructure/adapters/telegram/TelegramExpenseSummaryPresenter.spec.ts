@@ -185,7 +185,9 @@ describe('TelegramExpenseSummaryPresenter', () => {
         '• Medio de pago: Sin medio de pago',
         '• Fecha: 2026-07-25',
         '',
-        '¿Confirmamos? Responde *sí*, *corregir campo: valor*, o *cancelar*.',
+        '¿Confirmamos? Responde *sí* o *corregir campo: valor*.',
+        '',
+        'Escribí cancelar si quieres salir.',
       ].join('\n'),
     );
   });

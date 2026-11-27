@@ -14,6 +14,7 @@ export interface SettingsDestinationCandidate {
   mappings: Array<{ field: GasttoField; columnIndex: number; columnHeader: string }>;
   categories: Array<{ name: string; subcategories: string[] }>;
   paymentMethods: string[];
+  accountChangeRequestId?: string;
 }
 
 export interface SettingsConfigurationActivation {

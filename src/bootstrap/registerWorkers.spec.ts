@@ -13,6 +13,7 @@ import type { Dependencies, TelegramFeature, GoogleOAuthFeature } from './types'
 import type { Env } from '../config/env.schema';
 
 const baseEnv: Env = {
+  ACCESS_APPROVAL_ENABLED: false,
   NODE_ENV: 'test',
   PORT: 0,
   LOG_LEVEL: 'fatal',
@@ -168,7 +169,7 @@ describe('registerWorkers', () => {
     dependencyQueueCloseMocks.length = 0;
     workerCloseMocks.length = 0;
     createdQueueCloseMocks.length = 0;
-    vi.mocked(Worker).mockImplementation(() => {
+    vi.mocked(Worker).mockImplementation(function () {
       const close = vi.fn().mockResolvedValue(undefined);
       workerCloseMocks.push(close);
       return {
@@ -177,7 +178,7 @@ describe('registerWorkers', () => {
         close,
       } as unknown as Worker;
     });
-    vi.mocked(Queue).mockImplementation(() => {
+    vi.mocked(Queue).mockImplementation(function () {
       const close = vi.fn().mockResolvedValue(undefined);
       const events: Record<string, Array<(...args: unknown[]) => void>> = {};
       createdQueueCloseMocks.push(close);
@@ -216,6 +217,18 @@ describe('registerWorkers', () => {
 
     const names = vi.mocked(Worker).mock.calls.map(([name]) => name);
     expect(names).toContain('incoming-message');
+  });
+
+  it('prunes expired /start receipts at startup even without Telegram workers', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const pruneExpired = vi.fn().mockResolvedValue(undefined);
+    const deps = buildMockDeps({
+      startReplayGuard: { pruneExpired } as unknown as Dependencies['startReplayGuard'],
+    });
+
+    await registerWorkers(app, deps, baseEnv);
+
+    expect(pruneExpired).toHaveBeenCalledOnce();
   });
 
   it('creates the process-message worker with the Google OAuth options', async () => {

@@ -1,3 +1,4 @@
+import pino from 'pino';
 // LAYER: Infrastructure / Tests
 // Contract tests for ExcelOnlineAdapter.
 // Mocks the global fetch API so no real Microsoft Graph calls are made.
@@ -14,8 +15,8 @@ describe('ExcelOnlineAdapter', () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    globalThis.fetch = fetchMock;
-    adapter = new ExcelOnlineAdapter('access-token-123');
+    globalThis.fetch = fetchMock as typeof fetch;
+    adapter = new ExcelOnlineAdapter('access-token-123', pino({ level: 'silent' }));
   });
 
   afterEach(() => {
@@ -581,6 +582,17 @@ describe('ExcelOnlineAdapter', () => {
       const result = await adapter.validateSpreadsheetAccess(fileId, sheetName);
 
       expect(result.kind).toBe('empty-sheet');
+    });
+
+    it('returns empty-sheet for row objects containing only blank cells', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: [[], ['', '  ', null]] }),
+      });
+      const result = await adapter.validateSpreadsheetAccess(fileId, sheetName);
+      expect(result.kind).toBe('empty-sheet');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('returns access-error with network-error on fetch failure', async () => {

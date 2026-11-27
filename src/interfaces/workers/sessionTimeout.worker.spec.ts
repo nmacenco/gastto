@@ -12,7 +12,7 @@ import { InvalidJobPayloadError } from '../../application/ports/InvalidJobPayloa
 import type { SessionTimeoutJobData } from '../../application/ports/SessionTimeoutJob';
 
 vi.mock('bullmq', () => ({
-  Worker: vi.fn().mockImplementation(() => {
+  Worker: vi.fn().mockImplementation(function () {
     const events: Record<string, Array<(...args: unknown[]) => void>> = {};
     return {
       opts: { concurrency: 1 },

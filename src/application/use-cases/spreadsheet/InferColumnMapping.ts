@@ -28,6 +28,7 @@ import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetCo
 import { onboardingCopies } from '../../copies/onboarding.copies';
 import type { OAuthAccessTokenProvider } from '../../services/OAuthAccessTokenService';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
+import { hasMeaningfulCellValues } from '../../../domain/entities/SpreadsheetPreview';
 
 export interface InferColumnMappingInput {
   userId: string;
@@ -98,7 +99,7 @@ export class InferColumnMapping {
         }
       | undefined;
 
-    if (!preview || !Array.isArray(preview.rows) || preview.rows.length === 0) {
+    if (!preview || !Array.isArray(preview.rows)) {
       const message = onboardingCopies.reconnectAccount();
       await this.deps.messagingPort.sendMessage(externalId, message);
       await this.deps.transitionState.execute({
@@ -107,6 +108,25 @@ export class InferColumnMapping {
         payload: { promptShown: true },
       });
       return { nextState: 'ONBOARDING_START', message };
+    }
+
+    if (!hasMeaningfulCellValues(preview.rows)) {
+      const message = onboardingCopies.emptySheetConfirm(preview.sheetName);
+      const payload: Record<string, unknown> = {
+        selectedFileId: statePayload?.selectedFileId ?? preview.fileId,
+        selectedFileName: statePayload?.selectedFileName,
+        selectedSheetName: statePayload?.selectedSheetName ?? preview.sheetName,
+        provider,
+        step: 'empty-sheet-confirm',
+        ...(Array.isArray(statePayload?.sheetList) ? { sheetList: statePayload.sheetList } : {}),
+      };
+      await this.deps.transitionState.execute({
+        userId,
+        targetState: 'ONBOARDING_SHEET',
+        payload,
+      });
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_SHEET', message, payload };
     }
 
     const previewRows = preview.rows.map((r) => ({

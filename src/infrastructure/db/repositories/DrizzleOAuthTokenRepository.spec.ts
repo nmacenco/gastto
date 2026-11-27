@@ -79,7 +79,17 @@ describe('DrizzleOAuthTokenRepository', () => {
   describe('upsert', () => {
     it('inserts a new token and returns mapped entity', async () => {
       const row = buildOAuthTokenRow();
-      const db = {
+      const tx = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              for: vi
+                .fn()
+                .mockReturnValue({ limit: vi.fn().mockResolvedValue([{ userId: row.userId }]) }),
+              limit: vi.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
         insert: vi.fn().mockReturnValue({
           values: vi.fn().mockReturnValue({
             onConflictDoUpdate: vi.fn().mockReturnValue({
@@ -87,6 +97,9 @@ describe('DrizzleOAuthTokenRepository', () => {
             }),
           }),
         }),
+      };
+      const db = {
+        transaction: vi.fn((callback: (value: typeof tx) => Promise<unknown>) => callback(tx)),
       } as unknown as PostgresJsDatabase<typeof schema>;
 
       const repo = new DrizzleOAuthTokenRepository(db);
@@ -110,7 +123,17 @@ describe('DrizzleOAuthTokenRepository', () => {
     });
 
     it('throws when upsert returns no row', async () => {
-      const db = {
+      const tx = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              for: vi
+                .fn()
+                .mockReturnValue({ limit: vi.fn().mockResolvedValue([{ userId: 'user-123' }]) }),
+              limit: vi.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
         insert: vi.fn().mockReturnValue({
           values: vi.fn().mockReturnValue({
             onConflictDoUpdate: vi.fn().mockReturnValue({
@@ -118,6 +141,9 @@ describe('DrizzleOAuthTokenRepository', () => {
             }),
           }),
         }),
+      };
+      const db = {
+        transaction: vi.fn((callback: (value: typeof tx) => Promise<unknown>) => callback(tx)),
       } as unknown as PostgresJsDatabase<typeof schema>;
 
       const repo = new DrizzleOAuthTokenRepository(db);

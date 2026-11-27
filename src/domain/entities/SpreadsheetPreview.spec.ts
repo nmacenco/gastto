@@ -3,7 +3,7 @@
 // Validates construction rules, immutability, and equality.
 
 import { describe, it, expect } from 'vitest';
-import { SpreadsheetPreview } from './SpreadsheetPreview';
+import { SpreadsheetPreview, hasMeaningfulCellValues } from './SpreadsheetPreview';
 import { DomainValidationError } from '../errors/DomainValidationError';
 
 function makeValidProps() {
@@ -16,6 +16,14 @@ function makeValidProps() {
 }
 
 describe('SpreadsheetPreview', () => {
+  it.each([
+    { rows: [], expected: false },
+    { rows: [{ values: [] }, { values: ['', '  ', null, undefined] }], expected: false },
+    { rows: [{ values: ['Resumen mensual'] }], expected: true },
+    { rows: [{ values: [0, false] }], expected: true },
+  ] as const)('classifies preview content %#', ({ rows, expected }) => {
+    expect(hasMeaningfulCellValues(rows)).toBe(expected);
+  });
   describe('construction', () => {
     it('creates a valid SpreadsheetPreview with all required fields', () => {
       const props = makeValidProps();

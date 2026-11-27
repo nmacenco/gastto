@@ -5,6 +5,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SendImmediateAcknowledgement } from './SendImmediateAcknowledgement';
 import type { MessagingOutputPort, SendResult } from '../../ports/output/messaging.port';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
+import type { IUserRepository } from '../../../domain/ports/repositories';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 const mockSendMessage = vi.fn();
 
@@ -69,5 +72,74 @@ describe('SendImmediateAcknowledgement', () => {
     await useCase.execute({ ...baseInput, channel: 'whatsapp' });
 
     expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
+  });
+
+  it('does not send a processing acknowledgment before Telegram access is approved', async () => {
+    const findByMessagingIdentity = vi.fn().mockResolvedValue({ userId: 'user-123' });
+    const findApproved = vi.fn().mockResolvedValue(null);
+    const useCase = new SendImmediateAcknowledgement(
+      buildMockPort(),
+      { findApproved } as unknown as AccessRequestRepository,
+      { findByMessagingIdentity } as unknown as IUserRepository,
+    );
+
+    expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
+    expect(findApproved).toHaveBeenCalledWith('user-123');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not send a processing acknowledgment before a new chat has an identity', async () => {
+    const findApproved = vi.fn();
+    const useCase = new SendImmediateAcknowledgement(
+      buildMockPort(),
+      { findApproved } as unknown as AccessRequestRepository,
+      { findByMessagingIdentity: vi.fn().mockResolvedValue(null) } as unknown as IUserRepository,
+    );
+
+    expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
+    expect(findApproved).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps the processing acknowledgment for approved Telegram users', async () => {
+    const useCase = new SendImmediateAcknowledgement(
+      buildMockPort(),
+      {
+        findApproved: vi.fn().mockResolvedValue({ id: 'approved-1' }),
+      } as unknown as AccessRequestRepository,
+      {
+        findByMessagingIdentity: vi.fn().mockResolvedValue({ userId: 'user-123' }),
+      } as unknown as IUserRepository,
+    );
+
+    expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
+    expect(mockSendMessage).toHaveBeenCalledWith('123456789', 'Recibido, procesando tu mensaje…');
+  });
+
+  it('does not acknowledge an identity being deleted', async () => {
+    const gate = { isIdentityDeleting: vi.fn().mockResolvedValue(true) };
+    const useCase = new SendImmediateAcknowledgement(buildMockPort(), undefined, undefined, gate);
+    expect(await useCase.execute(baseInput)).toEqual({ status: 'success' });
+    expect(gate.isIdentityDeleting).toHaveBeenCalledWith('telegram', '123456789');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('uses the verified identity for the fence and skips an acknowledgment after the barrier', async () => {
+    const fence = { run: vi.fn().mockRejectedValue(new AccountDeletionInProgressError()) };
+    const useCase = new SendImmediateAcknowledgement(
+      buildMockPort(),
+      undefined,
+      {
+        findByMessagingIdentity: vi.fn().mockResolvedValue({ userId: 'verified-user' }),
+      } as unknown as IUserRepository,
+      { isIdentityDeleting: vi.fn().mockResolvedValue(false) },
+      fence,
+    );
+
+    expect(await useCase.execute({ ...baseInput, userId: 'untrusted-user' })).toEqual({
+      status: 'success',
+    });
+    expect(fence.run).toHaveBeenCalledWith('verified-user', expect.any(Function));
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 });

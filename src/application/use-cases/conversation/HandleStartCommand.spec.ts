@@ -7,6 +7,10 @@ import { HandleStartCommand, type HandleStartCommandInput } from './HandleStartC
 import type { IChatMessenger } from '../../ports/IChatMessenger';
 import type { IConversationStateRepository } from '../../../domain/ports/repositories';
 import { sharedCopies } from '../../copies/shared.copies';
+import { accessCopies } from '../../copies/access.copies';
+import type { AccessRequestRepository } from '../../../domain/ports/AccessRequestRepository';
+import type { TransitionConversationState } from './TransitionConversationState';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 function buildMockMessenger(): {
   messenger: IChatMessenger;
@@ -76,6 +80,52 @@ describe('HandleStartCommand', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it('shows the access welcome only on the first /start', async () => {
+    const { messenger } = buildMockMessenger();
+    const repo = buildMockConversationRepo();
+    const initial = {
+      userId: 'user-1',
+      revision: '0',
+      currentState: 'ONBOARDING_START' as const,
+      statePayload: { promptShown: false },
+      expiresAt: null,
+    };
+    mockFindByUserId.mockResolvedValueOnce(initial).mockResolvedValueOnce({
+      ...initial,
+      revision: '1',
+      statePayload: { promptShown: false, accessWelcomeShown: true },
+    });
+    const transitionExecute = vi.fn().mockResolvedValue({ status: 'updated' });
+    const transition = {
+      execute: transitionExecute,
+      precondition: vi.fn().mockReturnValue({ revision: '0', currentState: 'ONBOARDING_START' }),
+    } as unknown as TransitionConversationState;
+    const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+    const useCase = new HandleStartCommand(
+      messenger,
+      repo,
+      transition,
+      undefined,
+      undefined,
+      {
+        findApproved: vi.fn().mockResolvedValue(null),
+        findPending: vi.fn().mockResolvedValue(null),
+      } as unknown as AccessRequestRepository,
+      { sendMessage },
+    );
+
+    await useCase.execute({ userId: 'user-1', chatId: '123' });
+    await useCase.execute({ userId: 'user-1', chatId: '123' });
+
+    expect(sendMessage).toHaveBeenNthCalledWith(
+      1,
+      '123',
+      [accessCopies.welcome(), accessCopies.askEmail()].join('\n\n'),
+    );
+    expect(sendMessage).toHaveBeenNthCalledWith(2, '123', accessCopies.askEmail());
+    expect(transitionExecute).toHaveBeenCalledTimes(1);
+  });
+
   it('creates conversation state when user does not have one', async () => {
     const { messenger, sendWelcomeMock } = buildMockMessenger();
     const repo = buildMockConversationRepo();
@@ -111,5 +161,74 @@ describe('HandleStartCommand', () => {
     await expect(useCase.execute({ userId: 'user-5', chatId: '222' })).rejects.toThrow(
       'network failure',
     );
+  });
+
+  it('ignores a stale /start after its identity has been deleted', async () => {
+    const { messenger, sendWelcomeMock } = buildMockMessenger();
+    const identity = {
+      findByMessagingIdentity: vi.fn().mockResolvedValue(null),
+      isDeleting: vi.fn().mockResolvedValue(false),
+    };
+    const useCase = new HandleStartCommand(
+      messenger,
+      buildMockConversationRepo(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      identity,
+    );
+    await expect(useCase.execute({ userId: 'old-user', chatId: '111' })).resolves.toEqual({
+      replyText: '',
+    });
+    expect(sendWelcomeMock).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('ignores /start while the linked account is being deleted', async () => {
+    const { messenger, sendWelcomeMock } = buildMockMessenger();
+    const identity = {
+      findByMessagingIdentity: vi.fn().mockResolvedValue({ userId: 'deleting-user' }),
+      isDeleting: vi.fn().mockResolvedValue(true),
+    };
+    const useCase = new HandleStartCommand(
+      messenger,
+      buildMockConversationRepo(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      identity,
+    );
+    await useCase.execute({ userId: 'deleting-user', chatId: '111' });
+    expect(sendWelcomeMock).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('does not send a welcome after the account-work fence rejects a late /start', async () => {
+    const { messenger, sendWelcomeMock } = buildMockMessenger();
+    const fence = {
+      run: vi.fn().mockRejectedValue(new AccountDeletionInProgressError()),
+    };
+    const useCase = new HandleStartCommand(
+      messenger,
+      buildMockConversationRepo(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fence,
+    );
+
+    await expect(useCase.execute({ userId: 'deleting-user', chatId: '111' })).resolves.toEqual({
+      replyText: '',
+    });
+    expect(fence.run).toHaveBeenCalledWith('deleting-user', expect.any(Function));
+    expect(sendWelcomeMock).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });

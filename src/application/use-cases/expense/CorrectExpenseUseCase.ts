@@ -1,3 +1,5 @@
+import { resolveExpenseCalendarDate } from '../../services/resolveExpenseCalendarDate';
+import { ExpenseDateInvalidError } from '../../services/ExpenseDateInvalidError';
 // LAYER: Application
 // Use case: correct one or more fields of an expense in review.
 // Orchestrates: LLM interpretation → category resolution → high-amount guard
@@ -9,6 +11,7 @@ import type {
   IExpenseRecordRepository,
   ISpreadsheetConfigRepository,
   ICategoryVocabularyRepository,
+  IColumnMappingRepository,
 } from '../../../domain/ports/repositories';
 import type { ICategoryClassifier } from '../../ports/in/categoryClassifier.port';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
@@ -35,6 +38,27 @@ export type CorrectExpenseOutcome =
   | { status: 'not_interpretable' }
   | { status: 'new_expense' }
   | {
+      status: 'unresolved_category';
+      attemptedName: string;
+      suggestedName: string | null;
+      candidates: string[];
+      sourceConfigId: string;
+      payload: ExpenseReviewPayload;
+      correctionCycles: number;
+    }
+  | {
+      status: 'unresolved_subcategory';
+      attemptedName: string;
+      suggestedName: string | null;
+      candidates: string[];
+      parentCategoryId: string;
+      parentCategoryName: string;
+      subcategoryColumnMapped: boolean;
+      sourceConfigId: string;
+      payload: ExpenseReviewPayload;
+      correctionCycles: number;
+    }
+  | {
       status: 'invalid_subcategory';
       parentCategory: string;
       attemptedSubcategory: string;
@@ -50,6 +74,7 @@ export interface CorrectExpenseUseCaseDeps {
   expenseRepo: IExpenseRecordRepository;
   spreadsheetConfigRepo: ISpreadsheetConfigRepository;
   categoryVocabularyRepo: ICategoryVocabularyRepository;
+  columnMappingRepo?: IColumnMappingRepository;
   paymentCatalogRepo?: IPaymentMethodCatalogRepository;
   transitionState: TransitionConversationState;
 }
@@ -68,11 +93,22 @@ interface CorrectionHierarchyContext {
   spreadsheetId: string | null;
   vocabulary: CategoryVocabulary | null;
   paymentCatalog: PaymentMethodCatalog | null;
+  subcategoryColumnMapped: boolean;
+}
+
+function normalizeCategoryTarget(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es')
+    .trim();
 }
 
 type ApplySuggestionOutcome =
   | { status: 'applied'; payload: ExpenseReviewPayload }
   | Extract<CorrectExpenseOutcome, { status: 'not_interpretable' }>
+  | Extract<CorrectExpenseOutcome, { status: 'unresolved_category' }>
+  | Extract<CorrectExpenseOutcome, { status: 'unresolved_subcategory' }>
   | Extract<CorrectExpenseOutcome, { status: 'invalid_subcategory' }>;
 
 export class CorrectExpenseUseCase {
@@ -108,6 +144,17 @@ export class CorrectExpenseUseCase {
     }
 
     const applied = await this.applySuggestion(input, state.payload, suggestion, hierarchy);
+    if (applied.status === 'unresolved_category' || applied.status === 'unresolved_subcategory') {
+      if (state.correctionCycles + 1 > MAX_CORRECTION_CYCLES)
+        return { status: 'cycle_limit', payload: state.payload };
+      return {
+        ...applied,
+        payload: {
+          ...applied.payload,
+          pendingHighAmountConfirmation: await this.isHighAmount(userId, applied.payload),
+        },
+      };
+    }
     if (applied.status !== 'applied') return applied;
     const updatedPayload = applied.payload;
 
@@ -145,6 +192,10 @@ export class CorrectExpenseUseCase {
 
   private async loadHierarchy(userId: string): Promise<CorrectionHierarchyContext> {
     const config = await this.deps.spreadsheetConfigRepo.findByUserId(userId);
+    const mappings =
+      config && this.deps.columnMappingRepo
+        ? await this.deps.columnMappingRepo.findBySpreadsheetId(config.id)
+        : [];
     return {
       spreadsheetId: config?.id ?? null,
       vocabulary: config
@@ -154,6 +205,9 @@ export class CorrectExpenseUseCase {
         config && this.deps.paymentCatalogRepo
           ? await this.deps.paymentCatalogRepo.findBySpreadsheetId(config.id)
           : null,
+      subcategoryColumnMapped: mappings.some(
+        (mapping) => mapping.GasttoField === 'subcategoria' && mapping.confirmedAt !== null,
+      ),
     };
   }
 
@@ -220,14 +274,6 @@ export class CorrectExpenseUseCase {
         ?.getCategories()
         .find((category) => category.id === current.resolvedCategoryId);
 
-      if (subcategoryWasCorrected && current.subcategoryEnabled !== true) {
-        return this.invalidSubcategory(
-          current.resolvedCategory ?? suggestion.categoriaRaw ?? 'Sin categoría',
-          attemptedSubcategory!,
-          [],
-        );
-      }
-
       if (subcategoryWasCorrected && !categoryWasCorrected && !currentParent) {
         return this.invalidSubcategory(
           current.resolvedCategory ?? 'Sin categoría',
@@ -249,12 +295,53 @@ export class CorrectExpenseUseCase {
 
       const selectedParentId = classification.category.id;
       const selectedParentName = classification.category.name;
+      if (
+        subcategoryWasCorrected &&
+        !categoryWasCorrected &&
+        selectedParentId !== currentParent?.id
+      )
+        return this.invalidSubcategory(
+          currentParent!.name,
+          attemptedSubcategory!,
+          hierarchy.vocabulary?.getSubcategories(currentParent!.id).map((child) => child.name) ??
+            [],
+        );
       const allowedSubcategories =
         selectedParentId === null || hierarchy.vocabulary === null
           ? []
           : hierarchy.vocabulary
               .getSubcategories(selectedParentId)
               .map((subcategory) => subcategory.name);
+
+      if (categoryWasCorrected && suggestion.categoriaRaw?.trim()) {
+        const attemptedName = suggestion.categoriaRaw.trim();
+        const exact = hierarchy.vocabulary
+          ?.getCategories()
+          .find(
+            (category) =>
+              normalizeCategoryTarget(category.name) === normalizeCategoryTarget(attemptedName),
+          );
+        const explicitlyNamed = normalizeCategoryTarget(input.rawMessage).includes(
+          normalizeCategoryTarget(attemptedName),
+        );
+        if (!exact && explicitlyNamed && hierarchy.spreadsheetId) {
+          const proposed = this.applyOtherFields(current, suggestion, paymentSelection);
+          return {
+            status: 'unresolved_category',
+            attemptedName,
+            suggestedName: selectedParentName,
+            candidates:
+              hierarchy.vocabulary?.getCategories().map((category) => category.name) ?? [],
+            sourceConfigId: hierarchy.spreadsheetId,
+            payload: proposed,
+            correctionCycles: input.state.correctionCycles,
+          };
+        }
+        if (exact && selectedParentId !== exact.id) return { status: 'not_interpretable' };
+      }
+      if (categoryWasCorrected && (selectedParentId === null || selectedParentName === null)) {
+        return { status: 'not_interpretable' };
+      }
 
       if (
         subcategoryWasCorrected &&
@@ -264,6 +351,49 @@ export class CorrectExpenseUseCase {
           classification.subcategory.name === null ||
           classification.subcategory.categoryId !== selectedParentId)
       ) {
+        const parent = hierarchy.vocabulary
+          ?.getCategories()
+          .find((category) => category.id === selectedParentId);
+        const childName = attemptedSubcategory?.trim() ?? '';
+        const explicitlyNamed =
+          childName &&
+          normalizeCategoryTarget(input.rawMessage).includes(normalizeCategoryTarget(childName));
+        if (parent && explicitlyNamed && hierarchy.spreadsheetId) {
+          const proposed = this.applyOtherFields(current, suggestion, paymentSelection);
+          return {
+            status: 'unresolved_subcategory',
+            attemptedName: childName,
+            suggestedName:
+              classification.subcategory.categoryId === parent.id
+                ? classification.subcategory.name
+                : null,
+            candidates:
+              hierarchy.vocabulary?.getSubcategories(parent.id).map((child) => child.name) ?? [],
+            parentCategoryId: parent.id,
+            parentCategoryName: parent.name,
+            subcategoryColumnMapped: hierarchy.subcategoryColumnMapped,
+            sourceConfigId: hierarchy.spreadsheetId,
+            payload: categoryWasCorrected
+              ? {
+                  ...proposed,
+                  extracted: {
+                    ...proposed.extracted,
+                    categoriaRaw: parent.name,
+                    subcategoriaRaw: null,
+                    confianzaCategoria: 'alta',
+                    confianzaSubcategoria: 'nula',
+                  },
+                  resolvedCategory: parent.name,
+                  resolvedCategoryId: parent.id,
+                  categoryStatus: 'confirmed',
+                  resolvedSubcategory: null,
+                  resolvedSubcategoryId: null,
+                  subcategoryStatus: 'none',
+                }
+              : proposed,
+            correctionCycles: input.state.correctionCycles,
+          };
+        }
         return this.invalidSubcategory(
           selectedParentName ??
             suggestion.categoriaRaw ??
@@ -272,10 +402,6 @@ export class CorrectExpenseUseCase {
           attemptedSubcategory!,
           allowedSubcategories,
         );
-      }
-
-      if (categoryWasCorrected && (selectedParentId === null || selectedParentName === null)) {
-        return { status: 'not_interpretable' };
       }
 
       resolvedCategory = selectedParentName;
@@ -357,6 +483,7 @@ export class CorrectExpenseUseCase {
         ...(resolvedSubcategory === undefined ? {} : { resolvedSubcategory }),
         ...(resolvedSubcategoryId === undefined ? {} : { resolvedSubcategoryId }),
         ...(subcategoryStatus === undefined ? {} : { subcategoryStatus }),
+        ...(subcategoryWasCorrected ? { subcategoryEnabled: true } : {}),
       },
     };
   }
@@ -374,32 +501,34 @@ export class CorrectExpenseUseCase {
     };
   }
 
+  private applyOtherFields(
+    current: ExpenseReviewPayload,
+    suggestion: CorrectionSuggestionValues,
+    paymentSelection: ExpenseReviewPayload['paymentMethodSelection'],
+  ): ExpenseReviewPayload {
+    const extracted = { ...current.extracted };
+    if (suggestion.changedFields.includes('monto') && suggestion.monto !== null)
+      extracted.monto = suggestion.monto;
+    if (suggestion.changedFields.includes('moneda') && suggestion.moneda !== null)
+      extracted.moneda = suggestion.moneda;
+    if (suggestion.changedFields.includes('fecha') && suggestion.fechaRaw !== null)
+      extracted.fechaRaw = suggestion.fechaRaw;
+    if (suggestion.changedFields.includes('medio_pago'))
+      extracted.medioPago = suggestion.medioPago?.trim() || null;
+    return {
+      ...current,
+      extracted,
+      resolvedDate: suggestion.changedFields.includes('fecha')
+        ? this.resolveDate(extracted.fechaRaw)
+        : current.resolvedDate,
+      ...(paymentSelection === undefined ? {} : { paymentMethodSelection: paymentSelection }),
+    };
+  }
+
   private resolveDate(fechaRaw: string | null): string {
-    const today = new Date();
-    const normalized = (fechaRaw ?? '').toLowerCase().trim();
-
-    if (normalized === 'ayer') {
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      return yesterday.toISOString().slice(0, 10);
-    }
-
-    if (normalized === 'hoy') {
-      return today.toISOString().slice(0, 10);
-    }
-
-    if (normalized === 'mañana') {
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      return tomorrow.toISOString().slice(0, 10);
-    }
-
-    const parsed = Date.parse(normalized);
-    if (!Number.isNaN(parsed)) {
-      return new Date(parsed).toISOString().slice(0, 10);
-    }
-
-    return today.toISOString().slice(0, 10);
+    const result = resolveExpenseCalendarDate(fechaRaw, new Date());
+    if (result.kind === 'invalid') throw new ExpenseDateInvalidError(result.reason);
+    return result.date;
   }
 
   private async isHighAmount(userId: string, payload: ExpenseReviewPayload): Promise<boolean> {

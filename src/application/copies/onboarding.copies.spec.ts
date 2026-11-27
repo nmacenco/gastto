@@ -8,6 +8,13 @@ import { CloudFile } from '../../domain/entities/CloudFile';
 import { SheetInfo } from '../../domain/entities/SheetInfo';
 
 describe('onboardingCopies', () => {
+  it('shows the immediate expense example and settings option 5 after setup', () => {
+    const copy = onboardingCopies.onboardingComplete();
+    expect(copy).toContain('Cafe 850');
+    expect(copy).toContain('configuración');
+    expect(copy).toContain('opción 5');
+    expect(copy).toContain('categorías o subcategorías');
+  });
   describe('category hierarchy proposal', () => {
     it('formats parents, nested children, and every orphan deterministically', () => {
       const result = onboardingCopies.categoryHierarchyConfirmationPrompt(
@@ -102,7 +109,8 @@ describe('onboardingCopies', () => {
       const result = onboardingCopies.categoryProposalUnavailable();
 
       expect(result).toContain('No pude validar');
-      expect(result).toContain('detectar de nuevo');
+      expect(result).toContain('confirmar para detectarla de nuevo');
+      expect(result).toContain('\n\nEscribí cancelar si quieres salir.');
       expect(result).not.toContain('Todo listo');
     });
   });
@@ -162,12 +170,13 @@ describe('onboardingCopies', () => {
   });
 
   describe('noFilesFoundPrompt', () => {
-    it('returns guidance text suggesting verification and manual name entry', () => {
+    it('offers search, a supported link, and cancellation after an empty result', () => {
       const result = onboardingCopies.noFilesFoundPrompt();
 
-      expect(result).toContain('No encontré archivos de planilla');
-      expect(result).toContain('Verificá que tengas archivos en Google Drive');
-      expect(result).toContain('escribí parte del nombre para buscar');
+      expect(result).toContain('No encontré planillas');
+      expect(result).toContain('Escribí parte del nombre');
+      expect(result).toContain('enlace HTTPS de Google Sheets o Drive');
+      expect(result).toContain('cancelar');
     });
   });
 
@@ -199,10 +208,12 @@ describe('onboardingCopies', () => {
   });
 
   describe('searchByNamePrompt', () => {
-    it('returns a prompt asking the user to type part of the file name', () => {
+    it('offers all supported inputs while searching', () => {
       const result = onboardingCopies.searchByNamePrompt();
 
-      expect(result).toContain('Escribí parte del nombre del archivo');
+      expect(result).toContain('Escribí parte del nombre');
+      expect(result).toContain('enlace HTTPS de Google Sheets o Drive');
+      expect(result).toContain('cancelar');
     });
   });
 
@@ -301,7 +312,9 @@ describe('onboardingCopies', () => {
     it('handles empty sheet list', () => {
       const result = onboardingCopies.sheetNotFoundRePrompt([]);
 
-      expect(result).toContain('No encontré esa hoja');
+      expect(result).toBe(
+        'No pude acceder a ese archivo en Google Drive.\n\nVerificá los permisos. Para elegir otro archivo:\n1. Escribí cancelar para salir de la configuración actual.\n2. Escribí empezar.',
+      );
     });
   });
 

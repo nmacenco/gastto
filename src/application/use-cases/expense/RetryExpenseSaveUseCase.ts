@@ -13,11 +13,14 @@ import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import { expenseCopies } from '../../copies/expense.copies';
 import { randomUUID } from 'node:crypto';
 import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 import { getFinancialExecutionClaim } from '../../../domain/entities/ConversationState';
+import type { AdvancePendingExpense } from './AdvancePendingExpense';
 
 export interface RetryExpenseSaveInput {
   userId: string;
   chatId: string;
+  channel: 'telegram' | 'whatsapp';
   authorization: { receivedAt: string; sourceMessageId: string };
 }
 
@@ -30,6 +33,7 @@ export interface RetryExpenseSaveDeps {
   transitionState: TransitionConversationState;
   messagingPort: MessagingOutputPort;
   operationLogRepo: IOperationLogRepository;
+  advancePendingExpense: AdvancePendingExpense;
 }
 
 export class RetryExpenseSaveUseCase {
@@ -57,25 +61,16 @@ export class RetryExpenseSaveUseCase {
       claimId,
     });
     await this.deps.messagingPort.sendMessage(input.chatId, expenseCopies.saving());
+    let saveResult: Awaited<ReturnType<RegisterExpenseUseCase['save']>>;
     try {
-      const saveResult = await this.deps.registerExpense.save(
+      saveResult = await this.deps.registerExpense.save(
         input.userId,
         retryPayload.expense,
         retryPayload.expense.paymentMethodSelection?.sourceConfigId ?? '',
         claimId,
       );
-      await this.deps.messagingPort.sendMessage(
-        input.chatId,
-        expenseCopies.expenseSavedConfirmation({
-          concept: retryPayload.expense.rawMessage,
-          amount: retryPayload.expense.extracted.monto!,
-          currency: retryPayload.expense.extracted.moneda!,
-          sheetName: saveResult.sheetName,
-          ...(saveResult.rowIndex === undefined ? {} : { rowIndex: saveResult.rowIndex }),
-        }),
-      );
-      return { status: 'handled' };
     } catch (error) {
+      if (error instanceof AccountDeletionInProgressError) throw error;
       if (error instanceof StaleConversationStateError) throw error;
       const spreadsheetError =
         error instanceof SpreadsheetError
@@ -119,6 +114,37 @@ export class RetryExpenseSaveUseCase {
       );
       return { status: 'handled' };
     }
+
+    await this.deps.messagingPort.sendMessage(
+      input.chatId,
+      expenseCopies.expenseSavedConfirmation({
+        concept: retryPayload.expense.rawMessage,
+        amount: retryPayload.expense.extracted.monto!,
+        currency: retryPayload.expense.extracted.moneda!,
+        sheetName: saveResult.sheetName,
+        ...(saveResult.rowIndex === undefined ? {} : { rowIndex: saveResult.rowIndex }),
+      }),
+    );
+    const advanceOutcome = await this.deps.advancePendingExpense.execute({
+      userId: input.userId,
+      chatId: input.chatId,
+      channel: input.channel,
+      reason: 'confirmed',
+      completedCount: (retryPayload.expense.queueRegisteredCount ?? 0) + 1,
+      ...(saveResult.expenseId === undefined
+        ? {}
+        : { immediateUndoExpenseId: saveResult.expenseId }),
+    });
+    if (
+      advanceOutcome.status === 'empty' &&
+      retryPayload.expense.queueRegisteredCount !== undefined
+    ) {
+      await this.deps.messagingPort.sendMessage(
+        input.chatId,
+        expenseCopies.expenseQueueClosingSummary(retryPayload.expense.queueRegisteredCount + 1),
+      );
+    }
+    return { status: 'handled' };
   }
 
   private authorize(

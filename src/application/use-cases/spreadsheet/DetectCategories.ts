@@ -1,6 +1,15 @@
+import { presentCategoryProposal } from '../../services/PresentCategoryProposal';
+import type { SpreadsheetConfig } from '../../../domain/entities/SpreadsheetConfig';
 // LAYER: Application
 // Use case: detect the linked category vocabulary from the user's spreadsheet.
 
+import type { Logger } from 'pino';
+import {
+  assertCurrentOnboardingProposal,
+  captureConfirmedOnboardingContext,
+  onboardingContextIssue,
+  mappingRecoveryPayload,
+} from '../../services/ConfirmedOnboardingContext';
 import type {
   ISpreadsheetConfigRepository,
   IColumnMappingRepository,
@@ -22,6 +31,7 @@ import {
 } from '../../services/OAuthAccessTokenService';
 import {
   serializeCategoryOnboardingState,
+  DEFAULT_ONBOARDING_CATEGORIES,
   type CategoryOnboardingState,
 } from '../../dtos/CategoryOnboardingState';
 
@@ -32,13 +42,12 @@ export interface DetectCategoriesInput {
   statePayload: Record<string, unknown> | null;
 }
 
-export interface DetectCategoriesOutput {
-  categories: string[];
-  state: CategoryOnboardingState;
-  message: string;
-}
+export type DetectCategoriesOutput =
+  | { kind: 'proposal'; categories: string[]; state: CategoryOnboardingState; message: string }
+  | { kind: 'recovery'; nextState: 'ONBOARDING_START' | 'ONBOARDING_MAPPING'; message: string };
 
 export interface DetectCategoriesDeps {
+  logger?: Pick<Logger, 'error'>;
   categoryReaderPortFactory: ICategoryReaderPortFactory;
   categoryHierarchyReaderPortFactory: ICategoryHierarchyReaderPortFactory;
   oauthAccessTokenService: OAuthAccessTokenProvider;
@@ -49,22 +58,29 @@ export interface DetectCategoriesDeps {
   categoryVocabularyRepository: ICategoryVocabularyRepository;
 }
 
-const DEFAULT_CATEGORIES = ['Alimentacion', 'Transporte', 'Servicios', 'Ocio', 'Salud', 'Otros'];
-
 export class DetectCategories {
   constructor(private readonly deps: DetectCategoriesDeps) {}
 
   async execute(input: DetectCategoriesInput): Promise<DetectCategoriesOutput> {
     const { userId, externalId, statePayload } = input;
+    assertCurrentOnboardingProposal(this.deps.transitionState, userId, input.statePayload);
     const config = await this.deps.spreadsheetConfigRepository.findByUserId(userId);
-    if (!config) return this.sendPlaceholder(externalId, userId, statePayload);
+    if (!config) return this.sendReconnect(externalId, userId);
 
     const mappings = await this.deps.columnMappingRepository.findBySpreadsheetId(config.id);
+    const issue = onboardingContextIssue(userId, config, statePayload, mappings);
+    if (issue) return this.recoverMapping(input, config, issue);
     const categoryMapping = mappings.find((mapping) => mapping.GasttoField === 'categoria');
-    if (!categoryMapping) return this.sendPlaceholder(externalId, userId, statePayload);
+    if (!categoryMapping) return this.recoverMapping(input, config, 'category_mapping_missing');
+
+    const proposalPayload =
+      statePayload?.confirmedMappings !== undefined
+        ? statePayload
+        : captureConfirmedOnboardingContext(config, mappings, statePayload);
+    if (!proposalPayload) return this.recoverMapping(input, config, 'confirmed_context_missing');
 
     const subcategoryMapping = mappings.find((mapping) => mapping.GasttoField === 'subcategoria');
-    const dataStartRow = resolveDataStartRow(statePayload);
+    const dataStartRow = resolveDataStartRow(proposalPayload) ?? (config.headerRowIndex ?? 1) + 1;
 
     try {
       if (subcategoryMapping) {
@@ -87,7 +103,7 @@ export class DetectCategories {
           hierarchy,
           externalId,
           userId,
-          statePayload,
+          proposalPayload,
         );
       }
 
@@ -109,7 +125,7 @@ export class DetectCategories {
         categories,
         externalId,
         userId,
-        statePayload,
+        proposalPayload,
       );
     } catch (error) {
       if (error instanceof SpreadsheetError && error.code === 'AUTH_ERROR') {
@@ -127,18 +143,18 @@ export class DetectCategories {
     statePayload: Record<string, unknown> | null,
   ): Promise<DetectCategoriesOutput> {
     const categories =
-      detectedCategories.length > 0
-        ? detectedCategories
-        : DEFAULT_CATEGORIES.map((category) => category.toLowerCase());
+      detectedCategories.length > 0 ? detectedCategories : [...DEFAULT_ONBOARDING_CATEGORIES];
     const vocabulary =
       (await this.deps.categoryVocabularyRepository.findBySpreadsheetId(spreadsheetId)) ??
       new CategoryVocabulary(spreadsheetId);
     for (const category of categories) addCategoryIfMissing(vocabulary, category);
 
     const state = toOnboardingState(vocabulary, [], false);
-    const message = onboardingCopies.categoryConfirmationPrompt(categories);
+    const message = onboardingCopies.categoryConfirmationPrompt(
+      state.categories.map((category) => category.name),
+    );
     await this.sendProposal(externalId, userId, statePayload, state, message, vocabulary);
-    return { categories, state, message };
+    return { kind: 'proposal', categories, state, message };
   }
 
   private async persistHierarchyAndPrompt(
@@ -149,9 +165,7 @@ export class DetectCategories {
     statePayload: Record<string, unknown> | null,
   ): Promise<DetectCategoriesOutput> {
     const detectedCategories =
-      hierarchy.categories.length > 0
-        ? hierarchy.categories
-        : DEFAULT_CATEGORIES.map((category) => category.toLowerCase());
+      hierarchy.categories.length > 0 ? hierarchy.categories : [...DEFAULT_ONBOARDING_CATEGORIES];
     const vocabulary =
       (await this.deps.categoryVocabularyRepository.findBySpreadsheetId(spreadsheetId)) ??
       new CategoryVocabulary(spreadsheetId);
@@ -171,7 +185,7 @@ export class DetectCategories {
       state.orphanSubcategories,
     );
     await this.sendProposal(externalId, userId, statePayload, state, message, vocabulary);
-    return { categories, state, message };
+    return { kind: 'proposal', categories, state, message };
   }
 
   private async sendProposal(
@@ -182,9 +196,10 @@ export class DetectCategories {
     message: string,
     vocabulary: CategoryVocabulary,
   ): Promise<void> {
-    await this.deps.transitionState.execute({
+    await presentCategoryProposal(this.deps, {
       userId,
-      targetState: 'ONBOARDING_CATEGORIES',
+      externalId,
+      message,
       payload: {
         ...serializeCategoryOnboardingState(state, previousPayload),
         categoryDraft: {
@@ -193,41 +208,45 @@ export class DetectCategories {
         },
       },
     });
-    await this.deps.messagingPort.sendMessage(externalId, message);
   }
 
-  private async sendPlaceholder(
-    externalId: string,
-    userId: string,
-    statePayload: Record<string, unknown> | null,
+  private async recoverMapping(
+    input: DetectCategoriesInput,
+    config: SpreadsheetConfig,
+    code: string,
   ): Promise<DetectCategoriesOutput> {
-    const categories = DEFAULT_CATEGORIES.map((category) => category.toLowerCase());
-    const state: CategoryOnboardingState = {
-      categories: categories.map((name) => ({ name, subcategories: [] })),
-      orphanSubcategories: [],
-      subcategoryColumnMapped: false,
-    };
-    const message = onboardingCopies.onboardingPlaceholder();
-    await this.deps.messagingPort.sendMessage(externalId, message);
-    await this.deps.transitionState.execute({
-      userId,
-      targetState: 'ONBOARDING_CATEGORIES',
-      payload: serializeCategoryOnboardingState(state, statePayload),
+    this.deps.logger?.error({
+      msg: 'Inconsistent onboarding context',
+      endpoint: 'DetectCategories',
+      code,
+      userId: input.userId,
+      configId: config.id,
+      proposalId:
+        typeof input.statePayload?.proposalId === 'string'
+          ? input.statePayload.proposalId
+          : undefined,
     });
-    return { categories, state, message };
+    const message = onboardingCopies.categoryMappingRecovery();
+    await this.deps.transitionState.execute({
+      userId: input.userId,
+      targetState: 'ONBOARDING_MAPPING',
+      payload: mappingRecoveryPayload(config),
+    });
+    await this.deps.messagingPort.sendMessage(input.externalId, message);
+    return { kind: 'recovery', nextState: 'ONBOARDING_MAPPING', message };
   }
 
   private async sendReconnect(externalId: string, userId: string): Promise<DetectCategoriesOutput> {
     const message = onboardingCopies.reconnectAccount();
-    await this.deps.messagingPort.sendMessage(externalId, message);
     await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_START',
       payload: { promptShown: true },
     });
+    await this.deps.messagingPort.sendMessage(externalId, message);
     return {
-      categories: [],
-      state: { categories: [], orphanSubcategories: [], subcategoryColumnMapped: false },
+      kind: 'recovery',
+      nextState: 'ONBOARDING_START',
       message,
     };
   }

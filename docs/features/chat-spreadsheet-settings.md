@@ -1,12 +1,16 @@
 # Feature: Chat spreadsheet settings
 
+When Telegram access approval is enabled, option 7 starts an email replacement request. The approved old email, OAuth token and spreadsheet stay active while the new request waits or while the user configures a new Google spreadsheet. A candidate token is stored separately and promoted with the confirmed destination in one transaction. See [Telegram access approval](./telegram-access-approval.md).
+
 ## Purpose
 
 Let a user inspect the stored Google or Microsoft connection and current spreadsheet destination from chat.
 
 ## Behavior (Implemented)
 
-- The exact `configuración` command opens a numbered menu from `IDLE`. While an expense is active, the user is asked to finish or cancel it first. An unresolved financial execution claim remains protected.
+- `8. Eliminar cuenta` opens the account deletion confirmation preview in development. Production replies that deletion is not yet available until the complete cleanup flow ships. See [account deletion](./account-deletion.md).
+
+- The exact `configuración` command opens a numbered menu from `IDLE`. The setup-completion message includes an immediate expense example and tells the user that option 5 manages categories and subcategories. While an expense is active, the user is asked to finish or cancel it first. An unresolved financial execution claim remains protected.
 - `1` reports stored credential status (`missing`, `revoked`, or `available`), provider, and selected file and sheet names. An expired access token remains `available` when a non-revoked credential is stored. The message explains that live access was not checked. Incomplete destinations show onboarding guidance.
 - `2` starts voluntary Google reauthorization when the current destination has a file and sheet. `3` lists recent Google spreadsheets and starts a file candidate. `4` lists sheets in the current file and starts a sheet candidate. Unknown responses show menu guidance.
 - `6` opens the active destination's payment catalog as a local draft. `detectar` reads proposed values from the mapped payment column; manual editing remains available without provider access. An empty confirmation activates configured catalog mode. See [payment methods](./payment-methods.md).
@@ -20,7 +24,7 @@ Let a user inspect the stored Google or Microsoft connection and current spreads
 - Selecting a file lists its sheets without changing the active configuration. The selected sheet must pass read/write validation. A file change always remaps columns, even when the user says the positions are unchanged; the new file's categories, linked subcategories, and payment methods are read and reviewed before final confirmation.
 - A sheet candidate is checked for read/write access. The user answers whether columns keep the same positions; saved positions are reused only when header row metadata and normalized headers agree. Otherwise a new mapping is proposed. Corrections use `campo=número`. The candidate's categories and linked subcategories are then shown for confirmation or editing with `categorías: Nombre; Otra > Subcategoría`.
 - Discovery, corrections, and category review change only the owned conversation payload. Final payment confirmation atomically creates a new active configuration with its mappings and both vocabularies and leaves the former version available for historical expenses. Cancellation, expiry, validation failure, and stale responses leave the former version active.
-- `cancelar` clears only the owned settings flow to `IDLE`. Accepted messages refresh the 30-minute inactivity deadline. Expiry returns to `IDLE` through a guarded transition, clearing the payload.
+- Exact `cancelar`, `salir`, `cancel`, or `exit` clears only the observed settings flow to `IDLE` through a revision-guarded transition before replying. The discarded vocabulary draft or destination candidate cannot activate a configuration or change credentials. OAuth nonce and reminder cleanup follows the successful transition. Accepted messages refresh the 30-minute inactivity deadline. Expiry returns to `IDLE` through a guarded transition, clearing the payload.
 - The menu flow holds a random flow ID. No OAuth credential or account email is copied into its payload or status message.
 - Google reauthorization creates a 15-minute OAuth nonce and a reminder after 10 minutes. Reminders rotate the nonce even when the old token remains valid. They preserve the original settings deadline and stop at expiry.
 - The callback accepts either `code` and `state`, or provider `error` and `state`. Denial, expiry, failed read/write validation, and cancellation leave the old encrypted credential and destination intact. Provider error text is never shown in HTML or chat.
@@ -36,3 +40,19 @@ Let a user inspect the stored Google or Microsoft connection and current spreads
 ## Data Model
 
 `conversation_states.current_state` permits `SETTINGS_MENU` after migration `0010_add_settings_menu_state`, `SETTINGS_OAUTH` after `0011_add_settings_oauth_state`, sheet review states after `0013_add_settings_sheet_states`, and `SETTINGS_FILE` after `0014_add_settings_file_state`. Migration `0012_friendly_omega_flight` versions configurations. The settings payload contains flow and proposal ownership; `expires_at` contains the deadline. See [data model](../architecture/data-model.md).
+
+## Recovery guidance (2026-11-15)
+
+File choices are revalidated as native Google spreadsheets before reading sheets. Unsupported formats retain the candidate and active destination. Settings read errors offer repetition only for retryable failures; permanent errors use `cancelar`, `configuración`, option `3`. Mapping recovery commits the return to sheet selection before sending its instructions. Invalid mapping replies, missing headers, payment detection failures, empty category drafts and invalid replacement emails explain a valid continuation and cancellation. Candidate activation and credential promotion keep their existing revision guards.
+
+## Message readability
+
+File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.
+
+## Setup message formatting (2026-11-16)
+
+The menu preserves options 1–7 and separates the number prompt from cancellation. OAuth links, mapping/category review instructions, payment examples, and draft warnings use explicit paragraphs. The exact optional exit is `Escribí cancelar si quieres salir.`. Mandatory exit/reopen sequences use numbered steps; no extra optional exit is appended. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+The expiry notice separates its outcome from the `configuración` command. No cancellation is advertised after the flow has expired. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

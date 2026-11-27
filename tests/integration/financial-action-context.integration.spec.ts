@@ -77,6 +77,82 @@ describe.skipIf(!isDockerAvailable())('Integration :: financial action context',
     target: kind === 'undo' ? { expenseId: 'expense-1', rowIndex: 8 } : { attemptCount: 2 },
   });
 
+  it.each(['latest expense', 'historical configuration'])(
+    'releases the durable undo claim after a failed %s read and requires fresh authorization',
+    async (read) => {
+      const presentedAt = new Date(Date.now() - 1_000).toISOString();
+      const observed = await createState(
+        'EXPENSE_UNDO_CONFIRMING',
+        {
+          pendingExpenseId: 'expense-1',
+          actionBinding: { operationId: 'abcdefghijklmnopqrstuv', revision: 1, presentedAt },
+        },
+        new Date(Date.now() + 60_000),
+      );
+      const offered = {
+        id: 'expense-1',
+        spreadsheetId: 'historical-config',
+        concepto: 'Café',
+        monto: 4.5,
+        moneda: 'EUR',
+        savedAt: new Date(),
+        sheetName: 'Gastos',
+        rowIndex: 8,
+      };
+      const findLatestByUserId = vi.fn().mockResolvedValue(offered);
+      const findById = vi.fn().mockResolvedValue({ provider: 'google', fileId: 'file-1' });
+      if (read === 'latest expense') {
+        findLatestByUserId
+          .mockResolvedValueOnce(offered)
+          .mockRejectedValueOnce(new Error('database read unavailable'));
+      } else {
+        findById.mockRejectedValueOnce(new Error('database read unavailable'));
+      }
+      const deleteRow = vi.fn();
+      const softDeleteWithAudit = vi.fn();
+      const transition = new TransitionConversationState(repo);
+      const useCase = new UndoLastExpenseUseCase(
+        { create: () => ({ deleteRow }) },
+        { findLatestByUserId, softDeleteWithAudit } as unknown as IExpenseRecordRepository,
+        { findById } as unknown as ISpreadsheetConfigRepository,
+        { create: vi.fn().mockRejectedValue(new Error('audit unavailable')) },
+        { getValidAccessToken: vi.fn(), forceRefreshAccessToken: vi.fn() },
+        transition,
+        { error: vi.fn() } as never,
+      );
+      const input = {
+        userId: observed.userId,
+        action: 'confirm' as const,
+        pendingExpenseId: offered.id,
+        authorization: { receivedAt: new Date().toISOString(), sourceMessageId: 'confirmation-1' },
+      };
+      await expect(
+        transition.runWithState(observed, () => useCase.execute(input)),
+      ).resolves.toMatchObject({ status: 'preparation_failed' });
+      const recovered = (await repo.findByUserId(observed.userId))!;
+      expect(recovered).toMatchObject({
+        currentState: 'IDLE',
+        statePayload: null,
+        expiresAt: null,
+      });
+      expect(BigInt(recovered.revision)).toBeGreaterThan(BigInt(observed.revision));
+      await expect(
+        transition.runWithState(recovered, () => useCase.execute(input)),
+      ).resolves.toEqual({ status: 'stale' });
+      await expect(
+        transition.runWithState(recovered, () =>
+          useCase.execute({
+            userId: observed.userId,
+            action: 'request',
+            provenance: 'deterministic_command',
+          }),
+        ),
+      ).resolves.toMatchObject({ status: 'confirmation_required' });
+      expect(deleteRow).not.toHaveBeenCalled();
+      expect(softDeleteWithAudit).not.toHaveBeenCalled();
+    },
+  );
+
   it('rejects delayed undo and retry claims at expiry before any external effect', async () => {
     const append = vi.fn();
     const deleteRow = vi.fn();
@@ -226,6 +302,7 @@ describe.skipIf(!isDockerAvailable())('Integration :: financial action context',
         forceRefreshAccessToken: vi.fn(),
       },
       transitionState,
+      { error: vi.fn() } as never,
     );
 
     const result = await transitionState.runWithState(observed, () =>

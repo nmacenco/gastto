@@ -30,6 +30,7 @@ import type { ValidateSpreadsheetAccessPortFactory } from '../../../domain/ports
 import type { SettingsOAuthCleanup } from './SettingsOAuthCleanup';
 import { settingsCopies } from '../../copies/settings.copies';
 import type { ConversationState } from '../../../domain/entities/ConversationState';
+import { AccountDeletionInProgressError } from '../../ports/AccountExternalWorkFence';
 
 const mockRedisGet = vi.fn();
 const mockRedisDel = vi.fn();
@@ -52,6 +53,7 @@ function buildMockDeps(overrides: Partial<HandleOAuthCallbackDeps> = {}): Handle
   return {
     redis: { get: mockRedisGet, del: mockRedisDel } as unknown as Redis,
     oauthService: {
+      revokeToken: vi.fn(),
       buildAuthUrl: vi.fn(),
       exchangeCode: mockExchangeCode,
       refreshAccessToken: vi.fn(),
@@ -127,6 +129,19 @@ beforeEach(() => {
 });
 
 describe('HandleOAuthCallback', () => {
+  it('rejects a callback before code exchange when account deletion owns the fence', async () => {
+    mockRedisGet.mockResolvedValue(baseRedisPayload);
+    const run = vi.fn(() => Promise.reject(new AccountDeletionInProgressError()));
+    const deps = buildMockDeps({ accountExternalWorkFence: { run } });
+
+    const result = await new HandleOAuthCallback(deps).execute(baseInput);
+
+    expect(result).toMatchObject({ success: false, canRetry: false });
+    expect(run).toHaveBeenCalledWith('user-123', expect.any(Function));
+    expect(mockExchangeCode).not.toHaveBeenCalled();
+    expect(mockTokenUpsert).not.toHaveBeenCalled();
+  });
+
   describe('settings reauthorization', () => {
     const nonce = 'settings-nonce';
     const metadata = JSON.stringify({
@@ -217,6 +232,57 @@ describe('HandleOAuthCallback', () => {
       expect(mockTokenUpsert).not.toHaveBeenCalled();
       expect(cleanup).toHaveBeenCalledOnce();
       expect(mockSendMessage).toHaveBeenCalledWith('987654321', settingsCopies.reauthorized());
+    });
+
+    it('stages a replacement credential without changing the active token or spreadsheet', async () => {
+      const replacementState: ConversationState = {
+        ...observed,
+        statePayload: { ...observed.statePayload, accountChangeRequestId: 'request-1' },
+      };
+      const { deps, commit } = settingsDeps(replacementState);
+      mockExchangeCode.mockResolvedValue({
+        accessToken: 'new-access',
+        refreshToken: 'new-refresh',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        scope: [
+          'https://www.googleapis.com/auth/spreadsheets',
+          'https://www.googleapis.com/auth/drive.readonly',
+        ],
+      });
+      const save = vi.fn().mockResolvedValue(undefined);
+      const beginReplacement = vi.fn().mockResolvedValue(undefined);
+      mockTransitionExecute.mockResolvedValue({
+        status: 'updated',
+        state: {
+          ...replacementState,
+          revision: '8',
+          currentState: 'SETTINGS_FILE',
+          statePayload: {
+            flowId: 'flow-1',
+            sourceConfigId: 'config-1',
+            accountChangeRequestId: 'request-1',
+          },
+        },
+      });
+      const result = await new HandleOAuthCallback({
+        ...deps,
+        accessRequests: {
+          findApprovedReplacement: vi.fn().mockResolvedValue({ id: 'request-1' }),
+        } as never,
+        candidateTokens: { save } as never,
+        settingsDestinationFlow: { beginReplacement } as never,
+      }).execute({ code: 'new-code', state: nonce });
+      expect(result).toMatchObject({ success: true, nextState: 'SETTINGS_FILE' });
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: 'request-1',
+          userId: 'user-123',
+          accessToken: 'new-access',
+        }),
+      );
+      expect(beginReplacement).toHaveBeenCalledOnce();
+      expect(mockTokenUpsert).not.toHaveBeenCalled();
+      expect(commit).not.toHaveBeenCalled();
     });
 
     it('exits on provider denial without exchanging or replacing a token', async () => {
@@ -319,6 +385,54 @@ describe('HandleOAuthCallback', () => {
     });
   });
   describe('valid callback', () => {
+    it('reuses a configured destination after a reminder nonce rotation and rejects the old link', async () => {
+      const freshState = 'reminder-state';
+      const conversationRepo = {
+        findByUserId: vi.fn().mockResolvedValue({
+          userId: 'user-123',
+          revision: '8',
+          currentState: 'ONBOARDING_DRIVE',
+          statePayload: {
+            provider: 'google',
+            state: freshState,
+            reauthorizationOnly: true,
+          },
+        }),
+      } as unknown as IConversationStateRepository;
+      mockRedisGet.mockImplementation((key: string) =>
+        key === `oauth:state:${freshState}`
+          ? Promise.resolve(JSON.stringify({ ...JSON.parse(baseRedisPayload), revision: '8' }))
+          : Promise.resolve(null),
+      );
+      mockExchangeCode.mockResolvedValue({
+        accessToken: 'access-123',
+        refreshToken: 'refresh-456',
+        expiresAt: new Date('2026-12-31T23:59:59Z'),
+        scope: [],
+      });
+      mockFindSpreadsheetConfig.mockResolvedValue({
+        id: 'config-1',
+        provider: 'google',
+        fileId: 'file-1',
+        sheetName: 'Gastos',
+      });
+      mockFindColumnMappings.mockResolvedValue([{ confirmedAt: new Date() }]);
+      const useCase = new HandleOAuthCallback(buildMockDeps({ conversationRepo }));
+
+      const oldResult = await useCase.execute(baseInput);
+      expect(oldResult.success).toBe(false);
+      expect(mockExchangeCode).not.toHaveBeenCalled();
+      const result = await useCase.execute({ code: 'auth-code-123', state: freshState });
+      expect(result).toMatchObject({ success: true, nextState: 'IDLE' });
+      expect(mockTransitionExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetState: 'IDLE',
+          expected: { revision: '8', currentState: 'ONBOARDING_DRIVE', expiry: 'any' },
+        }),
+      );
+      expect(mockHandleSpreadsheetFileSelectionExecute).not.toHaveBeenCalled();
+    });
+
     it('restores a completed spreadsheet configuration after reauthorization', async () => {
       mockRedisGet.mockResolvedValue(baseRedisPayload);
       mockExchangeCode.mockResolvedValue({
@@ -757,4 +871,22 @@ describe('HandleOAuthCallback', () => {
       expect(result.nextState).toBe('ONBOARDING_FILE');
     });
   });
+});
+
+it('rejects a nonce from another provider before locking or side effects', async () => {
+  vi.clearAllMocks();
+  mockRedisGet.mockResolvedValue(baseRedisPayload);
+  const acquire = vi.fn();
+  const deps = buildMockDeps();
+  deps.userProcessingLock.acquire = acquire;
+  const result = await new HandleOAuthCallback(deps).execute({
+    ...baseInput,
+    provider: 'microsoft',
+  });
+  expect(result.success).toBe(false);
+  expect(acquire).not.toHaveBeenCalled();
+  expect(mockExchangeCode).not.toHaveBeenCalled();
+  expect(mockTokenUpsert).not.toHaveBeenCalled();
+  expect(mockRedisDel).not.toHaveBeenCalled();
+  expect(mockSendMessage).not.toHaveBeenCalled();
 });

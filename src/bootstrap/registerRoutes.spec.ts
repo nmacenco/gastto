@@ -1,7 +1,7 @@
 // LAYER: Bootstrap / Unit Tests
 // Tests for route registration: health, Telegram webhook and OAuth callback.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
 import { registerRoutes } from './registerRoutes';
@@ -11,6 +11,7 @@ import type { Dependencies, TelegramFeature, GoogleOAuthFeature } from './types'
 import type { Env } from '../config/env.schema';
 
 const baseEnv: Env = {
+  ACCESS_APPROVAL_ENABLED: false,
   NODE_ENV: 'test',
   PORT: 0,
   LOG_LEVEL: 'fatal',
@@ -47,12 +48,19 @@ const baseEnv: Env = {
 function buildMockDeps(partial: Partial<Dependencies> = {}): Dependencies {
   return {
     db: {} as Dependencies['db'],
-    redis: {} as Dependencies['redis'],
+    redis: {
+      status: 'ready',
+      eval: vi.fn().mockResolvedValue([1, 60000]),
+    } as unknown as Dependencies['redis'],
     rootLogger: createLogger({ level: 'silent' }),
     userRepo: {} as Dependencies['userRepo'],
     conversationRepo: {} as Dependencies['conversationRepo'],
     operationLogRepo: {} as Dependencies['operationLogRepo'],
     tokenRepo: {} as Dependencies['tokenRepo'],
+    startReplayGuard: {
+      claim: vi.fn().mockResolvedValue(true),
+      pruneExpired: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Dependencies['startReplayGuard'],
     spreadsheetConfigRepo: {} as Dependencies['spreadsheetConfigRepo'],
     columnMappingRepo: {} as Dependencies['columnMappingRepo'],
     categoryVocabularyRepo: {} as Dependencies['categoryVocabularyRepo'],
@@ -138,6 +146,15 @@ describe('registerRoutes', () => {
     registerRoutes(app, deps, baseEnv);
 
     expect(app.hasRoute({ method: 'POST', url: '/webhook/telegram' })).toBe(true);
+  });
+
+  it('refuses to register Telegram without the durable /start replay guard', async () => {
+    app = await createFastify(baseEnv, createLogger({ level: 'silent' }));
+    const deps = buildMockDeps({
+      telegram: {} as TelegramFeature,
+      startReplayGuard: undefined,
+    });
+    expect(() => registerRoutes(app, deps, baseEnv)).toThrow('ACCOUNT_START_REPLAY_GUARD_REQUIRED');
   });
 
   it('does not register the Telegram webhook when the Telegram feature is absent', async () => {

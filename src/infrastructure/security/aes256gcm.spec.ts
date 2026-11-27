@@ -48,6 +48,17 @@ describe('aes256gcm', () => {
       expect(() => decrypt(ciphertext, iv, VALID_KEY)).toThrow();
     });
 
+    it('rejects a different key of the correct length', () => {
+      const { ciphertext, iv } = encrypt('original', VALID_KEY);
+      expect(() => decrypt(ciphertext, iv, Buffer.from('b'.repeat(64), 'hex'))).toThrow();
+    });
+
+    it('rejects tampering with encrypted data independently of the tag', () => {
+      const { ciphertext, iv } = encrypt('original', VALID_KEY);
+      ciphertext[0] = ciphertext[0]! ^ 0xff;
+      expect(() => decrypt(ciphertext, iv, VALID_KEY)).toThrow();
+    });
+
     it('throws for wrong key length', () => {
       const { ciphertext, iv } = encrypt('original', VALID_KEY);
 

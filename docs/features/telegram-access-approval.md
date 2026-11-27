@@ -1,0 +1,61 @@
+# Telegram access approval
+
+## Scope and status
+
+This feature is enabled only with `ACCESS_APPROVAL_ENABLED=true` and complete operator Gmail configuration. It applies to Telegram chats; the public website remains static and has no access form. A product reviewer follows the same path as any other user. The operator must add or confirm the account in the production Google Auth Platform audience separately. Gastto cannot infer that Google Cloud change; CLI approval is the explicit local signal. An email typed in chat is not compared to the Google account returned by OAuth.
+
+## First access
+
+The first reply explains that Gastto records chat expenses in a Google spreadsheet, gives an expense example, points to `configuración` for managing the spreadsheet, sheet, categories, payment methods, and Google account, and asks for the Google email used to request access. This welcome is sent for `/start` or the first ordinary message, including `hola` or a valid email. The `accessWelcomeShown` flag in `conversation_states.state_payload` prevents the next reply from repeating the introduction; subsequent messages show only the relevant email prompt or request status. A non-email first message without a pending request receives the email prompt. Once the welcome and email prompt have been shown, any malformed email, including text without `@`, receives an explicit invalid-format warning. A malformed email containing `@` receives the warning even on the first message. Telegram chats without approved access do not receive the generic processing acknowledgment; approved chats keep it.
+
+`/start` resolves the private Telegram chat to the existing local user ID. Without an approved email, the bot asks for an email, records one pending request in PostgreSQL, replies that approval is pending, and sends an operator Gmail notice after commit. Repeating the same email leaves the request unchanged. A different email supersedes the pending request; the old request ID cannot be approved. A prelisted reviewer email still needs this local association and approval. The owner checks Google Cloud and runs `node dist/interfaces/cli/approveAccessRequest.js <request-uuid>` in the deployment environment. Approval records `project-owner` and the decision time once, then sends a Telegram notice. The post-approval notice and its sent marker hold the account-work fence; if deletion begins after the approval transaction, the notice is skipped. Repeating the command retries an unsent Telegram notice without creating another approval while the account remains active. The person types exactly `continuar` to receive a fresh OAuth link.
+
+If the request transaction fails, Gastto does not send the operator email or claim that the request is pending. It tells the user that the request could not be saved and asks them to send the email again. A failed replacement request leaves the email-change screen open and gives the same retry guidance for the new email. The worker logs `ACCESS_REQUEST_SUBMISSION_FAILED` without logging the email address.
+
+If Gmail delivery fails, the request remains pending and the server logs `ACCESS_REQUEST_MAIL_FAILED` with the request ID, failure stage, HTTP status when available, and Google's bounded error reason when provided. The owner may run `node dist/interfaces/cli/notifyAccessRequest.js <request-uuid>` to resend a pending notice. That command holds the account-work fence through the operator email and sent marker; it exits without sending if account deletion has begun. A successful Gmail API response is recorded as `notification_sent_at`. If Gmail accepted a message but its response timed out, a manual resend may produce a duplicate; the request ID identifies both. No automatic resend occurs.
+
+The access request repository logs `ACCESS_REQUEST_DB_SUBMIT_STARTED` before the PostgreSQL transaction and `ACCESS_REQUEST_DB_SUBMIT_COMMITTED` only after it commits, with the request ID and whether it created a new row. `ACCESS_REQUEST_DB_SUBMIT_FAILED` identifies a rejected transaction. After Gmail accepts the operator notice, the repository logs `ACCESS_REQUEST_DB_NOTICE_UPDATE_STARTED` and either `ACCESS_REQUEST_DB_NOTICE_UPDATE_COMMITTED` with `affectedRows: 1` or `ACCESS_REQUEST_DB_NOTICE_UPDATE_FAILED` with the affected row count when available. A zero-row timestamp update is an error. The worker reports `ACCESS_REQUEST_MAIL_ACCEPTED` separately from `ACCESS_REQUEST_NOTIFICATION_PERSIST_FAILED`, so a database failure after email delivery is not described as a Gmail failure. These logs omit the email address and credentials; correlate them using the UUID in the operator notice.
+
+For a received operator email, `ACCESS_REQUEST_DB_SUBMIT_COMMITTED` for its UUID proves that the worker's database transaction committed. If that row is absent from an operator query, verify the bot and database environment and whether the owning user was later deleted. If `ACCESS_REQUEST_MAIL_ACCEPTED` is followed by `ACCESS_REQUEST_DB_NOTICE_UPDATE_FAILED`, the request row was created but its `notification_sent_at` marker was not confirmed. A manual notice resend in that condition can duplicate the already accepted email.
+
+## Finding a submitted request
+
+The requested email is stored in `access_requests.email`, not in `users`. The operator Gmail notice includes `Solicitud: <request-uuid>`. In the PostgreSQL database used by the same deployed app, look up that UUID to distinguish a pending request from a superseded or approved one:
+
+```sql
+SELECT ar.id, ar.user_id, ar.email, ar.kind, ar.status, ar.created_at,
+       mi.channel, mi.external_id
+FROM access_requests AS ar
+LEFT JOIN messaging_identities AS mi ON mi.user_id = ar.user_id
+WHERE ar.id = '<request-uuid>';
+```
+
+Confirm the deployment environment before interpreting an empty result. Development and production use separate databases; a request sent to one bot is not visible in the other's database. If the lookup is empty in the correct environment, investigate the worker and repository logs for that request before resubmitting. Do not expose database connection strings or Gmail credentials in diagnostics.
+
+The access gate runs before semantic routing, including shadow observation. An approved email alone is insufficient: the bot needs a usable Google OAuth credential. Expense interpretation checks the same condition before LLM extraction, including calls from queued jobs. A missing, revoked, or rejected credential sends the user back to `continuar`. A refreshable expired token can still be usable. Google OAuth denial and callback state validation use the existing OAuth recovery path.
+
+For an approved chat with missing credentials, exact cancellation of an active flow reaches its existing guarded handler before credential admission. A financial execution claim still blocks cancellation. Exact `continuar` starts OAuth from `IDLE` or `ONBOARDING_START`, or renews a pending `ONBOARDING_DRIVE` link through a revision-bound self-transition. Other active flows receive an instruction to cancel explicitly before continuing; admission does not discard their drafts or claims. Unapproved chats still enter only the email-request flow.
+
+## Changing the account
+
+An active user chooses option 7 in `configuración` to submit a replacement email. The current approved email, OAuth token, and spreadsheet remain active while the new request is pending or approved. The owner approves its request ID through the same CLI and the user receives a Telegram notice. In settings, the user chooses option 7 again and types `continuar` to authorize the replacement Google account. The new credential is encrypted in `candidate_oauth_tokens`; it does not overwrite `oauth_tokens`.
+
+The user chooses a spreadsheet visible to the candidate account, then a sheet, mapping, categories, and payment methods. The previous spreadsheet is not assumed accessible by the new account. Final confirmation refreshes the candidate credential if needed before attempting activation; a refresh failure leaves the active account unchanged. Final confirmation checks the settings flow, source configuration, candidate request and token, then promotes the new email, token, and configuration in one PostgreSQL transaction. A stale flow or failed transaction keeps the old configuration active. Canceling or expiring the settings flow deletes the candidate token; the approved replacement request remains available for another OAuth attempt. Removing the old email from Google Cloud is a separate operator task after successful cutover and does not revoke an existing OAuth token.
+
+## Operational limits
+
+The operator Gmail account uses a separate Google OAuth client with `gmail.send` and a durable refresh token. The Gmail sender and recipient, client ID, client secret, and refresh token live in deployment secrets. An External/Testing OAuth client can yield a short-lived refresh grant, so the owner must verify the chosen project's publishing and authorization state before enabling this feature. The code does not provision Google Cloud test users, verify the reviewer account remotely, or deploy secrets. Existing production users need a local approved request before this gate can be enabled for them.
+
+See [the operator and reviewer runbook](../../ai/plans/2026_11_07-telegram_access_oauth_review/reviewer-runbook.md) for release steps and test evidence.
+
+## Recovery guidance (2026-11-15)
+
+Replacement email validation and persistence failures keep the settings screen open, ask for a corrected/repeated email, and offer `cancelar`. Initial admission uses separate copies and does not promise cancellation.
+
+## Setup message formatting (2026-11-16)
+
+Initial admission validation/persistence errors use explanation/action paragraphs without offering cancellation. Replacement-email errors and pending OAuth continuation retain supported cancellation with the exact footer `Escribí cancelar si quieres salir.` in its own paragraph. Mandatory exit/continuation sequences use numbered steps. Email replacement and authorization guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Final readability audit (2026-11-16)
+
+Approval notifications, pending-replacement guidance, and temporary unavailability separate their status from continuation instructions; initial admission still does not offer cancellation. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

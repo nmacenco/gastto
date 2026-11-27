@@ -59,6 +59,50 @@ function buildTextPayload(overrides: Partial<NormalizedPayload> = {}): Normalize
 }
 
 describe('RouteIncomingMessage', () => {
+  it('drops unsupported messages for an identity being deleted', async () => {
+    const deps = buildMockDeps();
+    const gate = { isIdentityDeleting: vi.fn().mockResolvedValue(true) };
+    const router = new RouteIncomingMessage({
+      ...deps,
+      accountDeletionGate: gate,
+    } as unknown as RouteIncomingMessageDeps);
+    await router.execute(buildTextPayload({ messageType: 'UNSUPPORTED', text: undefined }));
+    expect(gate.isIdentityDeleting).toHaveBeenCalledWith('telegram', '123456789');
+    expect(mockUnsupportedExecute).not.toHaveBeenCalled();
+  });
+  it('does not create an account for a deletion recovery request from an unknown identity', async () => {
+    const deps = buildMockDeps();
+    const findByMessagingIdentity = vi.fn().mockResolvedValue(null);
+    const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+    const router = new RouteIncomingMessage({
+      ...deps,
+      accountDeletionIdentity: { users: { findByMessagingIdentity }, messaging: { sendMessage } },
+    } as unknown as RouteIncomingMessageDeps);
+    await router.execute(buildTextPayload({ text: '/eliminar_cuenta', userId: '123456789' }));
+    expect(findByMessagingIdentity).toHaveBeenCalledWith('telegram', '123456789');
+    expect(mockResolveExecute).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('requires an explicit new /start after account removal', async () => {
+    const deps = buildMockDeps();
+    const sendMessage = vi.fn().mockResolvedValue({ status: 'success' });
+    const router = new RouteIncomingMessage({
+      ...deps,
+      accountDeletionIdentity: {
+        users: { findByMessagingIdentity: vi.fn().mockResolvedValue(null) },
+        messaging: { sendMessage },
+      },
+    } as unknown as RouteIncomingMessageDeps);
+    await router.execute(buildTextPayload({ text: 'café 5', userId: '123456789' }));
+    expect(mockResolveExecute).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      '123456789',
+      'Para empezar a usar Gastto, escribí /start.',
+    );
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockAdd.mockResolvedValue(undefined);
@@ -177,7 +221,7 @@ describe('RouteIncomingMessage', () => {
       expect(mockProcessedMarkAsProcessed).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps empezar non-financial in an ordinary IDLE conversation', async () => {
+    it('queues empezar from IDLE so the worker can restart incomplete onboarding', async () => {
       mockClassifyExecute.mockReturnValue({ kind: 'non-financial' });
       const router = new RouteIncomingMessage(
         buildMockDeps() as unknown as RouteIncomingMessageDeps,
@@ -185,9 +229,12 @@ describe('RouteIncomingMessage', () => {
 
       await router.execute(buildTextPayload({ text: 'empezar' }));
 
-      expect(mockClassifyExecute).toHaveBeenCalledWith('empezar');
-      expect(mockSendGuidanceExecute).toHaveBeenCalledWith('123456789');
-      expect(mockAdd).not.toHaveBeenCalled();
+      expect(mockClassifyExecute).not.toHaveBeenCalled();
+      expect(mockSendGuidanceExecute).not.toHaveBeenCalled();
+      expect(mockAdd).toHaveBeenCalledWith(
+        'process-message',
+        expect.objectContaining({ rawMessage: 'empezar' }),
+      );
     });
 
     it('routes empezar without guidance from the contextual ONBOARDING_START state', async () => {

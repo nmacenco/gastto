@@ -14,7 +14,7 @@ describe('GoogleSheetsAdapter', () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = fetchMock as typeof fetch;
     adapter = new GoogleSheetsAdapter('access-token-123');
   });
 
@@ -908,6 +908,17 @@ describe('GoogleSheetsAdapter', () => {
       const result = await adapter.validateSpreadsheetAccess(fileId, sheetName);
 
       expect(result.kind).toBe('empty-sheet');
+    });
+
+    it('returns empty-sheet for row objects containing only blank cells', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ values: [[], ['', '  ', null]] }),
+      });
+      const result = await adapter.validateSpreadsheetAccess(fileId, sheetName);
+      expect(result.kind).toBe('empty-sheet');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('returns access-error with network-error on fetch failure', async () => {

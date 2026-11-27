@@ -1,6 +1,8 @@
 // LAYER: Bootstrap
 // Registers HTTP routes on the Fastify instance.
 
+import { RedisSecurityLimiter } from '../infrastructure/redis/RedisSecurityLimiter';
+import { securityAdmission } from '../interfaces/http/middleware/securityAdmission';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -40,17 +42,48 @@ export function registerRoutes(app: FastifyInstance, deps: Dependencies | null, 
     }),
   );
 
+  const limiter = deps ? new RedisSecurityLimiter(deps.redis, env.NODE_ENV) : null;
+  const windowMs = env.SECURITY_RATE_WINDOW_MS ?? 60_000;
+
   if (deps?.telegram !== null && deps?.telegram !== undefined) {
+    if (!deps.startReplayGuard) {
+      throw new Error('ACCOUNT_START_REPLAY_GUARD_REQUIRED');
+    }
     registerTelegramWebhook(app, {
       webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
+      ...(limiter
+        ? {
+            admission: securityAdmission(
+              limiter,
+              'telegram',
+              env.SECURITY_TELEGRAM_LIMIT ?? 60,
+              windowMs,
+            ),
+          }
+        : {}),
       incomingMessageQueue: deps.incomingMessageQueue,
       handleStartCommand: deps.telegram.handleStartCommand,
       sendImmediateAcknowledgement: deps.telegram.sendImmediateAcknowledgement,
+      messaging: deps.telegram.adapter,
       resolveIdentity: deps.resolveIdentity,
+      ...(deps.accountDeletionRepo ? { accountDeletionGate: deps.accountDeletionRepo } : {}),
+      startReplayGuard: deps.startReplayGuard,
     });
   }
 
   if (deps?.googleOAuth !== null && deps?.googleOAuth !== undefined) {
-    registerOAuthCallback(app, { handleOAuthCallback: deps.googleOAuth.handleOAuthCallback });
+    registerOAuthCallback(app, {
+      handleOAuthCallback: deps.googleOAuth.handleOAuthCallback,
+      ...(limiter
+        ? {
+            admission: securityAdmission(
+              limiter,
+              'oauth',
+              env.SECURITY_OAUTH_LIMIT ?? 60,
+              windowMs,
+            ),
+          }
+        : {}),
+    });
   }
 }

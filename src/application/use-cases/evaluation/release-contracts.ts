@@ -347,7 +347,7 @@ export const SemanticRouterAcceptanceReportSchema = z
     generatedAt: isoDateTime,
     sourceVersion: version,
     thresholdVersion: identifier.or(z.literal('pending')),
-    evidenceDigests: z.record(EvidenceKindSchema, digest),
+    evidenceDigests: z.partialRecord(EvidenceKindSchema, digest),
     candidate: CandidateVersionSchema,
     evidence: z
       .object({

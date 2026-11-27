@@ -13,6 +13,7 @@ Allow a user reviewing an expense summary to correct the amount, currency, categ
 - Queue admission no longer depends on a lexical correction regular expression. Natural variants such as `eran 35 EUR y la categoria es transporte` reach the correction flow even though they also contain an amount and currency.
 - From the inline **Corregir** action, `ResolveExpenseSummaryActionUseCase` creates a typed `ExpenseCorrectionState`, transitions to `EXPENSE_CORRECTING`, and sends examples of natural-language corrections.
 - The next message in `EXPENSE_CORRECTING` is interpreted against the stored review payload.
+- Entering correction from the summary action retains the review's existing expiration deadline. Unknown-category and unknown-subcategory choices opened on the next turn use that same deadline instead of rejecting the current expense as stale because its expiration was cleared.
 - The correctable fields are:
   - amount (`monto`),
   - currency (`moneda`),
@@ -26,7 +27,12 @@ Allow a user reviewing an expense summary to correct the amount, currency, categ
 - A category-only correction preserves the current child only while its stable ID still belongs to the resolved parent; otherwise every child selection and extraction field is cleared to canonical no-child values.
 - When the provider omits `categoria_raw`, recovery accepts only a complete active name or a simple category assignment (for example `corregir categoria: gastos diarios`). Whole-target matching distinguishes `Gastos` from `Gastos diarios`. Negations, alternatives, and other incomplete instructions return `not_interpretable` without advancing the review.
 - A category correction that still cannot resolve an active parent is treated as not interpretable and leaves the review unchanged; it is never presented as a successful correction with an empty category.
-- An invalid child returns parent-specific guidance with the ordered active child names. It does not advance correction cycles, reset the review timeout, enqueue a message, persist a partial category update, or present an updated summary.
+- When the user explicitly names a category that is absent from the active catalog, the bot retains the reviewed expense and any other corrected fields in a guarded `EXPENSE_CORRECTING` choice. It lists existing categories, offers `elegir Nombre`, `agregar`, `volver`, and `cancelar`, and asks about a suggested existing match when one exists. A name supplied only by the model does not trigger this offer.
+- `agregar` only opens a second prompt naming the proposed category. The catalog changes only after `confirmar agregar`; `no` returns to the choices, `volver` restores and re-presents the original expense, and `cancelar` abandons the expense through its existing cancellation path. Replies received before the current choice stage are rejected. Creation and the return to `EXPENSE_REVIEW` share one transaction guarded by conversation revision, choice identity, active configuration, catalog baseline, expiry, and financial claims. A concurrent catalog change refreshes the choices; a stale or repeated confirmation cannot insert twice.
+- A selected or newly added category is rebound to its stable ID, an incompatible child is cleared, and the review binding advances before the full expense summary is presented again. The expense is written to the spreadsheet only after its normal confirmation. A newly added catalog entry remains available even if the user later cancels the expense.
+- An explicitly named child missing beneath an exact active parent opens the same guarded choice flow, scoped to that parent's active children. The bot offers `elegir Nombre`, `agregar`, `volver`, and `cancelar`; a suggested existing child must be accepted explicitly. If the parent is unknown or only suggested, its choice is resolved first. An invalid child name supplied only by the model still produces parent-specific guidance without changing the review.
+- `agregar` opens a separate confirmation naming both child and parent. `confirmar agregar` adds or reactivates that child under the parent and returns to the full pending review with its stable child ID; `no` returns to choices, `volver` restores the original review, and `cancelar` abandons the pending expense. The transaction checks the active parent, source configuration, baseline, choice identity, expiry, and financial claim. A stale or repeated reply cannot add a second child. The catalog entry remains available if the expense is later canceled.
+- A child can be added to Gastto even without a mapped `subcategoria` column. The choice message explains that it will appear in the spreadsheet only after that column is configured. The ordinary final expense confirmation remains required to save the expense; the save writes the child only when the column is mapped.
 - An unrelated message produces the existing orientation prompt: `¿Querías confirmar, corregir o cancelar el registro?`; it does not transition or save the expense.
 - A corrected amount above the user's historical-average threshold is presented with the existing high-amount warning and explicit confirmation prompt. The corrected value remains pending review data until confirmation.
 - Correction cycles are counted in `ExpenseCorrectionState`. After five completed cycles, the sixth correction returns the cycle-limit copy and keeps the current correction state instead of presenting another summary.
@@ -93,6 +99,7 @@ Additional Definition of Done coverage:
 - Provider schema and contextual prompts: `src/infrastructure/adapters/llm/OpenAIAdapter.spec.ts`, `ClaudeAdapter.spec.ts`, and `NvidiaAdapter.spec.ts`.
 - Correction-versus-queue regression: provider, application, and worker tests cover `eran 35 EUR y la categoria es transporte`, `Taxi 12 EUR`, unrelated input, and rejection of correction fields on non-correction intents.
 - Inline action and dependency wiring: `src/application/use-cases/expense/ResolveExpenseSummaryActionUseCase.spec.ts`, `src/bootstrap/buildDependencies.spec.ts`, and `src/bootstrap/registerWorkers.spec.ts`.
+- Correction-entry expiration regression: `ResolveExpenseSummaryActionUseCase.spec.ts` runs the real action resolver, state transition, and category-choice use cases across separate turns for both unknown parents and unknown children, retaining the original deadline without saving the expense or changing the catalog.
 - Full worker flow and corrupted-state recovery: `src/interfaces/workers/message.worker.spec.ts`.
 - Conversation-level correction safety: `tests/integration/semantic-router-expense-flows.integration.spec.ts` proves the mixed affirmative correction produces a new review, rejects the old binding, performs one correction call, and saves the corrected amount once.
 
@@ -106,3 +113,17 @@ Additional Definition of Done coverage:
 
 - The correction state is persisted in PostgreSQL alongside the existing conversation FSM; Redis remains the BullMQ broker and is not the source of conversational state.
 - The correction flow is channel-agnostic at the application boundary. The current bootstrap uses the Telegram presenter and keeps WhatsApp as a future adapter integration.
+
+## Recovery guidance (2026-11-15)
+
+Correction examples and invalid-subcategory feedback include an explicit cancellation command. Invalid children still preserve the review binding and draft; financial execution claims continue to block exits.
+
+## Expense message formatting (2026-11-16)
+
+Correction prompts separate the question from the examples and the optional cancellation footer. Subcategory errors separate the parent/child explanation from correction instructions. High-amount and correction-limit prompts retain explicit confirmation, with cancellation in its own paragraph. Existing field labels, correction commands, and state/revision guards remain unchanged. See [conversational message formatting](./conversational-message-formatting.md).
+
+## Date validation (2026-11-25)
+
+Date corrections use the same explicit calendar formats and validated receipt time suffixes as [expense review](./expense-summary-review.md). `ayer`, `hoy`, and `mañana` use the current local calendar day, without UTC conversion. An invalid explicit date raises `EXPENSE_DATE_INVALID` before persisting a replacement review, preserving the existing date and draft. The worker presents date-format guidance based on the effective persisted state. Invalid dates no longer silently substitute today.
+
+Date failures during correction never run initial-attempt recovery or emit its resend/reset copy. The retained review and correction-cycle state remain unchanged; cancellation guidance is based on a fresh persisted-state read, with administrator guidance for an unresolved financial claim.

@@ -17,7 +17,7 @@ The factory lives at `src/infrastructure/logger.ts`. It creates a Pino logger in
 
 ## Sensitive-data redaction
 
-`src/infrastructure/observability/sensitiveData.ts` defines the shared sensitive-field policy used by both the root Pino logger and Fastify's request logger. Authorization headers, cookies, tokens, secrets, OAuth state, raw messages and webhook payloads, job data, and provider error bodies are replaced with `[REDACTED]` before logging. Error logs retain safe operational metadata such as endpoint, queue, job ID, HTTP status, and error code.
+`src/infrastructure/observability/sensitiveData.ts` defines the shared sensitive-field policy used by both the root Pino logger and Fastify's request logger. Authorization headers, cookies, tokens, secrets, OAuth state, request URLs (which can carry OAuth `code` and `state` query parameters), raw messages and webhook payloads, job data, and provider error bodies are replaced with `[REDACTED]` before logging. Error logs retain safe operational metadata such as endpoint, queue, job ID, HTTP status, and error code.
 
 Sentry is initialized with the same module's `beforeSend` scrubber. It creates a bounded, cycle-safe copy of the event and redacts matching keys in request data, breadcrumbs, contexts, extras, tags, and exception metadata before transmission. The scrubber never throws, so error reporting cannot disrupt application error handling.
 
@@ -78,6 +78,12 @@ const mockLogger = {} as unknown as Logger;
 
 Verify logger calls in worker/use case tests by asserting on the mock's method calls.
 
+## Access-request persistence diagnostics
+
+Access-request logs use `requestId` to correlate the committed PostgreSQL row with the operator Gmail notice. The repository emits distinct `*_STARTED`, `*_COMMITTED`, and `*_FAILED` codes for request submission and the post-email `notification_sent_at` update. The latter includes `affectedRows` when PostgreSQL returned a row count; zero rows are treated as a failure. The worker emits `ACCESS_REQUEST_MAIL_ACCEPTED` only after the Gmail adapter succeeds and `ACCESS_REQUEST_NOTIFICATION_PERSIST_FAILED` if the subsequent database update fails. No email address, raw chat text, connection string, or credential is logged.
+
+If the initial or replacement submission fails, the worker emits `ACCESS_REQUEST_SUBMISSION_FAILED`, sends a retry instruction to the user, and does not call the operator mail adapter. A post-email timestamp failure is logged separately because the accepted email cannot be withdrawn.
+
 ## Semantic routing observations
 
 Runtime shadow processing emits one schema-validated
@@ -125,3 +131,11 @@ Extraction adapters emit `llm_extraction_started` and one `llm_extraction_comple
 Error codes are `LLM_TIMEOUT`, `LLM_CANCELLED`, `LLM_EMPTY_RESPONSE`, `LLM_OUTPUT_TRUNCATED`, `LLM_INVALID_JSON`, `LLM_INVALID_SCHEMA`, and `LLM_PROVIDER_ERROR`. Exceptions crossing the adapter boundary retain only their code, never provider bodies, SDK causes, validation inputs, or reasoning content.
 
 The deterministic initial-message path uses `<channel>:<externalMessageId>` as correlation ID. `expense_context_loading`/`expense_context_loaded` mark context loading; the latter records its duration. `expense_summary_presented` records successful initial summary presentation duration. Other extraction callers receive a generated correlation ID if they supply none. Provider time excludes surrounding database and presentation work. Recovery errors are logged with `endpoint: processMessageJob` and the typed code; a recovered failure is not a BullMQ retry.
+
+## HTTP security events
+
+See [security hardening](../features/security-hardening.md) for stable event codes, bounded emission and operator alert thresholds. Both logger factories use shared object scrubbing in addition to Pino paths. Free-form exception/error fields are omitted; unexpected HTTP errors use a generic response and sanitized Sentry exception. Excel logging is injected through all concrete adapter factories. External alert delivery remains a separate operational acceptance check.
+
+## Spreadsheet provider diagnostics
+
+`SpreadsheetError.providerDiagnostic` retains an HTTP status and optional allowlisted provider status/reason. Arbitrary messages, URLs, credentials, response bodies and spreadsheet contents are excluded. Non-JSON error bodies do not replace HTTP classification. Sheet-selection errors log this bounded object; append/delete uncertainty remains determined by the operation and HTTP result, never diagnostic text. A 400 alone is not evidence of an unsupported file format; compatibility is determined from Drive MIME metadata.

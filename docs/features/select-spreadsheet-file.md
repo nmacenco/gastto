@@ -4,6 +4,8 @@
 
 The Select Spreadsheet File feature enables users to choose which spreadsheet file in their connected cloud storage account should receive their expense records. After completing the OAuth flow (Cloud Storage Connection), the bot enters the `ONBOARDING_FILE` state and guides the user through discovering, searching, and selecting a spreadsheet file.
 
+An explicit `cancelar`, `salir`, `cancel`, or `exit` command leaves initial file selection before search or selection parsing. The guarded exit clears the conversation payload; `empezar` can restart incomplete setup from `IDLE`.
+
 ## Scope
 
 - **In scope:** Google Drive file discovery, search by name, direct URL validation, file selection, and access validation.
@@ -28,9 +30,8 @@ The selected file is checked for access and its sheets are listed. The candidate
 1. After a successful OAuth callback, `HandleOAuthCallback` transitions the user to `ONBOARDING_FILE` and immediately invokes `HandleSpreadsheetFileSelection` with an empty `rawMessage`.
 2. `HandleSpreadsheetFileSelection` calls `CloudStoragePort.listRecentSpreadsheets`.
 3. The adapter queries Google Drive API v3 for the 5 most recently modified spreadsheet files.
-4. The use case formats a numbered list of files and appends a "None of these / search by name" option.
-5. The file list is stored in the FSM payload via `TransitionConversationState`.
-6. The user receives the formatted list message.
+4. A nonempty result is formatted as a numbered list with a "None of these / search by name" option. The displayed list, provider, and relevant flow context are stored before the prompt is sent.
+5. An empty result stores `step: 'searching'` with the provider and relevant flow context, then offers name search, a supported link, or cancellation. The next name is sent to `searchSpreadsheets` rather than listing recent files again.
 
 ### Selection by Number
 
@@ -55,19 +56,19 @@ The selected file is checked for access and its sheets are listed. The candidate
 12. If the user chooses "None of these / search by name", the use case prompts for a file name.
 13. When `statePayload.step === 'searching'`, the use case calls `CloudStoragePort.searchSpreadsheets` with the user's message as query.
 14. A refined list is presented and the payload is updated.
-15. If the search returns no files, the use case sends `onboardingCopies.noFilesFoundPrompt()` and stays in `ONBOARDING_FILE` so the user can refine the query or paste a URL.
+15. If the search returns no files, the use case persists `step: 'searching'` again and sends `onboardingCopies.noFilesFoundPrompt()` so the user can refine the query or paste a URL. A successful search replaces the previous displayed list and binds new numeric selections to the new state revision.
 
 ### Direct URL Validation
 
-15. If the user pastes a Google Drive or OneDrive URL, the use case extracts the `fileId`.
+15. Before search or list handling, a supported HTTPS Google Sheets (`docs.google.com/spreadsheets/d/{id}`) or Drive file (`drive.google.com/file/d/{id}` or `drive.google.com/open?id={id}`) link is parsed for a bounded file ID. Unsupported or malformed web links are rejected with input guidance and never searched or selected. OneDrive remains unavailable.
 16. `CloudStoragePort.validateFileAccess` is called to verify permissions.
 17. If accessible, the file is selected, the payload is updated with `selectedFileId`, `selectedFileName`, and `provider`, and the FSM transitions to `ONBOARDING_SHEET`.
 18. `HandleSpreadsheetFileSelection` immediately invokes `HandleSheetSelection` with an empty `rawMessage` to trigger sheet discovery automatically.
-19. If access is denied, the user is informed of permission issues.
+19. If access is denied, the user is informed of permission issues and remains in the current file-selection step. A stale transition sends no success confirmation.
 
 ### No Compatible Files
 
-18. If no compatible files are found, the use case returns a clear message suggesting verification and offering manual name entry.
+18. If no compatible files are found, the use case offers name search, a supported link, and cancellation from a persisted search-capable state.
 
 ## Adapters
 
@@ -131,6 +132,11 @@ interface HandleSpreadsheetFileSelectionDeps {
 #### `CloudStoragePort`
 
 ```ts
+type FileAccessValidationResult =
+  | { kind: 'accessible' }
+  | { kind: 'inaccessible' }
+  | { kind: 'unsupported-type' };
+
 interface CloudStoragePort {
   listRecentSpreadsheets(accessToken: string, provider: SpreadsheetProvider): Promise<CloudFile[]>;
   searchSpreadsheets(
@@ -142,7 +148,7 @@ interface CloudStoragePort {
     fileId: string,
     accessToken: string,
     provider: SpreadsheetProvider,
-  ): Promise<boolean>;
+  ): Promise<FileAccessValidationResult>;
 }
 ```
 
@@ -162,13 +168,15 @@ class CloudFile {
 | Scenario                           | Behavior                                                               |
 | ---------------------------------- | ---------------------------------------------------------------------- |
 | Invalid provider (`microsoft`)     | `InvalidProviderError` thrown by adapter; use case sends `comingSoon`. |
-| Missing / expired / revoked token  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.    |
+| Missing / revoked credential  | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.    |
 | Token decryption failure           | `reconnectAccount` message sent; transitions to `ONBOARDING_START`.    |
 | Missing `fileId` in statePayload   | `fileAccessFailed` message returned; stays in `ONBOARDING_FILE`.       |
 | Network failure during discovery   | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned.           |
-| Non-2xx HTTP from Google Drive API | `FileDiscoveryError` thrown with HTTP status; error message returned.  |
+| Non-2xx HTTP from Google Drive API | `FileDiscoveryError` thrown with HTTP classification; safe application copy returned.  |
 | Invalid JSON response              | `FileDiscoveryError` thrown; `fileDiscoveryFailed` returned.           |
-| File access denied (403/404)       | `validateFileAccess` returns `false`; `urlValidationFailed` returned.  |
+| File not found (404)       | `validateFileAccess` returns `{ kind: 'inaccessible' }`; `urlValidationFailed` returned.  |
+| Authorization failure (401/403) | One forced refresh replay; reconnect only when authorization cannot be restored. |
+| Unsupported MIME | `unsupported-type`; retain file selection and explain native conversion. |
 | Unexpected HTTP during validation  | `FileDiscoveryError` thrown; `fileAccessFailed` returned.              |
 
 ## QA Checklist
@@ -185,7 +193,7 @@ class CloudFile {
 
 - [x] **Happy path — selection by number:**
   - User sends a number matching `statePayload.fileList`.
-  - `validateFileAccess` returns `true`.
+  - `validateFileAccess` returns `{ kind: 'accessible' }`.
   - Confirmation message sent with full file name.
   - `selectedFileId`, `selectedFileName`, and `provider` stored in payload.
   - FSM transitions to `ONBOARDING_SHEET`.
@@ -203,20 +211,20 @@ class CloudFile {
 
 - [x] **Happy path — direct URL:**
   - User pastes a Google Drive URL.
-  - `fileId` extracted and `validateFileAccess` returns `true`.
+  - `fileId` extracted and `validateFileAccess` returns `{ kind: 'accessible' }`.
   - File selected and confirmed.
   - Payload includes `selectedFileId`, `selectedFileName`, and `provider`.
   - FSM transitions to `ONBOARDING_SHEET`.
   - `HandleSheetSelection` invoked automatically with empty `rawMessage`.
 
 - [x] **Error path — access denied:**
-  - `validateFileAccess` returns `false` on 403/404.
+  - `validateFileAccess` returns `{ kind: 'inaccessible' }` on 404; 403 is an authorization error eligible for refresh.
   - User informed of permission issues.
 
 - [x] **Error path — no files found:**
   - `listRecentSpreadsheets` returns `[]`.
-  - Clear message sent suggesting verification.
-  - Manual name entry offered.
+  - Search-capable state is persisted before the prompt is sent.
+  - Name search, a supported Google link, and cancellation are offered.
 
 - [x] **Error path — invalid provider:**
   - `listRecentSpreadsheets` with `microsoft` throws `InvalidProviderError`.
@@ -232,3 +240,15 @@ class CloudFile {
 ### OneDrive
 
 - **Out of scope for MVP.** The use case returns a "coming soon" message for `microsoft` provider selections.
+
+## Recovery guidance (2026-11-15)
+
+Google discovery and search return only native `application/vnd.google-apps.spreadsheet` files. Every selection, including historical displayed references and direct URLs, validates `id,mimeType` before listing sheets. `validateFileAccess` returns `accessible`, `inaccessible`, or `unsupported-type`; malformed metadata and provider failures remain typed errors. XLSX/ODS users must save a native Google spreadsheet themselves and select its new link. Rejection retains file selection, offers cancellation, and performs no Sheets call or configuration activation.
+
+## Message readability
+
+File/sheet selection and recovery messages separate explanations, actions, and optional cancellation with blank lines. The optional footer is `Escribí cancelar si quieres salir.`. Required cancellation and restart sequences use numbered steps without a duplicate optional footer. Commands, candidate preservation, and state guards are unchanged. See [conversational message formatting](./conversational-message-formatting.md) for the composition contract and implemented scope.
+
+## Final readability audit (2026-11-16)
+
+Stale, ambiguous, and unavailable file references separate their explanation from the instruction to choose a current list item. See [conversational message formatting](./conversational-message-formatting.md) for scope and intentional exceptions.

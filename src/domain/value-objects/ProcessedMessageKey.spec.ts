@@ -46,6 +46,12 @@ describe('ProcessedMessageKey', () => {
       const props = { ...makeValidProps(), externalMessageId: '   ' };
       expect(() => new ProcessedMessageKey(props)).toThrow(DomainValidationError);
     });
+
+    it('requires a nonempty identity when a scope is supplied', () => {
+      expect(
+        () => new ProcessedMessageKey({ ...makeValidProps(), externalIdentityId: ' ' }),
+      ).toThrow(DomainValidationError);
+    });
   });
 
   describe('immutability', () => {
@@ -81,6 +87,12 @@ describe('ProcessedMessageKey', () => {
     it('returns false when externalMessageId differs', () => {
       const a = new ProcessedMessageKey(makeValidProps());
       const b = new ProcessedMessageKey({ ...makeValidProps(), externalMessageId: 'msg-999' });
+      expect(a.equals(b)).toBe(false);
+    });
+
+    it('distinguishes matching message IDs from different chats', () => {
+      const a = new ProcessedMessageKey({ ...makeValidProps(), externalIdentityId: 'chat-a' });
+      const b = new ProcessedMessageKey({ ...makeValidProps(), externalIdentityId: 'chat-b' });
       expect(a.equals(b)).toBe(false);
     });
   });

@@ -1,5 +1,13 @@
 # Deployment Operations Guide
 
+## Account deletion release and rollback gate
+
+The deletion action remains disabled in production while `ACCOUNT_DELETION_ENABLED` is unset or `false`. Before deploying a binary that queries deletion state, apply additive migrations `0018_foamy_sersi`, `0019_tricky_leo`, `0020_bizarre_adam_destine`, `0021_dark_adam_destine`, and `0022_glamorous_sprite` in that order and record their successful application. The current CI workflow calls `flyctl deploy` without a migration step, and the runtime Docker image contains only compiled output and production dependencies, so migrations cannot be run by the deployed app. Use a separate controlled migration run with the production database secret held by its operator; verify applied names before deployment. When `ACCOUNT_DELETION_ENABLED=true`, the Redis restore guard reads migration 0022 on startup and fails closed if it is absent or detects a restore. Before setting the flag, finish the [account deletion acceptance matrix](account-deletion.md), verify the public privacy policy against account-specific provider retention, and rehearse the [restore quarantine runbook](../operations/account-deletion-recovery.md) while Fly is connected to a controlled Redis restore. Updating policy copy does not activate deletion.
+
+Do not roll back to a binary that ignores the deletion barrier while any operation is pending. Keep ingress and workers stopped or retain the lifecycle-aware binary until every pending operation finishes. Reverting a deployment cannot recover an already deleted account, and restoring an old PostgreSQL backup can resurrect deleted credentials. Apply restore quarantine and reconciliation before reconnecting traffic.
+
+For the opt-in Telegram access gate, apply additive migrations 0016 and 0017 before setting `ACCESS_APPROVAL_ENABLED=true`. Configure the separate operator Gmail authorization and verify a durable refresh grant before rollout. Existing Telegram users need approved local requests before enabling the gate. The owner runs the approval and notice retry CLIs inside the production deployment; there is no public approval route. The [reviewer runbook](../../ai/plans/2026_11_07-telegram_access_oauth_review/reviewer-runbook.md) contains the canary, rollback and external Google Cloud checks.
+
 This document describes the multi-environment Fly.io infrastructure, including
 merge-protected deployment, persistent BullMQ worker Machines, graceful shutdown,
 environment-isolated Redis-compatible brokers, secrets management, and Telegram
@@ -161,11 +169,11 @@ Phase 1 performed no deployment or configuration change. Its local acceptance re
 `REDIS_URL` is a provider-independent runtime contract. BullMQ and application
 caches use ioredis and do not depend on provider-specific APIs.
 
-| Environment | Broker policy                | Current decision                                                                     |
-| ----------- | ---------------------------- | ------------------------------------------------------------------------------------ |
-| Development | Isolated managed TLS service | Aiven for Valkey Free, dedicated to `gastto-develop`                                 |
-| Production  | Isolated managed TLS service | Existing provider remains unchanged; ADR-021 does not authorize production migration |
-| Local       | Local disposable service     | Docker Redis over `redis://localhost:6379`                                           |
+| Environment | Broker policy                | Current decision                                                                  |
+| ----------- | ---------------------------- | --------------------------------------------------------------------------------- |
+| Development | Isolated managed TLS service | Aiven for Valkey Free, dedicated to `gastto-develop`                              |
+| Production  | Isolated managed TLS service | Aiven for Valkey, confirmed by the owner on 2026-11-22; separate from development |
+| Local       | Local disposable service     | Docker Redis over `redis://localhost:6379`                                        |
 
 Hosted URIs must use the ioredis-compatible `rediss://` scheme. If a provider
 labels an equivalent URI with another TLS scheme, normalize only the scheme in the
@@ -182,6 +190,13 @@ capacity boundary: the accepted target reported 313,524,224 bytes with
 `noeviction`. Monitor `used_memory / maxmemory` in Aiven and warn at 80%, or
 250,819,379 bytes (approximately 239 MiB). Re-evaluate the threshold after any
 provider-initiated plan, region, or configuration change.
+
+The owner observed three backups in the production Aiven service on 2026-11-22,
+dated 2026-11-21 and 2026-11-22. That observation does not establish a one-day
+retention policy. Aiven documents automatic service backups and restoration of
+the latest backup when a powered-off service starts again. Account deletion
+release must account for a Redis snapshot that could reintroduce owned jobs or
+caches; see the [recovery runbook](../operations/account-deletion-recovery.md).
 
 ### Development broker rotation and cutover
 
@@ -389,3 +404,7 @@ Upstash remains unchanged during the rollback window but does not receive writes
 made only to Aiven. Rollback requires neither Machine scaling nor deletion of
 either broker. Do not flush, downgrade, disconnect, or delete a provider as part
 of rollback.
+
+## Security boundary update (2026-11-01)
+
+See [Security hardening](security-hardening.md) for the implemented HTTP admission/status contracts, production documentation availability, dependency gate, secret rotation and release evidence. These contracts supersede earlier blanket statements that every Telegram request returns 200.

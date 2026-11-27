@@ -10,6 +10,13 @@ import type { DrizzleUserRepository } from '../infrastructure/db/repositories/Dr
 import type { DrizzleConversationStateRepository } from '../infrastructure/db/repositories/DrizzleConversationStateRepository';
 import type { DrizzleOperationLogRepository } from '../infrastructure/db/repositories/DrizzleOperationLogRepository';
 import type { DrizzleOAuthTokenRepository } from '../infrastructure/db/repositories/DrizzleOAuthTokenRepository';
+import type { DrizzleAccountDeletionRepository } from '../infrastructure/db/repositories/DrizzleAccountDeletionRepository';
+import type { DrizzleAccountExternalWorkFence } from '../infrastructure/db/repositories/DrizzleAccountExternalWorkFence';
+import type { DrizzleStartReplayGuard } from '../infrastructure/db/repositories/DrizzleStartReplayGuard';
+import type { DrizzleAccessRequestRepository } from '../infrastructure/db/repositories/DrizzleAccessRequestRepository';
+import type { RequestAccess } from '../application/use-cases/user/RequestAccess';
+import type { CandidateOAuthTokenService } from '../application/services/CandidateOAuthTokenService';
+import type { OperatorMailPort } from '../application/ports/OperatorMailPort';
 import type { DrizzleSpreadsheetConfigRepository } from '../infrastructure/db/repositories/DrizzleSpreadsheetConfigRepository';
 import type { DrizzleColumnMappingRepository } from '../infrastructure/db/repositories/DrizzleColumnMappingRepository';
 import type { DrizzleCategoryVocabularyRepository } from '../infrastructure/db/repositories/DrizzleCategoryVocabularyRepository';
@@ -39,6 +46,7 @@ import type { PresentUndoConfirmation } from '../application/use-cases/expense/P
 import type { DispatchOptionSelection } from '../application/use-cases/spreadsheet/DispatchOptionSelection';
 import type { CompleteExpenseClarification } from '../application/use-cases/expense/CompleteExpenseClarification';
 import type { CorrectExpenseUseCase } from '../application/use-cases/expense/CorrectExpenseUseCase';
+import type { ResolveExpenseCategoryChoice } from '../application/use-cases/expense/ResolveExpenseCategoryChoice';
 import type { GenerateExpenseSummaryUseCase } from '../application/use-cases/expense/GenerateExpenseSummaryUseCase';
 import type { ResolveExpenseSummaryActionUseCase } from '../application/use-cases/expense/ResolveExpenseSummaryActionUseCase';
 import type { CancelExpenseRegistrationUseCase } from '../application/use-cases/expense/CancelExpenseRegistrationUseCase';
@@ -124,6 +132,7 @@ export interface GoogleOAuthFeature {
   startSettingsReauthorization: StartSettingsReauthorization;
   settingsOAuthCleanup: SettingsOAuthCleanup;
   settingsDestinationFlow?: SettingsDestinationFlow;
+  candidateTokens?: CandidateOAuthTokenService;
   /** Cancels an in-flight OAuth connection attempt. */
   cancelCloudConnection: CancelCloudConnection;
   /** Lists Google Drive spreadsheet files for the user. */
@@ -170,11 +179,18 @@ export interface Dependencies {
   conversationRepo: DrizzleConversationStateRepository;
   operationLogRepo: DrizzleOperationLogRepository;
   tokenRepo: DrizzleOAuthTokenRepository;
+  accountDeletionRepo?: DrizzleAccountDeletionRepository;
+  accountExternalWorkFence?: DrizzleAccountExternalWorkFence;
+  startReplayGuard?: DrizzleStartReplayGuard | undefined;
+  accessRequests?: DrizzleAccessRequestRepository;
+  requestAccess?: RequestAccess;
+  operatorMail?: OperatorMailPort | undefined;
   spreadsheetConfigRepo: DrizzleSpreadsheetConfigRepository;
   columnMappingRepo: DrizzleColumnMappingRepository;
   categoryVocabularyRepo: DrizzleCategoryVocabularyRepository;
   settingsVocabularyFlow?: SettingsVocabularyFlow;
   resolveExpensePaymentMethod?: ResolveExpensePaymentMethod;
+  resolveExpenseCategoryChoice?: ResolveExpenseCategoryChoice;
   userCategoryRepo: DrizzleUserCategoryRepository;
   expenseRecordRepo: DrizzleExpenseRecordRepository;
   expenseQueueRepo: DrizzleExpenseQueueRepository;

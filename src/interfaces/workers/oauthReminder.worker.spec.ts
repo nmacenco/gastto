@@ -20,7 +20,7 @@ const mockLoggerError = vi.fn();
 const mockFindByMessagingIdentity = vi.fn();
 
 vi.mock('bullmq', () => ({
-  Worker: vi.fn().mockImplementation(() => {
+  Worker: vi.fn().mockImplementation(function () {
     const events: Record<string, Array<(...args: unknown[]) => void>> = {};
     return {
       opts: { concurrency: 2 },

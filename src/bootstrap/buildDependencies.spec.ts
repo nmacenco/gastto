@@ -26,6 +26,7 @@ vi.mock('bullmq', () => ({
 }));
 
 const baseEnv: Env = {
+  ACCESS_APPROVAL_ENABLED: false,
   NODE_ENV: 'test',
   PORT: 0,
   LOG_LEVEL: 'fatal',
@@ -72,7 +73,7 @@ function buildInfra(rootLogger: Logger = createLogger({ level: 'silent' })) {
 
 describe('buildDependencies', () => {
   beforeEach(() => {
-    vi.mocked(Queue).mockImplementation(() => {
+    vi.mocked(Queue).mockImplementation(function () {
       const events: Record<string, Array<(...args: unknown[]) => void>> = {};
       return {
         add: vi.fn().mockResolvedValue(undefined),

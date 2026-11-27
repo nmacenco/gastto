@@ -6,6 +6,18 @@ import { DomainValidationError } from '../errors/DomainValidationError';
 import type { SpreadsheetProvider } from './SpreadsheetConfig';
 import type { Row } from '../ports/services';
 
+/** Empty provider rows can still contain blank cell objects. */
+export function hasMeaningfulCellValues(
+  rows: readonly { readonly values: readonly unknown[] }[],
+): boolean {
+  return rows.some((row) =>
+    row.values.some(
+      (value) =>
+        value !== null && value !== undefined && (typeof value !== 'string' || value.trim() !== ''),
+    ),
+  );
+}
+
 export interface SpreadsheetPreviewProps {
   readonly provider: SpreadsheetProvider;
   readonly fileId: string;

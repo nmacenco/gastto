@@ -752,7 +752,13 @@ describe('ObserveSemanticRouting', () => {
       },
     };
     const observer = new ObserveSemanticRouting(deps);
-    for (const rawMessage of ['1', 'ninguno de estos', 'https://drive.google.com/file/d/a/view']) {
+    for (const rawMessage of [
+      '1',
+      'ninguno de estos',
+      'https://drive.google.com/file/d/a/view',
+      'https://docs.google.com/spreadsheets/d/a/edit',
+      'https://evil.example/spreadsheets/d/a/edit',
+    ]) {
       await observer.execute({
         userId: 'user-1',
         externalMessageId: rawMessage,
@@ -766,6 +772,38 @@ describe('ObserveSemanticRouting', () => {
     }
     expect(deps.router.decide).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { label: 'empty list', payload: { provider: 'google', fileList: [] }, rawMessage: 'Gastos' },
+    {
+      label: 'active search',
+      payload: { provider: 'google', step: 'searching' },
+      rawMessage: 'Gastos',
+    },
+    {
+      label: 'search link',
+      payload: { provider: 'google', step: 'searching' },
+      rawMessage: 'https://docs.google.com/spreadsheets/d/abc/edit',
+    },
+  ])(
+    'keeps $label in deterministic file routing before semantic selection',
+    async ({ payload, rawMessage }) => {
+      const deps = buildDeps();
+      deps.policy.resolve.mockReturnValue({ mode: 'off', reason: 'deterministic_bypass' });
+      const result = await new ObserveSemanticRouting(deps).execute({
+        userId: 'user-1',
+        externalMessageId: 'message-1',
+        rawMessage,
+        conversationState: { ...state, currentState: 'ONBOARDING_FILE', statePayload: payload },
+        deterministicDecision: { kind: 'fsm_handler' },
+      });
+      expect(result).toEqual({ status: 'deterministic', reason: 'deterministic_bypass' });
+      expect(deps.policy.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ messageKind: 'sensitive_command' }),
+      );
+      expect(deps.router.decide).not.toHaveBeenCalled();
+    },
+  );
 
   it('bypasses the semantic provider for numbered, IDK and empty-confirm sheet paths', async () => {
     const deps = buildDeps();

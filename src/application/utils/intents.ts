@@ -23,6 +23,8 @@ const CONFIRM_WORDS = [
 
 const CANCEL_WORDS = ['cancelar', 'cancela', 'para', 'stop', 'salir', 'cancel', 'exit'];
 
+const EXPLICIT_CANCEL_COMMANDS = ['cancelar', 'salir', 'cancel', 'exit'];
+
 const UNDO_COMMANDS = ['deshacer', 'undo', 'borrar el ultimo'];
 
 const REJECT_MAPPING_PHRASES = [
@@ -76,8 +78,8 @@ const IDK_VARIANTS = [
   'no sé cual',
 ];
 
-export function isConfirmIntent(rawMessage: string): boolean {
-  const normalized = rawMessage
+function normalizeConfirmationIntent(rawMessage: string): string {
+  return rawMessage
     .toLocaleLowerCase('es')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -86,8 +88,15 @@ export function isConfirmIntent(rawMessage: string): boolean {
     .replace(/[¿?¡!.,]+$/, '')
     .trim()
     .replace(/\s+/g, ' ');
+}
 
-  return CONFIRM_WORDS.includes(normalized);
+export function isConfirmIntent(rawMessage: string): boolean {
+  return CONFIRM_WORDS.includes(normalizeConfirmationIntent(rawMessage));
+}
+
+export function isOnboardingConfirmIntent(rawMessage: string): boolean {
+  const normalized = normalizeConfirmationIntent(rawMessage);
+  return normalized === 'confirmar' || CONFIRM_WORDS.includes(normalized);
 }
 
 export function isCancelIntent(rawMessage: string): boolean {
@@ -99,6 +108,14 @@ export function isCancelIntent(rawMessage: string): boolean {
     normalized.startsWith('do not register') ||
     CANCEL_WORDS.some((w) => normalized === w || normalized.startsWith(w + ' '))
   );
+}
+
+export function isExplicitCancelCommand(rawMessage: string): boolean {
+  return EXPLICIT_CANCEL_COMMANDS.includes(rawMessage.toLocaleLowerCase('es').trim());
+}
+
+export function isStartOnboardingCommand(rawMessage: string): boolean {
+  return rawMessage.toLocaleLowerCase('es').trim() === 'empezar';
 }
 
 export function isUndoIntent(rawMessage: string): boolean {

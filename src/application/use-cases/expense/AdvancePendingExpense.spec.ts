@@ -1,3 +1,4 @@
+import { ExpenseDateInvalidError } from '../../services/ExpenseDateInvalidError';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdvancePendingExpense } from './AdvancePendingExpense';
 import type { IExpenseQueueRepository } from '../../../domain/ports/repositories';
@@ -59,6 +60,25 @@ function buildUseCase() {
 }
 
 describe('AdvancePendingExpense', () => {
+  it('keeps the same FIFO item and batch count after a date-validation failure', async () => {
+    const failure = new ExpenseDateInvalidError('invalid-calendar-date');
+    interpret.mockRejectedValueOnce(failure);
+    await expect(
+      buildUseCase().execute({
+        userId: 'user-1',
+        chatId: 'chat-1',
+        channel: 'telegram',
+        reason: 'confirmed',
+        completedCount: 2,
+      }),
+    ).rejects.toBe(failure);
+    expect(interpret).toHaveBeenCalledWith(expect.objectContaining({ queueRegisteredCount: 2 }));
+    expect(dequeueFirst).not.toHaveBeenCalled();
+    expect(clearByUserId).not.toHaveBeenCalled();
+    expect(generateSummary).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalledWith('chat-1', expenseCopies.invalidDateRecovered());
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     findByUserId.mockResolvedValue([
@@ -108,6 +128,26 @@ describe('AdvancePendingExpense', () => {
     expect(generateSummary).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-1', payload: hierarchyReview }),
     );
+    expect(dequeueFirst).toHaveBeenCalledWith('user-1', 'queue-1');
+  });
+
+  it('presents the next queued review with the saved expense available for immediate undo', async () => {
+    await buildUseCase().execute({
+      userId: 'user-1',
+      chatId: 'chat-1',
+      channel: 'whatsapp',
+      reason: 'confirmed',
+      completedCount: 2,
+      immediateUndoExpenseId: 'saved-a',
+    });
+    expect(interpret).toHaveBeenCalledWith({
+      userId: 'user-1',
+      rawMessage: 'Taxi 12 EUR',
+      channel: 'whatsapp',
+      queueRegisteredCount: 2,
+      immediateUndoExpenseId: 'saved-a',
+    });
+    expect(generateSummary).toHaveBeenCalledOnce();
     expect(dequeueFirst).toHaveBeenCalledWith('user-1', 'queue-1');
   });
 

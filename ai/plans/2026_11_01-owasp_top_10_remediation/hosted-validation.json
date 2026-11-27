@@ -1,0 +1,826 @@
+{
+  "status": "technical canary and image rollback complete; operational/business release gates pending",
+  "authorization": "User explicitly authorized development canary and rollback on 2026-11-02",
+  "app": "gastto-develop",
+  "machine": "8600d2ae960478",
+  "baseline": {
+    "release": 90,
+    "image": "registry.fly.io/gastto-develop:deployment-01M696CDAV4S2Q8SWHWHMG1MHB",
+    "node": "v20.20.2",
+    "mode": "development",
+    "webhookFormatValid": true,
+    "encryptionKeyFormatValid": true,
+    "redisTls": true,
+    "redisReady": true,
+    "sentryConfigured": false,
+    "queues": {
+      "incoming-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3
+      },
+      "process-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3
+      },
+      "oauth-reminder": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 0
+      },
+      "session-timeout": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 1,
+        "failed": 344
+      }
+    },
+    "http": {
+      "health": 200,
+      "docs": 200,
+      "invalidCallback": 400,
+      "unauthorizedWebhook": 403
+    },
+    "digest": "sha256:7668fc21e2ff46ef37e2a90c66ed4651a6997bd8d928dfedd03c206b9805c409"
+  },
+  "candidate": "registry.fly.io/gastto-develop:owasp-20261102-ed151b67",
+  "pendingUserInputs": [
+    "Synthetic Telegram/OAuth account and disposable sheet",
+    "Alert destination",
+    "Operator confirmation of strong secret rotation"
+  ],
+  "candidateDigest": "sha256:ed151b67fe79127f93053599d5cc74994f92b4f2334542987c9be6071adfa8e0",
+  "cliVersion": "flyctl v0.4.122",
+  "rolloutMethod": "Explicitly authorized manual development image canary; no merge or branch protection bypass",
+  "secretsChanged": false,
+  "candidateRuntime": {
+    "node": "v24.22.2",
+    "mode": "development",
+    "webhookFormatValid": true,
+    "encryptionKeyFormatValid": true,
+    "redisTls": true,
+    "redisReady": true,
+    "queues": {
+      "incoming-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "process-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "oauth-reminder": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 0,
+        "paused": 0
+      },
+      "session-timeout": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 1,
+        "failed": 344,
+        "paused": 0
+      }
+    },
+    "telegram": {
+      "ok": true,
+      "urlMatchesDevelopment": true,
+      "pendingUpdates": 0,
+      "hasLastError": false
+    }
+  },
+  "candidateSecurityProbes": {
+    "providerMismatch": {
+      "status": 200,
+      "noStore": true,
+      "rejected": true,
+      "noncePreserved": true
+    },
+    "authenticatedMalformedJson": 400,
+    "unauthorizedBurst": {
+      "statuses": {
+        "403": 60,
+        "429": 5
+      },
+      "retryAfter": "59"
+    },
+    "authenticatedIgnoredBurst": {
+      "200": 10
+    },
+    "health": 200
+  },
+  "candidateRelease": 91,
+  "observationsStartedAt": "2026-11-02T20:14:18Z",
+  "observationWindowSeconds": 1800,
+  "rolloutWarnings": [
+    "CLI/local resolver did not return AAAA; independent public DNS returned assigned AAAA 2a09:8280:1::11a:6fde:0 and A 66.241.125.252. HTTPS canary healthy."
+  ],
+  "logCheckInitial": {
+    "utc": "2026-11-02T20:17:19.506740+00:00",
+    "exit": 0,
+    "bufferedBytes": 70005,
+    "codes": {
+      "HTTP_RATE_LIMITED": 1,
+      "LIMITER_UNAVAILABLE": 0,
+      "HTTP_UNEXPECTED_ERROR": 0,
+      "OAUTH_STATE_INVALID": 0,
+      "OAUTH_STATE_MISSING": 0,
+      "REDIS_CONNECTION_ERROR": 0,
+      "WORKER_ERROR": 0,
+      "GRACEFUL_SHUTDOWN_FAILED": 0,
+      "TELEGRAM_ORIGIN_REJECTED": 0
+    },
+    "syntheticNonceLeaks": 0,
+    "credentialUriPatterns": 0,
+    "scope": "Fly buffered log text, may include pre-canary history"
+  },
+  "secretValuesExposedToAgent": false,
+  "secretFilesOpened": false,
+  "runtimeSecretsUsedInPlace": true,
+  "publicIngressSecurityProbes": {
+    "providerMismatch": {
+      "status": 200,
+      "noStore": true,
+      "rejected": true,
+      "noncePreserved": true
+    },
+    "authenticatedMalformedJson": 400,
+    "unauthorizedBurst": {
+      "statuses": {
+        "403": 60,
+        "429": 5
+      },
+      "retryAfter": "59"
+    },
+    "authenticatedIgnoredBurst": {
+      "200": 10
+    },
+    "health": 200
+  },
+  "boundedRedisPauseProbe": {
+    "pauseAccepted": true,
+    "duringPause": {
+      "oauth": 503,
+      "wrongWebhook": 403,
+      "authenticatedIgnoredWebhook": 200,
+      "health": 200,
+      "elapsedMs": 840,
+      "retryAfter": "1",
+      "noStore": true
+    },
+    "redisRecovered": true,
+    "callbackRecovered": true
+  },
+  "publicOAuthBudget": {
+    "statuses": {
+      "400": 60,
+      "429": 5
+    },
+    "allNoStore": true,
+    "rateLimitedRetryAfter": ["57", "58"],
+    "elapsedSeconds": 3.727
+  },
+  "budgetReset": {
+    "/auth/google/callback": {
+      "status": 400,
+      "noStore": true
+    },
+    "/webhook/telegram": {
+      "status": 403,
+      "noStore": false
+    }
+  },
+  "afterFaultRuntime": {
+    "node": "v24.22.2",
+    "mode": "development",
+    "webhookFormatValid": true,
+    "encryptionKeyFormatValid": true,
+    "redisTls": true,
+    "redisReady": true,
+    "queues": {
+      "incoming-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "process-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "oauth-reminder": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 0,
+        "paused": 0
+      },
+      "session-timeout": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 1,
+        "failed": 344,
+        "paused": 0
+      }
+    },
+    "telegram": {
+      "ok": true,
+      "urlMatchesDevelopment": true,
+      "pendingUpdates": 0,
+      "hasLastError": false
+    }
+  },
+  "afterFaultLogs": {
+    "utc": "2026-11-02T20:21:02.250462+00:00",
+    "exit": 0,
+    "bufferedBytes": 69384,
+    "codes": {
+      "HTTP_RATE_LIMITED": 1,
+      "LIMITER_UNAVAILABLE": 0,
+      "HTTP_UNEXPECTED_ERROR": 0,
+      "OAUTH_STATE_INVALID": 0,
+      "OAUTH_STATE_MISSING": 0,
+      "REDIS_CONNECTION_ERROR": 0,
+      "WORKER_ERROR": 0,
+      "GRACEFUL_SHUTDOWN_FAILED": 0,
+      "TELEGRAM_ORIGIN_REJECTED": 0
+    },
+    "syntheticNonceLeaks": 0,
+    "credentialUriPatterns": 0,
+    "scope": "Fly buffered log text, may include pre-canary history"
+  },
+  "candidatePlatformManifest": "sha256:ff4a8203bed14f56a8c4339b80267891bd5e41c59e4bc96e5e3a0ff2b15802ad",
+  "observationLatest": {
+    "status": "complete",
+    "samples": [
+      {
+        "utc": "2026-11-02T20:14:18.517801+00:00",
+        "elapsedSeconds": 0.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.226
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.151
+        }
+      },
+      {
+        "utc": "2026-11-02T20:15:19.808150+00:00",
+        "elapsedSeconds": 60.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.171
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.154
+        }
+      },
+      {
+        "utc": "2026-11-02T20:16:21.155227+00:00",
+        "elapsedSeconds": 120.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.262
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.274
+        }
+      },
+      {
+        "utc": "2026-11-02T20:17:22.475276+00:00",
+        "elapsedSeconds": 180.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.245
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.294
+        }
+      },
+      {
+        "utc": "2026-11-02T20:18:23.898477+00:00",
+        "elapsedSeconds": 240.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.212
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.156
+        }
+      },
+      {
+        "utc": "2026-11-02T20:19:25.224390+00:00",
+        "elapsedSeconds": 300.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.213
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.138
+        }
+      },
+      {
+        "utc": "2026-11-02T20:20:26.623128+00:00",
+        "elapsedSeconds": 360.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.143
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.156
+        }
+      },
+      {
+        "utc": "2026-11-02T20:21:27.966221+00:00",
+        "elapsedSeconds": 420.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.227
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.266
+        }
+      },
+      {
+        "utc": "2026-11-02T20:22:29.354385+00:00",
+        "elapsedSeconds": 480.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.21
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.254
+        }
+      },
+      {
+        "utc": "2026-11-02T20:23:30.740074+00:00",
+        "elapsedSeconds": 540.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.168
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.161
+        }
+      },
+      {
+        "utc": "2026-11-02T20:24:32.156244+00:00",
+        "elapsedSeconds": 600.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.36
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.205
+        }
+      },
+      {
+        "utc": "2026-11-02T20:25:33.543129+00:00",
+        "elapsedSeconds": 660.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.178
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.218
+        }
+      },
+      {
+        "utc": "2026-11-02T20:26:34.906207+00:00",
+        "elapsedSeconds": 720.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.155
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.189
+        }
+      },
+      {
+        "utc": "2026-11-02T20:27:36.342691+00:00",
+        "elapsedSeconds": 780.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.157
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.148
+        }
+      },
+      {
+        "utc": "2026-11-02T20:28:37.785556+00:00",
+        "elapsedSeconds": 840.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.158
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.143
+        }
+      },
+      {
+        "utc": "2026-11-02T20:29:39.201638+00:00",
+        "elapsedSeconds": 900.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.169
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.149
+        }
+      },
+      {
+        "utc": "2026-11-02T20:30:40.629225+00:00",
+        "elapsedSeconds": 960.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.338
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.318
+        }
+      },
+      {
+        "utc": "2026-11-02T20:31:42.072364+00:00",
+        "elapsedSeconds": 1020.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.172
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.149
+        }
+      },
+      {
+        "utc": "2026-11-02T20:32:43.514572+00:00",
+        "elapsedSeconds": 1080.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.174
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.219
+        }
+      },
+      {
+        "utc": "2026-11-02T20:33:44.959344+00:00",
+        "elapsedSeconds": 1140.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.197
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.139
+        }
+      },
+      {
+        "utc": "2026-11-02T20:34:46.445269+00:00",
+        "elapsedSeconds": 1200.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.144
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.149
+        }
+      },
+      {
+        "utc": "2026-11-02T20:35:47.974077+00:00",
+        "elapsedSeconds": 1260.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.138
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.148
+        }
+      },
+      {
+        "utc": "2026-11-02T20:36:49.476504+00:00",
+        "elapsedSeconds": 1320.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.196
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.197
+        }
+      },
+      {
+        "utc": "2026-11-02T20:37:51.029809+00:00",
+        "elapsedSeconds": 1380.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.158
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.154
+        }
+      },
+      {
+        "utc": "2026-11-02T20:38:52.571561+00:00",
+        "elapsedSeconds": 1440.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.922
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 1.114
+        }
+      },
+      {
+        "utc": "2026-11-02T20:39:54.126956+00:00",
+        "elapsedSeconds": 1500.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.149
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.146
+        }
+      },
+      {
+        "utc": "2026-11-02T20:40:55.680545+00:00",
+        "elapsedSeconds": 1560.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.393
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.362
+        }
+      },
+      {
+        "utc": "2026-11-02T20:41:57.259573+00:00",
+        "elapsedSeconds": 1620.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.207
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.13
+        }
+      },
+      {
+        "utc": "2026-11-02T20:42:58.837743+00:00",
+        "elapsedSeconds": 1680.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.236
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.155
+        }
+      },
+      {
+        "utc": "2026-11-02T20:44:00.322463+00:00",
+        "elapsedSeconds": 1740.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.198
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.219
+        }
+      },
+      {
+        "utc": "2026-11-02T20:45:01.956310+00:00",
+        "elapsedSeconds": 1800.0,
+        "/health": {
+          "status": 200,
+          "seconds": 0.15
+        },
+        "/documentation/": {
+          "status": 200,
+          "seconds": 0.155
+        }
+      }
+    ]
+  },
+  "continuousLogObservation": {
+    "startedAt": "2026-11-02T20:22:39.283575+00:00",
+    "lastEvent": "2026-11-02T20:45:02.706899238Z",
+    "records": 398,
+    "codes": {},
+    "syntheticNonceLeaks": 0,
+    "status": "complete"
+  },
+  "rollbackStartedAt": "2026-11-03T16:40:50.098193+00:00",
+  "beforeRollback": {
+    "node": "v24.22.2",
+    "mode": "development",
+    "webhookFormatValid": true,
+    "encryptionKeyFormatValid": true,
+    "redisTls": true,
+    "redisReady": true,
+    "queues": {
+      "incoming-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "process-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "oauth-reminder": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 0,
+        "paused": 0
+      },
+      "session-timeout": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 1,
+        "failed": 344,
+        "paused": 0
+      }
+    },
+    "telegram": {
+      "ok": true,
+      "urlMatchesDevelopment": true,
+      "pendingUpdates": 0,
+      "hasLastError": false
+    }
+  },
+  "rollbackHttp": {
+    "utc": "2026-11-03T16:41:50.389856+00:00",
+    "/health": 200,
+    "/documentation/": 200,
+    "/webhook/telegram": 403
+  },
+  "rollbackRuntime": {
+    "node": "v20.20.2",
+    "mode": "development",
+    "webhookFormatValid": true,
+    "encryptionKeyFormatValid": true,
+    "redisTls": true,
+    "redisReady": true,
+    "queues": {
+      "incoming-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "process-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "oauth-reminder": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 0,
+        "paused": 0
+      },
+      "session-timeout": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 1,
+        "failed": 344,
+        "paused": 0
+      }
+    },
+    "telegram": {
+      "ok": true,
+      "urlMatchesDevelopment": true,
+      "pendingUpdates": 0,
+      "hasLastError": false
+    }
+  },
+  "rollbackTechnicalChecksPassedAt": "2026-11-03T16:42:10.447118+00:00",
+  "rollbackBusinessCanary": "pending synthetic account and disposable sheet",
+  "finalRelease": 93,
+  "rollbackRelease": 92,
+  "finalCheckedAt": "2026-11-03T16:44:52.364809+00:00",
+  "finalHttp": {
+    "utc": "2026-11-03T16:43:39.675938+00:00",
+    "/health": {
+      "status": 200,
+      "cacheControl": null
+    },
+    "/documentation/": {
+      "status": 200,
+      "cacheControl": null
+    },
+    "/auth/google/callback": {
+      "status": 400,
+      "cacheControl": "no-store"
+    },
+    "/webhook/telegram": {
+      "status": 403,
+      "cacheControl": null
+    }
+  },
+  "finalRuntime": {
+    "node": "v24.22.2",
+    "mode": "development",
+    "webhookFormatValid": true,
+    "encryptionKeyFormatValid": true,
+    "redisTls": true,
+    "redisReady": true,
+    "queues": {
+      "incoming-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "process-message": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 3,
+        "paused": 0
+      },
+      "oauth-reminder": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 0,
+        "failed": 0,
+        "paused": 0
+      },
+      "session-timeout": {
+        "waiting": 0,
+        "active": 0,
+        "delayed": 1,
+        "failed": 344,
+        "paused": 0
+      }
+    },
+    "telegram": {
+      "ok": true,
+      "urlMatchesDevelopment": true,
+      "pendingUpdates": 0,
+      "hasLastError": false
+    }
+  },
+  "finalPlatformManifest": "sha256:ff4a8203bed14f56a8c4339b80267891bd5e41c59e4bc96e5e3a0ff2b15802ad",
+  "remainingGates": [
+    "Synthetic Telegram/OAuth account and disposable-sheet expense/replay canary, including business rollback exercise",
+    "Operator confirmation or execution of strong webhook secret rotation",
+    "Configured alert destination and verified delivery; SENTRY_DSN absent",
+    "Required GitHub checks on a reviewed release commit",
+    "Measured legitimate-user/NAT traffic"
+  ],
+  "subsequentToolingUpdate": "Development-only findings remediated locally on 2026-11-03; see development-tooling-validation.json. Deployed release 93 remains the previously verified image."
+}

@@ -3,6 +3,7 @@
 // Retrieves the user's OAuth token, calls CloudStoragePort to list/search/validate
 // spreadsheet files, handles the user's reply, and transitions FSM accordingly.
 
+import { StaleConversationStateError } from '../../../domain/errors/StaleConversationStateError';
 import type { Logger } from 'pino';
 import type { CloudStoragePort } from '../../../domain/ports/cloudStorage';
 import type { TransitionConversationState } from '../conversation/TransitionConversationState';
@@ -15,6 +16,7 @@ import type { SpreadsheetProvider } from '../../../domain/entities/SpreadsheetCo
 import { CloudFile } from '../../../domain/entities/CloudFile';
 import type { HandleSheetSelection } from './HandleSheetSelection';
 import { onboardingCopies } from '../../copies/onboarding.copies';
+import { spreadsheetRecoveryCopies } from '../../copies/spreadsheet-recovery.copies';
 import { FileDiscoveryError } from '../../../domain/errors/FileDiscoveryError';
 import { SpreadsheetError } from '../../../domain/errors/SpreadsheetError';
 import {
@@ -22,6 +24,7 @@ import {
   type OAuthAccessTokenProvider,
 } from '../../services/OAuthAccessTokenService';
 import { onboardingFilePayloadSchema } from '../../services/semantic-router/ResolveOptionReference';
+import { googleSpreadsheetFileId, looksLikeWebLink } from '../../utils/googleSpreadsheetLink';
 
 export interface HandleSpreadsheetFileSelectionInput {
   userId: string;
@@ -70,21 +73,6 @@ function isNoneOfThese(raw: string): boolean {
   return NONE_OF_THESE_VARIANTS.includes(normalized);
 }
 
-function extractGoogleDriveFileId(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname === 'drive.google.com') {
-      const match = parsed.pathname.match(/\/file\/d\/([^/]+)/);
-      if (match && match[1]) return match[1];
-      const id = parsed.searchParams.get('id');
-      if (id) return id;
-    }
-  } catch {
-    // not a valid URL
-  }
-  return null;
-}
-
 export class HandleSpreadsheetFileSelection {
   constructor(private readonly deps: HandleSpreadsheetFileSelectionDeps) {}
 
@@ -103,22 +91,44 @@ export class HandleSpreadsheetFileSelection {
     try {
       await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
       }
       throw err;
     }
 
+    // Links must precede both the active-search and empty-list branches.
+    const fileIdFromUrl = googleSpreadsheetFileId(rawMessage);
+    if (fileIdFromUrl) {
+      return this.handleDirectUrl(
+        userId,
+        externalId,
+        channel,
+        provider,
+        fileIdFromUrl,
+        rawMessage.trim(),
+      );
+    }
+    if (looksLikeWebLink(rawMessage)) {
+      const message = onboardingCopies.unsupportedFileLink();
+      await this.deps.messagingPort.sendMessage(externalId, message);
+      return { nextState: 'ONBOARDING_FILE', message };
+    }
+
     // 2. Handle search step
     const step = statePayload?.step;
     if (step === 'searching') {
-      return this.handleSearch(userId, externalId, provider, rawMessage);
+      return this.handleSearch(userId, externalId, provider, rawMessage, statePayload);
     }
 
     // 3. If no fileList yet, show initial listing
     const fileList = statePayload?.fileList;
     if (!Array.isArray(fileList) || fileList.length === 0) {
-      return this.handleInitialListing(userId, externalId, provider);
+      if (rawMessage.trim()) {
+        return this.handleSearch(userId, externalId, provider, rawMessage, statePayload);
+      }
+      return this.handleInitialListing(userId, externalId, provider, statePayload);
     }
 
     // 4. Parse user reply against the displayed list
@@ -130,23 +140,10 @@ export class HandleSpreadsheetFileSelection {
     }
 
     if (choice === files.length + 1 || isNoneOfThese(rawMessage)) {
-      return this.handleNoneOfThese(userId, externalId);
+      return this.handleNoneOfThese(userId, externalId, provider, statePayload);
     }
 
-    // 5. Check for direct URL
-    const fileIdFromUrl = extractGoogleDriveFileId(rawMessage.trim());
-    if (fileIdFromUrl) {
-      return this.handleDirectUrl(
-        userId,
-        externalId,
-        channel,
-        provider,
-        fileIdFromUrl,
-        rawMessage.trim(),
-      );
-    }
-
-    // 6. Unrecognized input
+    // 5. Unrecognized input
     const message = onboardingCopies.invalidSelectionRePrompt(files.length);
     await this.deps.messagingPort.sendMessage(externalId, message);
     return { nextState: 'ONBOARDING_FILE', message };
@@ -166,6 +163,7 @@ export class HandleSpreadsheetFileSelection {
     try {
       await this.deps.oauthAccessTokenService.getValidAccessToken({ userId, provider });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'TOKEN_UNAVAILABLE', err);
       }
@@ -198,10 +196,21 @@ export class HandleSpreadsheetFileSelection {
     return 'google';
   }
 
+  private selectionContext(
+    provider: SpreadsheetProvider,
+    statePayload: Record<string, unknown> | null,
+  ): Record<string, unknown> {
+    return {
+      provider,
+      ...(statePayload?.reauthorizationOnly === true ? { reauthorizationOnly: true } : {}),
+    };
+  }
+
   private async handleInitialListing(
     userId: string,
     externalId: string,
     provider: SpreadsheetProvider,
+    statePayload: Record<string, unknown> | null,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
     try {
       const files = await executeWithOAuthAccessToken(
@@ -211,23 +220,32 @@ export class HandleSpreadsheetFileSelection {
       );
 
       if (files.length === 0) {
+        const payload = { ...this.selectionContext(provider, statePayload), step: 'searching' };
+        await this.deps.transitionState.execute({
+          userId,
+          targetState: 'ONBOARDING_FILE',
+          payload,
+        });
         const message = onboardingCopies.noFilesFoundPrompt();
         await this.deps.messagingPort.sendMessage(externalId, message);
-        return { nextState: 'ONBOARDING_FILE', message };
+        return { nextState: 'ONBOARDING_FILE', message, payload };
       }
 
       const message = onboardingCopies.fileListPrompt(files);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-
-      const payload = { fileList: files as unknown as Record<string, unknown>[] };
+      const payload = {
+        ...this.selectionContext(provider, statePayload),
+        fileList: files as unknown as Record<string, unknown>[],
+      };
       await this.deps.transitionState.execute({
         userId,
         targetState: 'ONBOARDING_FILE',
         payload,
       });
+      await this.deps.messagingPort.sendMessage(externalId, message);
 
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'FILE_DISCOVERY_AUTH_ERROR', err);
@@ -239,7 +257,7 @@ export class HandleSpreadsheetFileSelection {
           userId,
           error: errorMessage,
         });
-        const message = `Hubo un problema al buscar archivos: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        const message = onboardingCopies.fileDiscoveryFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
@@ -282,13 +300,17 @@ export class HandleSpreadsheetFileSelection {
           this.deps.cloudStorage.validateFileAccess(selected.id, accessToken, provider),
       );
 
-      if (!hasAccess) {
-        const message = onboardingCopies.urlValidationFailed();
+      if (hasAccess.kind !== 'accessible') {
+        const message =
+          hasAccess.kind === 'unsupported-type'
+            ? spreadsheetRecoveryCopies.unsupportedFormat()
+            : onboardingCopies.urlValidationFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
       this.deps.transitionState.assertExecutionIsValid?.(userId);
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'FILE_ACCESS_AUTH_ERROR', err);
@@ -301,7 +323,7 @@ export class HandleSpreadsheetFileSelection {
           fileId: selected.id,
           error: errorMessage,
         });
-        const message = `Hubo un problema al validar el acceso: ${errorMessage}. Intentá de nuevo.`;
+        const message = onboardingCopies.fileAccessFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
@@ -350,16 +372,17 @@ export class HandleSpreadsheetFileSelection {
   private async handleNoneOfThese(
     userId: string,
     externalId: string,
+    provider: SpreadsheetProvider,
+    statePayload: Record<string, unknown> | null,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
-    const message = onboardingCopies.searchByNamePrompt();
-    await this.deps.messagingPort.sendMessage(externalId, message);
-
-    const payload = { step: 'searching' };
+    const payload = { ...this.selectionContext(provider, statePayload), step: 'searching' };
     await this.deps.transitionState.execute({
       userId,
       targetState: 'ONBOARDING_FILE',
       payload,
     });
+    const message = onboardingCopies.searchByNamePrompt();
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     return { nextState: 'ONBOARDING_FILE', message, payload };
   }
@@ -369,6 +392,7 @@ export class HandleSpreadsheetFileSelection {
     externalId: string,
     provider: SpreadsheetProvider,
     query: string,
+    statePayload: Record<string, unknown> | null,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
     try {
       const files = await executeWithOAuthAccessToken(
@@ -378,23 +402,32 @@ export class HandleSpreadsheetFileSelection {
       );
 
       if (files.length === 0) {
+        const payload = { ...this.selectionContext(provider, statePayload), step: 'searching' };
+        await this.deps.transitionState.execute({
+          userId,
+          targetState: 'ONBOARDING_FILE',
+          payload,
+        });
         const message = onboardingCopies.noFilesFoundPrompt();
         await this.deps.messagingPort.sendMessage(externalId, message);
-        return { nextState: 'ONBOARDING_FILE', message };
+        return { nextState: 'ONBOARDING_FILE', message, payload };
       }
 
       const message = onboardingCopies.fileListPrompt(files);
-      await this.deps.messagingPort.sendMessage(externalId, message);
-
-      const payload = { fileList: files as unknown as Record<string, unknown>[] };
+      const payload = {
+        ...this.selectionContext(provider, statePayload),
+        fileList: files as unknown as Record<string, unknown>[],
+      };
       await this.deps.transitionState.execute({
         userId,
         targetState: 'ONBOARDING_FILE',
         payload,
       });
+      await this.deps.messagingPort.sendMessage(externalId, message);
 
       return { nextState: 'ONBOARDING_FILE', message, payload };
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'FILE_SEARCH_AUTH_ERROR', err);
@@ -407,7 +440,7 @@ export class HandleSpreadsheetFileSelection {
           query,
           error: errorMessage,
         });
-        const message = `Hubo un problema al buscar archivos: ${errorMessage}. Intentá de nuevo en unos segundos.`;
+        const message = onboardingCopies.fileDiscoveryFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
@@ -435,18 +468,24 @@ export class HandleSpreadsheetFileSelection {
     rawUrl: string,
   ): Promise<HandleSpreadsheetFileSelectionOutput> {
     try {
+      this.deps.transitionState.assertExecutionIsValid?.(userId);
       const hasAccess = await executeWithOAuthAccessToken(
         this.deps.oauthAccessTokenService,
         { userId, provider },
         (accessToken) => this.deps.cloudStorage.validateFileAccess(fileId, accessToken, provider),
       );
 
-      if (!hasAccess) {
-        const message = onboardingCopies.urlValidationFailed();
+      if (hasAccess.kind !== 'accessible') {
+        const message =
+          hasAccess.kind === 'unsupported-type'
+            ? spreadsheetRecoveryCopies.unsupportedFormat()
+            : onboardingCopies.urlValidationFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
+      this.deps.transitionState.assertExecutionIsValid?.(userId);
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (err instanceof SpreadsheetError && err.code === 'AUTH_ERROR') {
         return this.handleReconnect(externalId, userId, 'URL_ACCESS_AUTH_ERROR', err);
@@ -459,7 +498,7 @@ export class HandleSpreadsheetFileSelection {
           fileId,
           error: errorMessage,
         });
-        const message = `Hubo un problema al validar el acceso: ${errorMessage}. Intentá de nuevo.`;
+        const message = onboardingCopies.fileAccessFailed();
         await this.deps.messagingPort.sendMessage(externalId, message);
         return { nextState: 'ONBOARDING_FILE', message };
       }
@@ -479,9 +518,6 @@ export class HandleSpreadsheetFileSelection {
 
     // We don't have the file name from a URL alone; use the URL as a fallback name
     const fileName = rawUrl;
-    const message = onboardingCopies.urlValidationSuccess(fileName);
-    await this.deps.messagingPort.sendMessage(externalId, message);
-
     const payload = {
       selectedFileId: fileId,
       selectedFileName: fileName,
@@ -493,6 +529,9 @@ export class HandleSpreadsheetFileSelection {
       targetState: 'ONBOARDING_SHEET',
       payload,
     });
+
+    const message = onboardingCopies.urlValidationSuccess(fileName);
+    await this.deps.messagingPort.sendMessage(externalId, message);
 
     await this.triggerSheetSelection(userId, externalId, channel, fileId, fileName, provider);
 
@@ -516,6 +555,7 @@ export class HandleSpreadsheetFileSelection {
         statePayload: { selectedFileId: fileId, selectedFileName: fileName, provider },
       });
     } catch (err) {
+      if (err instanceof StaleConversationStateError) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.deps.logger.error({
         endpoint: 'HandleSpreadsheetFileSelection',

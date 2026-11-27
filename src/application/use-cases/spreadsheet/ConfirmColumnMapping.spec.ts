@@ -48,6 +48,7 @@ function buildMockDeps(
     messagingPort: { sendMessage: mockSendMessage },
     transitionState: {
       execute: mockTransitionExecute,
+      currentState: vi.fn().mockReturnValue(null),
     } as unknown as TransitionConversationState,
     ...overrides,
   };
@@ -158,6 +159,9 @@ describe('ConfirmColumnMapping', () => {
       userId: 'user-123',
       targetState: 'ONBOARDING_CATEGORIES',
       payload: {
+        spreadsheetId: 'config-1',
+        proposalId: 'proposal-1',
+        confirmedMappings: expect.any(Array) as unknown[],
         provider: 'google',
         fileId: 'file-123',
         sheetName: 'Gastos',
@@ -172,7 +176,7 @@ describe('ConfirmColumnMapping', () => {
     expect(result.message).toBe(onboardingCopies.mappingConfirmedNextStep());
   });
 
-  it('omits an invalid header row from the category payload', async () => {
+  it('uses the configured default for an invalid header row', async () => {
     const useCase = new ConfirmColumnMapping(buildMockDeps());
 
     await useCase.execute({
@@ -184,9 +188,13 @@ describe('ConfirmColumnMapping', () => {
       userId: 'user-123',
       targetState: 'ONBOARDING_CATEGORIES',
       payload: {
+        spreadsheetId: 'config-1',
+        proposalId: 'proposal-1',
+        confirmedMappings: expect.any(Array) as unknown[],
         provider: 'google',
         fileId: 'file-123',
         sheetName: 'Gastos',
+        headerRowIndex: 1,
       },
     });
   });
