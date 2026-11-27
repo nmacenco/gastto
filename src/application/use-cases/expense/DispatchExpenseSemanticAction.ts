@@ -75,7 +75,7 @@ export class DispatchExpenseSemanticAction {
     if (snapshot.status !== 'current') {
       return { status: 'clarification_required', reason: 'stale_context' };
     }
-    let enteredReceiving = false;
+    let delegatedInterpretation = false;
     try {
       const state = snapshot.state.currentState;
       if (input.decision.action === 'register_expense') {
@@ -107,9 +107,9 @@ export class DispatchExpenseSemanticAction {
             targetState: 'EXPENSE_RECEIVING',
             payload: { raw_message: input.rawMessage },
           });
-          enteredReceiving = true;
         }
 
+        delegatedInterpretation = true;
         return this.mapInterpretation(
           await this.deps.registerExpense.interpret({
             userId: input.userId,
@@ -124,6 +124,7 @@ export class DispatchExpenseSemanticAction {
         if (state !== 'EXPENSE_CLARIFYING') {
           return { status: 'clarification_required', reason: 'unsupported_action' };
         }
+        delegatedInterpretation = true;
         return this.mapInterpretation(
           await this.deps.completeClarification.execute({
             userId: input.userId,
@@ -173,20 +174,8 @@ export class DispatchExpenseSemanticAction {
 
       return { status: 'clarification_required', reason: 'unsupported_action' };
     } catch (error) {
-      if (error instanceof ExpenseDateInvalidError) throw error;
-      const current = this.deps.transitionState.currentState(input.userId);
-      if (enteredReceiving && current?.currentState === 'EXPENSE_RECEIVING') {
-        try {
-          await this.deps.transitionState.execute({
-            userId: input.userId,
-            targetState: 'IDLE',
-            payload: null,
-            expiresAt: null,
-          });
-        } catch {
-          // The original dispatch remains failed; a concurrent/stale writer owns recovery.
-        }
-      }
+      // Interpretation owns its recovery; never reset or absorb its failures here.
+      if (delegatedInterpretation || error instanceof ExpenseDateInvalidError) throw error;
       return { status: 'clarification_required', reason: 'dispatch_failed' };
     }
   }

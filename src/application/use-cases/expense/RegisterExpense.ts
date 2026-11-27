@@ -180,6 +180,7 @@ export class RegisterExpenseUseCase {
     const observed = this.transitionState.currentState?.(input.userId);
     const signal = this.transitionState.signal?.(input.userId);
     let extracted: ExtractedExpense;
+    let resolvedDate: string;
     try {
       extracted = await this.llm.extractExpense(
         input.rawMessage,
@@ -194,26 +195,30 @@ export class RegisterExpenseUseCase {
           : []),
       );
       if (signal?.aborted) throw new StaleConversationStateError({ status: 'stale' });
+      const dateResult = resolveExpenseCalendarDate(extracted.fechaRaw, now);
+      if (dateResult.kind === 'invalid') throw new ExpenseDateInvalidError(dateResult.reason);
+      resolvedDate = dateResult.date;
     } catch (error) {
       if (signal?.aborted) throw new StaleConversationStateError({ status: 'stale' });
       const initialAttempt =
         activeState?.currentState === 'IDLE' || activeState?.currentState === 'EXPENSE_RECEIVING';
       if (
-        error instanceof LLMExtractionError &&
-        error.code !== 'LLM_CANCELLED' &&
+        (error instanceof ExpenseDateInvalidError ||
+          (error instanceof LLMExtractionError && error.code !== 'LLM_CANCELLED')) &&
         initialAttempt &&
         observed?.currentState === 'EXPENSE_RECEIVING' &&
-        input.queueRegisteredCount === undefined
+        input.queueRegisteredCount === undefined &&
+        observed.statePayload?.queueRegisteredCount === undefined
       ) {
         const recovery = await new RecoverExpenseExtraction(this.transitionState).execute(observed);
-        if (recovery === 'stale') throw new StaleConversationStateError({ status: 'stale' });
-        throw new RecoveredExpenseExtractionError(error.code);
+        if (recovery === 'stale' || signal?.aborted)
+          throw new StaleConversationStateError({ status: 'stale' });
+        const recoveredState = this.transitionState.currentState(input.userId);
+        if (!recoveredState) throw new StaleConversationStateError({ status: 'stale' });
+        throw new RecoveredExpenseExtractionError(error, recoveredState.revision);
       }
       throw error;
     }
-
-    const dateResult = resolveExpenseCalendarDate(extracted.fechaRaw, now);
-    if (dateResult.kind === 'invalid') throw new ExpenseDateInvalidError(dateResult.reason);
 
     // Deterministic fallback when LLM misses amount or currency (E1-US-03)
     let resolvedExtracted = extracted;
@@ -292,7 +297,7 @@ export class RegisterExpenseUseCase {
     });
     const basePayload = this.buildReviewPayload(
       finalExtracted,
-      dateResult.date,
+      resolvedDate,
       input.rawMessage,
       classification,
       subcategoryEnabled,

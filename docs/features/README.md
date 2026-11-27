@@ -62,4 +62,4 @@ The [formatting convention](./conversational-message-formatting.md) now document
 
 ## Receipt date validation (2026-11-25)
 
-[Expense review](./expense-summary-review.md) documents explicit calendar parsing, validated receipt times, and controlled invalid-date feedback. [Correction](./expense-correction.md) preserves the pending review on invalid dates; [clarification](./clarification-request.md) validates dates before replacing its retained context.
+[Expense review](./expense-summary-review.md) documents explicit calendar parsing, validated receipt times, and owned initial-date-failure recovery with resend guidance. [Correction](./expense-correction.md) preserves the pending review on invalid dates; [clarification](./clarification-request.md) validates dates before replacing its retained context. [Conversation state management](./conversation-state-management.md) covers revision/expiry/lease guards and suppression of stale recovery notices. The PostgreSQL/Redis acceptance record is linked from the review feature.

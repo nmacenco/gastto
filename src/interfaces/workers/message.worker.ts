@@ -259,6 +259,7 @@ export async function processMessageJob(
   }
 
   let renewalInFlight = false;
+  let leaseValid = true;
   const renewalTimer = setInterval(() => {
     if (renewalInFlight) return;
     renewalInFlight = true;
@@ -266,6 +267,7 @@ export async function processMessageJob(
       .renew(userId, lockToken, USER_LOCK_TTL_MS)
       .then((renewed) => {
         if (!renewed) {
+          leaseValid = false;
           opts.transitionState.invalidateExecution(userId);
           opts.logger.error({
             msg: 'Lost per-user processing lock during renewal',
@@ -276,6 +278,7 @@ export async function processMessageJob(
         }
       })
       .catch((error: unknown) => {
+        leaseValid = false;
         opts.transitionState.invalidateExecution(userId);
         opts.logger.error({
           msg: 'Failed to renew per-user processing lock',
@@ -755,19 +758,35 @@ export async function processMessageJob(
       if (err instanceof AccountDeletionInProgressError) return;
       if (err instanceof StaleConversationStateError) return;
       if (err instanceof RecoveredExpenseExtractionError) {
+        if (!leaseValid) return;
+        const effective = await readRecoveryState(() =>
+          opts.getConversationState.execute({ userId }),
+        );
+        if (
+          effective?.currentState !== 'IDLE' ||
+          effective.revision !== err.recoveredRevision ||
+          resolveRecoveryContext(effective) !== 'idle' ||
+          !leaseValid
+        )
+          return;
         opts.logger.error({
-          msg: 'Initial expense extraction failed; state recovered',
+          msg: 'Initial expense interpretation failed; state recovered',
           endpoint: 'processMessageJob',
           code: err.code,
+          ...(err.reason === undefined
+            ? {}
+            : { stage: 'expense_date_validation', reason: err.reason }),
           userId,
           correlationId: `${channel}:${data.externalMessageId}`,
         });
         try {
           await messaging.sendMessage(
             externalId,
-            err.code === 'LLM_TIMEOUT'
-              ? expenseCopies.extractionTimeout()
-              : expenseCopies.extractionFailed(),
+            err.code === 'EXPENSE_DATE_INVALID'
+              ? expenseCopies.invalidDateRecovered()
+              : err.code === 'LLM_TIMEOUT'
+                ? expenseCopies.extractionTimeout()
+                : expenseCopies.extractionFailed(),
           );
         } catch {
           opts.logger.error({
@@ -780,6 +799,7 @@ export async function processMessageJob(
         return;
       }
       if (err instanceof ExpenseDateInvalidError) {
+        if (!leaseValid) return;
         opts.logger.error({
           msg: 'Expense date validation failed',
           endpoint: 'processMessageJob',
@@ -2872,14 +2892,17 @@ async function handleClarification(
 
   // Interruption: a new expense message cancels the current clarification flow.
   if (isNewExpenseDuringClarification(rawMessage, state.missingField)) {
-    await opts.transitionState.execute({ userId, targetState: 'IDLE' });
-    await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
-
     const result = await opts.registerExpense.interpret({
       userId,
       rawMessage,
       channel,
+      ...(state.queueRegisteredCount === undefined
+        ? {}
+        : { queueRegisteredCount: state.queueRegisteredCount }),
     });
+    if (result.status !== 'authorization_required') {
+      await messaging.sendMessage(externalId, expenseCopies.clarificationInterrupted());
+    }
 
     if (result.status === 'authorization_required') {
       await messaging.sendMessage(externalId, expenseCopies.saveAuthorizationFailure());

@@ -150,7 +150,7 @@ describe('DispatchExpenseSemanticAction', () => {
     },
   );
 
-  it('fails closed when interpretation throws', async () => {
+  it('propagates interpretation persistence failures without generic recovery', async () => {
     const useCase = new DispatchExpenseSemanticAction({
       transitionState: buildTransitionState(),
       snapshotValidator: { execute: vi.fn().mockResolvedValue({ status: 'current', state }) },
@@ -160,10 +160,7 @@ describe('DispatchExpenseSemanticAction', () => {
       queuePendingExpense: { execute: vi.fn() },
     });
 
-    await expect(useCase.execute(input())).resolves.toEqual({
-      status: 'clarification_required',
-      reason: 'dispatch_failed',
-    });
+    await expect(useCase.execute(input())).rejects.toThrow('extractor failed');
   });
 
   it('completes clarification through the dedicated boundary with the persisted payload', async () => {
@@ -352,7 +349,7 @@ describe('DispatchExpenseSemanticAction', () => {
           rawMessage: 'Taxi 25 EUR',
         }),
       ),
-    ).resolves.toEqual({ status: 'clarification_required', reason: 'dispatch_failed' });
+    ).rejects.toThrow('extractor failed');
   });
 
   it('reports review queue overflow without invoking correction interpretation', async () => {

@@ -123,3 +123,5 @@ Correction prompts separate the question from the examples and the optional canc
 ## Date validation (2026-11-25)
 
 Date corrections use the same explicit calendar formats and validated receipt time suffixes as [expense review](./expense-summary-review.md). `ayer`, `hoy`, and `mañana` use the current local calendar day, without UTC conversion. An invalid explicit date raises `EXPENSE_DATE_INVALID` before persisting a replacement review, preserving the existing date and draft. The worker presents date-format guidance based on the effective persisted state. Invalid dates no longer silently substitute today.
+
+Date failures during correction never run initial-attempt recovery or emit its resend/reset copy. The retained review and correction-cycle state remain unchanged; cancellation guidance is based on a fresh persisted-state read, with administrator guidance for an unresolved financial claim.

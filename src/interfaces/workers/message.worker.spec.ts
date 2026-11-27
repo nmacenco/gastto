@@ -1,3 +1,5 @@
+import { RecoveredExpenseExtractionError } from '../../application/use-cases/expense/RecoverExpenseExtraction';
+import { StaleConversationStateError } from '../../domain/errors/StaleConversationStateError';
 import { ExpenseDateInvalidError } from '../../application/services/ExpenseDateInvalidError';
 import {
   buildConfirmedMappings,
@@ -4287,10 +4289,7 @@ describe('processMessageJob', () => {
         deps,
       );
 
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'IDLE',
-      });
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationInterrupted(),
@@ -6136,6 +6135,187 @@ describe('processMessageJob', () => {
   });
 
   describe('invalid extracted expense dates', () => {
+    beforeEach(() => {
+      mockReleaseLock.mockResolvedValue(undefined);
+    });
+    it('sends date-specific resend guidance only for the committed recovery revision', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(buildConversationState())
+        .mockResolvedValue(buildConversationState({ revision: '44' }));
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new RecoveredExpenseExtractionError(
+          new ExpenseDateInvalidError('invalid-calendar-date'),
+          '44',
+        ),
+      );
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).toHaveBeenCalledExactlyOnceWith(
+        '123456789',
+        expenseCopies.invalidDateRecovered(),
+      );
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'EXPENSE_DATE_INVALID',
+          stage: 'expense_date_validation',
+          reason: 'invalid-calendar-date',
+        }),
+      );
+      const log: unknown = mockLoggerError.mock.calls.at(-1)?.[0];
+      expect(log).not.toHaveProperty('error');
+      expect(log).not.toHaveProperty('rawMessage');
+    });
+
+    it('suppresses recovery notification when the worker lease renewal is lost', async () => {
+      vi.useFakeTimers();
+      try {
+        const deps = buildMockDeps();
+        deps.transitionState.invalidateExecution = vi.fn();
+        deps.userProcessingLock.renew = vi
+          .fn<typeof deps.userProcessingLock.renew>()
+          .mockResolvedValue(false);
+        mockGetConversationStateExecute
+          .mockResolvedValueOnce(buildConversationState())
+          .mockResolvedValue(buildConversationState({ revision: '44' }));
+        mockRegisterExpenseInterpret.mockImplementationOnce(async () => {
+          await vi.advanceTimersByTimeAsync(30_000);
+          throw new RecoveredExpenseExtractionError(
+            new ExpenseDateInvalidError('unsupported-format'),
+            '44',
+          );
+        });
+        await processMessageJob(buildJob(baseJobData), deps);
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockLoggerError).toHaveBeenCalledWith(
+          expect.objectContaining({ code: 'LOCK_RENEW_LOST' }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not claim a reset when the effective recovery state cannot be loaded', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(buildConversationState())
+        .mockRejectedValueOnce(new Error('read failed'));
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new RecoveredExpenseExtractionError(
+          new ExpenseDateInvalidError('unsupported-format'),
+          '44',
+        ),
+      );
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('uses administrator guidance if current persisted state contains a financial claim', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute
+        .mockResolvedValueOnce(buildConversationState())
+        .mockResolvedValue(
+          buildConversationState({
+            currentState: 'EXPENSE_RECEIVING',
+            statePayload: {
+              executionClaim: {
+                claimId: 'claim',
+                kind: 'save',
+                operationId: 'op',
+                sourceMessageId: null,
+                status: 'outcome_unknown',
+                target: {},
+              },
+            },
+          }),
+        );
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new ExpenseDateInvalidError('unsupported-format'),
+      );
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).toHaveBeenCalledExactlyOnceWith(
+        '123456789',
+        expenseCopies.financialOutcomeUnknown(),
+      );
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+    });
+
+    it.each(['IDLE', 'EXPENSE_REVIEW'] as const)(
+      'suppresses a stale recovery notice after a newer %s revision',
+      async (currentState) => {
+        const deps = buildMockDeps();
+        mockGetConversationStateExecute
+          .mockResolvedValueOnce(buildConversationState())
+          .mockResolvedValue(buildConversationState({ revision: '45', currentState }));
+        mockRegisterExpenseInterpret.mockRejectedValueOnce(
+          new RecoveredExpenseExtractionError(
+            new ExpenseDateInvalidError('unsupported-format'),
+            '44',
+          ),
+        );
+        await processMessageJob(buildJob(baseJobData), deps);
+        expect(mockSendMessage).not.toHaveBeenCalled();
+        expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      },
+    );
+
+    it('does not notify after invalidated execution', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(buildConversationState());
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new StaleConversationStateError({ status: 'stale' }),
+      );
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).not.toHaveBeenCalled();
+      expect(mockLoggerError).not.toHaveBeenCalled();
+    });
+
+    it('does not promise recovery when its persistence fails', async () => {
+      const deps = buildMockDeps();
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_RECEIVING' }),
+      );
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(new Error('recovery write failed'));
+      await processMessageJob(buildJob(baseJobData), deps);
+      expect(mockSendMessage).toHaveBeenCalledExactlyOnceWith(
+        '123456789',
+        expenseCopies.fallbackError('cancellable'),
+      );
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.invalidDateRecovered(),
+      );
+    });
+
+    it('retains the old clarification and queue count when a replacement has an invalid date', async () => {
+      const deps = buildMockDeps();
+      const payload = {
+        ...buildClarificationStatePayload('monto', 'Cafe'),
+        queueRegisteredCount: 2,
+      };
+      mockGetConversationStateExecute.mockResolvedValue(
+        buildConversationState({ currentState: 'EXPENSE_CLARIFYING', statePayload: payload }),
+      );
+      mockRegisterExpenseInterpret.mockRejectedValueOnce(
+        new ExpenseDateInvalidError('unsupported-format'),
+      );
+      await processMessageJob(
+        buildJob({ ...baseJobData, rawMessage: 'Pagué 30 euros por el café' }),
+        deps,
+      );
+      expect(mockRegisterExpenseInterpret).toHaveBeenCalledWith(
+        expect.objectContaining({ queueRegisteredCount: 2 }),
+      );
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalledExactlyOnceWith(
+        '123456789',
+        expenseCopies.invalidDate('cancellable'),
+      );
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
+        '123456789',
+        expenseCopies.clarificationInterrupted(),
+      );
+    });
+
     it.each(['EXPENSE_RECEIVING', 'IDLE'] as const)(
       'uses persisted %s for safe guidance and logs only diagnostic metadata',
       async (currentState) => {
@@ -6387,10 +6567,7 @@ describe('processMessageJob', () => {
         deps,
       );
 
-      expect(mockTransitionStateExecute).toHaveBeenCalledWith({
-        userId: 'user-123',
-        targetState: 'IDLE',
-      });
+      expect(mockTransitionStateExecute).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith(
         '123456789',
         expenseCopies.clarificationInterrupted(),
